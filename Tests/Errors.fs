@@ -7,18 +7,31 @@ open FsUnit.Xunit
 open FSharp.Interop.Dlr
 
 [<Fact>]
-let ``bare ? outside dlr throws`` () =
+let ``every operator and marker throws outside dlr`` () =
     let w = box (Widget())
-    (fun () -> (w?Count : int) |> ignore) |> should throw typeof<InvalidOperationException>
-
-[<Fact>]
-let ``bare ?<- outside dlr throws`` () =
-    let w = box (Widget())
-    (fun () -> w?Count <- 1) |> should throw typeof<InvalidOperationException>
-
-[<Fact>]
-let ``bare operator outside dlr throws`` () =
-    (fun () -> (box 1 ?+? box 2 : int) |> ignore) |> should throw typeof<InvalidOperationException>
+    let a, b = box 1, box 2
+    let outside (f: unit -> unit) = f |> should throw typeof<InvalidOperationException>
+    outside (fun () -> (w?Count : int) |> ignore)
+    outside (fun () -> w?Count <- 1)
+    outside (fun () -> ((!?w) : int) |> ignore)
+    outside (fun () -> Dlr.named {| a = 1 |} |> ignore)
+    outside (fun () -> (Dlr.idx w : Indexed<int>) |> ignore)
+    outside (fun () -> (a ?%? b : int) |> ignore)
+    outside (fun () -> (a ?*? b : int) |> ignore)
+    outside (fun () -> (a ?+? b : int) |> ignore)
+    outside (fun () -> (a ?-? b : int) |> ignore)
+    outside (fun () -> (a ?/? b : int) |> ignore)
+    outside (fun () -> (a ?&&&? b : int) |> ignore)
+    outside (fun () -> (a ?|||? b : int) |> ignore)
+    outside (fun () -> (a ?^^^? b : int) |> ignore)
+    outside (fun () -> (a ?<<<? b : int) |> ignore)
+    outside (fun () -> (a ?>>>? b : int) |> ignore)
+    outside (fun () -> a ?<=? b |> ignore)
+    outside (fun () -> a ?<>? b |> ignore)
+    outside (fun () -> a ?<? b |> ignore)
+    outside (fun () -> a ?=? b |> ignore)
+    outside (fun () -> a ?>? b |> ignore)
+    outside (fun () -> a ?>=? b |> ignore)
 
 [<Fact>]
 let ``dynamic member as first-class function is rejected`` () =
@@ -38,11 +51,3 @@ let ``unsupported quotation node is reported`` () =
         } |> ignore)
     |> should throw typeof<DlrTranslationException>
 
-[<Fact>]
-let ``Dlr.idx outside dlr throws`` () =
-    let w = box (Widget())
-    (fun () -> ((Dlr.idx w).[1] : int) |> ignore) |> should throw typeof<InvalidOperationException>
-
-[<Fact>]
-let ``Dlr.named outside dlr throws`` () =
-    (fun () -> Dlr.named {| a = 1 |} |> ignore) |> should throw typeof<InvalidOperationException>
