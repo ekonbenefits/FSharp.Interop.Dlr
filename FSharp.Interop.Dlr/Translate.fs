@@ -44,11 +44,11 @@ module internal Translate =
             opMethod <@ fun (v: obj) -> (Dlr.not v) : obj @>, ExpressionType.Not
             opMethod <@ fun (v: obj) -> (Dlr.complement v) : obj @>, ExpressionType.OnesComplement
         ]
-    let private forEach = opMethod <@ fun (items: seq<obj>) (body: obj -> unit) -> DlrRuntime.forEach items body @>
-    let private whileLoop = opMethod <@ fun (guard: unit -> bool) (body: unit -> unit) -> DlrRuntime.whileLoop guard body @>
-    let private tryWith = opMethod <@ fun (body: unit -> obj) (handler: exn -> obj) -> DlrRuntime.tryWith body handler @>
-    let private tryFinally = opMethod <@ fun (body: unit -> obj) (fin: unit -> unit) -> DlrRuntime.tryFinally body fin @>
-    let private using = opMethod <@ fun (r: IDisposable) (body: IDisposable -> obj) -> DlrRuntime.using r body @>
+    let private forEach = opMethod <@ fun (items: seq<obj>) (body: Func<obj, unit>) -> DlrRuntime.forEach items body @>
+    let private whileLoop = opMethod <@ fun (guard: Func<bool>) (body: Func<unit>) -> DlrRuntime.whileLoop guard body @>
+    let private tryWith = opMethod <@ fun (body: Func<obj>) (handler: Func<exn, obj>) -> DlrRuntime.tryWith body handler @>
+    let private tryFinally = opMethod <@ fun (body: Func<obj>) (fin: Func<unit>) -> DlrRuntime.tryFinally body fin @>
+    let private using = opMethod <@ fun (r: IDisposable) (body: Func<IDisposable, obj>) -> DlrRuntime.using r body @>
     let private opIdx = opMethod <@ fun (t: obj) -> (Dlr.idx t) : Indexed<obj> @>
 
     let private binaryOps =
@@ -209,7 +209,16 @@ module internal Translate =
             | Some r -> r.Type = builderType
             | None -> false
 
-        let rec rewriteIn (bound: Set<Var>) (e: Expr) : Expr =
+        /// A body as a `Func<..>` delegate over `vars` (see DlrRuntime for why not an F# function).
+        /// The delegate's type is built from the variables' types and the body's; a `unit` body
+        /// (which may compile to a void call) becomes a `Func<.., unit>`, not an `Action`.
+        let rec func (bound: Set<Var>) (vars: Var list) (body: Expr) : Expr =
+            let bound = vars |> List.fold (fun b v -> Set.add v b) bound
+            let body = asUnit (rewriteIn bound body)
+            let delegateType = Expression.GetFuncType(Array.append (vars |> List.map (fun v -> v.Type) |> Array.ofList) [| body.Type |])
+            Expr.NewDelegate(delegateType, vars, body)
+
+        and rewriteIn (bound: Set<Var>) (e: Expr) : Expr =
             let rewrite = rewriteIn bound
             match e with
             // CE plumbing (Discover already unwrapped the outermost Delay)
@@ -221,15 +230,15 @@ module internal Translate =
                     Expr.Sequential(rewrite first, rewrite rest)
                 | "For", [ items; Lambda(x, body) ] ->
                     let items = rewrite items
-                    Expr.Call(forEach.MakeGenericMethod(x.Type), [ items; Expr.Lambda(x, asUnit (rewriteIn (bound.Add x) body)) ])
-                | "While", [ guard; Call(_, d, [ body ]) ] when d.Name = "Delay" ->
-                    Expr.Call(whileLoop, [ rewrite guard; rewrite body ])
-                | "TryWith", [ Call(_, d, [ body ]); handler ] when d.Name = "Delay" ->
-                    Expr.Call(tryWith.MakeGenericMethod(e.Type), [ rewrite body; rewrite handler ])
-                | "TryFinally", [ Call(_, d, [ body ]); compensation ] when d.Name = "Delay" ->
-                    Expr.Call(tryFinally.MakeGenericMethod(e.Type), [ rewrite body; rewrite compensation ])
+                    Expr.Call(forEach.MakeGenericMethod(x.Type), [ items; func bound [ x ] body ])
+                | "While", [ Lambda(_, guard); Call(_, d, [ Lambda(_, body) ]) ] when d.Name = "Delay" ->
+                    Expr.Call(whileLoop, [ func bound [] guard; func bound [] body ])
+                | "TryWith", [ Call(_, d, [ Lambda(_, body) ]); Lambda(ex, handler) ] when d.Name = "Delay" ->
+                    Expr.Call(tryWith.MakeGenericMethod(e.Type), [ func bound [] body; func bound [ ex ] handler ])
+                | "TryFinally", [ Call(_, d, [ Lambda(_, body) ]); Lambda(_, compensation) ] when d.Name = "Delay" ->
+                    Expr.Call(tryFinally.MakeGenericMethod(e.Type), [ func bound [] body; func bound [] compensation ])
                 | "Using", [ resource; Lambda(r, body) ] ->
-                    Expr.Call(using.MakeGenericMethod(r.Type, e.Type), [ rewrite resource; Expr.Lambda(r, asUnit (rewriteIn (bound.Add r) body)) ])
+                    Expr.Call(using.MakeGenericMethod(r.Type, e.Type), [ rewrite resource; func bound [ r ] body ])
                 | name, _ -> unsupported (sprintf "the '%s' construct" name) e
 
             // Dynamic operations

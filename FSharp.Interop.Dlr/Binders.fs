@@ -8,26 +8,34 @@ open FSharp.Quotations
 
 /// Control-flow helpers the compiled block calls: `LeafExpressionConverter` cannot translate F# loop
 /// or try nodes, but it can translate lambdas, so those become calls to these with the bodies as lambdas.
+///
+/// The bodies are plain delegates (`Func`, returning `unit` where there is nothing to return - a
+/// quoted `unit` body is not `void`, so `Action` cannot take it), not F# functions. Quoting them as F# lambdas
+/// would have `LeafExpressionConverter` wrap each compiled delegate in an `FSharpFunc` via
+/// `FuncConvert`, and on Mono's browser-wasm runtime a non-capturing nested lambda invoked through
+/// that wrapper loses its argument (a `try .. with` handler saw a null exception; `fun i -> i + 1`
+/// returned 1) while the same delegate invoked directly is fine. The translator therefore emits
+/// `NewDelegate` nodes, which convert to the delegate lambda itself with nothing in between.
 module DlrRuntime =
     /// `for x in items do body x`
-    let forEach (items: seq<'T>) (body: 'T -> unit) : unit =
-        for x in items do body x
+    let forEach (items: seq<'T>) (body: Func<'T, unit>) : unit =
+        for x in items do body.Invoke x
 
     /// `while guard () do body ()`
-    let whileLoop (guard: unit -> bool) (body: unit -> unit) : unit =
-        while guard () do body ()
+    let whileLoop (guard: Func<bool>) (body: Func<unit>) : unit =
+        while guard.Invoke() do body.Invoke()
 
     /// `try body () with e -> handler e` (F# already puts the rethrow of unmatched exceptions in `handler`)
-    let tryWith (body: unit -> 'T) (handler: exn -> 'T) : 'T =
-        try body () with e -> handler e
+    let tryWith (body: Func<'T>) (handler: Func<exn, 'T>) : 'T =
+        try body.Invoke() with e -> handler.Invoke e
 
     /// `try body () finally compensation ()`
-    let tryFinally (body: unit -> 'T) (compensation: unit -> unit) : 'T =
-        try body () finally compensation ()
+    let tryFinally (body: Func<'T>) (compensation: Func<unit>) : 'T =
+        try body.Invoke() finally compensation.Invoke()
 
     /// `use x = resource in body x`; a null resource is allowed, as in F#.
-    let using (resource: 'R when 'R :> IDisposable) (body: 'R -> 'T) : 'T =
-        try body resource
+    let using (resource: 'R when 'R :> IDisposable) (body: Func<'R, 'T>) : 'T =
+        try body.Invoke resource
         finally
             match box resource with
             | null -> ()

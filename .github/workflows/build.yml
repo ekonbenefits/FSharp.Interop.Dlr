@@ -8,10 +8,10 @@ on:
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
-  # anyunit-report, the tool that merges every leg's results into one
-  # report. Kept in step with the AnyUnit.* PackageVersions in
-  # Directory.Packages.props.
-  ANYUNIT_REPORT_VERSION: '1.2.0'
+  # The AnyUnit tools (anyunit-report, which merges every leg's results
+  # into one report, and anyunit-browser-wasm). Kept in step with the
+  # AnyUnit.* PackageVersions in Directory.Packages.props.
+  ANYUNIT_VERSION: '1.2.0'
 
 jobs:
   test:
@@ -66,12 +66,54 @@ jobs:
           path: results/*.json
           if-no-files-found: warn
 
+  # The library is JIT-only by design (README) - the C# runtime binder,
+  # LambdaExpression.Compile and ReflectedDefinition lookup - and Mono's
+  # browser-wasm interpreter is the most different runtime it can be
+  # asked to do that on. It found a real bug once (a nested delegate
+  # wrapped as an FSharpFunc lost its argument there; see DlrRuntime),
+  # which is exactly why it stays in the matrix. AnyUnit's browser-wasm
+  # runner hosts the net10 test build in headless Chrome; Release only,
+  # since the point is the runtime, not the optimizer.
+  browser-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build
+        run: dotnet build --configuration Release
+
+      - name: Install anyunit-browser-wasm
+        run: dotnet tool install --global AnyUnit.Runner.BrowserWasm --version "$ANYUNIT_VERSION"
+
+      # The runner's own exit code reports failures, same as the MTP
+      # legs; results are uploaded regardless. PuppeteerSharp fetches
+      # its own headless Chrome on first use and the runner applies
+      # --no-sandbox itself under Linux CI.
+      - name: Test (browser-wasm)
+        shell: bash
+        run: |
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          mkdir -p results
+          anyunit-browser-wasm run -o results/Tests-browser-wasm.json Tests/bin/Release/net10.0/Tests.dll
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: anyunit-results-browser-wasm
+          path: results/*.json
+          if-no-files-found: warn
+
   # One report across every OS x configuration x framework: an HTML
   # artifact with the full per-test drill-down, and a Markdown summary
   # on the run's Summary page. if: always() so the report exists
   # precisely when a leg failed and someone wants to look.
   report:
-    needs: test
+    needs: [test, browser-wasm]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -88,7 +130,7 @@ jobs:
           path: all-results
 
       - name: Install anyunit-report
-        run: dotnet tool install --global AnyUnit.Report --version "$ANYUNIT_REPORT_VERSION"
+        run: dotnet tool install --global AnyUnit.Report --version "$ANYUNIT_VERSION"
 
       - name: Merge into one report
         shell: bash
