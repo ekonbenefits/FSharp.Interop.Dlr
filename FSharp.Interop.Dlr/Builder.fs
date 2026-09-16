@@ -12,6 +12,8 @@ type DlrBuilder() =
     member _.Combine(first: unit, rest: unit -> 'T) : 'T = ignore first; rest ()
     member _.For(items: seq<'T>, body: 'T -> unit) : unit = Seq.iter body items
     member _.While(guard: unit -> bool, body: unit -> unit) : unit = while guard () do body ()
+    member _.TryWith(body: unit -> 'T, handler: exn -> 'T) : 'T = try body () with e -> handler e
+    member _.TryFinally(body: unit -> 'T, compensation: unit -> unit) : 'T = try body () finally compensation ()
 
     member this.Run(body: unit -> 'T,
                     [<CallerFilePath; Optional; DefaultParameterValue("")>] file: string,

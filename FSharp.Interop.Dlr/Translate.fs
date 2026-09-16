@@ -39,6 +39,8 @@ module internal Translate =
     let private opNamed = opMethod <@ fun (r: obj) -> Dlr.named r @>
     let private forEach = opMethod <@ fun (items: seq<obj>) (body: obj -> unit) -> DlrRuntime.forEach items body @>
     let private whileLoop = opMethod <@ fun (guard: unit -> bool) (body: unit -> unit) -> DlrRuntime.whileLoop guard body @>
+    let private tryWith = opMethod <@ fun (body: unit -> obj) (handler: exn -> obj) -> DlrRuntime.tryWith body handler @>
+    let private tryFinally = opMethod <@ fun (body: unit -> obj) (fin: unit -> unit) -> DlrRuntime.tryFinally body fin @>
     let private opIdx = opMethod <@ fun (t: obj) -> (Dlr.idx t) : Indexed<obj> @>
 
     let private binaryOps =
@@ -182,6 +184,10 @@ module internal Translate =
                     Expr.Call(forEach.MakeGenericMethod(x.Type), [ items; Expr.Lambda(x, asUnit (rewrite body)) ])
                 | "While", [ guard; Call(_, d, [ body ]) ] when d.Name = "Delay" ->
                     Expr.Call(whileLoop, [ rewrite guard; rewrite body ])
+                | "TryWith", [ Call(_, d, [ body ]); handler ] when d.Name = "Delay" ->
+                    Expr.Call(tryWith.MakeGenericMethod(e.Type), [ rewrite body; rewrite handler ])
+                | "TryFinally", [ Call(_, d, [ body ]); compensation ] when d.Name = "Delay" ->
+                    Expr.Call(tryFinally.MakeGenericMethod(e.Type), [ rewrite body; rewrite compensation ])
                 | name, _ -> unsupported (sprintf "the '%s' construct" name) e
 
             // Dynamic operations

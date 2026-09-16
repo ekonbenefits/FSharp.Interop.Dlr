@@ -51,10 +51,11 @@ The assembly is marked `IsAotCompatible=false` / `IsTrimmable=false` so `dotnet 
 | `?+? ?-? ?*? ?/? ?%? ?&&&? ?\|\|\|? ?^^^? ?<<<? ?>>>?` | BinaryOperation, then Convert |
 | `?=? ?<>? ?<? ?>? ?<=? ?>=?` | BinaryOperation, then Convert to bool |
 
-Plus `let`, `if`, sequencing, `for x in items do …`, `while … do …` and ordinary F# code. Loop bodies
-reuse the block's call sites across iterations. As in `async { }`, a `let mutable` cannot be captured by a
-loop body; use a `ref` or an object. `try`, `let rec` and `match` on active patterns are not translated
-(`LeafExpressionConverter` limits).
+Plus `let`, `if`, sequencing, `for x in items do …`, `while … do …`, `try … with`, `try … finally`
+and ordinary F# code. Loop bodies reuse the block's call sites across iterations; a failed dynamic
+bind (`RuntimeBinderException`) can be caught inside the block. As in `async { }`, a `let mutable`
+cannot be captured by a loop or try body; use a `ref` or an object. `let rec` and `use` are not
+translated (`LeafExpressionConverter` limits).
 
 Rules: the enclosing module, type or member must be `[<ReflectedDefinition>]` (a clear
 `DlrTranslationException` says so otherwise); one `dlr { }` per source line (the body is located by

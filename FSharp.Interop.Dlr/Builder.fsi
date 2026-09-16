@@ -20,6 +20,10 @@ type DlrBuilder =
     member For: items: seq<'T> * body: ('T -> unit) -> unit
     /// <summary><c>while guard do …</c>; note F# does not let a <c>let mutable</c> be captured by the loop body, use a <c>ref</c>.</summary>
     member While: guard: (unit -> bool) * body: (unit -> unit) -> unit
+    /// <summary><c>try … with</c>; a <c>RuntimeBinderException</c> from a failed dynamic bind can be caught here like any other.</summary>
+    member TryWith: body: (unit -> 'T) * handler: (exn -> 'T) -> 'T
+    /// <summary><c>try … finally</c>.</summary>
+    member TryFinally: body: (unit -> 'T) * compensation: (unit -> unit) -> 'T
     /// <summary>Compiles (first call) and runs the block. <paramref name="file"/> and <paramref name="line"/> are filled in by the compiler and locate the body in the reflected definition.</summary>
     member Run:
         body: (unit -> 'T) *
