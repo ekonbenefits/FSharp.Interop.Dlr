@@ -1,4 +1,4 @@
-namespace FSharp.Interop.DLR
+namespace FSharp.Interop.Dlr
 
 open System.Runtime.CompilerServices
 open System.Runtime.InteropServices
@@ -24,6 +24,6 @@ type DlrBuilder =
             'T
 
 [<AutoOpen>]
-module Dlr =
+module Builder =
     /// <summary>The <c>dlr { }</c> computation expression.</summary>
     val dlr: DlrBuilder

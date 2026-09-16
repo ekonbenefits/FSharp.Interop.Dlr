@@ -1,6 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFrameworks>netstandard2.0;net10.0</TargetFrameworks>
+    <AssemblyName>FSharp.Interop.Dlr</AssemblyName>
+    <PackageId>FSharp.Interop.Dlr</PackageId>
+    <RootNamespace>FSharp.Interop.Dlr</RootNamespace>
     <Description>dlr { } computation expression: ? operator compiled once per call site with baked DLR call sites</Description>
     <Authors>Jay Tuley</Authors>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>

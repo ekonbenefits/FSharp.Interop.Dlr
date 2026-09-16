@@ -1,4 +1,4 @@
-namespace FSharp.Interop.DLR
+namespace FSharp.Interop.Dlr
 
 open System
 open System.Runtime.CompilerServices
@@ -20,5 +20,5 @@ type DlrBuilder() =
         (compiled.Delegate :?> Func<obj[], 'T>).Invoke slots
 
 [<AutoOpen>]
-module Dlr =
+module Builder =
     let dlr = DlrBuilder()

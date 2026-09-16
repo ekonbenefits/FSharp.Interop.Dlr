@@ -2,7 +2,7 @@ module Tests.Cache
 
 open Xunit
 open FsUnit.Xunit
-open FSharp.Interop.DLR
+open FSharp.Interop.Dlr
 
 // These tests share the global cache, so they are careful to only assert on deltas.
 

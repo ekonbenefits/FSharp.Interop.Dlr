@@ -1,4 +1,4 @@
-namespace FSharp.Interop.DLR
+namespace FSharp.Interop.Dlr
 
 open System
 open System.Collections.Generic
@@ -54,8 +54,8 @@ module internal Translate =
     let private opDynamic = opMethod <@ fun (t: obj) (n: string) -> ((?) t n) : obj @>
     let private opDynamicAssign = opMethod <@ fun (t: obj) (n: string) (v: obj) -> (?<-) t n v @>
     let private opBang = opMethod <@ fun (t: obj) -> ((!?) t) : obj @>
-    let private opGetIndex = opMethod <@ fun (t: obj) (i: obj) -> (getIndex t i) : obj @>
-    let private opSetIndex = opMethod <@ fun (t: obj) (i: obj) (v: obj) -> setIndex t i v @>
+    let private opNamed = opMethod <@ fun (r: obj) -> Dlr.named r @>
+    let private opIdx = opMethod <@ fun (t: obj) -> (Dlr.idx t) : Indexed<obj> @>
 
     let private binaryOps =
         dict [
@@ -95,28 +95,36 @@ module internal Translate =
         | Value(o, _) -> Some o
         | _ -> None
 
-    /// `Named {| a = x; b = y |}`: the field names and values. F# evaluates the fields in
-    /// source order through `let` temporaries and then builds the record in its own (sorted)
-    /// field order, so the temporaries come back as bindings to wrap around the call.
-    let private (|NamedRecord|_|) (e: Expr) =
-        match e with
-        | NewUnionCase(uc, [ arg ]) when uc.DeclaringType.IsGenericType && uc.DeclaringType.GetGenericTypeDefinition() = typedefof<Named<_>> ->
-            let rec peel (bindings: (Var * Expr) list) (e: Expr) =
-                match e with
-                | Let(v, value, body) -> peel ((v, value) :: bindings) body
-                | NewRecord(recordType, values) ->
-                    let fields = FSharpType.GetRecordFields recordType
-                    Some(List.rev bindings, List.zip [ for f in fields -> f.Name ] values)
-                | other -> unsupported "Named applied to anything but an anonymous record literal" other
-            peel [] arg
-        | _ -> None
-
     /// Strips the boxing F# inserts on the way to an `obj` parameter, so the binder can see the
     /// real static type.
     let private (|Unboxed|) (e: Expr) =
         match e with
         | Coerce(inner, t) when t = typeof<obj> -> inner
         | _ -> e
+
+    /// `Dlr.named {| a = x; b = y |}`: the field names and values. F# evaluates the fields in
+    /// source order through `let` temporaries and then builds the record in its own (sorted)
+    /// field order, so the temporaries come back as bindings to wrap around the call.
+    let private (|NamedRecord|_|) (e: Expr) =
+        let rec peel (bindings: (Var * Expr) list) (e: Expr) =
+            match e with
+            | Let(v, value, body) -> peel ((v, value) :: bindings) body
+            | Op opNamed [ inner ] -> peel bindings inner
+            | NewRecord(recordType, values) ->
+                let fields = FSharpType.GetRecordFields recordType
+                Some(List.rev bindings, List.zip [ for f in fields -> f.Name ] values)
+            | other -> unsupported "Dlr.named applied to anything but an anonymous record literal" other
+        match e with
+        | Op opNamed _ -> peel [] e
+        | Let(_, _, _) when (let rec inner e = (match e with Let(_, _, b) -> inner b | Op opNamed _ -> true | _ -> false) in inner e) -> peel [] e
+        | _ -> None
+
+    /// `(Dlr.idx x).[i, j]` as a getter or setter: the target and the index expressions.
+    let private IndexedProperty (receiver: Expr option, pi: Reflection.PropertyInfo) =
+        match receiver with
+        | Some(Op opIdx [ Unboxed target ]) when pi.Name = "Item" && pi.DeclaringType.IsGenericType && pi.DeclaringType.GetGenericTypeDefinition() = typedefof<Indexed<_>> ->
+            Some target
+        | _ -> None
 
     /// The compiler eta-expands a dynamic member used as a statement:
     /// `let clo = x?Foo in fun a -> clo a` applied to `()`. Fold it back to `x?Foo`.
@@ -174,9 +182,11 @@ module internal Translate =
                 let discard = e.Type = typeof<unit>
                 let bindings, args = argList argExpr
                 Binders.invoke discard (targetArg target) args |> finish discard e.Type |> bind bindings
-            | Op opGetIndex [ Unboxed target; Unboxed indexes ] ->
+            | PropertyGet(receiver, pi, indexes) when (IndexedProperty(receiver, pi)).IsSome ->
+                let target = (IndexedProperty(receiver, pi)).Value
                 Binders.getIndex (targetArg target) (indexList indexes) |> Binders.convert e.Type
-            | Op opSetIndex [ Unboxed target; Unboxed indexes; Unboxed value ] ->
+            | PropertySet(receiver, pi, indexes, Unboxed value) when (IndexedProperty(receiver, pi)).IsSome ->
+                let target = (IndexedProperty(receiver, pi)).Value
                 Binders.setIndex (targetArg target) (indexList indexes) (valueArg value) |> Binders.convert typeof<unit>
             | BinaryOp(op, Unboxed left, Unboxed right) ->
                 Binders.binaryOperation op (valueArg left) (valueArg right) |> Binders.convert e.Type
@@ -208,10 +218,7 @@ module internal Translate =
         and bind (bindings: (Var * Expr) list) (call: Expr) =
             List.foldBack (fun (v, value) body -> Expr.Let(v, rewrite value, body)) bindings call
 
-        and indexList (indexes: Expr) =
-            match indexes with
-            | NewTuple items -> [ for Unboxed i in items -> valueArg i ]
-            | single -> [ valueArg single ]
+        and indexList (indexes: Expr list) = [ for Unboxed i in indexes -> valueArg i ]
 
         and finish discard (resultType: Type) (call: Expr) =
             if discard then call else Binders.convert resultType call

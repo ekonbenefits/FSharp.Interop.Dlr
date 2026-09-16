@@ -3,7 +3,7 @@ module Tests.Errors
 open System
 open Xunit
 open FsUnit.Xunit
-open FSharp.Interop.DLR
+open FSharp.Interop.Dlr
 
 [<Fact>]
 let ``bare ? outside dlr throws`` () =
@@ -36,3 +36,12 @@ let ``unsupported quotation node is reported`` () =
             return fact (w?Count : int)
         } |> ignore)
     |> should throw typeof<DlrTranslationException>
+
+[<Fact>]
+let ``Dlr.idx outside dlr throws`` () =
+    let w = box (Widget())
+    (fun () -> ((Dlr.idx w).[1] : int) |> ignore) |> should throw typeof<InvalidOperationException>
+
+[<Fact>]
+let ``Dlr.named outside dlr throws`` () =
+    (fun () -> Dlr.named {| a = 1 |} |> ignore) |> should throw typeof<InvalidOperationException>

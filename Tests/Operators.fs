@@ -2,7 +2,7 @@ module Tests.Operators
 
 open Xunit
 open FsUnit.Xunit
-open FSharp.Interop.DLR
+open FSharp.Interop.Dlr
 
 [<Fact>]
 let ``add ints`` () =

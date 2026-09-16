@@ -3,7 +3,7 @@ module Tests.Members
 open System
 open Xunit
 open FsUnit.Xunit
-open FSharp.Interop.DLR
+open FSharp.Interop.Dlr
 open Microsoft.CSharp.RuntimeBinder
 
 [<Fact>]

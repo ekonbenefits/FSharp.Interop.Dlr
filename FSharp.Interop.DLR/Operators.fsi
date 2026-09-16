@@ -1,10 +1,17 @@
-namespace FSharp.Interop.DLR
+namespace FSharp.Interop.Dlr
 
-/// <summary>
-/// Marks the anonymous record it wraps as named arguments in a dynamic invocation:
-/// <c>target?Method(a, Named {| count = 3 |})</c>. A bare anonymous record is a positional argument.
-/// </summary>
-type Named<'T> = Named of 'T
+/// <summary>Result of <c>Dlr.named</c>; only meaningful inside <c>dlr { }</c>.</summary>
+[<Sealed>]
+type Named<'T> =
+    class end
+
+/// <summary>Result of <c>Dlr.idx</c>; only meaningful inside <c>dlr { }</c>. Index with <c>.[i]</c>, <c>.[i, j]</c>, … up to four indexes.</summary>
+[<Sealed>]
+type Indexed<'T> =
+    member Item: i: obj -> 'T with get, set
+    member Item: i: obj * j: obj -> 'T with get, set
+    member Item: i: obj * j: obj * k: obj -> 'T with get, set
+    member Item: i: obj * j: obj * k: obj * l: obj -> 'T with get, set
 
 /// <summary>
 /// Operators recognised inside <c>dlr { }</c>. They are never executed: the builder inspects the
@@ -18,11 +25,6 @@ module Operators =
     val ( ?<- ) : target:obj -> name:string -> value:'TValue -> unit
     /// <summary>Dynamic invoke of the target itself (delegate, callable dynamic object): <c>(!?x)(a, b)</c>.</summary>
     val ( !? ) : target:obj -> 'TResult
-    /// <summary>Dynamic indexer get: <c>getIndex x 0</c> or <c>getIndex x (0, 1)</c>.</summary>
-    val getIndex : target:obj -> indexes:'TIndex -> 'TResult
-    /// <summary>Dynamic indexer set: <c>setIndex x (0, 1) v</c>.</summary>
-    val setIndex : target:obj -> indexes:'TIndex -> value:'TValue -> unit
-
     /// <summary>Dynamic modulo.</summary>
     val ( ?%? ) : left:obj -> right:obj -> 'TResult
     /// <summary>Dynamic multiply.</summary>
@@ -55,3 +57,12 @@ module Operators =
     val ( ?>? ) : left:obj -> right:obj -> bool
     /// <summary>Dynamic greater-or-equal.</summary>
     val ( ?>=? ) : left:obj -> right:obj -> bool
+
+/// <summary>
+/// Markers recognised inside <c>dlr { }</c>. Like the operators they are never executed and throw if called directly.
+/// </summary>
+module Dlr =
+    /// <summary>Marks an anonymous record as named arguments: <c>x?Method(a, Dlr.named {| count = 3 |})</c>. A bare anonymous record is a positional argument.</summary>
+    val named : record:'T -> Named<'T>
+    /// <summary>Dynamic indexing: <c>(Dlr.idx x).[i]</c>, <c>(Dlr.idx x).[i, j] &lt;- v</c>. The element type is inferred from use.</summary>
+    val idx : target:obj -> Indexed<'T>

@@ -2,7 +2,7 @@ module Tests.Body
 
 open Xunit
 open FsUnit.Xunit
-open FSharp.Interop.DLR
+open FSharp.Interop.Dlr
 
 [<Fact>]
 let ``let and if in the body`` () =

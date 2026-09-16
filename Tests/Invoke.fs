@@ -3,7 +3,7 @@ module Tests.Invoke
 open System
 open Xunit
 open FsUnit.Xunit
-open FSharp.Interop.DLR
+open FSharp.Interop.Dlr
 
 [<Fact>]
 let ``invoke with no args`` () =
@@ -39,21 +39,21 @@ let ``invoke with literal args`` () =
 [<Fact>]
 let ``named args reorder`` () =
     let w = box (Widget())
-    let s: string = dlr { return w?Greet(Named {| name = "Jay"; greeting = "Hi" |}) }
+    let s: string = dlr { return w?Greet(Dlr.named {| name = "Jay"; greeting = "Hi" |}) }
     s |> should equal "Hi, Jay"
 
 [<Fact>]
 let ``named args mix with positional`` () =
     let w = box (Widget())
     let n = 10
-    (dlr { return w?Bump(n, Named {| step = 5 |}) } : int) |> should equal 15
+    (dlr { return w?Bump(n, Dlr.named {| step = 5 |}) } : int) |> should equal 15
     (dlr { return w?Bump(n) } : int) |> should equal 11
 
 [<Fact>]
 let ``named args reach a DynamicObject by name`` () =
     let r = Recorder()
     let o = box r
-    let s: string = dlr { return o?Call(1, Named {| second = 2 |}) }
+    let s: string = dlr { return o?Call(1, Dlr.named {| second = 2 |}) }
     s |> should equal "1|2"
     List.ofSeq r.Log |> should equal [ "invoke Call(2 args; named second)" ]
 
@@ -65,10 +65,10 @@ let ``bare anonymous record is one positional arg`` () =
     List.ofSeq r.Log |> should equal [ "invoke Call(1 args; named )" ]
 
 [<Fact>]
-let ``Named around a non-record is rejected`` () =
+let ``Dlr.named around a non-record is rejected`` () =
     let r = box (Recorder())
     let x = 1
-    (fun () -> (dlr { return r?Call(Named x) } : string) |> ignore)
+    (fun () -> (dlr { return r?Call(Dlr.named x) } : string) |> ignore)
     |> should throw typeof<DlrTranslationException>
 
 [<Fact>]

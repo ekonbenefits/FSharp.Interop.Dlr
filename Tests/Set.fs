@@ -2,7 +2,7 @@ module Tests.Set
 
 open Xunit
 open FsUnit.Xunit
-open FSharp.Interop.DLR
+open FSharp.Interop.Dlr
 
 [<Fact>]
 let ``set member on a CLR object`` () =

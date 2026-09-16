@@ -1,4 +1,4 @@
-namespace FSharp.Interop.DLR
+namespace FSharp.Interop.Dlr
 
 open System
 open System.Linq.Expressions
