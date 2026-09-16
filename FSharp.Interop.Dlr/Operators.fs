@@ -96,6 +96,12 @@ type Dlr =
     [<MethodImpl(MethodImplOptions.NoInlining)>]
     static member cast<'T> (value: obj) : 'T = ignore value; outside "Dlr.cast"
     [<MethodImpl(MethodImplOptions.NoInlining)>]
+    static member get (name: string) (target: obj) : 'T = ignore (name, target); outside "Dlr.get"
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
+    static member set (name: string) (value: 'TValue) (target: obj) : unit = ignore (name, value, target); outside "Dlr.set"
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
+    static member invoke (name: string) (args: 'TArgs) (target: obj) : 'T = ignore (name, args, target); outside "Dlr.invoke"
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
     static member implicit (value: obj) : 'T = ignore value; outside "Dlr.implicit"
     [<MethodImpl(MethodImplOptions.NoInlining)>]
     static member neg (value: obj) : 'TResult = ignore value; outside "Dlr.neg"
