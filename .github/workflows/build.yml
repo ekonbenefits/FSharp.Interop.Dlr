@@ -1,0 +1,107 @@
+name: Build
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  # anyunit-report, the tool that merges every leg's results into one
+  # report. Kept in step with the AnyUnit.* PackageVersions in
+  # Directory.Packages.props.
+  ANYUNIT_REPORT_VERSION: '1.2.0'
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        configuration: [Debug, Release]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      # Both configurations on purpose: the Release optimizer inlines
+      # closure captures the Debug build leaves as fields, and the
+      # quotation translation has to cope with either (it didn't, once).
+      - name: Build
+        run: dotnet build --configuration ${{ matrix.configuration }}
+
+      # The test project is an MTP executable (AnyUnit.TestingPlatform's
+      # EnableAnyUnitRunner); each target framework's build is run
+      # directly so each writes its own AnyUnit results file. The
+      # platform id inside the file is auto-detected (net10-linux-x64,
+      # net48-win-x64, ...) with the configuration appended, so the
+      # merged report keeps every leg as its own column. A failing test
+      # fails the step through the exe's exit code; the results file is
+      # still uploaded below so the report shows what failed.
+      - name: Test (net10.0)
+        shell: bash
+        run: |
+          mkdir -p results
+          dotnet Tests/bin/${{ matrix.configuration }}/net10.0/Tests.dll \
+            --report-anyunit-json results/Tests-net10-${{ matrix.configuration }}.json \
+            --platform-suffix ${{ matrix.configuration }}
+
+      - name: Test (net48)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          Tests/bin/${{ matrix.configuration }}/net48/Tests.exe \
+            --report-anyunit-json results/Tests-net48-${{ matrix.configuration }}.json \
+            --platform-suffix ${{ matrix.configuration }}
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: anyunit-results-${{ matrix.os }}-${{ matrix.configuration }}
+          path: results/*.json
+          if-no-files-found: warn
+
+  # One report across every OS x configuration x framework: an HTML
+  # artifact with the full per-test drill-down, and a Markdown summary
+  # on the run's Summary page. if: always() so the report exists
+  # precisely when a leg failed and someone wants to look.
+  report:
+    needs: test
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      # One subdirectory per artifact (no merge-multiple): the file
+      # names repeat across OSes and would collide when flattened.
+      - name: Download every leg's results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: anyunit-results-*
+          path: all-results
+
+      - name: Install anyunit-report
+        run: dotnet tool install --global AnyUnit.Report --version "$ANYUNIT_REPORT_VERSION"
+
+      - name: Merge into one report
+        shell: bash
+        run: |
+          set -e
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          mkdir -p report
+          anyunit-report convert -f html -o report/report.html all-results/*/*.json
+          anyunit-report convert -f markdown -o report/summary.md all-results/*/*.json
+          cat report/summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload HTML report
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report-html
+          path: report/report.html

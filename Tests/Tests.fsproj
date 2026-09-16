@@ -1,21 +1,31 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <!-- net48 exercises the library's netstandard2.0 build (and Microsoft.CSharp from a package)
+         on the runtime that actually consumes it. On by default where it can run (Windows);
+         -p:TestNet48=true adds it elsewhere, e.g. to check that it still compiles. -->
+    <TargetFrameworks>net10.0</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('Windows')) or '$(TestNet48)' == 'true'">net10.0;net48</TargetFrameworks>
     <IsPackable>false</IsPackable>
-    <!-- xUnit v3 test projects are executables. -->
-    <OutputType>Exe</OutputType>
     <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+    <!-- AnyUnit's MTP adapter generates the entry point. OutputType is set here rather than
+         left to the adapter: it sets it too, but from package targets, which is too late for
+         the net48 build to be named .exe. -->
+    <OutputType>Exe</OutputType>
+    <EnableAnyUnitRunner>true</EnableAnyUnitRunner>
+    <!-- FsUnit's `should` is AnyUnit's global-assert flavour, which it marks obsolete (FS0044). -->
+    <NoWarn>$(NoWarn);44</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="FSharp.Core" VersionOverride="10.1.401" />
     <PackageReference Include="Microsoft.Testing.Extensions.TrxReport" />
-    <PackageReference Include="xunit.v3" />
-    <PackageReference Include="FsUnit.Xunit" />
-    <PackageReference Include="coverlet.MTP" />
+    <PackageReference Include="AnyUnit.TestingPlatform" />
+    <PackageReference Include="AnyUnit.Style.Xunit" />
+    <PackageReference Include="AnyUnit.Style.FsUnit" />
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="AssemblyInfo.fs" />
     <Compile Include="Fixtures.fs" />
     <Compile Include="Members.fs" />
     <Compile Include="Invoke.fs" />
@@ -30,11 +40,6 @@
     <Compile Include="Unary.fs" />
     <Compile Include="Errors.fs" />
     <Compile Include="Unreflected.fs" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <!-- The cache tests observe the global DlrCache, so tests run one at a time. -->
-    <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

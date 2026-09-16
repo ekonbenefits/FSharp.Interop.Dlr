@@ -1,5 +1,7 @@
 # FSharp.Interop.Dlr
 
+[![Build](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml/badge.svg)](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml)
+
 Experimental. A `dlr { }` computation expression in which the `?` operator (and friends) is
 never executed. The block's `Delay` closure identifies the call site and carries the captured
 variables; the block's body comes from the enclosing `[<ReflectedDefinition>]`; it is translated

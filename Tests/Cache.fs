@@ -1,8 +1,8 @@
 [<ReflectedDefinition>]
 module Tests.Cache
 
-open Xunit
-open FsUnit.Xunit
+open AnyUnit.Style.Xunit
+open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
 
 // These tests share the global cache, so they are careful to only assert on deltas.
