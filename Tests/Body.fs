@@ -57,3 +57,25 @@ let ``nested dynamic call with typed intermediate`` () =
     let w = box (Widget())
     let r: string = dlr { return w?Pick(w?Count : int) }
     r |> should equal "int"
+
+[<Fact>]
+let ``if without else uses Zero`` () =
+    let w = Widget()
+    let o = box w
+    let f (flag: bool) = dlr { if flag then o?Touch() }
+    f false
+    f true
+    w.Touched |> should equal 1
+
+[<Fact>]
+let ``dlr inside a lambda`` () =
+    let w = box (Widget())
+    let results = [ 1; 2; 3 ] |> List.map (fun i -> (dlr { return w?Add(i, i) } : int))
+    results |> should equal [ 2; 4; 6 ]
+
+[<Fact>]
+let ``several blocks in one function are separate sites`` () =
+    let w = box (Widget())
+    let a: int = dlr { return w?Count }
+    let b: string = dlr { return w?Name }
+    (a, b) |> should equal (3, "widget")

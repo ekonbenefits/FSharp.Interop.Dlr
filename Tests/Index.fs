@@ -45,3 +45,13 @@ let ``get index result converts to the inferred type`` () =
     let d = box (Dictionary<string, int>(dict [ "a", 1 ]))
     let v: int64 = dlr { return (Dlr.idx d).["a"] }
     v |> should equal 1L
+
+[<Fact>]
+let ``three and four indexes`` () =
+    let r = Recorder()
+    let o = box r
+    (dlr { return (Dlr.idx o).[1, 2, 3] } : int) |> should equal 3
+    (dlr { return (Dlr.idx o).[1, 2, 3, 4] } : int) |> should equal 4
+    dlr { (Dlr.idx o).[1, 2, 3] <- "a" }
+    dlr { (Dlr.idx o).[1, 2, 3, 4] <- "b" }
+    List.ofSeq r.Log |> should equal [ "getIndex 1,2,3"; "getIndex 1,2,3,4"; "setIndex 1,2,3=a"; "setIndex 1,2,3,4=b" ]

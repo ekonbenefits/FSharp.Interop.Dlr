@@ -54,3 +54,15 @@ let ``dlr inside a class member captures this and fields`` () =
     let h = Holder(Widget())
     h.Count |> should equal 3
     h.Self |> should equal "obj"
+
+[<Fact>]
+let ``impossible conversion raises RuntimeBinderException`` () =
+    let w = box (Widget())
+    (fun () -> (dlr { return w?Name } : int) |> ignore)
+    |> should throw typeof<RuntimeBinderException>
+
+[<Fact>]
+let ``null target raises RuntimeBinderException`` () =
+    let n: obj = null
+    (fun () -> (dlr { return n?Count } : int) |> ignore)
+    |> should throw typeof<RuntimeBinderException>

@@ -11,5 +11,6 @@
     <PackageVersion Include="FsUnit.Xunit" Version="7.1.1" />
     <PackageVersion Include="Microsoft.Testing.Extensions.TrxReport" Version="2.4.0" />
     <PackageVersion Include="xunit.v3" Version="4.0.1" />
+    <PackageVersion Include="coverlet.MTP" Version="10.0.1" />
   </ItemGroup>
 </Project>

@@ -98,7 +98,6 @@ module internal Translate =
             | other -> unsupported "Dlr.named applied to anything but an anonymous record literal" other
         match e with
         | Op opNamed _ -> peel [] e
-        | Let(_, _, _) when (let rec inner e = (match e with Let(_, _, b) -> inner b | Op opNamed _ -> true | _ -> false) in inner e) -> peel [] e
         | _ -> None
 
     /// `(Dlr.idx x).[i, j]` as a getter or setter: the target and the index expressions.
@@ -163,10 +162,9 @@ module internal Translate =
 
         let rec rewrite (e: Expr) : Expr =
             match e with
-            // CE plumbing
+            // CE plumbing (Discover already unwrapped Delay)
             | Call(receiver, mi, args) when isBuilder receiver ->
                 match mi.Name, args with
-                | "Delay", [ Lambda(_, body) ] -> rewrite body
                 | "Return", [ value ] -> rewrite value
                 | "Zero", [] -> Expr.Value(())
                 | name, _ -> unsupported (sprintf "the '%s' construct" name) e
