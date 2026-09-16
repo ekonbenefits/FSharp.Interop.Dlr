@@ -51,8 +51,12 @@ let ``mutable capture reads the current value`` () =
 let genericPick (w: obj) (x: 'a) : string = dlr { return w?Pick(x) }
 
 [<Fact>]
-let ``generic enclosing function is rejected clearly`` () =
-    (fun () -> genericPick (Widget()) 1 |> ignore) |> should throw typeof<DlrTranslationException>
+let ``generic enclosing function: each instantiation is its own site with concrete types`` () =
+    let w = Widget()
+    genericPick w 1 |> should equal "int"
+    genericPick w "s" |> should equal "string"
+    genericPick w 2.5 |> should equal "obj"
+    genericPick w 7 |> should equal "int"
 
 [<Fact>]
 let ``values the optimizer inlines instead of capturing still resolve`` () =

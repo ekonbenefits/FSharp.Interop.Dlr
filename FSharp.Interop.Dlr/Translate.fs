@@ -161,10 +161,6 @@ module internal Translate =
 
     let translate (builderType: Type) (context: Type) (memberBody: Expr) (closureType: Type) (resultType: Type) (body: Expr) : Compiled =
         let convert = Binders.convert context
-        if closureType.IsGenericType || closureType.ContainsGenericParameters then
-            raise (DlrTranslationException(
-                    sprintf "dlr { } inside a generic function or member is not supported yet (closure %s)." closureType.Name))
-
         let closure = Var("closure", typeof<obj>)
         let self = Expr.Coerce(Expr.Var closure, closureType)
         let fields =

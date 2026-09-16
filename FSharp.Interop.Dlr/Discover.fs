@@ -51,6 +51,30 @@ module internal Discover =
           /// The block's body (the Delay lambda's body).
           Body: Expr }
 
+    /// For a block inside a generic member, the closure class carries the member's type parameters
+    /// under the same names, instantiated. Rebuild the member with those arguments so its reflected
+    /// definition comes back with concrete types. A parameter the closure does not carry is unused
+    /// by the block, so any instantiation will do.
+    let private instantiate (closureType: Type) (m: MethodBase) : MethodBase =
+        if not (m.IsGenericMethodDefinition || m.DeclaringType.IsGenericTypeDefinition) then m
+        else
+            let concrete =
+                if closureType.IsGenericType then
+                    Array.zip (closureType.GetGenericTypeDefinition().GetGenericArguments()) (closureType.GetGenericArguments())
+                    |> Array.map (fun (p, a) -> p.Name, a)
+                    |> dict
+                else dict []
+            let resolve (p: Type) = match concrete.TryGetValue p.Name with | true, t -> t | _ -> typeof<obj>
+            let onType =
+                if m.DeclaringType.IsGenericTypeDefinition then
+                    let constructed = m.DeclaringType.MakeGenericType(m.DeclaringType.GetGenericArguments() |> Array.map resolve)
+                    MethodBase.GetMethodFromHandle(m.MethodHandle, constructed.TypeHandle)
+                else m
+            match onType with
+            | :? MethodInfo as mi when mi.IsGenericMethodDefinition ->
+                mi.MakeGenericMethod(mi.GetGenericArguments() |> Array.map resolve) :> MethodBase
+            | other -> other
+
     /// The block whose Delay closure has type `closureType`, at `file:line`.
     let findBody (builderType: Type) (closureType: Type) (file: string) (line: int) : Found =
         let holder = if isNull closureType.DeclaringType then closureType else closureType.DeclaringType
@@ -67,7 +91,18 @@ module internal Discover =
                 closureType.Assembly.GetTypes() |> Seq.filter (fun t -> not t.IsNested) |> search
             | found -> found
         match matches with
-        | [ m, memberBody, body ] -> { Context = m.DeclaringType; MemberBody = memberBody; Body = body }
+        | [ m, memberBody, body ] ->
+            let m, memberBody, body =
+                match instantiate closureType m with
+                | inst when obj.ReferenceEquals(inst, m) -> m, memberBody, body
+                | inst ->
+                    match Expr.TryGetReflectedDefinition inst with
+                    | Some q ->
+                        match runsAt builderType file line q with
+                        | [ b ] -> inst, q, b
+                        | _ -> m, memberBody, body
+                    | None -> m, memberBody, body
+            { Context = m.DeclaringType; MemberBody = memberBody; Body = body }
         | [] ->
             raise (DlrTranslationException(
                     sprintf "dlr { } at %s:%d needs [<ReflectedDefinition>] on its enclosing module, type or member so the body can be compiled (closure %s in %s)."

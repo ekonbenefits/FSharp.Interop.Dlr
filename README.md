@@ -69,7 +69,8 @@ cannot be captured by a loop or try body; use a `ref` or an object. `let rec` is
 
 Rules: the enclosing module, type or member must be `[<ReflectedDefinition>]` (a clear
 `DlrTranslationException` says so otherwise); one `dlr { }` per source line (the body is located by
-line inside the reflected definition); not inside generic functions or members yet.
+line inside the reflected definition). Blocks inside generic functions or members work; each
+instantiation is its own site, compiled with the concrete types.
 Calling any of the operators or `Dlr.*` markers outside `dlr { }` throws `InvalidOperationException`.
 The `Dlr.*` markers exist only to give F# something it can type-check; `Named<'T>`, `Indexed<'T>` and
 `TypeArgs` have no constructors and are never instantiated.

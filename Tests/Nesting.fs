@@ -41,3 +41,17 @@ let ``nested dlr blocks on separate lines share the outer site`` () =
     f () |> should equal "int"
     f () |> should equal "int"
     DlrCache.count () |> should equal (before + 1)
+
+type Holder<'T>(w: obj) =
+    member _.Pick(x: 'T) : string = dlr { return w?Pick(x) }
+    member _.Pair(x: 'T) (y: 'U) : string = dlr { return w?Greet(string x, string y) }
+    member _.Unused() : int = dlr { return w?Count }
+
+[<Fact>]
+let ``generic type and generic method members`` () =
+    let h = Holder<int>(Widget())
+    h.Pick 1 |> should equal "int"
+    Holder<string>(Widget()).Pick "s" |> should equal "string"
+    h.Pair 1 "b" |> should equal "1, b"
+    h.Pair 1 2.5 |> should equal "1, 2.5"
+    h.Unused() |> should equal 3
