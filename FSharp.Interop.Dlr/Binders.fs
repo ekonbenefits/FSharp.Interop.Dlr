@@ -39,9 +39,6 @@ module DlrRuntime =
 /// compiled delegate.
 module internal Binders =
 
-    /// Accessibility context handed to the C# binder. Public members only.
-    let context = typeof<obj>
-
     /// `voidType` makes the F# compiler emit IL the JIT rejects, so get it indirectly.
     let private voidType = typeof<Action>.GetMethod("Invoke").ReturnType
 
@@ -91,42 +88,51 @@ module internal Binders =
         let target = Expr.FieldGet(siteExpr, siteType.GetField("Target"))
         Expr.Call(target, delegateType.GetMethod("Invoke"), siteExpr :: [ for a in args -> a.Expr ])
 
-    let getMember (name: string) (target: Arg) =
+    let getMember (context: Type) (name: string) (target: Arg) =
         siteCall (Binder.GetMember(CSharpBinderFlags.None, name, context, [ argInfo target ])) [ target ] typeof<obj>
 
-    let setMember (name: string) (target: Arg) (value: Arg) =
+    let setMember (context: Type) (name: string) (target: Arg) (value: Arg) =
         siteCall (Binder.SetMember(CSharpBinderFlags.None, name, context, [ argInfo target; argInfo value ])) [ target; value ] typeof<obj>
 
-    let invokeMember (name: string) (typeArgs: Type list) (discard: bool) (target: Arg) (args: Arg list) =
+    let invokeMember (context: Type) (name: string) (typeArgs: Type list) (discard: bool) (target: Arg) (args: Arg list) =
         let flags = if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None
         let all = target :: args
         let typeArgs = match typeArgs with [] -> null | ts -> ts :> seq<Type>
         let binder = Binder.InvokeMember(flags, name, typeArgs, context, [ for a in all -> argInfo a ])
         siteCall binder all (if discard then voidType else typeof<obj>)
 
-    let invoke (discard: bool) (target: Arg) (args: Arg list) =
+    let invoke (context: Type) (discard: bool) (target: Arg) (args: Arg list) =
         let flags = if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None
         let all = target :: args
         let binder = Binder.Invoke(flags, context, [ for a in all -> argInfo a ])
         siteCall binder all (if discard then voidType else typeof<obj>)
 
-    let getIndex (target: Arg) (indexes: Arg list) =
+    let getIndex (context: Type) (target: Arg) (indexes: Arg list) =
         let all = target :: indexes
         siteCall (Binder.GetIndex(CSharpBinderFlags.None, context, [ for a in all -> argInfo a ])) all typeof<obj>
 
-    let setIndex (target: Arg) (indexes: Arg list) (value: Arg) =
+    let setIndex (context: Type) (target: Arg) (indexes: Arg list) (value: Arg) =
         let all = target :: indexes @ [ value ]
         siteCall (Binder.SetIndex(CSharpBinderFlags.None, context, [ for a in all -> argInfo a ])) all typeof<obj>
 
-    let binaryOperation (op: ExpressionType) (left: Arg) (right: Arg) =
+    let binaryOperation (context: Type) (op: ExpressionType) (left: Arg) (right: Arg) =
         let binder = Binder.BinaryOperation(CSharpBinderFlags.None, op, context, [ argInfo left; argInfo right ])
         siteCall binder [ left; right ] typeof<obj>
 
+    let unaryOperation (context: Type) (op: ExpressionType) (operand: Arg) =
+        let binder = Binder.UnaryOperation(CSharpBinderFlags.None, op, context, [ argInfo operand ])
+        siteCall binder [ operand ] typeof<obj>
+
     /// Implicit conversion of an `obj`-typed expression to `resultType`. `obj` is a no-op and
     /// `unit` discards the value.
-    let convert (resultType: Type) (e: Expr) : Expr =
+    let convert (context: Type) (resultType: Type) (e: Expr) : Expr =
         if resultType = typeof<obj> then e
         elif resultType = typeof<unit> then Expr.Sequential(e, Expr.Value(()))
         else
             let binder = Binder.Convert(CSharpBinderFlags.None, resultType, context)
             siteCall binder [ dynamicArg e ] resultType
+
+    /// Explicit conversion (a C# cast) of an `obj`-typed expression to `resultType`.
+    let convertExplicit (context: Type) (resultType: Type) (e: Expr) : Expr =
+        let binder = Binder.Convert(CSharpBinderFlags.ConvertExplicit, resultType, context)
+        siteCall binder [ dynamicArg e ] resultType

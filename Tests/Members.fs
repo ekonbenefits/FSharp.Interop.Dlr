@@ -66,3 +66,13 @@ let ``null target raises RuntimeBinderException`` () =
     let n: obj = null
     (fun () -> (dlr { return n?Count } : int) |> ignore)
     |> should throw typeof<RuntimeBinderException>
+
+[<Fact>]
+let ``binder context is the declaring type, so non-public members bind from inside it`` () =
+    // F# `member private` is IL internal, so it also binds from elsewhere in this assembly;
+    // String's private field shows the context does not open members of other assemblies.
+    let w = Widget()
+    w.PeekSecretFromOutside(w) |> should equal "hidden"
+    (dlr { return (box w)?Secret } : string) |> should equal "hidden"
+    let s = box "abc"
+    (fun () -> (dlr { return s?_firstChar } : char) |> ignore) |> should throw typeof<RuntimeBinderException>

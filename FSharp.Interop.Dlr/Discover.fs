@@ -29,25 +29,35 @@ module internal Discover =
                 yield! reflected n
         }
 
-    /// Every `builder.Run(builder.Delay(fun () -> body), file, line)` in `e` for this line.
-    let rec private runsOnLine (builderType: Type) (line: int) (e: Expr) : Expr list =
+    /// Every `builder.Run(builder.Delay(fun () -> body), file, line)` in `e` at this file and line.
+    let rec private runsAt (builderType: Type) (file: string) (line: int) (e: Expr) : Expr list =
         match e with
-        | Call(Some receiver, mi, [ Call(_, delay, [ Lambda(_, body) ]); Value _; Value(l, _) ])
-            when receiver.Type = builderType && mi.Name = "Run" && delay.Name = "Delay" && unbox<int> l = line ->
-            body :: runsOnLine builderType line body
+        | Call(Some receiver, mi, [ Call(_, delay, [ Lambda(_, body) ]); Value(f, _); Value(l, _) ])
+            when receiver.Type = builderType && mi.Name = "Run" && delay.Name = "Delay"
+                 && unbox<int> l = line && unbox<string> f = file ->
+            body :: runsAt builderType file line body
         | ShapeVar _ -> []
-        | ShapeLambda(_, body) -> runsOnLine builderType line body
-        | ShapeCombination(_, args) -> args |> List.collect (runsOnLine builderType line)
+        | ShapeLambda(_, body) -> runsAt builderType file line body
+        | ShapeCombination(_, args) -> args |> List.collect (runsAt builderType file line)
 
-    /// The body for the block whose Delay closure has type `closureType`, at `file:line`.
-    let findBody (builderType: Type) (closureType: Type) (file: string) (line: int) : Expr =
+    /// The body for the block whose Delay closure has type `closureType`, at `file:line`, and the
+    /// type declaring the member it sits in (the binder's accessibility context, as in C#).
+    let findBody (builderType: Type) (closureType: Type) (file: string) (line: int) : Type * Expr =
         let holder = if isNull closureType.DeclaringType then closureType else closureType.DeclaringType
-        let matches =
-            reflected holder
-            |> Seq.collect (fun (m, q) -> runsOnLine builderType line q |> List.map (fun b -> m, b))
+        let search (types: seq<Type>) =
+            types
+            |> Seq.collect reflected
+            |> Seq.collect (fun (m, q) -> runsAt builderType file line q |> List.map (fun b -> m, b))
             |> List.ofSeq
+        let matches =
+            match search [ holder ] with
+            | [] ->
+                // A member of a type declared in a namespace gets its closures nested in the file's
+                // <StartupCode$…> class, not in the type: fall back to the whole assembly.
+                closureType.Assembly.GetTypes() |> Seq.filter (fun t -> not t.IsNested) |> search
+            | found -> found
         match matches with
-        | [ _, body ] -> body
+        | [ m, body ] -> m.DeclaringType, body
         | [] ->
             raise (DlrTranslationException(
                     sprintf "dlr { } at %s:%d needs [<ReflectedDefinition>] on its enclosing module, type or member so the body can be compiled (closure %s in %s)."

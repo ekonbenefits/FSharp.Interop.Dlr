@@ -51,6 +51,8 @@ The assembly is marked `IsAotCompatible=false` / `IsTrimmable=false` so `dotnet 
 | `(Dlr.idx x).[i]`, `(Dlr.idx x).[i, j] <- v` (up to four indexes) | GetIndex / SetIndex; element type inferred from use |
 | `?+? ?-? ?*? ?/? ?%? ?&&&? ?\|\|\|? ?^^^? ?<<<? ?>>>?` | BinaryOperation, then Convert |
 | `?=? ?<>? ?<? ?>? ?<=? ?>=?` | BinaryOperation, then Convert to bool |
+| `Dlr.neg x`, `Dlr.not x`, `Dlr.complement x` | UnaryOperation, then Convert |
+| `Dlr.cast<T> x` | explicit Convert (a C# cast); `?` results convert implicitly on their own |
 
 Plus `let`, `use`, `if`, sequencing, `for x in items do …`, `while … do …`, `try … with`,
 `try … finally` and ordinary F# code. Loop bodies reuse the block's call sites across iterations; a failed dynamic
@@ -62,8 +64,11 @@ Rules: the enclosing module, type or member must be `[<ReflectedDefinition>]` (a
 `DlrTranslationException` says so otherwise); one `dlr { }` per source line (the body is located by
 line inside the reflected definition); not inside generic functions or members yet.
 Calling any of the operators or `Dlr.*` markers outside `dlr { }` throws `InvalidOperationException`.
-`Dlr.named`, `Dlr.idx` and `Dlr.typeArgs` exist only to give F# something it can type-check;
-`Named<'T>`, `Indexed<'T>` and `TypeArgs` have no constructors and are never instantiated.
+The `Dlr.*` markers exist only to give F# something it can type-check; `Named<'T>`, `Indexed<'T>` and
+`TypeArgs` have no constructors and are never instantiated.
+
+The binder's accessibility context is the type declaring the member the block sits in, as for C#
+`dynamic`: a block inside a class can bind that class's non-public members.
 
 ## How it works
 

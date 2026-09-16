@@ -37,6 +37,13 @@ module internal Translate =
     let private opDynamicAssign = opMethod <@ fun (t: obj) (n: string) (v: obj) -> (?<-) t n v @>
     let private opBang = opMethod <@ fun (t: obj) -> ((!?) t) : obj @>
     let private opNamed = opMethod <@ fun (r: obj) -> Dlr.named r @>
+    let private opCast = opMethod <@ fun (v: obj) -> Dlr.cast<obj> v @>
+    let private unaryOps =
+        dict [
+            opMethod <@ fun (v: obj) -> (Dlr.neg v) : obj @>, ExpressionType.Negate
+            opMethod <@ fun (v: obj) -> (Dlr.not v) : obj @>, ExpressionType.Not
+            opMethod <@ fun (v: obj) -> (Dlr.complement v) : obj @>, ExpressionType.OnesComplement
+        ]
     let private forEach = opMethod <@ fun (items: seq<obj>) (body: obj -> unit) -> DlrRuntime.forEach items body @>
     let private whileLoop = opMethod <@ fun (guard: unit -> bool) (body: unit -> unit) -> DlrRuntime.whileLoop guard body @>
     let private tryWith = opMethod <@ fun (body: unit -> obj) (handler: exn -> obj) -> DlrRuntime.tryWith body handler @>
@@ -73,6 +80,14 @@ module internal Translate =
     let private (|Op|_|) (def: Reflection.MethodInfo) (e: Expr) =
         match e with
         | Call(None, mi, args) when genericDef mi = def -> Some args
+        | _ -> None
+
+    let private (|UnaryOp|_|) (e: Expr) =
+        match e with
+        | Call(None, mi, [ v ]) ->
+            match unaryOps.TryGetValue(genericDef mi) with
+            | true, op -> Some(op, v)
+            | _ -> None
         | _ -> None
 
     let private (|BinaryOp|_|) (e: Expr) =
@@ -135,7 +150,8 @@ module internal Translate =
     /// Compiles the reflected body of one `dlr { }` block. `closureType` is the compiler-generated
     /// class of the `Delay` closure: its fields, named after the captured variables, are where
     /// the body's free variables are read from at call time.
-    let translate (builderType: Type) (closureType: Type) (resultType: Type) (body: Expr) : Compiled =
+    let translate (builderType: Type) (context: Type) (closureType: Type) (resultType: Type) (body: Expr) : Compiled =
+        let convert = Binders.convert context
         if closureType.IsGenericType || closureType.ContainsGenericParameters then
             raise (DlrTranslationException(
                     sprintf "dlr { } inside a generic function or member is not supported yet (closure %s)." closureType.Name))
@@ -206,25 +222,30 @@ module internal Translate =
                     | TypeArgs ts :: rest -> ts, rest
                     | args -> [], args
                 let bindings, args = argList argExpr
-                Binders.invokeMember (string name) typeArgs discard (targetArg target) args |> finish discard e.Type |> bind bindings
+                Binders.invokeMember context (string name) typeArgs discard (targetArg target) args |> finish discard e.Type |> bind bindings
             | Op opDynamic [ Unboxed target; Literal name ] ->
                 if FSharpType.IsFunction e.Type then
                     unsupported "a dynamic member used as a first-class function; apply it directly" e
-                Binders.getMember (string name) (targetArg target) |> Binders.convert e.Type
+                Binders.getMember context (string name) (targetArg target) |> convert e.Type
             | Op opDynamicAssign [ Unboxed target; Literal name; Unboxed value ] ->
-                Binders.setMember (string name) (targetArg target) (valueArg value) |> Binders.convert typeof<unit>
+                Binders.setMember context (string name) (targetArg target) (valueArg value) |> convert typeof<unit>
             | Application(EtaReduced(Op opBang [ Unboxed target ]), argExpr) ->
                 let discard = e.Type = typeof<unit>
                 let bindings, args = argList (splitArgs argExpr)
-                Binders.invoke discard (targetArg target) args |> finish discard e.Type |> bind bindings
+                Binders.invoke context discard (targetArg target) args |> finish discard e.Type |> bind bindings
             | PropertyGet(receiver, pi, indexes) when (IndexedProperty(receiver, pi)).IsSome ->
                 let target = (IndexedProperty(receiver, pi)).Value
-                Binders.getIndex (targetArg target) (indexList indexes) |> Binders.convert e.Type
+                Binders.getIndex context (targetArg target) (indexList indexes) |> convert e.Type
             | PropertySet(receiver, pi, indexes, Unboxed value) when (IndexedProperty(receiver, pi)).IsSome ->
                 let target = (IndexedProperty(receiver, pi)).Value
-                Binders.setIndex (targetArg target) (indexList indexes) (valueArg value) |> Binders.convert typeof<unit>
+                Binders.setIndex context (targetArg target) (indexList indexes) (valueArg value) |> convert typeof<unit>
             | BinaryOp(op, Unboxed left, Unboxed right) ->
-                Binders.binaryOperation op (valueArg left) (valueArg right) |> Binders.convert e.Type
+                Binders.binaryOperation context op (valueArg left) (valueArg right) |> convert e.Type
+            | UnaryOp(op, Unboxed operand) ->
+                Binders.unaryOperation context op (valueArg operand) |> convert e.Type
+            | Op opCast [ Unboxed value ] ->
+                let v = rewrite value
+                Binders.convertExplicit context e.Type (if v.Type = typeof<obj> then v else Expr.Coerce(v, typeof<obj>))
 
             // Everything else: captured variables become field reads, structure is rebuilt as-is.
             | Var v when free.Contains v -> captured v
@@ -259,7 +280,7 @@ module internal Translate =
         and indexList (indexes: Expr list) = [ for Unboxed i in indexes -> valueArg i ]
 
         and finish discard (resultType: Type) (call: Expr) =
-            if discard then call else Binders.convert resultType call
+            if discard then call else convert resultType call
 
         let delegateType = typedefof<Func<_, _>>.MakeGenericType(typeof<obj>, resultType)
         let linq =

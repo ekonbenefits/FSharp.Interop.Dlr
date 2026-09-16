@@ -80,3 +80,11 @@ type Dlr =
     static member typeArgs<'A, 'B, 'C> : unit -> TypeArgs
     /// <summary>Four explicit generic type arguments.</summary>
     static member typeArgs<'A, 'B, 'C, 'D> : unit -> TypeArgs
+    /// <summary>Explicit conversion, like a C# cast: <c>Dlr.cast&lt;int&gt; x?Ratio</c>. Results of <c>?</c> convert implicitly on their own.</summary>
+    static member cast<'T> : value: obj -> 'T
+    /// <summary>Dynamic unary minus.</summary>
+    static member neg: value: obj -> 'TResult
+    /// <summary>Dynamic logical not.</summary>
+    static member not: value: obj -> 'TResult
+    /// <summary>Dynamic bitwise complement.</summary>
+    static member complement: value: obj -> 'TResult

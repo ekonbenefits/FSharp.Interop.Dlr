@@ -27,6 +27,7 @@
     <Compile Include="Loops.fs" />
     <Compile Include="DynamicObjects.fs" />
     <Compile Include="TryBlocks.fs" />
+    <Compile Include="Unary.fs" />
     <Compile Include="Errors.fs" />
     <Compile Include="Unreflected.fs" />
   </ItemGroup>

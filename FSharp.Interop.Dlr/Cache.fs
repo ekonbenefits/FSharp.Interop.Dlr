@@ -20,5 +20,5 @@ module DlrCache =
         | true, compiled -> compiled
         | _ ->
             cache.GetOrAdd(closureType, fun t ->
-                let body = Discover.findBody builderType t file line
-                Translate.translate builderType t resultType body)
+                let context, body = Discover.findBody builderType t file line
+                Translate.translate builderType context t resultType body)

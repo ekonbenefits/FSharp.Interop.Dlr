@@ -63,3 +63,7 @@ type Dlr =
     static member typeArgs<'A, 'B> () : TypeArgs = outside "Dlr.typeArgs"
     static member typeArgs<'A, 'B, 'C> () : TypeArgs = outside "Dlr.typeArgs"
     static member typeArgs<'A, 'B, 'C, 'D> () : TypeArgs = outside "Dlr.typeArgs"
+    static member cast<'T> (value: obj) : 'T = ignore value; outside "Dlr.cast"
+    static member neg (value: obj) : 'TResult = ignore value; outside "Dlr.neg"
+    static member not (value: obj) : 'TResult = ignore value; outside "Dlr.not"
+    static member complement (value: obj) : 'TResult = ignore value; outside "Dlr.complement"

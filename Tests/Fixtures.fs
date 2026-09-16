@@ -4,8 +4,10 @@ open System
 open System.Collections.Generic
 open System.Dynamic
 open System.Runtime.InteropServices
+open FSharp.Interop.Dlr
 
 /// Plain CLR target with overloads, so binder flags are observable.
+[<ReflectedDefinition>]
 type Widget() =
     member val Name = "widget" with get, set
     member val Count = 3 with get, set
@@ -30,6 +32,11 @@ type Widget() =
     member _.Kind(_: obj) = "obj"
     member _.Text(_: string) = "string"
     member _.Text(_: int) = "int"
+    member val Ratio = 2.75 with get, set
+    member private _.Secret = "hidden"
+    member _.PeekSecretFromOutside(o: obj) : string =
+        // A dlr block inside Widget itself: the binder context is Widget, so private members bind.
+        dlr { return o?Secret }
 
 /// Records which DLR operations reached it.
 type Recorder() =
@@ -76,6 +83,10 @@ type Arith(value: int) =
         | System.Linq.Expressions.ExpressionType.Multiply -> result <- box (Arith(value * other)); true
         | System.Linq.Expressions.ExpressionType.Equal -> result <- box (value = other); true
         | System.Linq.Expressions.ExpressionType.LessThan -> result <- box (value < other); true
+        | _ -> false
+    override _.TryUnaryOperation(binder, result) =
+        match binder.Operation with
+        | System.Linq.Expressions.ExpressionType.Negate -> result <- box (Arith(-value)); true
         | _ -> false
     override _.TryConvert(binder, result) =
         if binder.Type = typeof<int> then result <- box value; true
