@@ -20,6 +20,10 @@ type Widget() =
     member this.Touch() = this.Touched <- this.Touched + 1
     member _.Item with get (i: int) = i * 10
     member _.Run(f: Func<int, int>) = f.Invoke 21
+    member _.Default<'T>() : 'T = Unchecked.defaultof<'T>
+    member _.TypeName<'T>() = typeof<'T>.Name
+    member _.Pair<'A, 'B>(a: 'A, b: 'B) = sprintf "%s/%s" (typeof<'A>.Name) (typeof<'B>.Name)
+    member _.Echo<'T>(x: 'T) : 'T = x
 
 /// Records which DLR operations reached it.
 type Recorder() =

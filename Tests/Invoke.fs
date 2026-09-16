@@ -5,6 +5,7 @@ open System
 open Xunit
 open FsUnit.Xunit
 open FSharp.Interop.Dlr
+open Microsoft.CSharp.RuntimeBinder
 
 [<Fact>]
 let ``invoke with no args`` () =
@@ -97,3 +98,31 @@ let ``invoke the target with a unit result`` () =
     let f = box (Action<int>(fun x -> hits <- hits + x))
     dlr { (!?f)(5) }
     hits |> should equal 5
+
+[<Fact>]
+let ``explicit type argument when it cannot be inferred`` () =
+    let w = box (Widget())
+    (dlr { return w?TypeName(Dlr.typeArgs<int>()) } : string) |> should equal "Int32"
+    (dlr { return w?Default(Dlr.typeArgs<int>()) } : int) |> should equal 0
+
+[<Fact>]
+let ``two explicit type arguments with positional args`` () =
+    let w = box (Widget())
+    (dlr { return w?Pair(Dlr.typeArgs<obj, string>(), 1, "x") } : string) |> should equal "Object/String"
+
+[<Fact>]
+let ``type argument inference still works without the marker`` () =
+    let w = box (Widget())
+    (dlr { return w?Echo(41) } : int) |> should equal 41
+
+[<Fact>]
+let ``wrong type argument arity raises RuntimeBinderException`` () =
+    let w = box (Widget())
+    (fun () -> (dlr { return w?TypeName(Dlr.typeArgs<int, int>()) } : string) |> ignore)
+    |> should throw typeof<RuntimeBinderException>
+
+[<Fact>]
+let ``typeArgs must come first`` () =
+    let w = box (Widget())
+    (fun () -> (dlr { return w?Pair(1, Dlr.typeArgs<int, int>()) } : string) |> ignore)
+    |> should throw typeof<DlrTranslationException>

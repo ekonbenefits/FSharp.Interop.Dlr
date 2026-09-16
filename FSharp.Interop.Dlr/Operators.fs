@@ -13,6 +13,10 @@ type Named<'T> private () =
     class end
 
 [<Sealed>]
+type TypeArgs private () =
+    class end
+
+[<Sealed>]
 type Indexed<'T> private () =
     member _.Item
         with get (i: obj) : 'T = ignore i; outside "Dlr.idx"
@@ -51,6 +55,11 @@ module Operators =
     let ( ?>? ) (left: obj) (right: obj) : bool = ignore (left, right); outside "?>?"
     let ( ?>=? ) (left: obj) (right: obj) : bool = ignore (left, right); outside "?>=?"
 
-module Dlr =
-    let named (record: 'T) : Named<'T> = ignore record; outside "Dlr.named"
-    let idx (target: obj) : Indexed<'T> = ignore target; outside "Dlr.idx"
+[<Sealed; AbstractClass>]
+type Dlr =
+    static member named (record: 'T) : Named<'T> = ignore record; outside "Dlr.named"
+    static member idx (target: obj) : Indexed<'T> = ignore target; outside "Dlr.idx"
+    static member typeArgs<'A> () : TypeArgs = outside "Dlr.typeArgs"
+    static member typeArgs<'A, 'B> () : TypeArgs = outside "Dlr.typeArgs"
+    static member typeArgs<'A, 'B, 'C> () : TypeArgs = outside "Dlr.typeArgs"
+    static member typeArgs<'A, 'B, 'C, 'D> () : TypeArgs = outside "Dlr.typeArgs"

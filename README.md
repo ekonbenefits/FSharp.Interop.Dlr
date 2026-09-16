@@ -45,6 +45,7 @@ The assembly is marked `IsAotCompatible=false` / `IsTrimmable=false` so `dotnet 
 | `x?Name` | GetMember, then Convert to the inferred type |
 | `x?Name(a, b)`, `x?Name()` | InvokeMember; args use their static F# type, `obj` args dispatch on runtime type |
 | `x?Name(a, Dlr.named {| p = v |})` | InvokeMember with named arguments; a bare `{| |}` is one positional argument |
+| `x?Name(Dlr.typeArgs<A, B>(), a)` | InvokeMember with explicit generic type arguments (up to four; marker goes first). Without it, type arguments are inferred from the argument types as in C# |
 | `x?Name <- v` | SetMember |
 | `(!?x)(a)` | Invoke |
 | `(Dlr.idx x).[i]`, `(Dlr.idx x).[i, j] <- v` (up to four indexes) | GetIndex / SetIndex; element type inferred from use |
@@ -61,8 +62,8 @@ Rules: the enclosing module, type or member must be `[<ReflectedDefinition>]` (a
 `DlrTranslationException` says so otherwise); one `dlr { }` per source line (the body is located by
 line inside the reflected definition); not inside generic functions or members yet.
 Calling any of the operators or `Dlr.*` markers outside `dlr { }` throws `InvalidOperationException`.
-`Dlr.named` and `Dlr.idx` exist only to give F# something it can type-check; `Named<'T>` and
-`Indexed<'T>` have no constructors and are never instantiated.
+`Dlr.named`, `Dlr.idx` and `Dlr.typeArgs` exist only to give F# something it can type-check;
+`Named<'T>`, `Indexed<'T>` and `TypeArgs` have no constructors and are never instantiated.
 
 ## How it works
 

@@ -5,6 +5,11 @@ namespace FSharp.Interop.Dlr
 type Named<'T> =
     class end
 
+/// <summary>Result of <c>Dlr.typeArgs</c>; only meaningful inside <c>dlr { }</c>.</summary>
+[<Sealed>]
+type TypeArgs =
+    class end
+
 /// <summary>Result of <c>Dlr.idx</c>; only meaningful inside <c>dlr { }</c>. Index with <c>.[i]</c>, <c>.[i, j]</c>, … up to four indexes.</summary>
 [<Sealed>]
 type Indexed<'T> =
@@ -61,8 +66,17 @@ module Operators =
 /// <summary>
 /// Markers recognised inside <c>dlr { }</c>. Like the operators they are never executed and throw if called directly.
 /// </summary>
-module Dlr =
+[<Sealed; AbstractClass>]
+type Dlr =
     /// <summary>Marks an anonymous record as named arguments: <c>x?Method(a, Dlr.named {| count = 3 |})</c>. A bare anonymous record is a positional argument.</summary>
-    val named : record:'T -> Named<'T>
+    static member named: record: 'T -> Named<'T>
     /// <summary>Dynamic indexing: <c>(Dlr.idx x).[i]</c>, <c>(Dlr.idx x).[i, j] &lt;- v</c>. The element type is inferred from use.</summary>
-    val idx : target:obj -> Indexed<'T>
+    static member idx: target: obj -> Indexed<'T>
+    /// <summary>Explicit generic type arguments for a member invocation: <c>x?Get(Dlr.typeArgs&lt;int&gt;())</c> calls <c>Get&lt;int&gt;()</c>. Must be the first argument.</summary>
+    static member typeArgs<'A> : unit -> TypeArgs
+    /// <summary>Two explicit generic type arguments.</summary>
+    static member typeArgs<'A, 'B> : unit -> TypeArgs
+    /// <summary>Three explicit generic type arguments.</summary>
+    static member typeArgs<'A, 'B, 'C> : unit -> TypeArgs
+    /// <summary>Four explicit generic type arguments.</summary>
+    static member typeArgs<'A, 'B, 'C, 'D> : unit -> TypeArgs

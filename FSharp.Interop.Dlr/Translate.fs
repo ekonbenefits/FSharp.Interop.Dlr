@@ -64,6 +64,12 @@ module internal Translate =
             opMethod <@ fun (l: obj) (r: obj) -> l ?>=? r @>, ExpressionType.GreaterThanOrEqual
         ]
 
+    /// `Dlr.typeArgs<A, B>()`: the explicit type arguments of the call being built.
+    let private (|TypeArgs|_|) (e: Expr) =
+        match e with
+        | Call(None, mi, []) when mi.DeclaringType = typeof<Dlr> && mi.Name = "typeArgs" -> Some(List.ofArray (mi.GetGenericArguments()))
+        | _ -> None
+
     let private (|Op|_|) (def: Reflection.MethodInfo) (e: Expr) =
         match e with
         | Call(None, mi, args) when genericDef mi = def -> Some args
@@ -195,8 +201,12 @@ module internal Translate =
             // Dynamic operations
             | Application(EtaReduced(Op opDynamic [ Unboxed target; Literal name ]), argExpr) ->
                 let discard = e.Type = typeof<unit>
+                let typeArgs, argExpr =
+                    match splitArgs argExpr with
+                    | TypeArgs ts :: rest -> ts, rest
+                    | args -> [], args
                 let bindings, args = argList argExpr
-                Binders.invokeMember (string name) discard (targetArg target) args |> finish discard e.Type |> bind bindings
+                Binders.invokeMember (string name) typeArgs discard (targetArg target) args |> finish discard e.Type |> bind bindings
             | Op opDynamic [ Unboxed target; Literal name ] ->
                 if FSharpType.IsFunction e.Type then
                     unsupported "a dynamic member used as a first-class function; apply it directly" e
@@ -205,7 +215,7 @@ module internal Translate =
                 Binders.setMember (string name) (targetArg target) (valueArg value) |> Binders.convert typeof<unit>
             | Application(EtaReduced(Op opBang [ Unboxed target ]), argExpr) ->
                 let discard = e.Type = typeof<unit>
-                let bindings, args = argList argExpr
+                let bindings, args = argList (splitArgs argExpr)
                 Binders.invoke discard (targetArg target) args |> finish discard e.Type |> bind bindings
             | PropertyGet(receiver, pi, indexes) when (IndexedProperty(receiver, pi)).IsSome ->
                 let target = (IndexedProperty(receiver, pi)).Value
@@ -228,11 +238,12 @@ module internal Translate =
 
         and valueArg (value: Expr) = Binders.typedArg (rewrite value)
 
-        and argList (argExpr: Expr) =
+        and argList (argExprs: Expr list) =
             let bindings = ResizeArray()
             let args =
-                [ for a in splitArgs argExpr do
+                [ for a in argExprs do
                     match a with
+                    | TypeArgs _ -> unsupported "Dlr.typeArgs anywhere but as the first argument" a
                     | NamedRecord(lets, fields) ->
                         bindings.AddRange lets
                         for (name, v) in fields -> Binders.named name (valueArg v)

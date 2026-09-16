@@ -91,10 +91,11 @@ module internal Binders =
     let setMember (name: string) (target: Arg) (value: Arg) =
         siteCall (Binder.SetMember(CSharpBinderFlags.None, name, context, [ argInfo target; argInfo value ])) [ target; value ] typeof<obj>
 
-    let invokeMember (name: string) (discard: bool) (target: Arg) (args: Arg list) =
+    let invokeMember (name: string) (typeArgs: Type list) (discard: bool) (target: Arg) (args: Arg list) =
         let flags = if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None
         let all = target :: args
-        let binder = Binder.InvokeMember(flags, name, null, context, [ for a in all -> argInfo a ])
+        let typeArgs = match typeArgs with [] -> null | ts -> ts :> seq<Type>
+        let binder = Binder.InvokeMember(flags, name, typeArgs, context, [ for a in all -> argInfo a ])
         siteCall binder all (if discard then voidType else typeof<obj>)
 
     let invoke (discard: bool) (target: Arg) (args: Arg list) =
