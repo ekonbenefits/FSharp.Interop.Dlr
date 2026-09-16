@@ -40,6 +40,10 @@ This is a JIT-only library, like C# `dynamic` itself:
 
 The assembly is marked `IsAotCompatible=false` / `IsTrimmable=false` so `dotnet publish` warns.
 
+It does work on **browser-wasm in interpreted (non-AOT) mode**, which CI runs: Mono's interpreter
+executes the expression tree through the expression interpreter rather than JIT-compiled code, so
+it is correct there, just not at the numbers below.
+
 ## What is recognised inside `dlr { }`
 
 | Syntax | Binder |
