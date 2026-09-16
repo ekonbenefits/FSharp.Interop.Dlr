@@ -72,9 +72,15 @@ jobs:
   # asked to do that on. It found a real bug once (a nested delegate
   # wrapped as an FSharpFunc lost its argument there; see DlrRuntime),
   # which is exactly why it stays in the matrix. AnyUnit's browser-wasm
-  # runner hosts the net10 test build in headless Chrome; Release only,
-  # since the point is the runtime, not the optimizer.
+  # runner hosts the net10 test build in headless Chrome. Both
+  # configurations, same as the other legs: the Release optimizer
+  # changes the IL the translator reads, and the interpreter reads that
+  # IL differently from the JIT.
   browser-wasm:
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Debug, Release]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -84,7 +90,7 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Build
-        run: dotnet build --configuration Release
+        run: dotnet build --configuration ${{ matrix.configuration }}
 
       - name: Install anyunit-browser-wasm
         run: dotnet tool install --global AnyUnit.Runner.BrowserWasm --version "$ANYUNIT_VERSION"
@@ -92,19 +98,22 @@ jobs:
       # The runner's own exit code reports failures, same as the MTP
       # legs; results are uploaded regardless. PuppeteerSharp fetches
       # its own headless Chrome on first use and the runner applies
-      # --no-sandbox itself under Linux CI.
+      # --no-sandbox itself under Linux CI. -p is the runner's own
+      # platform suffix, the same label the MTP legs carry.
       - name: Test (browser-wasm)
         shell: bash
         run: |
           export PATH="$PATH:$HOME/.dotnet/tools"
           mkdir -p results
-          anyunit-browser-wasm run -o results/Tests-browser-wasm.json Tests/bin/Release/net10.0/Tests.dll
+          anyunit-browser-wasm run -o results/Tests-browser-wasm-${{ matrix.configuration }}.json \
+            -p ${{ matrix.configuration }} \
+            Tests/bin/${{ matrix.configuration }}/net10.0/Tests.dll
 
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: anyunit-results-browser-wasm
+          name: anyunit-results-browser-wasm-${{ matrix.configuration }}
           path: results/*.json
           if-no-files-found: warn
 
