@@ -96,6 +96,8 @@ type Dlr =
     [<MethodImpl(MethodImplOptions.NoInlining)>]
     static member cast<'T> (value: obj) : 'T = ignore value; outside "Dlr.cast"
     [<MethodImpl(MethodImplOptions.NoInlining)>]
+    static member implicit (value: obj) : 'T = ignore value; outside "Dlr.implicit"
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
     static member neg (value: obj) : 'TResult = ignore value; outside "Dlr.neg"
     [<MethodImpl(MethodImplOptions.NoInlining)>]
     static member not (value: obj) : 'TResult = ignore value; outside "Dlr.not"

@@ -62,6 +62,11 @@ type Recorder() =
         this.Log.Add(sprintf "setIndex %s=%O" (String.Join(",", indexes)) value)
         true
 
+/// Has a user-defined implicit conversion from int, for the Convert binder.
+type Meters(value: int) =
+    member _.Value = value
+    static member op_Implicit(n: int) : Meters = Meters(n)
+
 module Fixtures =
     let expando (pairs: (string * obj) list) =
         let e = ExpandoObject()

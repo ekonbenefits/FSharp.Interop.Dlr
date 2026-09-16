@@ -78,6 +78,7 @@ it is correct there, just not at the numbers below.
 | `?=? ?<>? ?<? ?>? ?<=? ?>=?` | BinaryOperation, then Convert to bool |
 | `Dlr.neg x`, `Dlr.not x`, `Dlr.complement x` | UnaryOperation, then Convert |
 | `Dlr.cast<T> x` | explicit Convert (a C# cast); `?` results convert implicitly on their own |
+| `Dlr.implicit x` | implicit Convert of a value you already hold, to the type inferred from use (widening, `op_Implicit`, `TryConvert`) |
 
 Plus `let`, `let rec` (including mutual recursion), `use`, `if`, sequencing, `for x in items do …`,
 `while … do …`, `try … with`, `try … finally` and ordinary F# code. Loop bodies reuse the block's call sites across iterations; a failed dynamic

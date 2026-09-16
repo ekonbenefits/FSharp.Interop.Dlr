@@ -34,3 +34,28 @@ let ``unary operators reach TryUnaryOperation`` () =
 let ``unary on an unsupported operand raises RuntimeBinderException`` () =
     let s = box "text"
     (fun () -> (dlr { return Dlr.neg s } : obj) |> ignore) |> should throw typeof<RuntimeBinderException>
+
+[<Fact>]
+let ``implicit conversion of a held value`` () =
+    let x = box 5
+    let widened: int64 = dlr { return Dlr.implicit x }
+    widened |> should equal 5L
+    let same: int = dlr { return Dlr.implicit x }
+    same |> should equal 5
+    let asObj: obj = dlr { return Dlr.implicit x }
+    asObj |> should equal (box 5)
+
+[<Fact>]
+let ``implicit conversion uses op_Implicit and TryConvert`` () =
+    let n = box 7
+    let m: Meters = dlr { return Dlr.implicit n }
+    m.Value |> should equal 7
+    let a = box (Arith(9))
+    let s: string = dlr { return Dlr.implicit a }
+    s |> should equal "9"
+
+[<Fact>]
+let ``implicit conversion refuses what a cast would allow`` () =
+    let d = box 3.9
+    (fun () -> (dlr { return Dlr.implicit d } : int) |> ignore) |> should throw typeof<RuntimeBinderException>
+    (dlr { return Dlr.cast<int> d }) |> should equal 3
