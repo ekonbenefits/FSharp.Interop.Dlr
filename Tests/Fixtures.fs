@@ -51,3 +51,51 @@ module Fixtures =
         let d = e :> IDictionary<string, obj>
         for k, v in pairs do d.[k] <- v
         e
+
+/// Overrides the DynamicObject hooks the operators and conversions hit.
+type Arith(value: int) =
+    inherit DynamicObject()
+    member _.Value = value
+    override _.TryInvoke(_, args, result) =
+        result <- box (sprintf "invoked with %d args" args.Length)
+        true
+    override _.TryBinaryOperation(binder, arg, result) =
+        let other = match arg with :? Arith as a -> a.Value | o -> unbox<int> o
+        match binder.Operation with
+        | System.Linq.Expressions.ExpressionType.Add -> result <- box (Arith(value + other)); true
+        | System.Linq.Expressions.ExpressionType.Multiply -> result <- box (Arith(value * other)); true
+        | System.Linq.Expressions.ExpressionType.Equal -> result <- box (value = other); true
+        | System.Linq.Expressions.ExpressionType.LessThan -> result <- box (value < other); true
+        | _ -> false
+    override _.TryConvert(binder, result) =
+        if binder.Type = typeof<int> then result <- box value; true
+        elif binder.Type = typeof<string> then result <- box (string value); true
+        else false
+    override _.TryGetMember(binder, result) =
+        // Only "Value" exists; anything else is a genuine miss.
+        if binder.Name = "Value" then result <- box value; true else false
+
+/// IDynamicMetaObjectProvider implemented directly, without DynamicObject.
+type Bag() =
+    let data = Dictionary<string, obj>()
+    member _.Data = data
+    interface IDynamicMetaObjectProvider with
+        member this.GetMetaObject(expression) = BagMeta(expression, this) :> DynamicMetaObject
+
+and BagMeta(expression, bag: Bag) =
+    inherit DynamicMetaObject(expression, BindingRestrictions.Empty, bag)
+    let self = System.Linq.Expressions.Expression.Convert(expression, typeof<Bag>)
+    let restrictions () = BindingRestrictions.GetTypeRestriction(expression, typeof<Bag>)
+    override _.BindGetMember(binder) =
+        let call =
+            System.Linq.Expressions.Expression.Call(
+                typeof<BagMeta>.GetMethod("Get"), self, System.Linq.Expressions.Expression.Constant binder.Name)
+        DynamicMetaObject(call, restrictions ())
+    override _.BindSetMember(binder, value) =
+        let call =
+            System.Linq.Expressions.Expression.Call(
+                typeof<BagMeta>.GetMethod("Set"), self, System.Linq.Expressions.Expression.Constant binder.Name,
+                System.Linq.Expressions.Expression.Convert(value.Expression, typeof<obj>))
+        DynamicMetaObject(call, restrictions ())
+    static member Get(bag: Bag, name: string) : obj = bag.Data.[name]
+    static member Set(bag: Bag, name: string, value: obj) : obj = bag.Data.[name] <- value; value

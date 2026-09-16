@@ -25,6 +25,7 @@
     <Compile Include="Body.fs" />
     <Compile Include="Cache.fs" />
     <Compile Include="Loops.fs" />
+    <Compile Include="DynamicObjects.fs" />
     <Compile Include="Errors.fs" />
     <Compile Include="Unreflected.fs" />
   </ItemGroup>
