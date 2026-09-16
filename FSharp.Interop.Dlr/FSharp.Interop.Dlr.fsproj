@@ -6,7 +6,7 @@
     <RootNamespace>FSharp.Interop.Dlr</RootNamespace>
     <Description>dlr { } computation expression: ? operator compiled once per call site with baked DLR call sites</Description>
     <Authors>Jay Tuley</Authors>
-    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>fsharp dynamic dlr quotations</PackageTags>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
