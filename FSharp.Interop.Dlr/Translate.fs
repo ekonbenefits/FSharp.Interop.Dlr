@@ -28,10 +28,18 @@ module internal Translate =
     let private genericDef (mi: Reflection.MethodInfo) =
         if mi.IsGenericMethod then mi.GetGenericMethodDefinition() else mi
 
+    /// The generic definition of the method a marker quotation calls. Curried static members
+    /// quote as applications of an inner lambda, so this looks for the first call anywhere.
     let private opMethod (e: Expr<_>) =
-        match e with
-        | Lambdas(_, Call(None, mi, _)) -> genericDef mi
-        | _ -> failwith "operator definition expected"
+        let rec find (e: Expr) =
+            match e with
+            | Call(None, mi, _) -> Some(genericDef mi)
+            | ShapeVar _ -> None
+            | ShapeLambda(_, body) -> find body
+            | ShapeCombination(_, args) -> args |> List.tryPick find
+        match find e with
+        | Some mi -> mi
+        | None -> failwith "operator definition expected"
 
     let private opDynamic = opMethod <@ fun (t: obj) (n: string) -> ((?) t n) : obj @>
     let private opDynamicAssign = opMethod <@ fun (t: obj) (n: string) (v: obj) -> (?<-) t n v @>
@@ -39,6 +47,9 @@ module internal Translate =
     let private opNamed = opMethod <@ fun (r: obj) -> Dlr.named r @>
     let private opCast = opMethod <@ fun (v: obj) -> Dlr.cast<obj> v @>
     let private opImplicit = opMethod <@ fun (v: obj) -> (Dlr.implicit v) : obj @>
+    let private opGet = opMethod <@ fun (n: string) (t: obj) -> (Dlr.get n t) : obj @>
+    let private opSet = opMethod <@ fun (n: string) (v: obj) (t: obj) -> Dlr.set n v t @>
+    let private opInvoke = opMethod <@ fun (n: string) (a: obj) (t: obj) -> (Dlr.invoke n a t) : obj @>
     let private unaryOps =
         dict [
             opMethod <@ fun (v: obj) -> (Dlr.neg v) : obj @>, ExpressionType.Negate
@@ -143,6 +154,26 @@ module internal Translate =
         | Let(v, value, Lambda(x, Application(Var v', Var x'))) when v = v' && x = x' -> value
         | _ -> e
 
+    /// One of the member operations, whichever way it was spelled: `x?Name` / `(?) x name` /
+    /// `Dlr.get name x`, those applied to arguments (`x?Name(a)`, `(Dlr.get name x)(a)`) or
+    /// `Dlr.invoke name a x`, and `x?Name <- v` / `Dlr.set name v x`. Target, name
+    /// expression, and the argument expression (for an invocation) or value (for a set).
+    type private MemberOp =
+        | GetMember of target: Expr * name: Expr
+        | InvokeMember of target: Expr * name: Expr * args: Expr
+        | SetMember of target: Expr * name: Expr * value: Expr
+
+    let private (|MemberOp|_|) (e: Expr) =
+        match e with
+        | Application(EtaReduced(Op opDynamic [ Unboxed target; name ]), args) -> Some(InvokeMember(target, name, args))
+        | Op opDynamic [ Unboxed target; name ] -> Some(GetMember(target, name))
+        | Op opDynamicAssign [ Unboxed target; name; Unboxed value ] -> Some(SetMember(target, name, value))
+        | Application(EtaReduced(Op opGet [ name; Unboxed target ]), args) -> Some(InvokeMember(target, name, args))
+        | Op opGet [ name; Unboxed target ] -> Some(GetMember(target, name))
+        | Op opInvoke [ name; args; Unboxed target ] -> Some(InvokeMember(target, name, args))
+        | Op opSet [ name; Unboxed value; Unboxed target ] -> Some(SetMember(target, name, value))
+        | _ -> None
+
     /// `x?Foo()` applies unit; `x?Foo(a, b)` applies a tuple; `x?Foo(a)` applies one value.
     let private splitArgs (e: Expr) =
         match e with
@@ -197,6 +228,46 @@ module internal Translate =
             | ShapeLambda(_, body) -> search body
             | ShapeCombination(_, args) -> args |> List.tryPick search
         search memberBody
+
+    // `|>` is inlined inside a quotation literal, so these come from reflection instead.
+    let private fsharpOperators = typeof<obj list>.Assembly.GetType("Microsoft.FSharp.Core.Operators")
+    let private pipeRight = fsharpOperators.GetMethod("op_PipeRight")
+    let private pipeLeft = fsharpOperators.GetMethod("op_PipeLeft")
+
+    /// `x |> f` in a reflected body is `op_PipeRight(x, let name = "A" in fun target -> …)`, and a
+    /// curried marker applied to its arguments is `Application(Lambda(name, Lambda(target, …)), …)`.
+    /// Apply such functions to their arguments (a parameter used at most once is substituted;
+    /// otherwise it is let-bound, so nothing is evaluated twice) and inline `let`s of literals and
+    /// variables, so `w |> Dlr.get "A"` becomes the plain `Dlr.get "A" w` call the member-op
+    /// patterns recognise, with the name a literal and a tuple argument still a tuple.
+    let rec private normalize (e: Expr) : Expr =
+        let rec occurrences (v: Var) (e: Expr) =
+            match e with
+            | Var v' when v' = v -> 1
+            | ShapeVar _ -> 0
+            | ShapeLambda(_, body) -> occurrences v body
+            | ShapeCombination(_, args) -> args |> List.sumBy (occurrences v)
+        let rec apply (f: Expr) (x: Expr) : Expr =
+            match f with
+            | Let(v, value, body) -> Expr.Let(v, value, apply body x)
+            | Lambda(p, body) ->
+                if occurrences p body <= 1 then body.Substitute(fun v -> if v = p then Some x else None)
+                else Expr.Let(p, x, body)
+            | _ -> Expr.Application(f, x)
+        let applied (f: Expr) (x: Expr) =
+            match normalize f, normalize x with
+            | (Lambda _ | Let _ as f), x -> normalize (apply f x)
+            | f, x -> Expr.Application(f, x)
+        match e with
+        | Op pipeRight [ x; f ] -> applied f x
+        | Op pipeLeft [ f; x ] -> applied f x
+        | Application(f, x) -> applied f x
+        | Let(v, (Value _ | Var _ as value), body) -> normalize (body.Substitute(fun v' -> if v' = v then Some value else None))
+        // The eta-expanded statement form `let clo = x?Foo in clo ()` once its lambda is applied.
+        | Let(v, value, Application(Var v', arg)) when v = v' -> applied value arg
+        | ShapeVar _ -> e
+        | ShapeLambda(v, body) -> Expr.Lambda(v, normalize body)
+        | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map normalize args)
 
     let translate (builderType: Type) (context: Type) (memberBody: Expr) (closureType: Type) (resultType: Type) (body: Expr) : Compiled =
         let convert = Binders.convert context
@@ -282,37 +353,32 @@ module internal Translate =
                 | "Run", [ Call(_, d, [ Lambda(_, inner) ]); _; _ ] when d.Name = "Delay" -> rewrite inner
                 | name, _ -> unsupported (sprintf "the '%s' construct" name) e
 
-            // Dynamic operations with a member name only known at run time
-            | Application(EtaReduced(Op opDynamic [ Unboxed target; nameExpr ]), argExpr) when not (isLiteral nameExpr) ->
+            // Member operations: a literal name is a baked site; a computed name binds per name.
+            | MemberOp(InvokeMember(target, nameExpr, argExpr)) ->
                 let typeArgs, argExprs =
                     match splitArgs argExpr with
                     | TypeArgs ts :: rest -> ts, rest
                     | args -> [], args
-                computedName bound nameExpr target argExprs e.Type (fun name targetArg args ->
-                    Binders.invokeMember context name typeArgs false targetArg args)
-            | Op opDynamic [ Unboxed target; nameExpr ] when not (isLiteral nameExpr) ->
+                match nameExpr with
+                | Literal name ->
+                    let discard = e.Type = typeof<unit>
+                    let bindings, args = argList bound argExprs
+                    Binders.invokeMember context (string name) typeArgs discard (targetArg bound target) args |> finish discard e.Type |> bind bound bindings
+                | _ ->
+                    computedName bound nameExpr target argExprs e.Type (fun name targetArg args ->
+                        Binders.invokeMember context name typeArgs false targetArg args)
+            | MemberOp(GetMember(target, nameExpr)) ->
                 if FSharpType.IsFunction e.Type then
                     unsupported "a dynamic member used as a first-class function; apply it directly" e
-                computedName bound nameExpr target [] e.Type (fun name targetArg _ -> Binders.getMember context name targetArg)
-            | Op opDynamicAssign [ Unboxed target; nameExpr; Unboxed value ] when not (isLiteral nameExpr) ->
-                computedName bound nameExpr target [ value ] typeof<unit> (fun name targetArg args ->
-                    Binders.setMember context name targetArg (List.head args))
-
-            // Dynamic operations
-            | Application(EtaReduced(Op opDynamic [ Unboxed target; Literal name ]), argExpr) ->
-                let discard = e.Type = typeof<unit>
-                let typeArgs, argExpr =
-                    match splitArgs argExpr with
-                    | TypeArgs ts :: rest -> ts, rest
-                    | args -> [], args
-                let bindings, args = argList bound argExpr
-                Binders.invokeMember context (string name) typeArgs discard (targetArg bound target) args |> finish discard e.Type |> bind bound bindings
-            | Op opDynamic [ Unboxed target; Literal name ] ->
-                if FSharpType.IsFunction e.Type then
-                    unsupported "a dynamic member used as a first-class function; apply it directly" e
-                Binders.getMember context (string name) (targetArg bound target) |> convert e.Type
-            | Op opDynamicAssign [ Unboxed target; Literal name; Unboxed value ] ->
-                Binders.setMember context (string name) (targetArg bound target) (valueArg bound value) |> convert typeof<unit>
+                match nameExpr with
+                | Literal name -> Binders.getMember context (string name) (targetArg bound target) |> convert e.Type
+                | _ -> computedName bound nameExpr target [] e.Type (fun name targetArg _ -> Binders.getMember context name targetArg)
+            | MemberOp(SetMember(target, nameExpr, value)) ->
+                match nameExpr with
+                | Literal name -> Binders.setMember context (string name) (targetArg bound target) (valueArg bound value) |> convert typeof<unit>
+                | _ ->
+                    computedName bound nameExpr target [ value ] typeof<unit> (fun name targetArg args ->
+                        Binders.setMember context name targetArg (List.head args))
             | Application(EtaReduced(Op opBang [ Unboxed target ]), argExpr) ->
                 let discard = e.Type = typeof<unit>
                 let bindings, args = argList bound (splitArgs argExpr)
@@ -415,7 +481,7 @@ module internal Translate =
         let delegateType = typedefof<Func<_, _>>.MakeGenericType(typeof<obj>, resultType)
         let linq =
             try
-                let rewritten = asUnit (rewrite body)
+                let rewritten = asUnit (rewrite (normalize body))
                 let lambda = Expr.NewDelegate(delegateType, [ closure ], rewritten)
                 LeafExpressionConverter.QuotationToExpression lambda :?> LambdaExpression
             with :? DlrTranslationException -> reraise ()

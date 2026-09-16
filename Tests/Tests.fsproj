@@ -40,6 +40,7 @@
     <Compile Include="Nesting.fs" />
     <Compile Include="Errors.fs" />
     <Compile Include="ComputedNames.fs" />
+    <Compile Include="Pipes.fs" />
     <Compile Include="Unreflected.fs" />
   </ItemGroup>
 

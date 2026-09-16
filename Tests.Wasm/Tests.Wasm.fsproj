@@ -46,6 +46,7 @@
     <Compile Include="..\Tests\Nesting.fs" Link="Nesting.fs" />
     <Compile Include="..\Tests\Errors.fs" Link="Errors.fs" />
     <Compile Include="..\Tests\ComputedNames.fs" Link="ComputedNames.fs" />
+    <Compile Include="..\Tests\Pipes.fs" Link="Pipes.fs" />
     <Compile Include="..\Tests\Unreflected.fs" Link="Unreflected.fs" />
   </ItemGroup>
 

@@ -22,6 +22,7 @@ dlr { w?Count <- 9 }                                       // SetMember
 let sum: int = dlr { return (box 1) ?+? (box 2) }          // BinaryOperation
 let v: int = dlr { return (Dlr.idx w).[1, 2] }             // GetIndex
 dlr { (Dlr.idx w).[1, 2] <- v }                            // SetIndex
+let name: string = dlr { return root |> Dlr.get "Child" |> Dlr.get "Name" }   // pipe order
 let depth: int =                                           // recursion over a runtime-shaped graph
     dlr {
         let rec depth (node: obj) : int =
@@ -69,6 +70,7 @@ it is correct there, just not at the numbers below.
 | `x?Name` | GetMember, then Convert to the inferred type |
 | `x?Name(a, b)`, `x?Name()` | InvokeMember; args use their static F# type, `obj` args dispatch on runtime type, literals get C#'s constant conversions (`5` → `byte`, `0` → enum, `null` → any reference type) |
 | `x?Name(a, Dlr.named {| p = v |})` | InvokeMember with named arguments; a bare `{| |}` is one positional argument |
+| `x \|> Dlr.get "Name"`, `(x \|> Dlr.get "Add") (1, 2)`, `x \|> Dlr.invoke "Add" (1, 2)`, `x \|> Dlr.set "Name" v` | the same operations with the target last, for pipelines: `root \|> Dlr.get "Child" \|> Dlr.get "Name"`. `Dlr.get` invokes when applied, like `?` |
 | `(?) x name`, `((?) x name)(a)`, `(?<-) x name v` with `name` a variable | the same binders, bound per distinct name at run time: the site holds one compiled delegate per name, made on first use, so a repeated name costs a dictionary lookup |
 | `x?Name(Dlr.typeArgs<A, B>(), a)` | InvokeMember with explicit generic type arguments (up to four; marker goes first). Without it, type arguments are inferred from the argument types as in C# |
 | `x?Name <- v` | SetMember |
