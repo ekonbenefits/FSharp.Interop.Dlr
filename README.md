@@ -70,6 +70,8 @@ Calling any of the operators or `Dlr.*` markers outside `dlr { }` throws `Invali
 | `dlr { return w?Add(i, 1) }` | 29 |
 | `dlr { return w?Add(i, Dlr.named {| b = 1 |}) }` | 29 |
 | FSharp.Interop.Dynamic `w?Count` / `w?Add(i, 1)` | ~4 100 / ~7 800 |
+| reflection, cached `PropertyInfo.GetValue` / `MethodInfo.Invoke(w, [\| i; 1 \|])` | 17 / 63 |
+| reflection, `GetProperty` + `GetValue` / `GetMethod` + `Invoke` each call | 49 / 67 |
 | static `w.Count` | 4 |
 
 Why not quote the block instead (`Quote` in the builder)? Because FSharp.Core rebuilds a quotation
