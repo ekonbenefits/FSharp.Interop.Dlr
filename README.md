@@ -33,6 +33,18 @@ let depth: int =                                           // recursion over a r
 Targets `netstandard2.0` and `net10.0`. Depends on FSharp.Core ≥ 6.0.1 and, on
 netstandard2.0, Microsoft.CSharp.
 
+## Prerelease packages
+
+Every push to `master` publishes `FSharp.Interop.Dlr` at its MinVer version
+(`1.0.0-alpha.0.<height>` until a `v1.0.0` tag exists) to the ekonbenefits GitHub Packages feed.
+GitHub Packages needs a token even to read; a personal access token with `read:packages` does:
+
+```
+dotnet nuget add source https://nuget.pkg.github.com/ekonbenefits/index.json \
+  --name ekonbenefits --username <github-user> --password <token> --store-password-in-clear-text
+dotnet add package FSharp.Interop.Dlr --prerelease
+```
+
 ## Not for NativeAOT or trimming
 
 This is a JIT-only library, like C# `dynamic` itself:
