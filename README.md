@@ -25,6 +25,19 @@ dlr { (Dlr.idx w).[1, 2] <- v }                            // SetIndex
 Targets `netstandard2.0` and `net10.0`. Depends on FSharp.Core ≥ 6.0.1 and, on
 netstandard2.0, Microsoft.CSharp.
 
+## Not for NativeAOT or trimming
+
+This is a JIT-only library, like C# `dynamic` itself:
+
+- `Microsoft.CSharp.RuntimeBinder` requires dynamic code and unreferenced members (it is
+  `[RequiresDynamicCode]` / `[RequiresUnreferencedCode]` in .NET).
+- The compiled block is a `LambdaExpression.Compile()`; without dynamic code it would fall back to
+  the expression interpreter and lose the speed that is the point.
+- Bodies come from `[<ReflectedDefinition>]` resources and captured values from closure fields,
+  both found by reflection that a trimmer cannot see.
+
+The assembly is marked `IsAotCompatible=false` / `IsTrimmable=false` so `dotnet publish` warns.
+
 ## What is recognised inside `dlr { }`
 
 | Syntax | Binder |
