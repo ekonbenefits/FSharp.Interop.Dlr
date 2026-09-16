@@ -67,3 +67,45 @@ let ``try inside a loop keeps going`` () =
     }
     // Widget has no string indexer, so every item fails the same way: the point is the loop survives.
     List.ofSeq acc |> should equal [ "?"; "?"; "?" ]
+
+type Resource(log: ResizeArray<string>) =
+    member _.Ping() = log.Add "ping"
+    interface IDisposable with
+        member _.Dispose() = log.Add "disposed"
+
+[<Fact>]
+let ``use disposes after the body, dynamic calls on the resource work`` () =
+    let log = ResizeArray<string>()
+    let make () = new Resource(log)
+    let n: int =
+        dlr {
+            use r = make ()
+            let o = box r
+            o?Ping()
+            return (box log)?Count
+        }
+    n |> should equal 1
+    List.ofSeq log |> should equal [ "ping"; "disposed" ]
+
+[<Fact>]
+let ``use disposes when the body throws`` () =
+    let log = ResizeArray<string>()
+    let make () = new Resource(log)
+    let w = box (Widget())
+    (fun () ->
+        (dlr {
+            use _r = make ()
+            return (w?Missing : int)
+        }) |> ignore)
+    |> should throw typeof<RuntimeBinderException>
+    List.ofSeq log |> should equal [ "disposed" ]
+
+[<Fact>]
+let ``use with a null resource is allowed`` () =
+    let w = box (Widget())
+    let n: int =
+        dlr {
+            use _r: IDisposable = null
+            return w?Count
+        }
+    n |> should equal 3

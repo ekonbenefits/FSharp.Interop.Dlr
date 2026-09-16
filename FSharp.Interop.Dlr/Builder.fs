@@ -14,6 +14,7 @@ type DlrBuilder() =
     member _.While(guard: unit -> bool, body: unit -> unit) : unit = while guard () do body ()
     member _.TryWith(body: unit -> 'T, handler: exn -> 'T) : 'T = try body () with e -> handler e
     member _.TryFinally(body: unit -> 'T, compensation: unit -> unit) : 'T = try body () finally compensation ()
+    member _.Using(resource: 'R, body: 'R -> 'T) : 'T when 'R :> IDisposable = DlrRuntime.using resource body
 
     member this.Run(body: unit -> 'T,
                     [<CallerFilePath; Optional; DefaultParameterValue("")>] file: string,

@@ -24,6 +24,8 @@ type DlrBuilder =
     member TryWith: body: (unit -> 'T) * handler: (exn -> 'T) -> 'T
     /// <summary><c>try … finally</c>.</summary>
     member TryFinally: body: (unit -> 'T) * compensation: (unit -> unit) -> 'T
+    /// <summary><c>use x = …</c>; disposed when the block leaves the scope.</summary>
+    member Using: resource: 'R * body: ('R -> 'T) -> 'T when 'R :> System.IDisposable
     /// <summary>Compiles (first call) and runs the block. <paramref name="file"/> and <paramref name="line"/> are filled in by the compiler and locate the body in the reflected definition.</summary>
     member Run:
         body: (unit -> 'T) *

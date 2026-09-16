@@ -25,6 +25,14 @@ module DlrRuntime =
     let tryFinally (body: unit -> 'T) (compensation: unit -> unit) : 'T =
         try body () finally compensation ()
 
+    /// `use x = resource in body x`; a null resource is allowed, as in F#.
+    let using (resource: 'R when 'R :> IDisposable) (body: 'R -> 'T) : 'T =
+        try body resource
+        finally
+            match box resource with
+            | null -> ()
+            | d -> (d :?> IDisposable).Dispose()
+
 /// Builds Microsoft.CSharp binders and emits the quotation fragment that calls a
 /// pre-created CallSite: `Call(FieldGet(Value site, Target), Invoke, site :: args)`.
 /// The `Value site` becomes an Expression.Constant, so the site is baked into the

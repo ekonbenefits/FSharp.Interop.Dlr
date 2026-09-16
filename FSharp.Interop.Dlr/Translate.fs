@@ -41,6 +41,7 @@ module internal Translate =
     let private whileLoop = opMethod <@ fun (guard: unit -> bool) (body: unit -> unit) -> DlrRuntime.whileLoop guard body @>
     let private tryWith = opMethod <@ fun (body: unit -> obj) (handler: exn -> obj) -> DlrRuntime.tryWith body handler @>
     let private tryFinally = opMethod <@ fun (body: unit -> obj) (fin: unit -> unit) -> DlrRuntime.tryFinally body fin @>
+    let private using = opMethod <@ fun (r: IDisposable) (body: IDisposable -> obj) -> DlrRuntime.using r body @>
     let private opIdx = opMethod <@ fun (t: obj) -> (Dlr.idx t) : Indexed<obj> @>
 
     let private binaryOps =
@@ -188,6 +189,8 @@ module internal Translate =
                     Expr.Call(tryWith.MakeGenericMethod(e.Type), [ rewrite body; rewrite handler ])
                 | "TryFinally", [ Call(_, d, [ body ]); compensation ] when d.Name = "Delay" ->
                     Expr.Call(tryFinally.MakeGenericMethod(e.Type), [ rewrite body; rewrite compensation ])
+                | "Using", [ resource; Lambda(r, body) ] ->
+                    Expr.Call(using.MakeGenericMethod(r.Type, e.Type), [ rewrite resource; Expr.Lambda(r, asUnit (rewrite body)) ])
                 | name, _ -> unsupported (sprintf "the '%s' construct" name) e
 
             // Dynamic operations
