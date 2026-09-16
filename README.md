@@ -63,7 +63,8 @@ it is correct there, just not at the numbers below.
 Plus `let`, `use`, `if`, sequencing, `for x in items do …`, `while … do …`, `try … with`,
 `try … finally` and ordinary F# code. Loop bodies reuse the block's call sites across iterations; a failed dynamic
 bind (`RuntimeBinderException`) can be caught inside the block. Blocks can be nested (an inner block compiles as part of the outer
-one) and can sit inside `task { }` / `async { }`. As in `async { }`, a `let mutable`
+one), can sit inside `task { }` / `async { }`, and work in F# Interactive scripts (mark the
+module `[<ReflectedDefinition>]` as usual). As in `async { }`, a `let mutable`
 cannot be captured by a loop or try body; use a `ref` or an object. `let rec` is not translated
 (`LeafExpressionConverter` limit).
 
