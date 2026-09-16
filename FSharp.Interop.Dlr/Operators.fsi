@@ -82,6 +82,8 @@ type Dlr =
     static member typeArgs<'A, 'B, 'C, 'D> : unit -> TypeArgs
     /// <summary>Explicit conversion, like a C# cast: <c>Dlr.cast&lt;int&gt; x?Ratio</c>. Results of <c>?</c> convert implicitly on their own.</summary>
     static member cast<'T> : value: obj -> 'T
+    /// <summary>Implicit conversion of a value to the type inferred from use (widening, <c>op_Implicit</c>, <c>TryConvert</c>): <c>let n: int64 = dlr { return Dlr.implicit x }</c>.</summary>
+    static member implicit: value: obj -> 'T
     /// <summary>Dynamic unary minus.</summary>
     static member neg: value: obj -> 'TResult
     /// <summary>Dynamic logical not.</summary>

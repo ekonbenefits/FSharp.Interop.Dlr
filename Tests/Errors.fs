@@ -21,6 +21,7 @@ let ``every operator and marker throws outside dlr`` () =
     outside (fun () -> Dlr.typeArgs<int, int, int>() |> ignore)
     outside (fun () -> Dlr.typeArgs<int, int, int, int>() |> ignore)
     outside (fun () -> Dlr.cast<int> a |> ignore)
+    outside (fun () -> (Dlr.implicit a : int) |> ignore)
     outside (fun () -> (Dlr.neg a : int) |> ignore)
     outside (fun () -> (Dlr.not a : bool) |> ignore)
     outside (fun () -> (Dlr.complement a : int) |> ignore)

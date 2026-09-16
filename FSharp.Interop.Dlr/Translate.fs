@@ -38,6 +38,7 @@ module internal Translate =
     let private opBang = opMethod <@ fun (t: obj) -> ((!?) t) : obj @>
     let private opNamed = opMethod <@ fun (r: obj) -> Dlr.named r @>
     let private opCast = opMethod <@ fun (v: obj) -> Dlr.cast<obj> v @>
+    let private opImplicit = opMethod <@ fun (v: obj) -> (Dlr.implicit v) : obj @>
     let private unaryOps =
         dict [
             opMethod <@ fun (v: obj) -> (Dlr.neg v) : obj @>, ExpressionType.Negate
@@ -329,6 +330,9 @@ module internal Translate =
             | Op opCast [ Unboxed value ] ->
                 let v = rewrite value
                 Binders.convertExplicit context e.Type (if v.Type = typeof<obj> then v else Expr.Coerce(v, typeof<obj>))
+            | Op opImplicit [ Unboxed value ] ->
+                let v = rewrite value
+                convert e.Type (if v.Type = typeof<obj> then v else Expr.Coerce(v, typeof<obj>))
 
             // Everything else: captured variables become field reads, structure is rebuilt as-is.
             | Var v when isCaptured bound v -> captured (rewriteIn bound) v
