@@ -150,7 +150,16 @@ module internal Translate =
     /// Compiles the reflected body of one `dlr { }` block. `closureType` is the compiler-generated
     /// class of the `Delay` closure: its fields, named after the captured variables, are where
     /// the body's free variables are read from at call time.
-    let translate (builderType: Type) (context: Type) (closureType: Type) (resultType: Type) (body: Expr) : Compiled =
+    /// The definition of a let-bound variable somewhere in `e` (quotation Vars are identity-based,
+    /// so shadowing is not a concern).
+    let rec private letDefinition (v: Var) (e: Expr) : Expr option =
+        match e with
+        | Let(v', def, _) when v' = v -> Some def
+        | ShapeVar _ -> None
+        | ShapeLambda(_, body) -> letDefinition v body
+        | ShapeCombination(_, args) -> args |> List.tryPick (letDefinition v)
+
+    let translate (builderType: Type) (context: Type) (memberBody: Expr) (closureType: Type) (resultType: Type) (body: Expr) : Compiled =
         let convert = Binders.convert context
         if closureType.IsGenericType || closureType.ContainsGenericParameters then
             raise (DlrTranslationException(
@@ -164,8 +173,11 @@ module internal Translate =
             |> dict
 
         /// A free variable of the body becomes a read of the closure field of the same name.
-        /// A captured `let mutable` is stored as an FSharpRef cell; read through it.
-        let captured (v: Var) : Expr =
+        /// A captured `let mutable` is stored as an FSharpRef cell; read through it. When there is
+        /// no such field the optimizer inlined the variable's definition (a literal, a local
+        /// function, ...) instead of capturing it, so substitute that definition from the
+        /// enclosing member's body; its own free variables resolve the same way.
+        let captured (resolve: Expr -> Expr) (v: Var) : Expr =
             match fields.TryGetValue v.Name with
             | true, f when f.FieldType = v.Type -> Expr.FieldGet(self, f)
             | true, f when f.FieldType.IsGenericType
@@ -176,23 +188,29 @@ module internal Translate =
                 raise (DlrTranslationException(
                         sprintf "dlr { } captured '%s' as %s but the body uses it as %s." v.Name f.FieldType.Name v.Type.Name))
             | _ ->
-                raise (DlrTranslationException(
-                        sprintf "dlr { } could not find captured variable '%s' on closure %s (fields: %s)."
-                            v.Name closureType.Name (String.Join(", ", fields.Keys))))
+                match letDefinition v memberBody with
+                | Some def -> resolve def
+                | None ->
+                    raise (DlrTranslationException(
+                            sprintf "dlr { } could not find captured variable '%s' on closure %s (fields: %s) or a let binding for it."
+                                v.Name closureType.Name (String.Join(", ", fields.Keys))))
 
         /// A `unit` expression may compile to a void call, which cannot be the value of a lambda or
         /// of the block; end it with the unit constant so the tree has a `Unit` value.
         let asUnit (e: Expr) =
             if e.Type = typeof<unit> then Expr.Sequential(e, Expr.Value(())) else e
 
-        let free = body.GetFreeVars() |> Seq.filter (fun v -> v.Type <> builderType) |> Set.ofSeq
+        /// Variables bound inside the expression being rewritten are left alone; anything else
+        /// that is not the builder comes from the closure or the enclosing member.
+        let isCaptured (bound: Set<Var>) (v: Var) = not (bound.Contains v) && v.Type <> builderType
 
         let isBuilder (receiver: Expr option) =
             match receiver with
             | Some r -> r.Type = builderType
             | None -> false
 
-        let rec rewrite (e: Expr) : Expr =
+        let rec rewriteIn (bound: Set<Var>) (e: Expr) : Expr =
+            let rewrite = rewriteIn bound
             match e with
             // CE plumbing (Discover already unwrapped the outermost Delay)
             | Call(receiver, mi, args) when isBuilder receiver ->
@@ -203,7 +221,7 @@ module internal Translate =
                     Expr.Sequential(rewrite first, rewrite rest)
                 | "For", [ items; Lambda(x, body) ] ->
                     let items = rewrite items
-                    Expr.Call(forEach.MakeGenericMethod(x.Type), [ items; Expr.Lambda(x, asUnit (rewrite body)) ])
+                    Expr.Call(forEach.MakeGenericMethod(x.Type), [ items; Expr.Lambda(x, asUnit (rewriteIn (bound.Add x) body)) ])
                 | "While", [ guard; Call(_, d, [ body ]) ] when d.Name = "Delay" ->
                     Expr.Call(whileLoop, [ rewrite guard; rewrite body ])
                 | "TryWith", [ Call(_, d, [ body ]); handler ] when d.Name = "Delay" ->
@@ -211,7 +229,7 @@ module internal Translate =
                 | "TryFinally", [ Call(_, d, [ body ]); compensation ] when d.Name = "Delay" ->
                     Expr.Call(tryFinally.MakeGenericMethod(e.Type), [ rewrite body; rewrite compensation ])
                 | "Using", [ resource; Lambda(r, body) ] ->
-                    Expr.Call(using.MakeGenericMethod(r.Type, e.Type), [ rewrite resource; Expr.Lambda(r, asUnit (rewrite body)) ])
+                    Expr.Call(using.MakeGenericMethod(r.Type, e.Type), [ rewrite resource; Expr.Lambda(r, asUnit (rewriteIn (bound.Add r) body)) ])
                 | name, _ -> unsupported (sprintf "the '%s' construct" name) e
 
             // Dynamic operations
@@ -221,48 +239,49 @@ module internal Translate =
                     match splitArgs argExpr with
                     | TypeArgs ts :: rest -> ts, rest
                     | args -> [], args
-                let bindings, args = argList argExpr
-                Binders.invokeMember context (string name) typeArgs discard (targetArg target) args |> finish discard e.Type |> bind bindings
+                let bindings, args = argList bound argExpr
+                Binders.invokeMember context (string name) typeArgs discard (targetArg bound target) args |> finish discard e.Type |> bind bound bindings
             | Op opDynamic [ Unboxed target; Literal name ] ->
                 if FSharpType.IsFunction e.Type then
                     unsupported "a dynamic member used as a first-class function; apply it directly" e
-                Binders.getMember context (string name) (targetArg target) |> convert e.Type
+                Binders.getMember context (string name) (targetArg bound target) |> convert e.Type
             | Op opDynamicAssign [ Unboxed target; Literal name; Unboxed value ] ->
-                Binders.setMember context (string name) (targetArg target) (valueArg value) |> convert typeof<unit>
+                Binders.setMember context (string name) (targetArg bound target) (valueArg bound value) |> convert typeof<unit>
             | Application(EtaReduced(Op opBang [ Unboxed target ]), argExpr) ->
                 let discard = e.Type = typeof<unit>
-                let bindings, args = argList (splitArgs argExpr)
-                Binders.invoke context discard (targetArg target) args |> finish discard e.Type |> bind bindings
+                let bindings, args = argList bound (splitArgs argExpr)
+                Binders.invoke context discard (targetArg bound target) args |> finish discard e.Type |> bind bound bindings
             | PropertyGet(receiver, pi, indexes) when (IndexedProperty(receiver, pi)).IsSome ->
                 let target = (IndexedProperty(receiver, pi)).Value
-                Binders.getIndex context (targetArg target) (indexList indexes) |> convert e.Type
+                Binders.getIndex context (targetArg bound target) (indexList bound indexes) |> convert e.Type
             | PropertySet(receiver, pi, indexes, Unboxed value) when (IndexedProperty(receiver, pi)).IsSome ->
                 let target = (IndexedProperty(receiver, pi)).Value
-                Binders.setIndex context (targetArg target) (indexList indexes) (valueArg value) |> convert typeof<unit>
+                Binders.setIndex context (targetArg bound target) (indexList bound indexes) (valueArg bound value) |> convert typeof<unit>
             | BinaryOp(op, Unboxed left, Unboxed right) ->
-                Binders.binaryOperation context op (valueArg left) (valueArg right) |> convert e.Type
+                Binders.binaryOperation context op (valueArg bound left) (valueArg bound right) |> convert e.Type
             | UnaryOp(op, Unboxed operand) ->
-                Binders.unaryOperation context op (valueArg operand) |> convert e.Type
+                Binders.unaryOperation context op (valueArg bound operand) |> convert e.Type
             | Op opCast [ Unboxed value ] ->
                 let v = rewrite value
                 Binders.convertExplicit context e.Type (if v.Type = typeof<obj> then v else Expr.Coerce(v, typeof<obj>))
 
             // Everything else: captured variables become field reads, structure is rebuilt as-is.
-            | Var v when free.Contains v -> captured v
+            | Var v when isCaptured bound v -> captured (rewriteIn bound) v
             | ShapeVar _ -> e
-            | ShapeLambda(v, body) -> Expr.Lambda(v, asUnit (rewrite body))
+            | Let(v, def, letBody) -> Expr.Let(v, rewrite def, rewriteIn (bound.Add v) letBody)
+            | ShapeLambda(v, lambdaBody) -> Expr.Lambda(v, asUnit (rewriteIn (bound.Add v) lambdaBody))
             | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map rewrite args)
 
-        and targetArg (target: Expr) =
-            let t = rewrite target
+        and targetArg bound (target: Expr) =
+            let t = rewriteIn bound target
             Binders.dynamicArg (if t.Type = typeof<obj> then t else Expr.Coerce(t, typeof<obj>))
 
-        and valueArg (value: Expr) =
+        and valueArg bound (value: Expr) =
             match value with
             | Value _ -> Binders.constant (Binders.typedArg value)
-            | _ -> Binders.typedArg (rewrite value)
+            | _ -> Binders.typedArg (rewriteIn bound value)
 
-        and argList (argExprs: Expr list) =
+        and argList bound (argExprs: Expr list) =
             let bindings = ResizeArray()
             let args =
                 [ for a in argExprs do
@@ -270,17 +289,20 @@ module internal Translate =
                     | TypeArgs _ -> unsupported "Dlr.typeArgs anywhere but as the first argument" a
                     | NamedRecord(lets, fields) ->
                         bindings.AddRange lets
-                        for (name, v) in fields -> Binders.named name (valueArg v)
-                    | Unboxed v -> yield valueArg v ]
+                        let inner = bindings |> Seq.fold (fun (b: Set<Var>) (v, _) -> b.Add v) bound
+                        for (name, v) in fields -> Binders.named name (valueArg inner v)
+                    | Unboxed v -> yield valueArg bound v ]
             List.ofSeq bindings, args
 
-        and bind (bindings: (Var * Expr) list) (call: Expr) =
-            List.foldBack (fun (v, value) body -> Expr.Let(v, rewrite value, body)) bindings call
+        and bind bound (bindings: (Var * Expr) list) (call: Expr) =
+            List.foldBack (fun (v, value) body -> Expr.Let(v, rewriteIn bound value, body)) bindings call
 
-        and indexList (indexes: Expr list) = [ for Unboxed i in indexes -> valueArg i ]
+        and indexList bound (indexes: Expr list) = [ for Unboxed i in indexes -> valueArg bound i ]
 
         and finish discard (resultType: Type) (call: Expr) =
             if discard then call else convert resultType call
+
+        let rewrite = rewriteIn Set.empty
 
         let delegateType = typedefof<Func<_, _>>.MakeGenericType(typeof<obj>, resultType)
         let linq =

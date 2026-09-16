@@ -53,3 +53,15 @@ let genericPick (w: obj) (x: 'a) : string = dlr { return w?Pick(x) }
 [<Fact>]
 let ``generic enclosing function is rejected clearly`` () =
     (fun () -> genericPick (Widget()) 1 |> ignore) |> should throw typeof<DlrTranslationException>
+
+[<Fact>]
+let ``values the optimizer inlines instead of capturing still resolve`` () =
+    // In Release, F# inlines constant locals and local functions into the closure instead of
+    // capturing them; the reflected body still names them, so they resolve from their let binding.
+    let w = box (Widget())
+    let five = 5
+    let nothing: obj = null
+    let greeting () = "Hi"
+    (dlr { return w?Add(five, five) } : int) |> should equal 10
+    (dlr { return w?Text(nothing) } : string) |> should equal "string"
+    (dlr { return w?Greet(greeting (), "you") } : string) |> should equal "Hi, you"

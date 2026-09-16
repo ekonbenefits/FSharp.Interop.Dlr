@@ -40,14 +40,23 @@ module internal Discover =
         | ShapeLambda(_, body) -> runsAt builderType file line body
         | ShapeCombination(_, args) -> args |> List.collect (runsAt builderType file line)
 
-    /// The body for the block whose Delay closure has type `closureType`, at `file:line`, and the
-    /// type declaring the member it sits in (the binder's accessibility context, as in C#).
-    let findBody (builderType: Type) (closureType: Type) (file: string) (line: int) : Type * Expr =
+    /// What a block needs from its enclosing member's reflected definition.
+    type Found =
+        { /// Type declaring the enclosing member: the binder's accessibility context, as in C#.
+          Context: Type
+          /// The whole reflected body of the enclosing member, for resolving let-bound values
+          /// the optimizer inlined instead of capturing.
+          MemberBody: Expr
+          /// The block's body (the Delay lambda's body).
+          Body: Expr }
+
+    /// The block whose Delay closure has type `closureType`, at `file:line`.
+    let findBody (builderType: Type) (closureType: Type) (file: string) (line: int) : Found =
         let holder = if isNull closureType.DeclaringType then closureType else closureType.DeclaringType
         let search (types: seq<Type>) =
             types
             |> Seq.collect reflected
-            |> Seq.collect (fun (m, q) -> runsAt builderType file line q |> List.map (fun b -> m, b))
+            |> Seq.collect (fun (m, q) -> runsAt builderType file line q |> List.map (fun b -> m, q, b))
             |> List.ofSeq
         let matches =
             match search [ holder ] with
@@ -57,7 +66,7 @@ module internal Discover =
                 closureType.Assembly.GetTypes() |> Seq.filter (fun t -> not t.IsNested) |> search
             | found -> found
         match matches with
-        | [ m, body ] -> m.DeclaringType, body
+        | [ m, memberBody, body ] -> { Context = m.DeclaringType; MemberBody = memberBody; Body = body }
         | [] ->
             raise (DlrTranslationException(
                     sprintf "dlr { } at %s:%d needs [<ReflectedDefinition>] on its enclosing module, type or member so the body can be compiled (closure %s in %s)."

@@ -75,7 +75,9 @@ The binder's accessibility context is the type declaring the member the block si
 1. Without a `Quote` member, `dlr { … }` desugars to `dlr.Run(dlr.Delay(fun () -> …), file, line)`.
    `Delay` returns the closure unevaluated. Its compiler-generated type is unique to the block and
    its fields are the captured variables, named after them (`this` included; a captured
-   `let mutable` is an `FSharpRef` cell).
+   `let mutable` is an `FSharpRef` cell). In Release the optimizer inlines constant locals and
+   local functions instead of capturing them; those resolve from their `let` binding in the
+   enclosing member's reflected body.
 2. On the first call `Discover` finds the block's body: it reads the `[<ReflectedDefinition>]`
    quotations of the closure's declaring type and nested types (FSharp.Core caches those once
    decoded) and picks the `Run` call whose baked `CallerLineNumber` matches.
