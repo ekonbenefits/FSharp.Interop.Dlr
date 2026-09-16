@@ -11,7 +11,7 @@ env:
   # The AnyUnit tools (anyunit-report, which merges every leg's results
   # into one report, and anyunit-browser-wasm). Kept in step with the
   # AnyUnit.* PackageVersions in Directory.Packages.props.
-  ANYUNIT_VERSION: '1.2.0'
+  ANYUNIT_VERSION: '1.2.1'
 
 jobs:
   test:

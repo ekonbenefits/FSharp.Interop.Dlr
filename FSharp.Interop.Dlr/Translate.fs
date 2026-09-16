@@ -286,7 +286,7 @@ module internal Translate =
                 let viaCells (e: Expr) = e.Substitute(fun v -> cells |> List.tryFind (fun (rv, _) -> rv = v) |> Option.map (snd >> readCell))
                 let bound = cells |> List.fold (fun (b: Set<Var>) (_, c) -> b.Add c) bound
                 let assignments =
-                    [ for (v, def), (_, cell) in List.zip bindings cells ->
+                    [ for (_, def), (_, cell) in List.zip bindings cells ->
                         Expr.PropertySet(Expr.Var cell, cell.Type.GetProperty("Value"), rewriteIn bound (viaCells def)) ]
                 let body = rewriteIn bound (viaCells letBody)
                 let inner = List.foldBack (fun assign rest -> Expr.Sequential(assign, rest)) assignments body

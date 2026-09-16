@@ -12,8 +12,6 @@
          the net48 build to be named .exe. -->
     <OutputType>Exe</OutputType>
     <EnableAnyUnitRunner>true</EnableAnyUnitRunner>
-    <!-- FsUnit's `should` is AnyUnit's global-assert flavour, which it marks obsolete (FS0044). -->
-    <NoWarn>$(NoWarn);44</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
