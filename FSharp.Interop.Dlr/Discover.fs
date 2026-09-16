@@ -1,6 +1,7 @@
 namespace FSharp.Interop.Dlr
 
 open System
+open System.Collections.Concurrent
 open System.Reflection
 open FSharp.Quotations
 open FSharp.Quotations.Patterns
@@ -14,20 +15,23 @@ module internal Discover =
         BindingFlags.Static ||| BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.DeclaredOnly
 
     /// Members with a reflected definition on `t` and every type nested in it (closures of a
-    /// class member are nested in the enclosing module, not the class).
-    let rec private reflected (t: Type) : seq<MethodBase * Expr> =
-        seq {
-            for m in t.GetMethods all do
-                match Expr.TryGetReflectedDefinition m with
-                | Some q -> yield (m :> MethodBase), q
-                | None -> ()
-            for c in t.GetConstructors all do
-                match Expr.TryGetReflectedDefinition c with
-                | Some q -> yield (c :> MethodBase), q
-                | None -> ()
-            for n in t.GetNestedTypes all do
-                yield! reflected n
-        }
+    /// class member are nested in the enclosing module, not the class). Decoding a reflected
+    /// definition costs microseconds and a module has one per member, so the result is kept
+    /// per type: later blocks in the same type find their body without decoding again.
+    let private reflectedCache = ConcurrentDictionary<Type, (MethodBase * Expr) list>()
+
+    let rec private reflected (t: Type) : (MethodBase * Expr) list =
+        reflectedCache.GetOrAdd(t, fun t ->
+            [ for m in t.GetMethods all do
+                  match Expr.TryGetReflectedDefinition m with
+                  | Some q -> yield (m :> MethodBase), q
+                  | None -> ()
+              for c in t.GetConstructors all do
+                  match Expr.TryGetReflectedDefinition c with
+                  | Some q -> yield (c :> MethodBase), q
+                  | None -> ()
+              for n in t.GetNestedTypes all do
+                  yield! reflected n ])
 
     /// Every `builder.Run(builder.Delay(fun () -> body), file, line)` in `e` at this file and line.
     let rec private runsAt (builderType: Type) (file: string) (line: int) (e: Expr) : Expr list =
