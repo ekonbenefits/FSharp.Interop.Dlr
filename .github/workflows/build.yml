@@ -8,10 +8,10 @@ on:
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
-  # The AnyUnit tools (anyunit-report, which merges every leg's results
-  # into one report, and anyunit-browser-wasm). Kept in step with the
-  # AnyUnit.* PackageVersions in Directory.Packages.props.
-  ANYUNIT_VERSION: '1.2.1'
+  # The AnyUnit tool (anyunit-report, which merges every leg's results
+  # into one report). Kept in step with the AnyUnit.* PackageVersions in
+  # Directory.Packages.props.
+  ANYUNIT_VERSION: '1.2.2'
 
 jobs:
   test:
@@ -125,12 +125,17 @@ jobs:
   # browser-wasm interpreter is the most different runtime it can be
   # asked to do that on. It found a real bug once (a nested delegate
   # wrapped as an FSharpFunc lost its argument there; see DlrRuntime),
-  # which is exactly why it stays in the matrix. AnyUnit's browser-wasm
-  # runner hosts the net10 test build in headless Chrome. Both
-  # configurations, same as the other legs: the Release optimizer
-  # changes the IL the translator reads, and the interpreter reads that
-  # IL differently from the JIT.
-  browser-wasm:
+  # which is exactly why it stays in the matrix. Tests.Wasm is the same
+  # test sources as a browser-wasm build with the same MTP runner as the
+  # other legs: dotnet.js boots the runtime under bun with
+  # AnyUnit.TestingPlatform.WasmEntry as the main assembly (no browser,
+  # no web server), and wwwroot/runtests.mjs copies the results file out
+  # of the in-memory filesystem. Both configurations, same as the other
+  # legs: the Release optimizer changes the IL the translator reads, and
+  # the interpreter reads that IL differently from the JIT. Tests that
+  # genuinely suspend declare [<RequiresCapability(AsyncYield)>] and are
+  # reported Ignored here, since the runtime is single-threaded.
+  wasm-mtp:
     strategy:
       fail-fast: false
       matrix:
@@ -146,25 +151,22 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - uses: oven-sh/setup-bun@v2
+
       - name: Build
-        run: dotnet build --configuration ${{ matrix.configuration }}
+        run: dotnet build Tests.Wasm --configuration ${{ matrix.configuration }}
 
-      - name: Install anyunit-browser-wasm
-        run: dotnet tool install --global AnyUnit.Runner.BrowserWasm --version "$ANYUNIT_VERSION"
-
-      # The runner's own exit code reports failures, same as the MTP
-      # legs; results are uploaded regardless. PuppeteerSharp fetches
-      # its own headless Chrome on first use and the runner applies
-      # --no-sandbox itself under Linux CI. -p is the runner's own
-      # platform suffix, the same label the MTP legs carry.
+      # The harness's exit code is MTP's, so a failing test fails the
+      # step; runtests.mjs itself fails if no results file came out of
+      # the virtual filesystem. Results are uploaded regardless.
       - name: Test (browser-wasm)
         shell: bash
         run: |
-          export PATH="$PATH:$HOME/.dotnet/tools"
-          mkdir -p results
-          anyunit-browser-wasm run -o results/Tests-browser-wasm-${{ matrix.configuration }}.json \
-            -p ${{ matrix.configuration }} \
-            Tests/bin/${{ matrix.configuration }}/net10.0/Tests.dll
+          mkdir -p "$GITHUB_WORKSPACE/results"
+          cd Tests.Wasm/bin/${{ matrix.configuration }}/net10.0-browser/wwwroot
+          bun runtests.mjs \
+            --report-anyunit-json "$GITHUB_WORKSPACE/results/Tests-browser-wasm-${{ matrix.configuration }}.json" \
+            --platform-suffix ${{ matrix.configuration }}
 
       - name: Upload results
         if: always()
@@ -248,7 +250,7 @@ jobs:
   # on the run's Summary page. if: always() so the report exists
   # precisely when a leg failed and someone wants to look.
   report:
-    needs: [test, compilers, browser-wasm]
+    needs: [test, compilers, wasm-mtp]
     if: always()
     runs-on: ubuntu-latest
     steps:

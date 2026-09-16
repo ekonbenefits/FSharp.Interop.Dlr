@@ -1,0 +1,62 @@
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+
+  <!--
+    The Tests sources as a browser-wasm build run through MTP under bun (or node) - no browser,
+    no web server. dotnet.js boots the runtime and runs AnyUnit.TestingPlatform.WasmEntry (an
+    awaitable entry point shipped in the package; the one MTP generates for an .fsproj blocks
+    in Async.RunSynchronously on the single-threaded runtime), which discovers the tests in
+    this assembly. Same AssemblyName as Tests so the results merge into that assembly's row of
+    the combined report as another platform. wwwroot/runtests.mjs is the harness: boot, run
+    Main with the script's arguments, copy the results file out of Emscripten's in-memory
+    filesystem. Recipe from AnyUnit's WhoTestsTheTesters/Tests/Style/FsUnitTests.Wasm.Mtp.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-browser</TargetFramework>
+    <RuntimeIdentifier>browser-wasm</RuntimeIdentifier>
+    <AssemblyName>Tests</AssemblyName>
+    <RootNamespace>Tests</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <EnableAnyUnitRunner>true</EnableAnyUnitRunner>
+    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" VersionOverride="10.1.401" />
+    <PackageReference Include="AnyUnit.TestingPlatform" />
+    <PackageReference Include="AnyUnit.Style.Xunit" />
+    <PackageReference Include="AnyUnit.Style.FsUnit" />
+    <!-- Satisfies Sdk.BlazorWebAssembly's build; Main never builds a WebAssemblyHostBuilder. -->
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Tests\AssemblyInfo.fs" Link="AssemblyInfo.fs" />
+    <Compile Include="..\Tests\Fixtures.fs" Link="Fixtures.fs" />
+    <Compile Include="..\Tests\Members.fs" Link="Members.fs" />
+    <Compile Include="..\Tests\Invoke.fs" Link="Invoke.fs" />
+    <Compile Include="..\Tests\Set.fs" Link="Set.fs" />
+    <Compile Include="..\Tests\Operators.fs" Link="Operators.fs" />
+    <Compile Include="..\Tests\Index.fs" Link="Index.fs" />
+    <Compile Include="..\Tests\Body.fs" Link="Body.fs" />
+    <Compile Include="..\Tests\Cache.fs" Link="Cache.fs" />
+    <Compile Include="..\Tests\Loops.fs" Link="Loops.fs" />
+    <Compile Include="..\Tests\DynamicObjects.fs" Link="DynamicObjects.fs" />
+    <Compile Include="..\Tests\TryBlocks.fs" Link="TryBlocks.fs" />
+    <Compile Include="..\Tests\Unary.fs" Link="Unary.fs" />
+    <Compile Include="..\Tests\Nesting.fs" Link="Nesting.fs" />
+    <Compile Include="..\Tests\Errors.fs" Link="Errors.fs" />
+    <Compile Include="..\Tests\Unreflected.fs" Link="Unreflected.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FSharp.Interop.Dlr\FSharp.Interop.Dlr.fsproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Explicit copies: Blazor's static-web-assets pipeline only runs at publish. -->
+    <None Include="wwwroot/index.html" CopyToOutputDirectory="PreserveNewest" Link="wwwroot/index.html" />
+    <None Include="wwwroot/runtests.mjs" CopyToOutputDirectory="PreserveNewest" Link="wwwroot/runtests.mjs" />
+    <None Include="wwwroot/package.json" CopyToOutputDirectory="PreserveNewest" Link="wwwroot/package.json" />
+  </ItemGroup>
+
+</Project>
