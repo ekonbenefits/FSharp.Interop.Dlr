@@ -2,6 +2,8 @@
 module Tests.Nesting
 
 open FSharp.Interop.Dlr
+open AnyUnit.Run
+open AnyUnit.Run.Attributes
 open AnyUnit.Style.Xunit
 open AnyUnit.Style.FsUnit
 
@@ -11,23 +13,38 @@ let ``nested dlr blocks`` () =
     let n: int = dlr { return (dlr { return w?Count } : int) + w?Count }
     n |> should equal 6
 
-[<Fact>]
-let ``dlr inside task`` () =
+// These two genuinely suspend, so they hand their Task to the engine rather than blocking on it:
+// on single-threaded browser-wasm a blocking wait can never be satisfied (the continuation needs
+// the thread), and the engine reports the declared requirement as Ignored there instead.
+[<Fact; RequiresCapability(TestCapabilities.AsyncYield)>]
+let ``dlr inside task`` () : System.Threading.Tasks.Task =
     let w = box (Widget())
-    let t = task {
+    task {
         do! System.Threading.Tasks.Task.Yield()
-        return (dlr { return w?Count } : int)
+        let n: int = dlr { return w?Count }
+        n |> should equal 3
     }
-    t.Result |> should equal 3
+
+[<Fact; RequiresCapability(TestCapabilities.AsyncYield)>]
+let ``dlr inside async`` () : System.Threading.Tasks.Task =
+    let w = box (Widget())
+    async {
+        do! Async.Sleep 1
+        let n: int = dlr { return w?Count }
+        n |> should equal 3
+    }
+    |> Async.StartAsTask :> System.Threading.Tasks.Task
 
 [<Fact>]
-let ``dlr inside async`` () =
+let ``dlr inside task and async that complete synchronously`` () =
     let w = box (Widget())
-    let a = async {
-        do! Async.Sleep 1
-        return (dlr { return w?Count } : int)
-    }
-    Async.RunSynchronously a |> should equal 3
+    let t = task { return (dlr { return w?Count } : int) }
+    t.Result |> should equal 3
+    // StartImmediate runs on the current thread up to the first real suspension, so a
+    // never-suspending workflow comes back completed even on single-threaded browser-wasm,
+    // where RunSynchronously would block the only thread.
+    let a = async { return (dlr { return w?Add(1, 2) } : int) }
+    (Async.StartImmediateAsTask a).Result |> should equal 3
 
 [<Fact>]
 let ``nested dlr blocks on separate lines share the outer site`` () =
