@@ -81,14 +81,18 @@ let ``several blocks in one function are separate sites`` () =
     (a, b) |> should equal (3, "widget")
 
 [<Fact>]
-let ``let rec inside the block`` () =
-    let w = box (Widget())
+let ``let rec walks a dynamic structure`` () =
+    // The recursive step is itself dynamic: each level's Child is only known at run time.
+    let leaf = Fixtures.expando [ "Child", null ]
+    let mid = Fixtures.expando [ "Child", box leaf ]
+    let root = box (Fixtures.expando [ "Child", box mid ])
     let n: int =
         dlr {
-            let rec fact n = if n <= 1 then 1 else n * fact (n - 1)
-            return w?Add(fact 5, w?Count)
+            let rec depth (node: obj) : int =
+                if isNull node then 0 else 1 + depth node?Child
+            return depth root
         }
-    n |> should equal 123
+    n |> should equal 3
 
 [<Fact>]
 let ``mutually recursive let rec inside the block`` () =

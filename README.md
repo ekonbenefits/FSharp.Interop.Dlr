@@ -22,6 +22,12 @@ dlr { w?Count <- 9 }                                       // SetMember
 let sum: int = dlr { return (box 1) ?+? (box 2) }          // BinaryOperation
 let v: int = dlr { return (Dlr.idx w).[1, 2] }             // GetIndex
 dlr { (Dlr.idx w).[1, 2] <- v }                            // SetIndex
+let depth: int =                                           // recursion over a runtime-shaped graph
+    dlr {
+        let rec depth (node: obj) : int =
+            if isNull node then 0 else 1 + depth node?Child
+        return depth root
+    }
 ```
 
 Targets `netstandard2.0` and `net10.0`. Depends on FSharp.Core ≥ 6.0.1 and, on
