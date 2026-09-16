@@ -245,6 +245,37 @@ jobs:
           name: nuget-package
           path: packages/*.nupkg
 
+  # Every push to master publishes the package MinVer versioned it as
+  # (1.0.0-alpha.0.<height> until a v1.0.0 tag exists, then the tag) to
+  # the ekonbenefits GitHub Packages feed, once every test leg is green.
+  # GITHUB_TOKEN can push to the repository owner's feed; no secret to
+  # rotate. --skip-duplicate makes a re-run of the same commit a no-op,
+  # and the feed does not take symbol packages, so only the .nupkg goes.
+  publish:
+    needs: [test, compilers, wasm-mtp, pack]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: nuget-package
+          path: packages
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Push to GitHub Packages
+        run: >
+          dotnet nuget push packages/*.nupkg
+          --source https://nuget.pkg.github.com/ekonbenefits/index.json
+          --api-key ${{ secrets.GITHUB_TOKEN }}
+          --skip-duplicate
+          --no-symbols
+
   # One report across every OS x configuration x framework: an HTML
   # artifact with the full per-test drill-down, and a Markdown summary
   # on the run's Summary page. if: always() so the report exists
