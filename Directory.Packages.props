@@ -1,0 +1,15 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Published dependency floor for the library; Tests override to a current version.
+         6.0 is the lowest that works: against older FSharp.Core the current compiler does not
+         inline enum operators (|||, int), which then hit FSharp.Core's throwing dynamic path. -->
+    <PackageVersion Include="FSharp.Core" Version="6.0.1" />
+    <PackageVersion Include="Microsoft.CSharp" Version="4.7.0" />
+    <PackageVersion Include="FsUnit.Xunit" Version="7.1.1" />
+    <PackageVersion Include="Microsoft.Testing.Extensions.TrxReport" Version="2.4.0" />
+    <PackageVersion Include="xunit.v3" Version="4.0.1" />
+  </ItemGroup>
+</Project>

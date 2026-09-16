@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="FSharp.Interop.DLR/FSharp.Interop.DLR.fsproj" />
+  <Project Path="Tests/Tests.fsproj" />
+</Solution>

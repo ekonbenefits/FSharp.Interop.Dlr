@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <!-- xUnit v3 test projects are executables. -->
+    <OutputType>Exe</OutputType>
+    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" VersionOverride="10.1.401" />
+    <PackageReference Include="Microsoft.Testing.Extensions.TrxReport" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="FsUnit.Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="Fixtures.fs" />
+    <Compile Include="Members.fs" />
+    <Compile Include="Invoke.fs" />
+    <Compile Include="Set.fs" />
+    <Compile Include="Operators.fs" />
+    <Compile Include="Index.fs" />
+    <Compile Include="Body.fs" />
+    <Compile Include="Cache.fs" />
+    <Compile Include="Errors.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The cache tests observe the global DlrCache, so tests run one at a time. -->
+    <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FSharp.Interop.DLR\FSharp.Interop.DLR.fsproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,98 @@
+namespace FSharp.Interop.DLR
+
+open System
+open System.Linq.Expressions
+open System.Runtime.CompilerServices
+open Microsoft.CSharp.RuntimeBinder
+open FSharp.Quotations
+
+/// Builds Microsoft.CSharp binders and emits the quotation fragment that calls a
+/// pre-created CallSite: `Call(FieldGet(Value site, Target), Invoke, site :: args)`.
+/// The `Value site` becomes an Expression.Constant, so the site is baked into the
+/// compiled delegate.
+module internal Binders =
+
+    /// Accessibility context handed to the C# binder. Public members only.
+    let context = typeof<obj>
+
+    /// `voidType` makes the F# compiler emit IL the JIT rejects, so get it indirectly.
+    let private voidType = typeof<Action>.GetMethod("Invoke").ReturnType
+
+    /// One argument as the binder sees it: its expression, the static type used in
+    /// the site delegate, and the C# argument-info flags.
+    type Arg =
+        { Expr: Expr
+          Type: Type
+          Flags: CSharpArgumentInfoFlags
+          Name: string }
+
+    /// A dynamically typed argument: the binder dispatches on its runtime type.
+    let dynamicArg (e: Expr) =
+        { Expr = e; Type = typeof<obj>; Flags = CSharpArgumentInfoFlags.None; Name = null }
+
+    /// A statically typed argument: the binder uses the quotation's type, as C# would.
+    /// An `obj`-typed expression stays dynamic so F# callers get FSharp.Interop.Dynamic-like
+    /// overload resolution on boxed values.
+    let typedArg (e: Expr) =
+        if e.Type = typeof<obj> then dynamicArg e
+        else { Expr = e; Type = e.Type; Flags = CSharpArgumentInfoFlags.UseCompileTimeType; Name = null }
+
+    let named (name: string) (arg: Arg) =
+        // Spelled out with int locals: `|||` straight on the enum resolved to the dynamic
+        // (throwing) FSharp.Core path when compiled against the FSharp.Core floor.
+        let current: int = LanguagePrimitives.EnumToValue arg.Flags
+        let namedFlag: int = LanguagePrimitives.EnumToValue CSharpArgumentInfoFlags.NamedArgument
+        let flags: CSharpArgumentInfoFlags = LanguagePrimitives.EnumOfValue(current ||| namedFlag)
+        { arg with Flags = flags; Name = name }
+
+    let private argInfo (a: Arg) = CSharpArgumentInfo.Create(a.Flags, a.Name)
+
+    /// Emits the call-site invocation for `binder` over `args`, returning `resultType`
+    /// (`Void` for a discarded result, which yields an Action-shaped site).
+    let siteCall (binder: CallSiteBinder) (args: Arg list) (resultType: Type) : Expr =
+        let delegateType =
+            Expression.GetDelegateType(Array.ofList (typeof<CallSite> :: [ for a in args -> a.Type ] @ [ resultType ]))
+        let siteType = typedefof<CallSite<_>>.MakeGenericType delegateType
+        let site = siteType.GetMethod("Create").Invoke(null, [| box binder |])
+        let siteExpr = Expr.Value(site, siteType)
+        let target = Expr.FieldGet(siteExpr, siteType.GetField("Target"))
+        Expr.Call(target, delegateType.GetMethod("Invoke"), siteExpr :: [ for a in args -> a.Expr ])
+
+    let getMember (name: string) (target: Arg) =
+        siteCall (Binder.GetMember(CSharpBinderFlags.None, name, context, [ argInfo target ])) [ target ] typeof<obj>
+
+    let setMember (name: string) (target: Arg) (value: Arg) =
+        siteCall (Binder.SetMember(CSharpBinderFlags.None, name, context, [ argInfo target; argInfo value ])) [ target; value ] typeof<obj>
+
+    let invokeMember (name: string) (discard: bool) (target: Arg) (args: Arg list) =
+        let flags = if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None
+        let all = target :: args
+        let binder = Binder.InvokeMember(flags, name, null, context, [ for a in all -> argInfo a ])
+        siteCall binder all (if discard then voidType else typeof<obj>)
+
+    let invoke (discard: bool) (target: Arg) (args: Arg list) =
+        let flags = if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None
+        let all = target :: args
+        let binder = Binder.Invoke(flags, context, [ for a in all -> argInfo a ])
+        siteCall binder all (if discard then voidType else typeof<obj>)
+
+    let getIndex (target: Arg) (indexes: Arg list) =
+        let all = target :: indexes
+        siteCall (Binder.GetIndex(CSharpBinderFlags.None, context, [ for a in all -> argInfo a ])) all typeof<obj>
+
+    let setIndex (target: Arg) (indexes: Arg list) (value: Arg) =
+        let all = target :: indexes @ [ value ]
+        siteCall (Binder.SetIndex(CSharpBinderFlags.None, context, [ for a in all -> argInfo a ])) all typeof<obj>
+
+    let binaryOperation (op: ExpressionType) (left: Arg) (right: Arg) =
+        let binder = Binder.BinaryOperation(CSharpBinderFlags.None, op, context, [ argInfo left; argInfo right ])
+        siteCall binder [ left; right ] typeof<obj>
+
+    /// Implicit conversion of an `obj`-typed expression to `resultType`. `obj` is a no-op and
+    /// `unit` discards the value.
+    let convert (resultType: Type) (e: Expr) : Expr =
+        if resultType = typeof<obj> then e
+        elif resultType = typeof<unit> then Expr.Sequential(e, Expr.Value(()))
+        else
+            let binder = Binder.Convert(CSharpBinderFlags.None, resultType, context)
+            siteCall binder [ dynamicArg e ] resultType
