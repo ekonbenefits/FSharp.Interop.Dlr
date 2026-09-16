@@ -42,6 +42,19 @@ module DlrRuntime =
             | null -> ()
             | d -> (d :?> IDisposable).Dispose()
 
+/// A call site whose member name is only known at run time (`(?) x name` with `name` a variable):
+/// one compiled, typed delegate per distinct name, made on first use from a quotation template
+/// the translator built for the site, so after that first call a name costs one dictionary
+/// lookup and behaves exactly like a literal.
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+type NameCache<'Delegate when 'Delegate :> Delegate>(template: string -> Expr) =
+    let compiled = System.Collections.Concurrent.ConcurrentDictionary<string, 'Delegate>()
+
+    member _.Get(name: string) : 'Delegate =
+        compiled.GetOrAdd(name, fun n ->
+            let linq = Microsoft.FSharp.Linq.RuntimeHelpers.LeafExpressionConverter.QuotationToExpression(template n) :?> LambdaExpression
+            linq.Compile() :?> 'Delegate)
+
 /// Builds Microsoft.CSharp binders and emits the quotation fragment that calls a
 /// pre-created CallSite: `Call(FieldGet(Value site, Target), Invoke, site :: args)`.
 /// The `Value site` becomes an Expression.Constant, so the site is baked into the

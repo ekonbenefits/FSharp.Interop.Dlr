@@ -103,6 +103,8 @@ module internal Translate =
         | Value(o, _) -> Some o
         | _ -> None
 
+    let private isLiteral (e: Expr) = match e with Value _ -> true | _ -> false
+
     /// Strips the boxing F# inserts on the way to an `obj` parameter, so the binder can see the
     /// real static type.
     let private (|Unboxed|) (e: Expr) =
@@ -159,6 +161,42 @@ module internal Translate =
         | ShapeLambda(_, body) -> letDefinition v body
         | ShapeCombination(_, args) -> args |> List.tryPick (letDefinition v)
 
+    /// The argument a parameter of a let-bound local function takes, when the member body
+    /// applies that function exactly once: the optimizer inlines such a function at its call
+    /// site, so its parameters become that call's arguments and are never captured.
+    let private parameterArgument (v: Var) (memberBody: Expr) : Expr option =
+        let rec lambdaParams (e: Expr) =
+            match e with
+            | Lambda(p, body) -> let ps, inner = lambdaParams body in p :: ps, inner
+            | _ -> [], e
+        let rec applications (f: Var) (e: Expr) : Expr list list =
+            // Full application chains f a1 a2 … of `f`, innermost first.
+            let rec chain (e: Expr) (acc: Expr list) =
+                match e with
+                | Application(inner, arg) -> chain inner (arg :: acc)
+                | Var f' when f' = f -> Some acc
+                | _ -> None
+            match chain e [] with
+            | Some args when not args.IsEmpty -> [ args ]
+            | _ ->
+                match e with
+                | ShapeVar _ -> []
+                | ShapeLambda(_, body) -> applications f body
+                | ShapeCombination(_, args) -> args |> List.collect (applications f)
+        let rec search (e: Expr) : Expr option =
+            match e with
+            | Let(f, def, rest) when (let ps, _ = lambdaParams def in List.contains v ps) ->
+                let ps, _ = lambdaParams def
+                let index = List.findIndex ((=) v) ps
+                match applications f rest with
+                | [ args ] when args.Length > index -> Some args.[index]
+                | [] -> None
+                | _ -> None
+            | ShapeVar _ -> None
+            | ShapeLambda(_, body) -> search body
+            | ShapeCombination(_, args) -> args |> List.tryPick search
+        search memberBody
+
     let translate (builderType: Type) (context: Type) (memberBody: Expr) (closureType: Type) (resultType: Type) (body: Expr) : Compiled =
         let convert = Binders.convert context
         let closure = Var("closure", typeof<obj>)
@@ -187,9 +225,12 @@ module internal Translate =
                 match letDefinition v memberBody with
                 | Some def -> resolve def
                 | None ->
-                    raise (DlrTranslationException(
-                            sprintf "dlr { } could not find captured variable '%s' on closure %s (fields: %s) or a let binding for it."
-                                v.Name closureType.Name (String.Join(", ", fields.Keys))))
+                    match parameterArgument v memberBody with
+                    | Some arg -> resolve arg
+                    | None ->
+                        raise (DlrTranslationException(
+                                sprintf "dlr { } could not find captured variable '%s' on closure %s (fields: %s), a let binding for it, or a single application supplying it (the optimizer inlined it; give the enclosing local function more than one call site or hoist the block)."
+                                    v.Name closureType.Name (String.Join(", ", fields.Keys))))
 
         /// A `unit` expression may compile to a void call, which cannot be the value of a lambda or
         /// of the block; end it with the unit constant so the tree has a `Unit` value.
@@ -239,6 +280,22 @@ module internal Translate =
                 // made by our compiled code, not the F# compiler, so it has no reflected body of its own.
                 | "Run", [ Call(_, d, [ Lambda(_, inner) ]); _; _ ] when d.Name = "Delay" -> rewrite inner
                 | name, _ -> unsupported (sprintf "the '%s' construct" name) e
+
+            // Dynamic operations with a member name only known at run time
+            | Application(EtaReduced(Op opDynamic [ Unboxed target; nameExpr ]), argExpr) when not (isLiteral nameExpr) ->
+                let typeArgs, argExprs =
+                    match splitArgs argExpr with
+                    | TypeArgs ts :: rest -> ts, rest
+                    | args -> [], args
+                computedName bound nameExpr target argExprs e.Type (fun name targetArg args ->
+                    Binders.invokeMember context name typeArgs false targetArg args)
+            | Op opDynamic [ Unboxed target; nameExpr ] when not (isLiteral nameExpr) ->
+                if FSharpType.IsFunction e.Type then
+                    unsupported "a dynamic member used as a first-class function; apply it directly" e
+                computedName bound nameExpr target [] e.Type (fun name targetArg _ -> Binders.getMember context name targetArg)
+            | Op opDynamicAssign [ Unboxed target; nameExpr; Unboxed value ] when not (isLiteral nameExpr) ->
+                computedName bound nameExpr target [ value ] typeof<unit> (fun name targetArg args ->
+                    Binders.setMember context name targetArg (List.head args))
 
             // Dynamic operations
             | Application(EtaReduced(Op opDynamic [ Unboxed target; Literal name ]), argExpr) ->
@@ -296,6 +353,28 @@ module internal Translate =
                     cells inner
             | ShapeLambda(v, lambdaBody) -> Expr.Lambda(v, asUnit (rewriteIn (bound.Add v) lambdaBody))
             | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map rewrite args)
+
+        /// `(?) x name` with a computed name: the site becomes a NameCache constant holding a
+        /// template that, given a name, quotes the typed delegate for it; the emitted code is
+        /// `cache.Get(name).Invoke(target, args…)`. Argument names in `Dlr.named` stay static.
+        and computedName bound (nameExpr: Expr) (target: Expr) (argExprs: Expr list) (resultType: Type) (site: string -> Binders.Arg -> Binders.Arg list -> Expr) : Expr =
+            let rewrite = rewriteIn bound
+            let bindings, argInfos = argList bound argExprs
+            let targetVar = Var("target", typeof<obj>)
+            let argVars = argInfos |> List.mapi (fun i a -> Var(sprintf "a%d" i, a.Type))
+            let delegateType =
+                Expression.GetDelegateType(Array.ofList (typeof<obj> :: [ for v in argVars -> v.Type ] @ [ typeof<obj> ]))
+            let template (name: string) =
+                let args = List.map2 (fun (info: Binders.Arg) (v: Var) -> { info with Expr = Expr.Var v }) argInfos argVars
+                Expr.NewDelegate(delegateType, targetVar :: argVars, site name (Binders.dynamicArg (Expr.Var targetVar)) args)
+            let cacheType = typedefof<NameCache<_>>.MakeGenericType delegateType
+            let cache = Activator.CreateInstance(cacheType, [| box template |])
+            let get = Expr.Call(Expr.Value(cache, cacheType), cacheType.GetMethod("Get"), [ rewrite nameExpr ])
+            let t = rewrite target
+            let targetExpr = if t.Type = typeof<obj> then t else Expr.Coerce(t, typeof<obj>)
+            Expr.Call(get, delegateType.GetMethod("Invoke"), targetExpr :: [ for a in argInfos -> a.Expr ])
+            |> convert resultType
+            |> bind bound bindings
 
         and targetArg bound (target: Expr) =
             let t = rewriteIn bound target
