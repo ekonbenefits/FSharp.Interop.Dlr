@@ -1,3 +1,4 @@
+[<ReflectedDefinition>]
 module Tests.Errors
 
 open System

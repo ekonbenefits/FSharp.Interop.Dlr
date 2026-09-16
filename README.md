@@ -1,12 +1,17 @@
 # FSharp.Interop.Dlr
 
 Experimental. A `dlr { }` computation expression in which the `?` operator (and friends) is
-never executed: the body is captured as a quotation, translated once into a LINQ expression
-tree whose Microsoft.CSharp `CallSite`s are baked in as constants, compiled to a delegate that
-takes the closure values as an argument, and cached by the source file and line of the block.
+never executed. The block's `Delay` closure identifies the call site and carries the captured
+variables; the block's body comes from the enclosing `[<ReflectedDefinition>]`; it is translated
+once into a LINQ expression tree whose Microsoft.CSharp `CallSite`s are baked in as constants and
+compiled to a `Func<closure, 'T>`. After the first call, a block costs one type-keyed lookup plus
+the delegate: about 25 ns.
 
 ```fsharp
 open FSharp.Interop.Dlr
+
+[<ReflectedDefinition>]          // on the module, type or member that contains the dlr { } blocks
+module Demo =
 
 let w = box (Widget())
 let n: int = dlr { return w?Count }                       // GetMember + Convert to int
@@ -35,31 +40,39 @@ netstandard2.0, Microsoft.CSharp.
 
 Plus `let`, `if`, sequencing and ordinary F# code, via `LeafExpressionConverter`.
 
-Rules: one `dlr { }` per source line (the cache key is file + line; a mismatch throws).
+Rules: the enclosing module, type or member must be `[<ReflectedDefinition>]` (a clear
+`DlrTranslationException` says so otherwise); one `dlr { }` per source line (the body is located by
+line inside the reflected definition); not inside generic functions or members yet.
 Calling any of the operators or `Dlr.*` markers outside `dlr { }` throws `InvalidOperationException`.
 `Dlr.named` and `Dlr.idx` exist only to give F# something it can type-check; `Named<'T>` and
 `Indexed<'T>` have no constructors and are never instantiated.
 
 ## How it works
 
-1. `DlrBuilder.Quote`/`Run` receive the body as `Expr<'T>` plus `[<CallerFilePath>]` and
-   `[<CallerLineNumber>]`.
-2. `Translate` strips the builder calls, turns every `Value` node into a read from a `obj[]`
-   slot (same pre-order walk used per call to extract the values), and replaces each dynamic
-   operation by `site.Target.Invoke(site, ...)` where `site` is a `CallSite<_>` embedded as a
-   `Value` — which `LeafExpressionConverter` turns into `Expression.Constant`.
-3. The `Func<obj[], 'T>` is compiled and cached in `DlrCache` under `(file, line)`.
+1. Without a `Quote` member, `dlr { … }` desugars to `dlr.Run(dlr.Delay(fun () -> …), file, line)`.
+   `Delay` returns the closure unevaluated. Its compiler-generated type is unique to the block and
+   its fields are the captured variables, named after them (`this` included; a captured
+   `let mutable` is an `FSharpRef` cell).
+2. On the first call `Discover` finds the block's body: it reads the `[<ReflectedDefinition>]`
+   quotations of the closure's declaring type and nested types (FSharp.Core caches those once
+   decoded) and picks the `Run` call whose baked `CallerLineNumber` matches.
+3. `Translate` strips the builder calls, turns each free variable into a read of the closure field
+   of that name, and replaces each dynamic operation by `site.Target.Invoke(site, …)` where `site`
+   is a `CallSite<_>` embedded as a `Value` — which `LeafExpressionConverter` turns into
+   `Expression.Constant`. Literals stay constants. The result is compiled to `Func<obj, 'T>` and
+   cached in `DlrCache` under the closure type.
 
-## Measured (Release, net10.0, Apple Silicon, 1M-call average)
+## Measured (Release, net10.0, Apple Silicon, 5M-call average after warm-up)
 
 | | ns/call |
 | --- | --- |
-| compiled delegate alone (`Func<obj[], int>` with baked call sites) | 16 |
-| extracting closure slots from the quotation + delegate | 460 |
-| `dlr { return w?Add(i, 1) }` end to end | ~10 000 |
-| FSharp.Interop.Dynamic `w?Add(i, 1)` | ~7 900 |
+| `dlr { return w?Count }` | 24 |
+| `dlr { return w?Add(i, 1) }` | 29 |
+| `dlr { return w?Add(i, Dlr.named {| b = 1 |}) }` | 29 |
+| FSharp.Interop.Dynamic `w?Count` / `w?Add(i, 1)` | ~4 100 / ~7 800 |
+| static `w.Count` | 4 |
 
-The end-to-end cost is dominated by the F# compiler rebuilding the quotation on every
-evaluation of the block (`Expr.Deserialize40`, 7–10 µs); it does not cache quotations, even
-ones without free variables. So the compiled form is fast, but reaching it through a quoted
-computation expression on every call is not.
+Why not quote the block instead (`Quote` in the builder)? Because FSharp.Core rebuilds a quotation
+literal on every evaluation (`Expr.Deserialize40` re-binds every type and method by reflection, no
+cache; even `<@ 1 @>` is ~4 µs), which made the quoted version ~10 µs per call. Reflected
+definitions are decoded once, which is what makes this design work.

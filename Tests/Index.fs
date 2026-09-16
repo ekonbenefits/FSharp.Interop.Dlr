@@ -1,3 +1,4 @@
+[<ReflectedDefinition>]
 module Tests.Index
 
 open System.Collections.Generic

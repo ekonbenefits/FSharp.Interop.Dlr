@@ -1,3 +1,4 @@
+[<ReflectedDefinition>]
 module Tests.Operators
 
 open Xunit

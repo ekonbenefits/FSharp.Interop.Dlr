@@ -1,3 +1,4 @@
+[<ReflectedDefinition>]
 module Tests.Body
 
 open Xunit

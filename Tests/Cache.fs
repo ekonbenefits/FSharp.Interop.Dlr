@@ -1,3 +1,4 @@
+[<ReflectedDefinition>]
 module Tests.Cache
 
 open Xunit
@@ -28,7 +29,7 @@ let ``two blocks on one line are detected`` () =
     let w = box (Widget())
     let go () =
         let a: int = dlr { return w?Count } in let b: string = dlr { return w?Name } in (a, b)
-    (fun () -> go () |> ignore) |> should throw typeof<System.InvalidOperationException>
+    (fun () -> go () |> ignore) |> should throw typeof<DlrTranslationException>
 
 [<Fact>]
 let ``clear forces recompilation`` () =
@@ -37,3 +38,18 @@ let ``clear forces recompilation`` () =
     f () |> should equal 3
     DlrCache.clear ()
     f () |> should equal 3
+
+[<Fact>]
+let ``mutable capture reads the current value`` () =
+    let w = box (Widget())
+    let mutable n = 1
+    let f () : int = dlr { return w?Add(n, 1) }
+    f () |> should equal 2
+    n <- 10
+    f () |> should equal 11
+
+let genericPick (w: obj) (x: 'a) : string = dlr { return w?Pick(x) }
+
+[<Fact>]
+let ``generic enclosing function is rejected clearly`` () =
+    (fun () -> genericPick (Widget()) 1 |> ignore) |> should throw typeof<DlrTranslationException>

@@ -1,3 +1,4 @@
+[<ReflectedDefinition>]
 module Tests.Members
 
 open System
@@ -43,3 +44,13 @@ let ``get member with widening conversion`` () =
     let w = box (Widget())
     let n: int64 = dlr { return w?Count }
     n |> should equal 3L
+
+type Holder(w: obj) =
+    member this.Count: int = dlr { return w?Count }
+    member this.Self: string = dlr { return (w?Pick(this) : string) }
+
+[<Fact>]
+let ``dlr inside a class member captures this and fields`` () =
+    let h = Holder(Widget())
+    h.Count |> should equal 3
+    h.Self |> should equal "obj"

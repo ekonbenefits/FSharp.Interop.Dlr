@@ -1,3 +1,4 @@
+[<ReflectedDefinition>]
 module Tests.Invoke
 
 open System

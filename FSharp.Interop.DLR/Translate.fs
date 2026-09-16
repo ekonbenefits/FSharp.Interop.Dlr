@@ -1,7 +1,6 @@
 namespace FSharp.Interop.Dlr
 
 open System
-open System.Collections.Generic
 open System.Linq.Expressions
 open FSharp.Quotations
 open FSharp.Quotations.Patterns
@@ -14,31 +13,14 @@ open Microsoft.FSharp.Linq.RuntimeHelpers
 type DlrTranslationException(message: string) =
     inherit Exception(message)
 
-/// Turns the quotation captured by `dlr { }` into a `Func<obj[], 'T>` whose DLR call
-/// sites are constants, plus the per-call extraction of the closure values it reads.
+/// Turns the reflected body of a `dlr { }` block into a `Func<obj, 'T>` over its Delay closure,
+/// with the DLR call sites baked in as constants.
 module internal Translate =
 
-    /// A compiled `dlr { }` site.
+    /// A compiled `dlr { }` site: a `Func<obj, 'T>` over the Delay closure object.
     type Compiled =
         { Delegate: Delegate
-          SlotCount: int
           ResultType: Type }
-
-    /// Every `Value` node in pre-order becomes a slot, in this order. Extraction (per call)
-    /// and rewriting (once) both walk this way, so they agree without a shared table.
-    /// Literal member names and the builder receiver get slots too; they are simply unused.
-    let rec private walkValues (f: Expr -> unit) (e: Expr) =
-        match e with
-        | Value _ -> f e
-        | ShapeVar _ -> ()
-        | ShapeLambda(_, body) -> walkValues f body
-        | ShapeCombination(_, args) -> for a in args do walkValues f a
-
-    /// The closure values for one call, in slot order.
-    let extractSlots (e: Expr) : obj[] =
-        let acc = ResizeArray<obj>()
-        walkValues (fun v -> match v with Value(o, _) -> acc.Add o | _ -> ()) e
-        acc.ToArray()
 
     let private unsupported (what: string) (e: Expr) =
         raise (DlrTranslationException(sprintf "dlr { } does not support %s: %A" what e))
@@ -140,17 +122,39 @@ module internal Translate =
         | NewTuple items -> items
         | single -> [ single ]
 
-    let translate (builderType: Type) (resultType: Type) (quotation: Expr) : Compiled =
-        let closure = Var("closure", typeof<obj[]>)
-        let arrayGet = typeof<obj[]>.GetMethod("Get")
+    /// Compiles the reflected body of one `dlr { }` block. `closureType` is the compiler-generated
+    /// class of the `Delay` closure: its fields, named after the captured variables, are where
+    /// the body's free variables are read from at call time.
+    let translate (builderType: Type) (closureType: Type) (resultType: Type) (body: Expr) : Compiled =
+        if closureType.IsGenericType || closureType.ContainsGenericParameters then
+            raise (DlrTranslationException(
+                    sprintf "dlr { } inside a generic function or member is not supported yet (closure %s)." closureType.Name))
 
-        // Slot index by node identity, assigned in the same order extractSlots reads them.
-        let slots = Dictionary<Expr, int>(HashIdentity.Reference)
-        walkValues (fun v -> slots.[v] <- slots.Count) quotation
+        let closure = Var("closure", typeof<obj>)
+        let self = Expr.Coerce(Expr.Var closure, closureType)
+        let fields =
+            closureType.GetFields(Reflection.BindingFlags.Instance ||| Reflection.BindingFlags.Public ||| Reflection.BindingFlags.NonPublic)
+            |> Array.map (fun f -> f.Name, f)
+            |> dict
 
-        let slotRead (e: Expr) =
-            let read = Expr.Call(Expr.Var closure, arrayGet, [ Expr.Value slots.[e] ])
-            if e.Type = typeof<obj> then read else Expr.Coerce(read, e.Type)
+        /// A free variable of the body becomes a read of the closure field of the same name.
+        /// A captured `let mutable` is stored as an FSharpRef cell; read through it.
+        let captured (v: Var) : Expr =
+            match fields.TryGetValue v.Name with
+            | true, f when f.FieldType = v.Type -> Expr.FieldGet(self, f)
+            | true, f when f.FieldType.IsGenericType
+                           && f.FieldType.GetGenericTypeDefinition() = typedefof<Ref<_>>
+                           && f.FieldType.GetGenericArguments().[0] = v.Type ->
+                Expr.PropertyGet(Expr.FieldGet(self, f), f.FieldType.GetProperty("Value"))
+            | true, f ->
+                raise (DlrTranslationException(
+                        sprintf "dlr { } captured '%s' as %s but the body uses it as %s." v.Name f.FieldType.Name v.Type.Name))
+            | _ ->
+                raise (DlrTranslationException(
+                        sprintf "dlr { } could not find captured variable '%s' on closure %s (fields: %s)."
+                            v.Name closureType.Name (String.Join(", ", fields.Keys))))
+
+        let free = body.GetFreeVars() |> Seq.filter (fun v -> v.Type <> builderType) |> Set.ofSeq
 
         let isBuilder (receiver: Expr option) =
             match receiver with
@@ -191,9 +195,8 @@ module internal Translate =
             | BinaryOp(op, Unboxed left, Unboxed right) ->
                 Binders.binaryOperation op (valueArg left) (valueArg right) |> Binders.convert e.Type
 
-            // Everything else: closure values become slot reads, structure is rebuilt as-is.
-            | Value(_, t) when t = typeof<unit> -> e
-            | Value _ -> slotRead e
+            // Everything else: captured variables become field reads, structure is rebuilt as-is.
+            | Var v when free.Contains v -> captured v
             | ShapeVar _ -> e
             | ShapeLambda(v, body) -> Expr.Lambda(v, rewrite body)
             | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map rewrite args)
@@ -223,13 +226,12 @@ module internal Translate =
         and finish discard (resultType: Type) (call: Expr) =
             if discard then call else Binders.convert resultType call
 
-        let body = rewrite quotation
-        let delegateType = typedefof<Func<_, _>>.MakeGenericType(typeof<obj[]>, resultType)
-        let lambda = Expr.NewDelegate(delegateType, [ closure ], body)
+        let rewritten = rewrite body
+        let delegateType = typedefof<Func<_, _>>.MakeGenericType(typeof<obj>, resultType)
+        let lambda = Expr.NewDelegate(delegateType, [ closure ], rewritten)
         let linq =
             try LeafExpressionConverter.QuotationToExpression lambda :?> LambdaExpression
             with :? DlrTranslationException -> reraise ()
-               | ex -> raise (DlrTranslationException(sprintf "dlr { } could not compile this body: %s\n%A" ex.Message body))
+               | ex -> raise (DlrTranslationException(sprintf "dlr { } could not compile this body: %s\n%A" ex.Message rewritten))
         { Delegate = linq.Compile()
-          SlotCount = slots.Count
           ResultType = resultType }
