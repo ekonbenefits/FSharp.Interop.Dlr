@@ -1,8 +1,8 @@
 [<ReflectedDefinition>]
 module Tests.Body
 
-open Xunit
-open FsUnit.Xunit
+open AnyUnit.Style.Xunit
+open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
 
 [<Fact>]
@@ -79,3 +79,41 @@ let ``several blocks in one function are separate sites`` () =
     let a: int = dlr { return w?Count }
     let b: string = dlr { return w?Name }
     (a, b) |> should equal (3, "widget")
+
+[<Fact>]
+let ``let rec walks a dynamic structure`` () =
+    // The recursive step is itself dynamic: each level's Child is only known at run time.
+    let leaf = Fixtures.expando [ "Child", null ]
+    let mid = Fixtures.expando [ "Child", box leaf ]
+    let root = box (Fixtures.expando [ "Child", box mid ])
+    let n: int =
+        dlr {
+            let rec depth (node: obj) : int =
+                if isNull node then 0 else 1 + depth node?Child
+            return depth root
+        }
+    n |> should equal 3
+
+[<Fact>]
+let ``mutually recursive let rec inside the block`` () =
+    let w = box (Widget())
+    let r: string =
+        dlr {
+            let rec isEven n = if n = 0 then true else isOdd (n - 1)
+            and isOdd n = if n = 0 then false else isEven (n - 1)
+            return w?Pick(if isEven (w?Count : int) then "even" else "odd")
+        }
+    r |> should equal "string"
+
+[<Fact>]
+let ``let rec can call dynamic members`` () =
+    let w = box (Widget())
+    let acc = ResizeArray<int>()
+    dlr {
+        let rec countDown (n: int) =
+            if n > 0 then
+                acc.Add(w?Add(n, 0))
+                countDown (n - 1)
+        countDown 3
+    }
+    List.ofSeq acc |> should equal [ 3; 2; 1 ]

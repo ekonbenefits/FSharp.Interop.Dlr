@@ -1,5 +1,7 @@
 # FSharp.Interop.Dlr
 
+[![Build](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml/badge.svg)](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml)
+
 Experimental. A `dlr { }` computation expression in which the `?` operator (and friends) is
 never executed. The block's `Delay` closure identifies the call site and carries the captured
 variables; the block's body comes from the enclosing `[<ReflectedDefinition>]`; it is translated
@@ -20,6 +22,12 @@ dlr { w?Count <- 9 }                                       // SetMember
 let sum: int = dlr { return (box 1) ?+? (box 2) }          // BinaryOperation
 let v: int = dlr { return (Dlr.idx w).[1, 2] }             // GetIndex
 dlr { (Dlr.idx w).[1, 2] <- v }                            // SetIndex
+let depth: int =                                           // recursion over a runtime-shaped graph
+    dlr {
+        let rec depth (node: obj) : int =
+            if isNull node then 0 else 1 + depth node?Child
+        return depth root
+    }
 ```
 
 Targets `netstandard2.0` and `net10.0`. Depends on FSharp.Core ≥ 6.0.1 and, on
@@ -38,6 +46,10 @@ This is a JIT-only library, like C# `dynamic` itself:
 
 The assembly is marked `IsAotCompatible=false` / `IsTrimmable=false` so `dotnet publish` warns.
 
+It does work on **browser-wasm in interpreted (non-AOT) mode**, which CI runs: Mono's interpreter
+executes the expression tree through the expression interpreter rather than JIT-compiled code, so
+it is correct there, just not at the numbers below.
+
 ## What is recognised inside `dlr { }`
 
 | Syntax | Binder |
@@ -54,15 +66,18 @@ The assembly is marked `IsAotCompatible=false` / `IsTrimmable=false` so `dotnet 
 | `Dlr.neg x`, `Dlr.not x`, `Dlr.complement x` | UnaryOperation, then Convert |
 | `Dlr.cast<T> x` | explicit Convert (a C# cast); `?` results convert implicitly on their own |
 
-Plus `let`, `use`, `if`, sequencing, `for x in items do …`, `while … do …`, `try … with`,
-`try … finally` and ordinary F# code. Loop bodies reuse the block's call sites across iterations; a failed dynamic
-bind (`RuntimeBinderException`) can be caught inside the block. As in `async { }`, a `let mutable`
-cannot be captured by a loop or try body; use a `ref` or an object. `let rec` is not translated
-(`LeafExpressionConverter` limit).
+Plus `let`, `let rec` (including mutual recursion), `use`, `if`, sequencing, `for x in items do …`,
+`while … do …`, `try … with`, `try … finally` and ordinary F# code. Loop bodies reuse the block's call sites across iterations; a failed dynamic
+bind (`RuntimeBinderException`) can be caught inside the block. Blocks can be nested (an inner block compiles as part of the outer
+one), can sit inside `task { }` / `async { }`, and work in F# Interactive scripts (mark the
+module `[<ReflectedDefinition>]` as usual). As in `async { }`, a `let mutable`
+cannot be captured by a loop or try body; use a `ref` or an object. Loops or `try` inside a lambda within the block (as opposed to at block
+level) are not translated (`LeafExpressionConverter` limit).
 
 Rules: the enclosing module, type or member must be `[<ReflectedDefinition>]` (a clear
 `DlrTranslationException` says so otherwise); one `dlr { }` per source line (the body is located by
-line inside the reflected definition); not inside generic functions or members yet.
+line inside the reflected definition). Blocks inside generic functions or members work; each
+instantiation is its own site, compiled with the concrete types.
 Calling any of the operators or `Dlr.*` markers outside `dlr { }` throws `InvalidOperationException`.
 The `Dlr.*` markers exist only to give F# something it can type-check; `Named<'T>`, `Indexed<'T>` and
 `TypeArgs` have no constructors and are never instantiated.
@@ -86,6 +101,26 @@ The binder's accessibility context is the type declaring the member the block si
    is a `CallSite<_>` embedded as a `Value` — which `LeafExpressionConverter` turns into
    `Expression.Constant`. Literals stay constants. The result is compiled to `Func<obj, 'T>` and
    cached in `DlrCache` under the closure type.
+
+## What it assumes about the compiler
+
+Everything above the closure is specified F#: the computation-expression desugaring, caller-info
+arguments, `[<ReflectedDefinition>]` and `LeafExpressionConverter`. What is *not* specified, and
+what a future compiler could change, is the shape of the closure class F# generates for the
+`Delay` lambda, which `Translate.captured` and `Discover` read:
+
+- fields named after the captured variables, `this` as `this`, a captured `let mutable` as an
+  `FSharpRef` field of the same name;
+- closures nested in the enclosing module type, or in the file's `<StartupCode$…>` class for members
+  of types declared in a namespace;
+- for generic members, a closure class generic over the member's type parameters, under the same
+  names;
+- the Release optimizer inlining constants and local functions instead of capturing them (resolved
+  from the `let` in the reflected body).
+
+If any of that moves, the first call at a site raises `DlrTranslationException` naming the closure
+and its fields; nothing binds silently wrong. CI builds the same source with the .NET 8, 9 and 10
+SDKs (F# 8, 9 and 10) in Debug and Release so such a change is caught here first.
 
 ## Measured (Release, net10.0, Apple Silicon, 5M-call average after warm-up)
 

@@ -2,8 +2,8 @@
 module Tests.Index
 
 open System.Collections.Generic
-open Xunit
-open FsUnit.Xunit
+open AnyUnit.Style.Xunit
+open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
 
 [<Fact>]

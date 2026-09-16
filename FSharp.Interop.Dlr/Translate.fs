@@ -44,11 +44,11 @@ module internal Translate =
             opMethod <@ fun (v: obj) -> (Dlr.not v) : obj @>, ExpressionType.Not
             opMethod <@ fun (v: obj) -> (Dlr.complement v) : obj @>, ExpressionType.OnesComplement
         ]
-    let private forEach = opMethod <@ fun (items: seq<obj>) (body: obj -> unit) -> DlrRuntime.forEach items body @>
-    let private whileLoop = opMethod <@ fun (guard: unit -> bool) (body: unit -> unit) -> DlrRuntime.whileLoop guard body @>
-    let private tryWith = opMethod <@ fun (body: unit -> obj) (handler: exn -> obj) -> DlrRuntime.tryWith body handler @>
-    let private tryFinally = opMethod <@ fun (body: unit -> obj) (fin: unit -> unit) -> DlrRuntime.tryFinally body fin @>
-    let private using = opMethod <@ fun (r: IDisposable) (body: IDisposable -> obj) -> DlrRuntime.using r body @>
+    let private forEach = opMethod <@ fun (items: seq<obj>) (body: Func<obj, unit>) -> DlrRuntime.forEach items body @>
+    let private whileLoop = opMethod <@ fun (guard: Func<bool>) (body: Func<unit>) -> DlrRuntime.whileLoop guard body @>
+    let private tryWith = opMethod <@ fun (body: Func<obj>) (handler: Func<exn, obj>) -> DlrRuntime.tryWith body handler @>
+    let private tryFinally = opMethod <@ fun (body: Func<obj>) (fin: Func<unit>) -> DlrRuntime.tryFinally body fin @>
+    let private using = opMethod <@ fun (r: IDisposable) (body: Func<IDisposable, obj>) -> DlrRuntime.using r body @>
     let private opIdx = opMethod <@ fun (t: obj) -> (Dlr.idx t) : Indexed<obj> @>
 
     let private binaryOps =
@@ -161,10 +161,6 @@ module internal Translate =
 
     let translate (builderType: Type) (context: Type) (memberBody: Expr) (closureType: Type) (resultType: Type) (body: Expr) : Compiled =
         let convert = Binders.convert context
-        if closureType.IsGenericType || closureType.ContainsGenericParameters then
-            raise (DlrTranslationException(
-                    sprintf "dlr { } inside a generic function or member is not supported yet (closure %s)." closureType.Name))
-
         let closure = Var("closure", typeof<obj>)
         let self = Expr.Coerce(Expr.Var closure, closureType)
         let fields =
@@ -209,7 +205,16 @@ module internal Translate =
             | Some r -> r.Type = builderType
             | None -> false
 
-        let rec rewriteIn (bound: Set<Var>) (e: Expr) : Expr =
+        /// A body as a `Func<..>` delegate over `vars` (see DlrRuntime for why not an F# function).
+        /// The delegate's type is built from the variables' types and the body's; a `unit` body
+        /// (which may compile to a void call) becomes a `Func<.., unit>`, not an `Action`.
+        let rec func (bound: Set<Var>) (vars: Var list) (body: Expr) : Expr =
+            let bound = vars |> List.fold (fun b v -> Set.add v b) bound
+            let body = asUnit (rewriteIn bound body)
+            let delegateType = Expression.GetFuncType(Array.append (vars |> List.map (fun v -> v.Type) |> Array.ofList) [| body.Type |])
+            Expr.NewDelegate(delegateType, vars, body)
+
+        and rewriteIn (bound: Set<Var>) (e: Expr) : Expr =
             let rewrite = rewriteIn bound
             match e with
             // CE plumbing (Discover already unwrapped the outermost Delay)
@@ -221,15 +226,18 @@ module internal Translate =
                     Expr.Sequential(rewrite first, rewrite rest)
                 | "For", [ items; Lambda(x, body) ] ->
                     let items = rewrite items
-                    Expr.Call(forEach.MakeGenericMethod(x.Type), [ items; Expr.Lambda(x, asUnit (rewriteIn (bound.Add x) body)) ])
-                | "While", [ guard; Call(_, d, [ body ]) ] when d.Name = "Delay" ->
-                    Expr.Call(whileLoop, [ rewrite guard; rewrite body ])
-                | "TryWith", [ Call(_, d, [ body ]); handler ] when d.Name = "Delay" ->
-                    Expr.Call(tryWith.MakeGenericMethod(e.Type), [ rewrite body; rewrite handler ])
-                | "TryFinally", [ Call(_, d, [ body ]); compensation ] when d.Name = "Delay" ->
-                    Expr.Call(tryFinally.MakeGenericMethod(e.Type), [ rewrite body; rewrite compensation ])
+                    Expr.Call(forEach.MakeGenericMethod(x.Type), [ items; func bound [ x ] body ])
+                | "While", [ Lambda(_, guard); Call(_, d, [ Lambda(_, body) ]) ] when d.Name = "Delay" ->
+                    Expr.Call(whileLoop, [ func bound [] guard; func bound [] body ])
+                | "TryWith", [ Call(_, d, [ Lambda(_, body) ]); Lambda(ex, handler) ] when d.Name = "Delay" ->
+                    Expr.Call(tryWith.MakeGenericMethod(e.Type), [ func bound [] body; func bound [ ex ] handler ])
+                | "TryFinally", [ Call(_, d, [ Lambda(_, body) ]); Lambda(_, compensation) ] when d.Name = "Delay" ->
+                    Expr.Call(tryFinally.MakeGenericMethod(e.Type), [ func bound [] body; func bound [] compensation ])
                 | "Using", [ resource; Lambda(r, body) ] ->
-                    Expr.Call(using.MakeGenericMethod(r.Type, e.Type), [ rewrite resource; Expr.Lambda(r, asUnit (rewriteIn (bound.Add r) body)) ])
+                    Expr.Call(using.MakeGenericMethod(r.Type, e.Type), [ rewrite resource; func bound [ r ] body ])
+                // A nested dlr { } is compiled as part of this one: at run time its closure would be
+                // made by our compiled code, not the F# compiler, so it has no reflected body of its own.
+                | "Run", [ Call(_, d, [ Lambda(_, inner) ]); _; _ ] when d.Name = "Delay" -> rewrite inner
                 | name, _ -> unsupported (sprintf "the '%s' construct" name) e
 
             // Dynamic operations
@@ -269,6 +277,23 @@ module internal Translate =
             | Var v when isCaptured bound v -> captured (rewriteIn bound) v
             | ShapeVar _ -> e
             | Let(v, def, letBody) -> Expr.Let(v, rewrite def, rewriteIn (bound.Add v) letBody)
+            // `let rec` has no expression-tree form; tie the knot through reference cells, as the
+            // compiler does: each binding becomes a cell, uses read the cell, and the definitions
+            // are assigned after all cells exist so mutual recursion works too.
+            | LetRecursive(bindings, letBody) ->
+                let cells = [ for (v, _) in bindings -> v, Var(v.Name + "'", typedefof<Ref<_>>.MakeGenericType v.Type) ]
+                let readCell (cell: Var) = Expr.PropertyGet(Expr.Var cell, cell.Type.GetProperty("Value"))
+                let viaCells (e: Expr) = e.Substitute(fun v -> cells |> List.tryFind (fun (rv, _) -> rv = v) |> Option.map (snd >> readCell))
+                let bound = cells |> List.fold (fun (b: Set<Var>) (_, c) -> b.Add c) bound
+                let assignments =
+                    [ for (_, def), (_, cell) in List.zip bindings cells ->
+                        Expr.PropertySet(Expr.Var cell, cell.Type.GetProperty("Value"), rewriteIn bound (viaCells def)) ]
+                let body = rewriteIn bound (viaCells letBody)
+                let inner = List.foldBack (fun assign rest -> Expr.Sequential(assign, rest)) assignments body
+                List.foldBack
+                    (fun (v: Var, cell: Var) rest ->
+                        Expr.Let(cell, Expr.NewObject(cell.Type.GetConstructor [| v.Type |], [ Expr.Value(null, v.Type) ]), rest))
+                    cells inner
             | ShapeLambda(v, lambdaBody) -> Expr.Lambda(v, asUnit (rewriteIn (bound.Add v) lambdaBody))
             | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map rewrite args)
 

@@ -1,8 +1,8 @@
 [<ReflectedDefinition>]
 module Tests.Unary
 
-open Xunit
-open FsUnit.Xunit
+open AnyUnit.Style.Xunit
+open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
 open Microsoft.CSharp.RuntimeBinder
 

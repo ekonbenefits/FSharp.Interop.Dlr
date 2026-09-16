@@ -8,9 +8,12 @@
          inline enum operators (|||, int), which then hit FSharp.Core's throwing dynamic path. -->
     <PackageVersion Include="FSharp.Core" Version="6.0.1" />
     <PackageVersion Include="Microsoft.CSharp" Version="4.7.0" />
-    <PackageVersion Include="FsUnit.Xunit" Version="7.1.1" />
+    <PackageVersion Include="AnyUnit.TestingPlatform" Version="1.2.2" />
+    <PackageVersion Include="AnyUnit.Style.Xunit" Version="1.2.2" />
+    <PackageVersion Include="AnyUnit.Style.FsUnit" Version="1.2.2" />
     <PackageVersion Include="Microsoft.Testing.Extensions.TrxReport" Version="2.4.0" />
-    <PackageVersion Include="xunit.v3" Version="4.0.1" />
+    <PackageVersion Include="MinVer" Version="6.0.0" />
     <PackageVersion Include="coverlet.MTP" Version="10.0.1" />
+    <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.0" />
   </ItemGroup>
 </Project>

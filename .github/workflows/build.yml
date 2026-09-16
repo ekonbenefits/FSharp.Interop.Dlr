@@ -1,0 +1,286 @@
+name: Build
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  # The AnyUnit tool (anyunit-report, which merges every leg's results
+  # into one report). Kept in step with the AnyUnit.* PackageVersions in
+  # Directory.Packages.props.
+  ANYUNIT_VERSION: '1.2.2'
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        configuration: [Debug, Release]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # MinVer reads the version from tags and commit height.
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      # Both configurations on purpose: the Release optimizer inlines
+      # closure captures the Debug build leaves as fields, and the
+      # quotation translation has to cope with either (it didn't, once).
+      - name: Build
+        run: dotnet build --configuration ${{ matrix.configuration }}
+
+      # The test project is an MTP executable (AnyUnit.TestingPlatform's
+      # EnableAnyUnitRunner); each target framework's build is run
+      # directly so each writes its own AnyUnit results file. The
+      # platform id inside the file is auto-detected (net10-linux-x64,
+      # net48-win-x64, ...) with the configuration appended, so the
+      # merged report keeps every leg as its own column. A failing test
+      # fails the step through the exe's exit code; the results file is
+      # still uploaded below so the report shows what failed.
+      - name: Test (net10.0)
+        shell: bash
+        run: |
+          mkdir -p results
+          dotnet Tests/bin/${{ matrix.configuration }}/net10.0/Tests.dll \
+            --report-anyunit-json results/Tests-net10-${{ matrix.configuration }}.json \
+            --platform-suffix ${{ matrix.configuration }}
+
+      - name: Test (net48)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          Tests/bin/${{ matrix.configuration }}/net48/Tests.exe \
+            --report-anyunit-json results/Tests-net48-${{ matrix.configuration }}.json \
+            --platform-suffix ${{ matrix.configuration }}
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: anyunit-results-${{ matrix.os }}-${{ matrix.configuration }}
+          path: results/*.json
+          if-no-files-found: warn
+
+  # The translator reads compiler output that no spec pins down: the
+  # closure classes F# generates for the Delay lambda (field names, this,
+  # FSharpRef cells for mutables, where they nest, generic parameter
+  # names) and what the optimizer inlines instead of capturing. Older
+  # compilers build the same source so a change in any of that shows up
+  # here rather than in a consumer's project. The SDK is pinned with a
+  # global.json because the runner image ships several; TargetFrameworks
+  # is overridden since those SDKs cannot target net10.0 (and cannot
+  # read the .slnx, so the test project is built directly). Both
+  # configurations, for the same optimizer reason as above.
+  compilers:
+    strategy:
+      fail-fast: false
+      matrix:
+        sdk: ['8.0', '9.0']
+        configuration: [Debug, Release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '${{ matrix.sdk }}.x'
+
+      - name: Pin the SDK
+        shell: bash
+        run: |
+          printf '{ "sdk": { "version": "%s.0", "rollForward": "latestFeature" }, "test": { "runner": "Microsoft.Testing.Platform" } }' "${{ matrix.sdk }}" > global.json
+          dotnet --version
+
+      - name: Build with this compiler
+        run: dotnet build Tests/Tests.fsproj --configuration ${{ matrix.configuration }} -p:TargetFrameworks=net${{ matrix.sdk }}
+
+      - name: Test
+        shell: bash
+        run: |
+          mkdir -p results
+          dotnet Tests/bin/${{ matrix.configuration }}/net${{ matrix.sdk }}/Tests.dll \
+            --report-anyunit-json results/Tests-sdk${{ matrix.sdk }}-${{ matrix.configuration }}.json \
+            --platform-suffix sdk${{ matrix.sdk }}-${{ matrix.configuration }}
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: anyunit-results-sdk${{ matrix.sdk }}-${{ matrix.configuration }}
+          path: results/*.json
+          if-no-files-found: warn
+
+  # The library is JIT-only by design (README) - the C# runtime binder,
+  # LambdaExpression.Compile and ReflectedDefinition lookup - and Mono's
+  # browser-wasm interpreter is the most different runtime it can be
+  # asked to do that on. It found a real bug once (a nested delegate
+  # wrapped as an FSharpFunc lost its argument there; see DlrRuntime),
+  # which is exactly why it stays in the matrix. Tests.Wasm is the same
+  # test sources as a browser-wasm build with the same MTP runner as the
+  # other legs: dotnet.js boots the runtime under bun with
+  # AnyUnit.TestingPlatform.WasmEntry as the main assembly (no browser,
+  # no web server), and wwwroot/runtests.mjs copies the results file out
+  # of the in-memory filesystem. Both configurations, same as the other
+  # legs: the Release optimizer changes the IL the translator reads, and
+  # the interpreter reads that IL differently from the JIT. Tests that
+  # genuinely suspend declare [<RequiresCapability(AsyncYield)>] and are
+  # reported Ignored here, since the runtime is single-threaded.
+  wasm-mtp:
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Debug, Release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # MinVer reads the version from tags and commit height.
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Build
+        run: dotnet build Tests.Wasm --configuration ${{ matrix.configuration }}
+
+      # The harness's exit code is MTP's, so a failing test fails the
+      # step; runtests.mjs itself fails if no results file came out of
+      # the virtual filesystem. Results are uploaded regardless.
+      - name: Test (browser-wasm)
+        shell: bash
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/results"
+          cd Tests.Wasm/bin/${{ matrix.configuration }}/net10.0-browser/wwwroot
+          bun runtests.mjs \
+            --report-anyunit-json "$GITHUB_WORKSPACE/results/Tests-browser-wasm-${{ matrix.configuration }}.json" \
+            --platform-suffix ${{ matrix.configuration }}
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: anyunit-results-browser-wasm-${{ matrix.configuration }}
+          path: results/*.json
+          if-no-files-found: warn
+
+  # Line/branch coverage of the library from the net10 Debug run, via
+  # coverlet's MTP extension (the test exe instruments itself; no
+  # separate collector process). Restricted to the library assembly:
+  # coverlet instruments every assembly it can find sources for, and
+  # FSharp.Core's PDB source-links, so left to its defaults it spends
+  # ~80s rewriting FSharp.Core and then the process dies with
+  # BadImageFormatException "Bad IL range" at the entry point - the
+  # rewrite of FSharp.Core 10.1 is not valid IL. Debug so the
+  # optimizer's inlining doesn't hide lines. Summary on the run page,
+  # cobertura as an artifact.
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build
+        run: dotnet build --configuration Debug
+
+      - name: Test with coverage
+        shell: bash
+        run: |
+          dotnet Tests/bin/Debug/net10.0/Tests.dll \
+            --coverlet --coverlet-output-format cobertura \
+            --coverlet-include '[FSharp.Interop.Dlr]*' \
+            --results-directory coverage
+
+      - name: Coverage summary
+        shell: bash
+        run: |
+          set -e
+          dotnet tool install --global dotnet-reportgenerator-globaltool
+          reportgenerator -reports:'coverage/coverage.cobertura.*.xml' -targetdir:coveragereport -reporttypes:MarkdownSummaryGithub
+          cat coveragereport/SummaryGithub.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/coverage.cobertura.*.xml
+
+  # The package at the version MinVer computed for this commit, as an
+  # artifact - so the version a tag would ship is visible on every run
+  # before any tag is cut.
+  pack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Pack
+        run: dotnet pack FSharp.Interop.Dlr --configuration Release --output packages
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuget-package
+          path: packages/*.nupkg
+
+  # One report across every OS x configuration x framework: an HTML
+  # artifact with the full per-test drill-down, and a Markdown summary
+  # on the run's Summary page. if: always() so the report exists
+  # precisely when a leg failed and someone wants to look.
+  report:
+    needs: [test, compilers, wasm-mtp]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      # One subdirectory per artifact (no merge-multiple): the file
+      # names repeat across OSes and would collide when flattened.
+      - name: Download every leg's results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: anyunit-results-*
+          path: all-results
+
+      - name: Install anyunit-report
+        run: dotnet tool install --global AnyUnit.Report --version "$ANYUNIT_VERSION"
+
+      - name: Merge into one report
+        shell: bash
+        run: |
+          set -e
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          mkdir -p report
+          anyunit-report convert -f html -o report/report.html all-results/*/*.json
+          anyunit-report convert -f markdown -o report/summary.md all-results/*/*.json
+          cat report/summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload HTML report
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report-html
+          path: report/report.html
