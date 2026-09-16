@@ -126,10 +126,13 @@ jobs:
   # Line/branch coverage of the library from the net10 Debug run, via
   # coverlet's MTP extension (the test exe instruments itself; no
   # separate collector process). Restricted to the library assembly:
-  # left to its defaults coverlet also instruments FSharp.Core, AnyUnit
-  # and friends, and that run never finished. Debug so the optimizer's
-  # inlining doesn't hide lines. Summary on the run page, cobertura
-  # as an artifact.
+  # coverlet instruments every assembly it can find sources for, and
+  # FSharp.Core's PDB source-links, so left to its defaults it spends
+  # ~80s rewriting FSharp.Core and then the process dies with
+  # BadImageFormatException "Bad IL range" at the entry point - the
+  # rewrite of FSharp.Core 10.1 is not valid IL. Debug so the
+  # optimizer's inlining doesn't hide lines. Summary on the run page,
+  # cobertura as an artifact.
   coverage:
     runs-on: ubuntu-latest
     steps:
