@@ -6,12 +6,12 @@
   </PropertyGroup>
 
   <!-- Version comes from git tags (MinVer): a `v*` tag is the version, and an untagged commit is
-       the next pre-release above the floor below (0.1.0-alpha.<height> until v0.1.0 exists).
+       the next pre-release above the floor below (1.0.0-alpha.<height> until v1.0.0 exists).
        Raise the floor to declare the next release; cut the tag to make it. CI checks out with
        full history so the tag and the height are visible to it. -->
   <PropertyGroup>
     <MinVerTagPrefix>v</MinVerTagPrefix>
-    <MinVerMinimumMajorMinor>0.1</MinVerMinimumMajorMinor>
+    <MinVerMinimumMajorMinor>1.0</MinVerMinimumMajorMinor>
   </PropertyGroup>
 
   <ItemGroup>
