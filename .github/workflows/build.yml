@@ -23,6 +23,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          # MinVer reads the version from tags and commit height.
+          fetch-depth: 0
 
       - uses: actions/setup-dotnet@v5
         with:
@@ -84,6 +87,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          # MinVer reads the version from tags and commit height.
+          fetch-depth: 0
 
       - uses: actions/setup-dotnet@v5
         with:
@@ -116,6 +122,29 @@ jobs:
           name: anyunit-results-browser-wasm-${{ matrix.configuration }}
           path: results/*.json
           if-no-files-found: warn
+
+  # The package at the version MinVer computed for this commit, as an
+  # artifact - so the version a tag would ship is visible on every run
+  # before any tag is cut.
+  pack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Pack
+        run: dotnet pack FSharp.Interop.Dlr --configuration Release --output packages
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuget-package
+          path: packages/*.nupkg
 
   # One report across every OS x configuration x framework: an HTML
   # artifact with the full per-test drill-down, and a Markdown summary

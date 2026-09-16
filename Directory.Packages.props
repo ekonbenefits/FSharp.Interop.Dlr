@@ -12,5 +12,6 @@
     <PackageVersion Include="AnyUnit.Style.Xunit" Version="1.2.0" />
     <PackageVersion Include="AnyUnit.Style.FsUnit" Version="1.2.0" />
     <PackageVersion Include="Microsoft.Testing.Extensions.TrxReport" Version="2.4.0" />
+    <PackageVersion Include="MinVer" Version="6.0.0" />
   </ItemGroup>
 </Project>
