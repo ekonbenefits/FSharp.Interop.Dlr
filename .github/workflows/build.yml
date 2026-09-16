@@ -69,6 +69,57 @@ jobs:
           path: results/*.json
           if-no-files-found: warn
 
+  # The translator reads compiler output that no spec pins down: the
+  # closure classes F# generates for the Delay lambda (field names, this,
+  # FSharpRef cells for mutables, where they nest, generic parameter
+  # names) and what the optimizer inlines instead of capturing. Older
+  # compilers build the same source so a change in any of that shows up
+  # here rather than in a consumer's project. The SDK is pinned with a
+  # global.json because the runner image ships several; TargetFrameworks
+  # is overridden since those SDKs cannot target net10.0 (and cannot
+  # read the .slnx, so the test project is built directly). Both
+  # configurations, for the same optimizer reason as above.
+  compilers:
+    strategy:
+      fail-fast: false
+      matrix:
+        sdk: ['8.0', '9.0']
+        configuration: [Debug, Release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '${{ matrix.sdk }}.x'
+
+      - name: Pin the SDK
+        shell: bash
+        run: |
+          printf '{ "sdk": { "version": "%s.0", "rollForward": "latestFeature" }, "test": { "runner": "Microsoft.Testing.Platform" } }' "${{ matrix.sdk }}" > global.json
+          dotnet --version
+
+      - name: Build with this compiler
+        run: dotnet build Tests/Tests.fsproj --configuration ${{ matrix.configuration }} -p:TargetFrameworks=net${{ matrix.sdk }}
+
+      - name: Test
+        shell: bash
+        run: |
+          mkdir -p results
+          dotnet Tests/bin/${{ matrix.configuration }}/net${{ matrix.sdk }}/Tests.dll \
+            --report-anyunit-json results/Tests-sdk${{ matrix.sdk }}-${{ matrix.configuration }}.json \
+            --platform-suffix sdk${{ matrix.sdk }}-${{ matrix.configuration }}
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: anyunit-results-sdk${{ matrix.sdk }}-${{ matrix.configuration }}
+          path: results/*.json
+          if-no-files-found: warn
+
   # The library is JIT-only by design (README) - the C# runtime binder,
   # LambdaExpression.Compile and ReflectedDefinition lookup - and Mono's
   # browser-wasm interpreter is the most different runtime it can be
@@ -197,7 +248,7 @@ jobs:
   # on the run's Summary page. if: always() so the report exists
   # precisely when a leg failed and someone wants to look.
   report:
-    needs: [test, browser-wasm]
+    needs: [test, compilers, browser-wasm]
     if: always()
     runs-on: ubuntu-latest
     steps:

@@ -102,6 +102,26 @@ The binder's accessibility context is the type declaring the member the block si
    `Expression.Constant`. Literals stay constants. The result is compiled to `Func<obj, 'T>` and
    cached in `DlrCache` under the closure type.
 
+## What it assumes about the compiler
+
+Everything above the closure is specified F#: the computation-expression desugaring, caller-info
+arguments, `[<ReflectedDefinition>]` and `LeafExpressionConverter`. What is *not* specified, and
+what a future compiler could change, is the shape of the closure class F# generates for the
+`Delay` lambda, which `Translate.captured` and `Discover` read:
+
+- fields named after the captured variables, `this` as `this`, a captured `let mutable` as an
+  `FSharpRef` field of the same name;
+- closures nested in the enclosing module type, or in the file's `<StartupCode$…>` class for members
+  of types declared in a namespace;
+- for generic members, a closure class generic over the member's type parameters, under the same
+  names;
+- the Release optimizer inlining constants and local functions instead of capturing them (resolved
+  from the `let` in the reflected body).
+
+If any of that moves, the first call at a site raises `DlrTranslationException` naming the closure
+and its fields; nothing binds silently wrong. CI builds the same source with the .NET 8, 9 and 10
+SDKs (F# 8, 9 and 10) in Debug and Release so such a change is caught here first.
+
 ## Measured (Release, net10.0, Apple Silicon, 5M-call average after warm-up)
 
 | | ns/call |
