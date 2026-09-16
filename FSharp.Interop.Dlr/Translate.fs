@@ -37,6 +37,8 @@ module internal Translate =
     let private opDynamicAssign = opMethod <@ fun (t: obj) (n: string) (v: obj) -> (?<-) t n v @>
     let private opBang = opMethod <@ fun (t: obj) -> ((!?) t) : obj @>
     let private opNamed = opMethod <@ fun (r: obj) -> Dlr.named r @>
+    let private forEach = opMethod <@ fun (items: seq<obj>) (body: obj -> unit) -> DlrRuntime.forEach items body @>
+    let private whileLoop = opMethod <@ fun (guard: unit -> bool) (body: unit -> unit) -> DlrRuntime.whileLoop guard body @>
     let private opIdx = opMethod <@ fun (t: obj) -> (Dlr.idx t) : Indexed<obj> @>
 
     let private binaryOps =
@@ -153,6 +155,11 @@ module internal Translate =
                         sprintf "dlr { } could not find captured variable '%s' on closure %s (fields: %s)."
                             v.Name closureType.Name (String.Join(", ", fields.Keys))))
 
+        /// A `unit` expression may compile to a void call, which cannot be the value of a lambda or
+        /// of the block; end it with the unit constant so the tree has a `Unit` value.
+        let asUnit (e: Expr) =
+            if e.Type = typeof<unit> then Expr.Sequential(e, Expr.Value(())) else e
+
         let free = body.GetFreeVars() |> Seq.filter (fun v -> v.Type <> builderType) |> Set.ofSeq
 
         let isBuilder (receiver: Expr option) =
@@ -162,11 +169,19 @@ module internal Translate =
 
         let rec rewrite (e: Expr) : Expr =
             match e with
-            // CE plumbing (Discover already unwrapped Delay)
+            // CE plumbing (Discover already unwrapped the outermost Delay)
             | Call(receiver, mi, args) when isBuilder receiver ->
                 match mi.Name, args with
                 | "Return", [ value ] -> rewrite value
                 | "Zero", [] -> Expr.Value(())
+                | "Delay", [ Lambda(_, body) ] -> rewrite body
+                | "Combine", [ first; Call(_, d, [ Lambda(_, rest) ]) ] when d.Name = "Delay" ->
+                    Expr.Sequential(rewrite first, rewrite rest)
+                | "For", [ items; Lambda(x, body) ] ->
+                    let items = rewrite items
+                    Expr.Call(forEach.MakeGenericMethod(x.Type), [ items; Expr.Lambda(x, asUnit (rewrite body)) ])
+                | "While", [ guard; Call(_, d, [ body ]) ] when d.Name = "Delay" ->
+                    Expr.Call(whileLoop, [ rewrite guard; rewrite body ])
                 | name, _ -> unsupported (sprintf "the '%s' construct" name) e
 
             // Dynamic operations
@@ -196,7 +211,7 @@ module internal Translate =
             // Everything else: captured variables become field reads, structure is rebuilt as-is.
             | Var v when free.Contains v -> captured v
             | ShapeVar _ -> e
-            | ShapeLambda(v, body) -> Expr.Lambda(v, rewrite body)
+            | ShapeLambda(v, body) -> Expr.Lambda(v, asUnit (rewrite body))
             | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map rewrite args)
 
         and targetArg (target: Expr) =
@@ -224,12 +239,13 @@ module internal Translate =
         and finish discard (resultType: Type) (call: Expr) =
             if discard then call else Binders.convert resultType call
 
-        let rewritten = rewrite body
         let delegateType = typedefof<Func<_, _>>.MakeGenericType(typeof<obj>, resultType)
-        let lambda = Expr.NewDelegate(delegateType, [ closure ], rewritten)
         let linq =
-            try LeafExpressionConverter.QuotationToExpression lambda :?> LambdaExpression
+            try
+                let rewritten = asUnit (rewrite body)
+                let lambda = Expr.NewDelegate(delegateType, [ closure ], rewritten)
+                LeafExpressionConverter.QuotationToExpression lambda :?> LambdaExpression
             with :? DlrTranslationException -> reraise ()
-               | ex -> raise (DlrTranslationException(sprintf "dlr { } could not compile this body: %s\n%A" ex.Message rewritten))
+               | ex -> raise (DlrTranslationException(sprintf "dlr { } could not compile this body: %s\n%A" ex.Message body))
         { Delegate = linq.Compile()
           ResultType = resultType }

@@ -24,6 +24,7 @@
     <Compile Include="Index.fs" />
     <Compile Include="Body.fs" />
     <Compile Include="Cache.fs" />
+    <Compile Include="Loops.fs" />
     <Compile Include="Errors.fs" />
     <Compile Include="Unreflected.fs" />
   </ItemGroup>

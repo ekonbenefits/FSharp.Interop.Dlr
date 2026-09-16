@@ -15,6 +15,11 @@ type DlrBuilder =
     member Zero: unit -> unit
     /// <summary>Returns the body closure unevaluated; <c>Run</c> uses it as the call-site key and value source.</summary>
     member Delay: f: (unit -> 'T) -> (unit -> 'T)
+    member Combine: first: unit * rest: (unit -> 'T) -> 'T
+    /// <summary><c>for x in items do …</c>; the body's dynamic call sites are created once and reused across iterations.</summary>
+    member For: items: seq<'T> * body: ('T -> unit) -> unit
+    /// <summary><c>while guard do …</c>; note F# does not let a <c>let mutable</c> be captured by the loop body, use a <c>ref</c>.</summary>
+    member While: guard: (unit -> bool) * body: (unit -> unit) -> unit
     /// <summary>Compiles (first call) and runs the block. <paramref name="file"/> and <paramref name="line"/> are filled in by the compiler and locate the body in the reflected definition.</summary>
     member Run:
         body: (unit -> 'T) *

@@ -6,6 +6,17 @@ open System.Runtime.CompilerServices
 open Microsoft.CSharp.RuntimeBinder
 open FSharp.Quotations
 
+/// Loop helpers the compiled block calls: `LeafExpressionConverter` cannot translate F# loop
+/// nodes, but it can translate lambdas, so loops become calls to these with the bodies as lambdas.
+module DlrRuntime =
+    /// `for x in items do body x`
+    let forEach (items: seq<'T>) (body: 'T -> unit) : unit =
+        for x in items do body x
+
+    /// `while guard () do body ()`
+    let whileLoop (guard: unit -> bool) (body: unit -> unit) : unit =
+        while guard () do body ()
+
 /// Builds Microsoft.CSharp binders and emits the quotation fragment that calls a
 /// pre-created CallSite: `Call(FieldGet(Value site, Target), Invoke, site :: args)`.
 /// The `Value site` becomes an Expression.Constant, so the site is baked into the

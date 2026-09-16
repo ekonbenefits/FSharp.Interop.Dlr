@@ -51,7 +51,10 @@ The assembly is marked `IsAotCompatible=false` / `IsTrimmable=false` so `dotnet 
 | `?+? ?-? ?*? ?/? ?%? ?&&&? ?\|\|\|? ?^^^? ?<<<? ?>>>?` | BinaryOperation, then Convert |
 | `?=? ?<>? ?<? ?>? ?<=? ?>=?` | BinaryOperation, then Convert to bool |
 
-Plus `let`, `if`, sequencing and ordinary F# code, via `LeafExpressionConverter`.
+Plus `let`, `if`, sequencing, `for x in items do …`, `while … do …` and ordinary F# code. Loop bodies
+reuse the block's call sites across iterations. As in `async { }`, a `let mutable` cannot be captured by a
+loop body; use a `ref` or an object. `try`, `let rec` and `match` on active patterns are not translated
+(`LeafExpressionConverter` limits).
 
 Rules: the enclosing module, type or member must be `[<ReflectedDefinition>]` (a clear
 `DlrTranslationException` says so otherwise); one `dlr { }` per source line (the body is located by
@@ -82,6 +85,7 @@ Calling any of the operators or `Dlr.*` markers outside `dlr { }` throws `Invali
 | `dlr { return w?Count }` | 24 |
 | `dlr { return w?Add(i, 1) }` | 29 |
 | `dlr { return w?Add(i, Dlr.named {| b = 1 |}) }` | 29 |
+| `dlr { for x in items do … w?Add(x, i) … }`, 100 items | 1 690 per block, ≈17 per iteration |
 | FSharp.Interop.Dynamic `w?Count` / `w?Add(i, 1)` | ~4 100 / ~7 800 |
 | reflection, cached `PropertyInfo.GetValue` / `MethodInfo.Invoke(w, [\| i; 1 \|])` | 17 / 63 |
 | reflection, `GetProperty` + `GetValue` / `GetMethod` + `Invoke` each call | 49 / 67 |

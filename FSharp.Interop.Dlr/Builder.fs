@@ -9,6 +9,9 @@ type DlrBuilder() =
     member _.Return(value: 'T) = value
     member _.Zero() = ()
     member _.Delay(f: unit -> 'T) = f
+    member _.Combine(first: unit, rest: unit -> 'T) : 'T = ignore first; rest ()
+    member _.For(items: seq<'T>, body: 'T -> unit) : unit = Seq.iter body items
+    member _.While(guard: unit -> bool, body: unit -> unit) : unit = while guard () do body ()
 
     member this.Run(body: unit -> 'T,
                     [<CallerFilePath; Optional; DefaultParameterValue("")>] file: string,
