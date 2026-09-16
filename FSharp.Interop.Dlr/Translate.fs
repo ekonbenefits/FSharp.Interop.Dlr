@@ -177,7 +177,6 @@ module internal Translate =
                 match mi.Name, args with
                 | "Return", [ value ] -> rewrite value
                 | "Zero", [] -> Expr.Value(())
-                | "Delay", [ Lambda(_, body) ] -> rewrite body
                 | "Combine", [ first; Call(_, d, [ Lambda(_, rest) ]) ] when d.Name = "Delay" ->
                     Expr.Sequential(rewrite first, rewrite rest)
                 | "For", [ items; Lambda(x, body) ] ->
