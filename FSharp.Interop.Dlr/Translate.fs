@@ -239,6 +239,9 @@ module internal Translate =
                     Expr.Call(tryFinally.MakeGenericMethod(e.Type), [ func bound [] body; func bound [] compensation ])
                 | "Using", [ resource; Lambda(r, body) ] ->
                     Expr.Call(using.MakeGenericMethod(r.Type, e.Type), [ rewrite resource; func bound [ r ] body ])
+                // A nested dlr { } is compiled as part of this one: at run time its closure would be
+                // made by our compiled code, not the F# compiler, so it has no reflected body of its own.
+                | "Run", [ Call(_, d, [ Lambda(_, inner) ]); _; _ ] when d.Name = "Delay" -> rewrite inner
                 | name, _ -> unsupported (sprintf "the '%s' construct" name) e
 
             // Dynamic operations

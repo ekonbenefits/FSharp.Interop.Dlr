@@ -35,7 +35,8 @@ module internal Discover =
         | Call(Some receiver, mi, [ Call(_, delay, [ Lambda(_, body) ]); Value(f, _); Value(l, _) ])
             when receiver.Type = builderType && mi.Name = "Run" && delay.Name = "Delay"
                  && unbox<int> l = line && unbox<string> f = file ->
-            body :: runsAt builderType file line body
+            // Blocks nested inside this one compile with it (see Translate), so do not list them.
+            [ body ]
         | ShapeVar _ -> []
         | ShapeLambda(_, body) -> runsAt builderType file line body
         | ShapeCombination(_, args) -> args |> List.collect (runsAt builderType file line)

@@ -39,6 +39,7 @@
     <Compile Include="DynamicObjects.fs" />
     <Compile Include="TryBlocks.fs" />
     <Compile Include="Unary.fs" />
+    <Compile Include="Nesting.fs" />
     <Compile Include="Errors.fs" />
     <Compile Include="Unreflected.fs" />
   </ItemGroup>
