@@ -54,4 +54,13 @@ let ``generic type and generic method members`` () =
     Holder<string>(Widget()).Pick "s" |> should equal "string"
     h.Pair 1 "b" |> should equal "1, b"
     h.Pair 1 2.5 |> should equal "1, 2.5"
+    // Unused never mentions 'T, but it reads w, a constructor parameter, i.e. a field of
+    // this: Holder<'T>, so its closure is generic in 'T: one site per instantiation, then stable.
+    let before = DlrCache.count ()
     h.Unused() |> should equal 3
+    Holder<string>(Widget()).Unused() |> should equal 3
+    Holder<float>(Widget()).Unused() |> should equal 3
+    DlrCache.count () |> should equal (before + 3)
+    h.Unused() |> should equal 3
+    Holder<string>(Widget()).Unused() |> should equal 3
+    DlrCache.count () |> should equal (before + 3)

@@ -53,10 +53,14 @@ let genericPick (w: obj) (x: 'a) : string = dlr { return w?Pick(x) }
 [<Fact>]
 let ``generic enclosing function: each instantiation is its own site with concrete types`` () =
     let w = Widget()
+    let before = DlrCache.count ()
     genericPick w 1 |> should equal "int"
     genericPick w "s" |> should equal "string"
     genericPick w 2.5 |> should equal "obj"
+    DlrCache.count () |> should equal (before + 3)
     genericPick w 7 |> should equal "int"
+    genericPick w "t" |> should equal "string"
+    DlrCache.count () |> should equal (before + 3)
 
 [<Fact>]
 let ``values the optimizer inlines instead of capturing still resolve`` () =
