@@ -277,6 +277,23 @@ module internal Translate =
             | Var v when isCaptured bound v -> captured (rewriteIn bound) v
             | ShapeVar _ -> e
             | Let(v, def, letBody) -> Expr.Let(v, rewrite def, rewriteIn (bound.Add v) letBody)
+            // `let rec` has no expression-tree form; tie the knot through reference cells, as the
+            // compiler does: each binding becomes a cell, uses read the cell, and the definitions
+            // are assigned after all cells exist so mutual recursion works too.
+            | LetRecursive(bindings, letBody) ->
+                let cells = [ for (v, _) in bindings -> v, Var(v.Name + "'", typedefof<Ref<_>>.MakeGenericType v.Type) ]
+                let readCell (cell: Var) = Expr.PropertyGet(Expr.Var cell, cell.Type.GetProperty("Value"))
+                let viaCells (e: Expr) = e.Substitute(fun v -> cells |> List.tryFind (fun (rv, _) -> rv = v) |> Option.map (snd >> readCell))
+                let bound = cells |> List.fold (fun (b: Set<Var>) (_, c) -> b.Add c) bound
+                let assignments =
+                    [ for (v, def), (_, cell) in List.zip bindings cells ->
+                        Expr.PropertySet(Expr.Var cell, cell.Type.GetProperty("Value"), rewriteIn bound (viaCells def)) ]
+                let body = rewriteIn bound (viaCells letBody)
+                let inner = List.foldBack (fun assign rest -> Expr.Sequential(assign, rest)) assignments body
+                List.foldBack
+                    (fun (v: Var, cell: Var) rest ->
+                        Expr.Let(cell, Expr.NewObject(cell.Type.GetConstructor [| v.Type |], [ Expr.Value(null, v.Type) ]), rest))
+                    cells inner
             | ShapeLambda(v, lambdaBody) -> Expr.Lambda(v, asUnit (rewriteIn (bound.Add v) lambdaBody))
             | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map rewrite args)
 

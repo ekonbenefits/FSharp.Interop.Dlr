@@ -79,3 +79,37 @@ let ``several blocks in one function are separate sites`` () =
     let a: int = dlr { return w?Count }
     let b: string = dlr { return w?Name }
     (a, b) |> should equal (3, "widget")
+
+[<Fact>]
+let ``let rec inside the block`` () =
+    let w = box (Widget())
+    let n: int =
+        dlr {
+            let rec fact n = if n <= 1 then 1 else n * fact (n - 1)
+            return w?Add(fact 5, w?Count)
+        }
+    n |> should equal 123
+
+[<Fact>]
+let ``mutually recursive let rec inside the block`` () =
+    let w = box (Widget())
+    let r: string =
+        dlr {
+            let rec isEven n = if n = 0 then true else isOdd (n - 1)
+            and isOdd n = if n = 0 then false else isEven (n - 1)
+            return w?Pick(if isEven (w?Count : int) then "even" else "odd")
+        }
+    r |> should equal "string"
+
+[<Fact>]
+let ``let rec can call dynamic members`` () =
+    let w = box (Widget())
+    let acc = ResizeArray<int>()
+    dlr {
+        let rec countDown (n: int) =
+            if n > 0 then
+                acc.Add(w?Add(n, 0))
+                countDown (n - 1)
+        countDown 3
+    }
+    List.ofSeq acc |> should equal [ 3; 2; 1 ]

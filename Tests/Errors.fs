@@ -53,9 +53,11 @@ let ``dynamic member as first-class function is rejected`` () =
 let ``unsupported quotation node is reported`` () =
     let w = box (Widget())
     (fun () ->
+        // A loop inside a lambda is a raw loop node, which has no expression-tree form
+        // (loops at block level go through the builder and are translated).
         dlr {
-            let rec fact n = if n <= 1 then 1 else n * fact (n - 1)
-            return fact (w?Count : int)
+            let f () = for i in 1 .. 2 do ignore i
+            return (w?Pick(f) : string)
         } |> ignore)
     |> should throw typeof<DlrTranslationException>
 

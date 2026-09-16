@@ -60,13 +60,13 @@ it is correct there, just not at the numbers below.
 | `Dlr.neg x`, `Dlr.not x`, `Dlr.complement x` | UnaryOperation, then Convert |
 | `Dlr.cast<T> x` | explicit Convert (a C# cast); `?` results convert implicitly on their own |
 
-Plus `let`, `use`, `if`, sequencing, `for x in items do …`, `while … do …`, `try … with`,
-`try … finally` and ordinary F# code. Loop bodies reuse the block's call sites across iterations; a failed dynamic
+Plus `let`, `let rec` (including mutual recursion), `use`, `if`, sequencing, `for x in items do …`,
+`while … do …`, `try … with`, `try … finally` and ordinary F# code. Loop bodies reuse the block's call sites across iterations; a failed dynamic
 bind (`RuntimeBinderException`) can be caught inside the block. Blocks can be nested (an inner block compiles as part of the outer
 one), can sit inside `task { }` / `async { }`, and work in F# Interactive scripts (mark the
 module `[<ReflectedDefinition>]` as usual). As in `async { }`, a `let mutable`
-cannot be captured by a loop or try body; use a `ref` or an object. `let rec` is not translated
-(`LeafExpressionConverter` limit).
+cannot be captured by a loop or try body; use a `ref` or an object. Loops or `try` inside a lambda within the block (as opposed to at block
+level) are not translated (`LeafExpressionConverter` limit).
 
 Rules: the enclosing module, type or member must be `[<ReflectedDefinition>]` (a clear
 `DlrTranslationException` says so otherwise); one `dlr { }` per source line (the body is located by
