@@ -16,6 +16,7 @@ open FSharp.Quotations
 /// that wrapper loses its argument (a `try .. with` handler saw a null exception; `fun i -> i + 1`
 /// returned 1) while the same delegate invoked directly is fine. The translator therefore emits
 /// `NewDelegate` nodes, which convert to the delegate lambda itself with nothing in between.
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 module DlrRuntime =
     /// `for x in items do body x`
     let forEach (items: seq<'T>) (body: Func<'T, unit>) : unit =

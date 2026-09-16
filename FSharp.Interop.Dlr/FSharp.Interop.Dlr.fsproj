@@ -7,7 +7,12 @@
     <Description>dlr { } computation expression: ? operator compiled once per call site with baked DLR call sites</Description>
     <Authors>Jay Tuley</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/ekonbenefits/FSharp.Interop.Dlr</PackageProjectUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageTags>fsharp dynamic dlr quotations</PackageTags>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
     <!-- JIT only: the C# runtime binder, LambdaExpression.Compile and ReflectedDefinition lookup
@@ -19,6 +24,11 @@
   <ItemGroup>
     <PackageReference Include="FSharp.Core" />
     <PackageReference Include="Microsoft.CSharp" Condition="'$(TargetFramework)' == 'netstandard2.0'" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\README.md" Pack="true" PackagePath="\" />
+    <None Include="..\License.txt" Pack="true" PackagePath="\" />
   </ItemGroup>
 
   <ItemGroup>
