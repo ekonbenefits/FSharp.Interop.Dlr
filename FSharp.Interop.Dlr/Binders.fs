@@ -64,13 +64,19 @@ module internal Binders =
         if e.Type = typeof<obj> then dynamicArg e
         else { Expr = e; Type = e.Type; Flags = CSharpArgumentInfoFlags.UseCompileTimeType; Name = null }
 
-    let named (name: string) (arg: Arg) =
+    let private withFlag (flag: CSharpArgumentInfoFlags) (arg: Arg) =
         // Spelled out with int locals: `|||` straight on the enum resolved to the dynamic
         // (throwing) FSharp.Core path when compiled against the FSharp.Core floor.
         let current: int = LanguagePrimitives.EnumToValue arg.Flags
-        let namedFlag: int = LanguagePrimitives.EnumToValue CSharpArgumentInfoFlags.NamedArgument
-        let flags: CSharpArgumentInfoFlags = LanguagePrimitives.EnumOfValue(current ||| namedFlag)
-        { arg with Flags = flags; Name = name }
+        let added: int = LanguagePrimitives.EnumToValue flag
+        { arg with Flags = LanguagePrimitives.EnumOfValue(current ||| added) }
+
+    /// A literal argument: the binder applies C#'s constant conversions (an in-range `int`
+    /// literal to `byte`, `0` to an enum, `null` to any reference type).
+    let constant (arg: Arg) = withFlag CSharpArgumentInfoFlags.Constant arg
+
+    let named (name: string) (arg: Arg) =
+        { withFlag CSharpArgumentInfoFlags.NamedArgument arg with Name = name }
 
     let private argInfo (a: Arg) = CSharpArgumentInfo.Create(a.Flags, a.Name)
 

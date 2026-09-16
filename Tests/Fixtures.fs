@@ -24,6 +24,12 @@ type Widget() =
     member _.TypeName<'T>() = typeof<'T>.Name
     member _.Pair<'A, 'B>(a: 'A, b: 'B) = sprintf "%s/%s" (typeof<'A>.Name) (typeof<'B>.Name)
     member _.Echo<'T>(x: 'T) : 'T = x
+    member _.Narrow(_: byte) = "byte"
+    member _.Narrow(_: int64) = "int64"
+    member _.Kind(_: DayOfWeek) = "enum"
+    member _.Kind(_: obj) = "obj"
+    member _.Text(_: string) = "string"
+    member _.Text(_: int) = "int"
 
 /// Records which DLR operations reached it.
 type Recorder() =

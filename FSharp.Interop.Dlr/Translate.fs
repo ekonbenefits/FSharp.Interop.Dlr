@@ -236,7 +236,10 @@ module internal Translate =
             let t = rewrite target
             Binders.dynamicArg (if t.Type = typeof<obj> then t else Expr.Coerce(t, typeof<obj>))
 
-        and valueArg (value: Expr) = Binders.typedArg (rewrite value)
+        and valueArg (value: Expr) =
+            match value with
+            | Value _ -> Binders.constant (Binders.typedArg value)
+            | _ -> Binders.typedArg (rewrite value)
 
         and argList (argExprs: Expr list) =
             let bindings = ResizeArray()

@@ -126,3 +126,22 @@ let ``typeArgs must come first`` () =
     let w = box (Widget())
     (fun () -> (dlr { return w?Pair(1, Dlr.typeArgs<int, int>()) } : string) |> ignore)
     |> should throw typeof<DlrTranslationException>
+
+[<Fact>]
+let ``an int literal converts to a narrower parameter like a C# constant`` () =
+    let w = box (Widget())
+    let n = 5
+    (dlr { return w?Narrow(5) } : string) |> should equal "byte"
+    (dlr { return w?Narrow(n) } : string) |> should equal "int64"
+
+[<Fact>]
+let ``the literal 0 converts to an enum parameter`` () =
+    let w = box (Widget())
+    let z = 0
+    (dlr { return w?Kind(0) } : string) |> should equal "enum"
+    (dlr { return w?Kind(z) } : string) |> should equal "obj"
+
+[<Fact>]
+let ``a null literal picks the reference overload`` () =
+    let w = box (Widget())
+    (dlr { return w?Text(null) } : string) |> should equal "string"
