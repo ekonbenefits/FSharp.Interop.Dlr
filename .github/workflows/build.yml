@@ -123,6 +123,49 @@ jobs:
           path: results/*.json
           if-no-files-found: warn
 
+  # Line/branch coverage of the library from the net10 Debug run, via
+  # coverlet's MTP extension (the test exe instruments itself; no
+  # separate collector process). Restricted to the library assembly:
+  # left to its defaults coverlet also instruments FSharp.Core, AnyUnit
+  # and friends, and that run never finished. Debug so the optimizer's
+  # inlining doesn't hide lines. Summary on the run page, cobertura
+  # as an artifact.
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build
+        run: dotnet build --configuration Debug
+
+      - name: Test with coverage
+        shell: bash
+        run: |
+          dotnet Tests/bin/Debug/net10.0/Tests.dll \
+            --coverlet --coverlet-output-format cobertura \
+            --coverlet-include '[FSharp.Interop.Dlr]*' \
+            --results-directory coverage
+
+      - name: Coverage summary
+        shell: bash
+        run: |
+          set -e
+          dotnet tool install --global dotnet-reportgenerator-globaltool
+          reportgenerator -reports:'coverage/coverage.cobertura.*.xml' -targetdir:coveragereport -reporttypes:MarkdownSummaryGithub
+          cat coveragereport/SummaryGithub.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/coverage.cobertura.*.xml
+
   # The package at the version MinVer computed for this commit, as an
   # artifact - so the version a tag would ship is visible on every run
   # before any tag is cut.

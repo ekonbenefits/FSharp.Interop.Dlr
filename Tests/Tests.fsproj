@@ -22,6 +22,7 @@
     <PackageReference Include="AnyUnit.TestingPlatform" />
     <PackageReference Include="AnyUnit.Style.Xunit" />
     <PackageReference Include="AnyUnit.Style.FsUnit" />
+    <PackageReference Include="coverlet.MTP" />
   </ItemGroup>
 
   <ItemGroup>
