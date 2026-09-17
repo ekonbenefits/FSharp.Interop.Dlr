@@ -53,7 +53,7 @@ let ``unit -> R: a property, a parameterless method, a delegate and an F# functi
     let method' = box (Fixtures.expando [ "Value", box (Func<int>(fun () -> 2)) ])
     let fn = box (Fixtures.expando [ "Value", box (fun () -> 3) ])
     let plain = box (Fixtures.expando [ "Value", box 4 ])
-    let [ p; m; f; v ] = [ bind property; bind method'; bind fn; bind plain ]
+    let p, m, f, v = bind property, bind method', bind fn, bind plain
     for _ in 1 .. rounds do
         [ p (); m (); f (); v () ] |> should equal [ 1; 2; 3; 4 ]
 
