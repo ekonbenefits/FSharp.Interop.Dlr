@@ -1,9 +1,12 @@
 name: Build
 
+# Manual only while the repo is private and out of Actions minutes: the same gate runs locally
+# before every push (Debug, Release, wasm, analyzers - see CLAUDE.md). Run it from the Actions
+# tab to publish a prerelease; on master it also refreshes the badges. Restore
+#   push: { branches: [master] }  and  pull_request:
+# to run it on every push and PR again.
 on:
-  push:
-    branches: [master]
-  pull_request:
+  workflow_dispatch:
 
 env:
   DOTNET_NOLOGO: true
@@ -290,7 +293,7 @@ jobs:
   # [skip ci] so the badge commit does not start another run.
   badges:
     needs: [test, compilers, wasm-mtp, coverage]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -342,7 +345,7 @@ jobs:
   # and the feed does not take symbol packages, so only the .nupkg goes.
   publish:
     needs: [test, compilers, wasm-mtp, pack]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     permissions:
       contents: read
