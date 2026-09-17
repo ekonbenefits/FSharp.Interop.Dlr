@@ -74,22 +74,36 @@ it is correct there, just not at the numbers below.
 
 ## What is recognised inside `dlr { }`
 
+Members (a name may also be a variable: the site then holds one compiled delegate per distinct name, made on first use, so a repeated name costs a dictionary lookup):
+
 | Syntax | Binder |
 | --- | --- |
 | `x?Name` | GetMember, then Convert to the inferred type |
-| `x?Name(a, b)`, `x?Name()` | InvokeMember; args use their static F# type, `obj` args dispatch on runtime type, literals get C#'s constant conversions (`5` → `byte`, `0` → enum, `null` → any reference type) |
-| `x?Name(a, Dlr.named {| p = v |})` | InvokeMember with named arguments; a bare `{| |}` is one positional argument |
-| `x \|> Dlr.get "Name"`, `(x \|> Dlr.get "Add") (1, 2)`, `x \|> Dlr.invoke "Add" (1, 2)`, `x \|> Dlr.set "Name" v` | the same operations with the target last, for pipelines: `root \|> Dlr.get "Child" \|> Dlr.get "Name"`. `Dlr.get` invokes when applied, like `?` |
-| `(?) x name`, `((?) x name)(a)`, `(?<-) x name v` with `name` a variable | the same binders, bound per distinct name at run time: the site holds one compiled delegate per name, made on first use, so a repeated name costs a dictionary lookup |
-| `x?Name(Dlr.typeArgs<A, B>(), a)` | InvokeMember with explicit generic type arguments (up to four; marker goes first). Without it, type arguments are inferred from the argument types as in C# |
+| `x?Name(a, b)`, `x?Name()` | InvokeMember. Arguments use their static F# type; `obj` arguments dispatch on the runtime type; literals get C#'s constant conversions (`5` to `byte`, `0` to an enum, `null` to any reference type) |
+| `x?Name(a, Dlr.named {\| p = v \|})` | InvokeMember with named arguments (a bare anonymous record is one positional argument) |
+| `x?Name(Dlr.typeArgs<A, B>(), a)` | InvokeMember with explicit type arguments, up to four, marker first; without it they are inferred from the arguments as in C# |
 | `x?Name <- v` | SetMember |
-| `x \|> Dlr.call (a, b)`, `x \|> Dlr.call ()` | Invoke: the object itself (a delegate, a callable dynamic object); chains after `Dlr.get` |
-| `(Dlr.idx x).[i]`, `(Dlr.idx x).[i, j] <- v` (up to four indexes) | GetIndex / SetIndex; element type inferred from use |
-| `?+? ?-? ?*? ?/? ?%? ?&&&? ?\|\|\|? ?^^^? ?<<<? ?>>>?` | BinaryOperation, then Convert |
-| `?=? ?<>? ?<? ?>? ?<=? ?>=?` | BinaryOperation, then Convert to bool |
+| `(?) x name`, `((?) x name)(a)`, `(?<-) x name v` | the same three, as ordinary function applications |
+| `x \|> Dlr.get "Name"` | GetMember with the target last, for pipelines: `root \|> Dlr.get "Child" \|> Dlr.get "Name"`; applied to arguments it invokes, like `?` |
+| `x \|> Dlr.invoke "Name" (a, b)` | InvokeMember, target last |
+| `x \|> Dlr.set "Name" v` | SetMember, target last |
+
+The object itself and indexers:
+
+| Syntax | Binder |
+| --- | --- |
+| `x \|> Dlr.call (a, b)`, `x \|> Dlr.call ()` | Invoke: a delegate, a callable dynamic object; chains after `Dlr.get` |
+| `(Dlr.idx x).[i]`, `(Dlr.idx x).[i, j] <- v` | GetIndex / SetIndex, up to four indexes; element type inferred from use |
+
+Operators and conversions:
+
+| Syntax | Binder |
+| --- | --- |
+| `?+? ?-? ?*? ?/? ?%? ?&&&? ?\|\|\|? ?^^^? ?<<<? ?>>>?` | BinaryOperation, then Convert to the inferred type |
+| `?=? ?<>? ?<? ?>? ?<=? ?>=?` | BinaryOperation, then Convert to `bool` |
 | `Dlr.neg x`, `Dlr.not x`, `Dlr.complement x` | UnaryOperation, then Convert |
-| `Dlr.cast<T> x` | explicit Convert (a C# cast); `?` results convert implicitly on their own |
-| `Dlr.implicit x` | implicit Convert of a value you already hold, to the type inferred from use (widening, `op_Implicit`, `TryConvert`) |
+| `Dlr.cast<T> x` | explicit Convert, a C# cast |
+| `Dlr.implicit x` | implicit Convert of a value you already hold, to the type inferred from use: widening, `op_Implicit`, a `DynamicObject`'s `TryConvert` |
 
 Plus `let`, `let rec` (including mutual recursion), `use`, `if`, sequencing, `for x in items do …`,
 `while … do …`, `try … with`, `try … finally` and ordinary F# code. Loop bodies reuse the block's call sites across iterations; a failed dynamic
