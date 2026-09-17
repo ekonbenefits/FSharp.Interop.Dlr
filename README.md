@@ -1,9 +1,9 @@
 # FSharp.Interop.Dlr
 
 [![CI](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml/badge.svg)](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml)
-[![Tests](https://img.shields.io/badge/tests-139%20passed-brightgreen.svg?style=flat)](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml)
-[![Line coverage](https://img.shields.io/badge/line%20coverage-92%25-brightgreen.svg?style=flat)](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml)
-[![Branch coverage](https://img.shields.io/badge/branch%20coverage-91%25-brightgreen.svg?style=flat)](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml)
+[![Tests](https://img.shields.io/badge/tests-172%20passed-brightgreen.svg?style=flat)](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml)
+[![Line coverage](https://img.shields.io/badge/line%20coverage-93%25-brightgreen.svg?style=flat)](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml)
+[![Branch coverage](https://img.shields.io/badge/branch%20coverage-86%25-green.svg?style=flat)](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](License.txt)
 
 **C#'s `dynamic`, for F#.** Inside a `dlr { }` block, `x?Name`, `x?Name(a, b)` and `x?Name <- v`
