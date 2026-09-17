@@ -60,6 +60,7 @@
     <Compile Include="Pipes.fs" />
     <Compile Include="CompoundAssign.fs" />
     <Compile Include="Restrictions.fs" />
+    <Compile Include="FunctionMembers.fs" />
     <Compile Include="Unreflected.fs" />
   </ItemGroup>
 

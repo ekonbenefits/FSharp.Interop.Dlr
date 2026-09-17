@@ -42,6 +42,95 @@ module DlrRuntime =
             | null -> ()
             | d -> (d :?> IDisposable).Dispose()
 
+/// `x?Name(args)` where the member holds an F# function value rather than a delegate: C#'s
+/// InvokeMember cannot invoke an FSharpFunc ("Cannot invoke a non-delegate type"), so when it
+/// fails with a RuntimeBinderException the member is read and, if it is the `FSharpFunc` the
+/// call's inferred type says it should be, applied; anything else rethrows the original error.
+/// One overload per argument count; the try costs nothing on the successful path.
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+[<AbstractClass; Sealed>]
+type InvokeOrApply =
+    static member private Rethrow(ex: exn) : 'T =
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex).Throw()
+        Unchecked.defaultof<'T>
+
+    static member Invoke<'R>(invoke: CallSite<Func<CallSite, obj, obj>>, get: CallSite<Func<CallSite, obj, obj>>, target: obj) : obj =
+        try invoke.Target.Invoke(invoke, target)
+        with :? Microsoft.CSharp.RuntimeBinder.RuntimeBinderException as ex ->
+            match get.Target.Invoke(get, target) with
+            | :? FSharpFunc<unit, 'R> as f -> box (f ())
+            | _ -> InvokeOrApply.Rethrow ex
+
+    static member Invoke<'A, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, obj>>, get: CallSite<Func<CallSite, obj, obj>>, target: obj, a: 'A) : obj =
+        try invoke.Target.Invoke(invoke, target, a)
+        with :? Microsoft.CSharp.RuntimeBinder.RuntimeBinderException as ex ->
+            match get.Target.Invoke(get, target) with
+            | :? FSharpFunc<'A, 'R> as f -> box (f a)
+            | _ -> InvokeOrApply.Rethrow ex
+
+    static member Invoke<'A, 'B, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, 'B, obj>>, get: CallSite<Func<CallSite, obj, obj>>, target: obj, a: 'A, b: 'B) : obj =
+        try invoke.Target.Invoke(invoke, target, a, b)
+        with :? Microsoft.CSharp.RuntimeBinder.RuntimeBinderException as ex ->
+            match get.Target.Invoke(get, target) with
+            | :? FSharpFunc<'A * 'B, 'R> as f -> box (f (a, b))
+            | :? FSharpFunc<'A, FSharpFunc<'B, 'R>> as f -> box (f a b)
+            | _ -> InvokeOrApply.Rethrow ex
+
+    static member Invoke<'A, 'B, 'C, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, 'B, 'C, obj>>, get: CallSite<Func<CallSite, obj, obj>>, target: obj, a: 'A, b: 'B, c: 'C) : obj =
+        try invoke.Target.Invoke(invoke, target, a, b, c)
+        with :? Microsoft.CSharp.RuntimeBinder.RuntimeBinderException as ex ->
+            match get.Target.Invoke(get, target) with
+            | :? FSharpFunc<'A * 'B * 'C, 'R> as f -> box (f (a, b, c))
+            | :? FSharpFunc<'A, FSharpFunc<'B, FSharpFunc<'C, 'R>>> as f -> box (f a b c)
+            | _ -> InvokeOrApply.Rethrow ex
+
+    static member Invoke<'A, 'B, 'C, 'D, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, 'B, 'C, 'D, obj>>, get: CallSite<Func<CallSite, obj, obj>>, target: obj, a: 'A, b: 'B, c: 'C, d: 'D) : obj =
+        try invoke.Target.Invoke(invoke, target, a, b, c, d)
+        with :? Microsoft.CSharp.RuntimeBinder.RuntimeBinderException as ex ->
+            match get.Target.Invoke(get, target) with
+            | :? FSharpFunc<'A * 'B * 'C * 'D, 'R> as f -> box (f (a, b, c, d))
+            | :? FSharpFunc<'A, FSharpFunc<'B, FSharpFunc<'C, FSharpFunc<'D, 'R>>>> as f -> box (f a b c d)
+            | _ -> InvokeOrApply.Rethrow ex
+
+    // `Dlr.call`: the target itself may be the F# function.
+    static member Call<'R>(invoke: CallSite<Func<CallSite, obj, obj>>, target: obj) : obj =
+        try invoke.Target.Invoke(invoke, target)
+        with :? Microsoft.CSharp.RuntimeBinder.RuntimeBinderException as ex ->
+            match target with
+            | :? FSharpFunc<unit, 'R> as f -> box (f ())
+            | _ -> InvokeOrApply.Rethrow ex
+
+    static member Call<'A, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, obj>>, target: obj, a: 'A) : obj =
+        try invoke.Target.Invoke(invoke, target, a)
+        with :? Microsoft.CSharp.RuntimeBinder.RuntimeBinderException as ex ->
+            match target with
+            | :? FSharpFunc<'A, 'R> as f -> box (f a)
+            | _ -> InvokeOrApply.Rethrow ex
+
+    static member Call<'A, 'B, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, 'B, obj>>, target: obj, a: 'A, b: 'B) : obj =
+        try invoke.Target.Invoke(invoke, target, a, b)
+        with :? Microsoft.CSharp.RuntimeBinder.RuntimeBinderException as ex ->
+            match target with
+            | :? FSharpFunc<'A * 'B, 'R> as f -> box (f (a, b))
+            | :? FSharpFunc<'A, FSharpFunc<'B, 'R>> as f -> box (f a b)
+            | _ -> InvokeOrApply.Rethrow ex
+
+    static member Call<'A, 'B, 'C, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, 'B, 'C, obj>>, target: obj, a: 'A, b: 'B, c: 'C) : obj =
+        try invoke.Target.Invoke(invoke, target, a, b, c)
+        with :? Microsoft.CSharp.RuntimeBinder.RuntimeBinderException as ex ->
+            match target with
+            | :? FSharpFunc<'A * 'B * 'C, 'R> as f -> box (f (a, b, c))
+            | :? FSharpFunc<'A, FSharpFunc<'B, FSharpFunc<'C, 'R>>> as f -> box (f a b c)
+            | _ -> InvokeOrApply.Rethrow ex
+
+    static member Call<'A, 'B, 'C, 'D, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, 'B, 'C, 'D, obj>>, target: obj, a: 'A, b: 'B, c: 'C, d: 'D) : obj =
+        try invoke.Target.Invoke(invoke, target, a, b, c, d)
+        with :? Microsoft.CSharp.RuntimeBinder.RuntimeBinderException as ex ->
+            match target with
+            | :? FSharpFunc<'A * 'B * 'C * 'D, 'R> as f -> box (f (a, b, c, d))
+            | :? FSharpFunc<'A, FSharpFunc<'B, FSharpFunc<'C, FSharpFunc<'D, 'R>>>> as f -> box (f a b c d)
+            | _ -> InvokeOrApply.Rethrow ex
+
 /// A call site whose member name is only known at run time (`(?) x name` with `name` a variable):
 /// one compiled, typed delegate per distinct name, made on first use from a quotation template
 /// the translator built for the site, so after that first call a name costs one dictionary
@@ -116,6 +205,13 @@ module internal Binders =
     let setMember (context: Type) (name: string) (target: Arg) (value: Arg) =
         siteCall (Binder.SetMember(CSharpBinderFlags.None, name, context, [ argInfo target; argInfo value ])) [ target; value ] typeof<obj>
 
+    /// A `CallSite<_>` for `binder` over `args`, as a `Value` node and its type.
+    let private site (binder: CallSiteBinder) (args: Arg list) (resultType: Type) =
+        let delegateType =
+            Expression.GetDelegateType(Array.ofList (typeof<CallSite> :: [ for a in args -> a.Type ] @ [ resultType ]))
+        let siteType = typedefof<CallSite<_>>.MakeGenericType delegateType
+        Expr.Value(siteType.GetMethod("Create").Invoke(null, [| box binder |]), siteType)
+
     let invokeMember (context: Type) (name: string) (typeArgs: Type list) (discard: bool) (target: Arg) (args: Arg list) =
         let flags = if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None
         let all = target :: args
@@ -123,11 +219,42 @@ module internal Binders =
         let binder = Binder.InvokeMember(flags, name, typeArgs, context, [ for a in all -> argInfo a ])
         siteCall binder all (if discard then voidType else typeof<obj>)
 
+    /// `x?Name(args)` whose inferred type is `A -> R`: InvokeMember, falling back to applying an
+    /// F# function value held by the member (see InvokeOrApply). Positional, non-generic calls with
+    /// up to four arguments; anything else is a plain InvokeMember.
+    let invokeMemberOrApply (context: Type) (name: string) (typeArgs: Type list) (discard: bool) (resultType: Type) (target: Arg) (args: Arg list) =
+        let positional = args |> List.forall (fun a -> isNull a.Name)
+        if not positional || not typeArgs.IsEmpty || args.Length > 4 || discard then
+            invokeMember context name typeArgs discard target args
+        else
+            let all = target :: args
+            let invokeSite = site (Binder.InvokeMember(CSharpBinderFlags.None, name, null, context, [ for a in all -> argInfo a ])) all typeof<obj>
+            let getSite = site (Binder.GetMember(CSharpBinderFlags.None, name, context, [ argInfo target ])) [ target ] typeof<obj>
+            let helper =
+                typeof<InvokeOrApply>.GetMethods()
+                |> Array.find (fun m -> m.Name = "Invoke" && m.GetGenericArguments().Length = args.Length + 1)
+                |> fun m -> m.MakeGenericMethod(Array.ofList ([ for a in args -> a.Type ] @ [ resultType ]))
+            Expr.Call(helper, invokeSite :: getSite :: target.Expr :: [ for a in args -> a.Expr ])
+
     let invoke (context: Type) (discard: bool) (target: Arg) (args: Arg list) =
         let flags = if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None
         let all = target :: args
         let binder = Binder.Invoke(flags, context, [ for a in all -> argInfo a ])
         siteCall binder all (if discard then voidType else typeof<obj>)
+
+    /// `Dlr.call args target` with a fallback to applying `target` as an F# function of the
+    /// arguments' types (see InvokeOrApply.Call).
+    let invokeOrApply (context: Type) (discard: bool) (resultType: Type) (target: Arg) (args: Arg list) =
+        let positional = args |> List.forall (fun a -> isNull a.Name)
+        if not positional || args.Length > 4 || discard then invoke context discard target args
+        else
+            let all = target :: args
+            let invokeSite = site (Binder.Invoke(CSharpBinderFlags.None, context, [ for a in all -> argInfo a ])) all typeof<obj>
+            let helper =
+                typeof<InvokeOrApply>.GetMethods()
+                |> Array.find (fun m -> m.Name = "Call" && m.GetGenericArguments().Length = args.Length + 1)
+                |> fun m -> m.MakeGenericMethod(Array.ofList ([ for a in args -> a.Type ] @ [ resultType ]))
+            Expr.Call(helper, invokeSite :: target.Expr :: [ for a in args -> a.Expr ])
 
     let getIndex (context: Type) (target: Arg) (indexes: Arg list) =
         let all = target :: indexes

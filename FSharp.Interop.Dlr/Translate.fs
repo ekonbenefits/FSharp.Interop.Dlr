@@ -365,13 +365,13 @@ module internal Translate =
                 | Literal name ->
                     let discard = e.Type = typeof<unit>
                     let bindings, args = argList bound argExprs
-                    Binders.invokeMember context (string name) typeArgs discard (targetArg bound target) args |> finish discard e.Type |> bind bound bindings
+                    Binders.invokeMemberOrApply context (string name) typeArgs discard e.Type (targetArg bound target) args |> finish discard e.Type |> bind bound bindings
                 | _ ->
                     computedName bound nameExpr target argExprs e.Type (fun name targetArg args ->
-                        Binders.invokeMember context name typeArgs false targetArg args)
+                        Binders.invokeMemberOrApply context name typeArgs false e.Type targetArg args)
             | MemberOp(GetMember(target, nameExpr)) ->
-                if FSharpType.IsFunction e.Type then
-                    unsupported "a dynamic member used as a first-class function; apply it directly" e
+                // A function-typed result (`let f: int -> int = dlr { return x?Fn }`) is a get plus a
+                // conversion to that FSharpFunc type, which only an F# function value satisfies.
                 match nameExpr with
                 | Literal name -> Binders.getMember context (string name) (targetArg bound target) |> convert e.Type
                 | _ -> computedName bound nameExpr target [] e.Type (fun name targetArg _ -> Binders.getMember context name targetArg)
@@ -386,7 +386,7 @@ module internal Translate =
             | Op opCall [ argExpr; Unboxed target ] ->
                 let discard = e.Type = typeof<unit>
                 let bindings, args = argList bound (splitArgs argExpr)
-                Binders.invoke context discard (targetArg bound target) args |> finish discard e.Type |> bind bound bindings
+                Binders.invokeOrApply context discard e.Type (targetArg bound target) args |> finish discard e.Type |> bind bound bindings
             | PropertyGet(receiver, pi, indexes) when (IndexedProperty(receiver, pi)).IsSome ->
                 let target = (IndexedProperty(receiver, pi)).Value
                 Binders.getIndex context (targetArg bound target) (indexList bound indexes) |> convert e.Type

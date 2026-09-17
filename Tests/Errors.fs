@@ -51,14 +51,6 @@ let ``every operator and marker throws outside dlr`` () =
 
 // fsharpanalyzer: ignore-region-end
 [<Fact>]
-let ``dynamic member as first-class function is rejected`` () =
-    let w = box (Widget())
-    (fun () ->
-        let f: int -> string = dlr { return w?Pick }
-        f 1 |> ignore)
-    |> should throw typeof<DlrTranslationException>
-
-[<Fact>]
 let ``unsupported quotation node is reported`` () =
     let w = box (Widget())
     (fun () ->

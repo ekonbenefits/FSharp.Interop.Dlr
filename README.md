@@ -80,16 +80,17 @@ use, and a repeated name costs a dictionary lookup.
 | Syntax | Binder |
 | --- | --- |
 | `x?Name` | GetMember, then Convert to the inferred type |
-| `x?Name(a, b)`, `x?Name()` | InvokeMember. Arguments keep their static type; `obj` arguments dispatch on the runtime type; literals get C#'s constant conversions (`5` to `byte`, `0` to an enum, `null` to any reference type) |
+| `x?Name(a, b)`, `x?Name()` | InvokeMember. Arguments keep their static type; `obj` arguments dispatch on the runtime type; literals get C#'s constant conversions (`5` to `byte`, `0` to an enum, `null` to any reference type). A member holding an F# function value (curried or tupled) is applied when the binder cannot invoke it |
 | `x?Name(a, Dlr.named {\| p = v \|})` | named arguments (a bare anonymous record is one positional argument) |
 | `x?Name(Dlr.typeArgs<A, B>(), a)` | explicit type arguments (up to four, first); otherwise inferred from the arguments as in C# |
+| `x?Name` typed `A -> R` | GetMember converted to that function type: `let f: int -> int = dlr { return x?Fn }`, then `f 4` |
 | `x?Name <- v` | SetMember |
 | `(?) x name`, `((?) x name)(a)`, `(?<-) x name v` | the same three as plain function applications |
 | `x \|> Dlr.get "Name"` | GetMember, target last, for pipelines; applied to arguments it invokes, like `?` |
 | `x \|> Dlr.invoke "Name" (a, b)` | InvokeMember, target last |
 | `x \|> Dlr.set "Name" v` | SetMember, target last |
 | `x \|> Dlr.addAssign "Name" v`, `x \|> Dlr.subtractAssign "Name" v` | C#'s `+=` / `-=`: an IsEvent site picks the event accessor (`add_` / `remove_`) or read-modify-write |
-| `x \|> Dlr.call (a, b)`, `x \|> Dlr.call ()` | Invoke the object itself (a delegate, a callable dynamic object) |
+| `x \|> Dlr.call (a, b)`, `x \|> Dlr.call ()` | Invoke the object itself: a delegate, a callable dynamic object, or an F# function value |
 | `(Dlr.idx x).[i]`, `(Dlr.idx x).[i, j] <- v` | GetIndex / SetIndex, up to four indexes |
 | `?+? ?-? ?*? ?/? ?%? ?&&&? ?\|\|\|? ?^^^? ?<<<? ?>>>?` | BinaryOperation, then Convert |
 | `?=? ?<>? ?<? ?>? ?<=? ?>=?` | BinaryOperation, then Convert to `bool` |
@@ -111,8 +112,10 @@ Same binder, same limits — each pinned by a test in `Tests/Restrictions.fs`:
 - **Static members** cannot be reached through an instance.
 - **Accessibility is the calling type's**: `private` binds only inside the declaring type,
   `internal` anywhere in the assembly. F# `private` compiles to IL `internal`.
-- **Lambdas need a delegate type** (`Func<int, int>(fun x -> …)`); an F# function value is an
-  `FSharpFunc`, not a `Func`.
+- **Lambdas passed as arguments need a delegate type** (`Func<int, int>(fun x -> …)`); an F#
+  function value is an `FSharpFunc`, not a `Func`. (A member that *holds* an F# function is
+  fine: the binder cannot invoke it, so the library reads and applies it — the one place it goes
+  beyond C#.)
 - **No compile-time checking**: a misspelt member or wrong arity is a `RuntimeBinderException`
   at the call.
 - **Target and result are `obj`**, so value types box there; arguments do not. `byref` and
