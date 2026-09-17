@@ -15,9 +15,9 @@ the rest below compile to exactly what the C# compiler emits for `d.Name`, `d.Na
 `d.Name = v` on a `dynamic` variable: a Microsoft.CSharp runtime-binder call site per operation,
 created once, with its polymorphic rule cache, dispatching on the runtime type of the target. The
 same binder means the same behaviour: overload resolution with C#'s rules, named and optional
-arguments, implicit conversions, `ExpandoObject`/`DynamicObject`/`IDynamicMetaObjectProvider`,
-scripting-engine and COM objects (the last untested here), and a `RuntimeBinderException` when a
-bind fails.
+arguments, implicit conversions, `ExpandoObject`/`DynamicObject`/`IDynamicMetaObjectProvider`
+(all three tested here), and by the same token scripting-engine and COM objects (not tested here),
+and a `RuntimeBinderException` when a bind fails.
 
 How: the `?` operator is never executed. The block's `Delay` closure identifies the call site and
 carries the captured variables; the body comes from the enclosing `[<ReflectedDefinition>]`; it is
@@ -130,22 +130,26 @@ C# does not work here either:
 
 - **Extension methods** are not found: the binder only sees the target's own members, as in C#.
 - **Static members** cannot be reached through an instance; there is no `dynamic` on a type.
-- **Private and internal members** bind only from code inside the declaring type (the binder's
-  accessibility context is the type that declares the member containing the block, as it is the
-  calling class in C#). F# `private` is IL `internal`, so it is visible within its assembly.
+- **Accessibility is the calling type's**, as in C#: the binder's context is the type declaring the
+  member that contains the block, so `private` members bind only from inside their type and
+  `internal` ones from anywhere in their assembly. Note that F# `private` compiles to IL
+  `internal`, so an F# `member private` is reachable from anywhere in the same assembly.
 - **Lambdas need a delegate type.** A dynamic call cannot infer a lambda's parameter types (C#
   refuses the lambda outright), so build the delegate yourself: `Func<int, int>(fun x -> …)`,
   `Action(fun () -> …)`. An F# function value is an `FSharpFunc` object, which a method expecting
   `Func` will not accept.
 - **No compile-time checking.** A misspelt member, a wrong argument count or an impossible
   conversion is a `RuntimeBinderException` at the call, not a compiler error.
-- **The target and the result are `obj`**, so value types box on the way in and out; arguments
-  keep their static types. `byref`/`inref`/`Span` cannot cross a dynamic operation.
+- **The target and the result are `obj`**, so value types box on the way in and out. Arguments
+  keep their static F# type for overload resolution (an `obj`-typed argument dispatches on its
+  runtime type; a literal gets C#'s constant conversions), and a value-type argument is not
+  boxed. `byref`/`inref`/`Span` cannot cross a dynamic operation.
 - **Generic methods** need their type arguments inferable from the arguments, exactly as C#
   infers them; one that appears only in the return type has to be given with `Dlr.typeArgs`.
 - **No NativeAOT, no trimming** (below); the runtime binder compiles code at run time.
 
-And two that are F#'s rather than the binder's: the block needs `[<ReflectedDefinition>]` in scope
+Each of these is pinned by a test in `Tests/Restrictions.fs`. And two that are F#'s rather than the
+binder's: the block needs `[<ReflectedDefinition>]` in scope
 (next section), and a `let mutable` cannot be captured by a loop or `try` body inside a block, as
 in `async { }`; use a `ref` or an object.
 

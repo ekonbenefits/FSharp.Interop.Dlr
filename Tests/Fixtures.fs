@@ -22,6 +22,7 @@ type Widget() =
     member this.Touch() = this.Touched <- this.Touched + 1
     member _.Item with get (i: int) = i * 10
     member _.Run(f: Func<int, int>) = f.Invoke 21
+    static member Make() = Widget()
     member val Total = 10 with get, set
     member val Label = "a" with get, set
     member val Small: byte = 250uy with get, set
@@ -48,6 +49,11 @@ type Clicker() =
     [<CLIEvent>]
     member _.Clicked = clicked.Publish
     member _.Raise(n: int) = clicked.Trigger(n)
+/// A C#-style extension method on Widget: the binder never sees these, as in C#.
+[<System.Runtime.CompilerServices.Extension>]
+type WidgetExtensions =
+    [<System.Runtime.CompilerServices.Extension>]
+    static member Twice(w: Widget) = w.Count * 2
 
 /// Records which DLR operations reached it.
 type Recorder() =
