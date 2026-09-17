@@ -97,16 +97,19 @@ module internal Translate =
             Some(mi.GetGenericArguments().[0] :: rest)
         | _ -> None
 
-    /// `Dlr.typeArgs<A, B>()` or `Dlr.typeArgsOf [ typeof<A>; typeof<B> ]`: the explicit type
-    /// arguments of the call being built. The list form must be a literal of `typeof`s: the site
-    /// is created with its type arguments, so a list only known at run time has no site to use
-    /// (the computed-name cache is the shape that would need; not yet).
+    /// The explicit type arguments of a call: known at translation time (`Dlr.typeArgs<A, B>()`,
+    /// or `Dlr.typeArgsOf` with a literal list of `typeof`s, which folds to the same), or an
+    /// expression evaluated per call (`Dlr.typeArgsOf ts`), which keys a SiteCache like a
+    /// computed name does.
+    type TypeArgsSpec =
+        | StaticTypes of Type list
+        | RuntimeTypes of Expr
+
     let private (|TypeArgs|_|) (e: Expr) =
         match e with
-        | Call(None, mi, []) when mi.DeclaringType = typeof<Dlr> && mi.Name = "typeArgs" -> Some(List.ofArray (mi.GetGenericArguments()))
-        | Call(None, mi, [ TypeOfList ts ]) when mi.DeclaringType = typeof<Dlr> && mi.Name = "typeArgsOf" -> Some ts
-        | Call(None, mi, [ other ]) when mi.DeclaringType = typeof<Dlr> && mi.Name = "typeArgsOf" ->
-            raise (DlrTranslationException(sprintf "dlr { } needs Dlr.typeArgsOf's list to be a literal of typeof<…> (a list known only at run time is not supported yet): %A" other))
+        | Call(None, mi, []) when mi.DeclaringType = typeof<Dlr> && mi.Name = "typeArgs" -> Some(StaticTypes(List.ofArray (mi.GetGenericArguments())))
+        | Call(None, mi, [ TypeOfList ts ]) when mi.DeclaringType = typeof<Dlr> && mi.Name = "typeArgsOf" -> Some(StaticTypes ts)
+        | Call(None, mi, [ types ]) when mi.DeclaringType = typeof<Dlr> && mi.Name = "typeArgsOf" -> Some(RuntimeTypes types)
         | _ -> None
 
     let private (|Op|_|) (def: Reflection.MethodInfo) (e: Expr) =
@@ -370,16 +373,17 @@ module internal Translate =
             | MemberOp(InvokeMember(target, nameExpr, argExpr)) ->
                 let typeArgs, argExprs =
                     match splitArgs argExpr with
-                    | TypeArgs ts :: rest -> ts, rest
-                    | args -> [], args
-                match nameExpr with
-                | Literal name ->
+                    | TypeArgs spec :: rest -> spec, rest
+                    | args -> StaticTypes [], args
+                match nameExpr, typeArgs with
+                | Literal name, StaticTypes ts ->
                     let discard = e.Type = typeof<unit>
                     let bindings, args = argList bound argExprs
-                    Binders.invokeMemberOrApply context (string name) typeArgs discard (targetArg bound target) args |> finish discard e.Type |> bind bound bindings
+                    Binders.invokeMemberOrApply context (string name) ts discard (targetArg bound target) args |> finish discard e.Type |> bind bound bindings
                 | _ ->
-                    computedName bound nameExpr target argExprs e.Type (fun name targetArg args ->
-                        Binders.invokeMemberOrApply context name typeArgs false targetArg args)
+                    let discard = e.Type = typeof<unit>
+                    keyedSite bound nameExpr typeArgs target argExprs e.Type (fun name ts targetArg args ->
+                        Binders.invokeMemberOrApply context name ts discard targetArg args)
             | MemberOp(GetMember(target, nameExpr)) when FSharpType.IsFunction e.Type ->
                 // Read as an F# function: a curried invoker of the member (method, delegate or F#
                 // function), so `let f: int -> int -> int = dlr { return x?Add }` then `f 1 2`.
@@ -444,25 +448,38 @@ module internal Translate =
             | ShapeLambda(v, lambdaBody) -> Expr.Lambda(v, asUnit (rewriteIn (bound.Add v) lambdaBody))
             | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map rewrite args)
 
-        /// `(?) x name` with a computed name: the operation's delegate is compiled once here with
-        /// its call sites as parameters (lifted from a template built for a placeholder name), and
-        /// a SiteCache constant creates the sites per distinct name; the emitted code is
-        /// `let sites = cache.Get(name) in delegate.Invoke(sites.[0], …, target, args…)`.
-        /// Argument names in `Dlr.named` stay static.
+        /// `(?) x name` with a computed name (no type arguments): see keyedSite.
         and computedName bound (nameExpr: Expr) (target: Expr) (argExprs: Expr list) (resultType: Type) (site: string -> Binders.Arg -> Binders.Arg list -> Expr) : Expr =
+            keyedSite bound nameExpr (StaticTypes []) target argExprs resultType (fun name _ targetArg args -> site name targetArg args)
+
+        /// An operation whose binder inputs — the member name, the type arguments, or both — are
+        /// only known at run time: the operation's delegate is compiled once here with its call
+        /// sites as parameters (lifted from a template built for a placeholder key), and a
+        /// SiteCache constant creates the sites per distinct `(name, types)` key; the emitted
+        /// code is `let sites = cache.Get((name, types)) in delegate.Invoke(sites.[0], …, target, args…)`.
+        /// Argument names in `Dlr.named` stay static.
+        and keyedSite bound (nameExpr: Expr) (typeArgs: TypeArgsSpec) (target: Expr) (argExprs: Expr list) (resultType: Type) (site: string -> Type list -> Binders.Arg -> Binders.Arg list -> Expr) : Expr =
             let rewrite = rewriteIn bound
             let bindings, argInfos = argList bound argExprs
             let targetVar = Var("target", typeof<obj>)
             let argVars = argInfos |> List.mapi (fun i a -> Var(sprintf "a%d" i, a.Type))
-            let template (name: string) =
+            let template (name: string, types: Type list) =
                 let args = List.map2 (fun (info: Binders.Arg) (v: Var) -> { info with Expr = Expr.Var v }) argInfos argVars
-                site name (Binders.dynamicArg (Expr.Var targetVar)) args
-            // The operation's shape does not depend on the name, only its sites do: build it once
+                site name types (Binders.dynamicArg (Expr.Var targetVar)) args
+            // The operation's shape does not depend on the key, only its sites do: build it once
             // for a placeholder, lift every site constant into a parameter, and compile that one
-            // delegate now. Per name, the cache creates the sites and hands them back in the
+            // delegate now. Per key, the cache creates the sites and hands them back in the
             // same order.
-            let placeholder = template "name"
-            let sites = SiteCache<string>.Sites placeholder
+            let placeholderName, nameE =
+                match nameExpr with
+                | Literal name -> string name, Expr.Value(string name)
+                | e -> "name", rewrite e
+            let placeholderTypes, typesE =
+                match typeArgs with
+                | StaticTypes ts -> ts, Expr.Value(ts, typeof<Type list>)
+                | RuntimeTypes e -> [], rewrite e
+            let placeholder = template (placeholderName, placeholderTypes)
+            let sites = SiteCache<string * Type list>.Sites placeholder
             let siteVars = sites |> List.mapi (fun i s -> s, Var(sprintf "site%d" i, s.GetType()))
             let rec lift (e: Expr) =
                 match e with
@@ -476,17 +493,22 @@ module internal Translate =
             let body = lift placeholder
             let delegateType =
                 Expression.GetDelegateType(Array.ofList ([ for _, v in siteVars -> v.Type ] @ typeof<obj> :: [ for v in argVars -> v.Type ] @ [ typeof<obj> ]))
-            let lambda =
-                Expr.NewDelegate(delegateType, [ for _, v in siteVars -> v ] @ targetVar :: argVars, (if body.Type = typeof<obj> then body else Expr.Coerce(body, typeof<obj>)))
+            // A discarded result is a void site: the delegate still returns obj, so hand back null.
+            let boxed =
+                if body.Type = typeof<obj> then body
+                elif body.Type = typeof<unit> || body.Type = typeof<Void> then Expr.Sequential(body, Expr.Value(null, typeof<obj>))
+                else Expr.Coerce(body, typeof<obj>)
+            let lambda = Expr.NewDelegate(delegateType, [ for _, v in siteVars -> v ] @ targetVar :: argVars, boxed)
             let compiled = (Microsoft.FSharp.Linq.RuntimeHelpers.LeafExpressionConverter.QuotationToExpression lambda :?> LambdaExpression).Compile()
-            let cache = SiteCache<string>(template)
+            let cache = SiteCache<string * Type list>(template)
+            let cacheType = typeof<SiteCache<string * Type list>>
             let sitesVar = Var("sites", typeof<CallSite[]>)
-            let at = typeof<SiteCache<string>>.GetMethod("At")
+            let at = cacheType.GetMethod("At")
             let siteArgs = siteVars |> List.mapi (fun i (_, v) -> Expr.Coerce(Expr.Call(at, [ Expr.Var sitesVar; Expr.Value i ]), v.Type))
             let t = rewrite target
             let targetExpr = if t.Type = typeof<obj> then t else Expr.Coerce(t, typeof<obj>)
             let call =
-                Expr.Let(sitesVar, Expr.Call(Expr.Value(cache, typeof<SiteCache<string>>), typeof<SiteCache<string>>.GetMethod("Get"), [ rewrite nameExpr ]),
+                Expr.Let(sitesVar, Expr.Call(Expr.Value(cache, cacheType), cacheType.GetMethod("Get"), [ Expr.NewTuple [ nameE; typesE ] ]),
                          Expr.Call(Expr.Value(compiled, delegateType), delegateType.GetMethod("Invoke"), siteArgs @ targetExpr :: [ for a in argInfos -> a.Expr ]))
             (if FSharpType.IsFunction resultType then Expr.Coerce(call, resultType) else convert resultType call)
             |> bind bound bindings

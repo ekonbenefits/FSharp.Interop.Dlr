@@ -130,9 +130,26 @@ let ``typeArgsOf takes a literal list of any length`` () =
     |> should equal "Int32/String/Double/Boolean/Char"
     // An empty list is no type arguments: inference as without the marker.
     (dlr { return w?Echo(Dlr.typeArgsOf [], 41) } : int) |> should equal 41
-    // Only a literal: the site is created with its type arguments.
-    let ts = [ typeof<int> ]
-    (fun () -> (dlr { return w?TypeName(Dlr.typeArgsOf ts) } : string) |> ignore) |> should throw typeof<DlrTranslationException>
+
+[<Fact>]
+let ``typeArgsOf with a list only known at run time`` () =
+    let w = box (Widget())
+    let name (t: Type) : string = dlr { return w?TypeName(Dlr.typeArgsOf [ t ]) }
+    name typeof<int> |> should equal "Int32"
+    name typeof<string> |> should equal "String"
+    name typeof<int> |> should equal "Int32"                        // one site, alternating lists
+    let pair (a: Type) (b: Type) : string = dlr { return w?Pair(Dlr.typeArgsOf [ a; b ], 1, "x") }
+    pair typeof<obj> typeof<string> |> should equal "Object/String"
+    pair typeof<int> typeof<obj> |> should equal "Int32/Object"
+    // Combined with a computed name: the key is both.
+    let call (m: string) (t: Type) : string = dlr { return (?) w m (Dlr.typeArgsOf [ t ]) }
+    call "TypeName" typeof<float> |> should equal "Double"
+    call "TypeName" typeof<int> |> should equal "Int32"
+    // An empty runtime list is inference; the wrong count is the binder's error.
+    let echo (ts: Type list) : int = dlr { return w?Echo(Dlr.typeArgsOf ts, 41) }
+    echo [] |> should equal 41
+    let two = [ typeof<int>; typeof<int> ]
+    (fun () -> (dlr { return w?TypeName(Dlr.typeArgsOf two) } : string) |> ignore) |> should throw typeof<RuntimeBinderException>
 
 [<Fact>]
 let ``typeArgs must come first`` () =

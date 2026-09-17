@@ -20,6 +20,7 @@ type Widget() =
     member _.Bump(count: int, [<Optional; DefaultParameterValue(1)>] step: int) = count + step
     member _.BumpF(count: int, ?step: int) = count + defaultArg step 1
     member _.Wrap(?prefix: string, ?suffix: string) = (defaultArg prefix "<") + "x" + (defaultArg suffix ">")
+    member this.TouchT<'T>() = this.Touch()
     member this.TouchF(?times: int) = for _ in 1 .. defaultArg times 1 do this.Touch()
     member _.WidenF(n: int64, ?scale: int) = n * int64 (defaultArg scale 1)
     member _.LabelF(s: string, ?tag: string) = (if isNull s then "null" else s) + defaultArg tag ""

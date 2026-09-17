@@ -25,7 +25,7 @@ compiled.Invoke(closure)       ~25 ns: field reads + one CallSite per operation
 | --- | --- | --- | --- | --- |
 | `DlrCache` | closure `Type` (one per block; per instantiation for generic members) | `Compiled { Delegate: Func<obj,'T>; ResultType }` | process; `DlrCache.clear()` drops it | `Cache.fs` |
 | reflected definitions | declaring `Type` (module or class) | every `(MethodBase, Expr)` with a reflected definition on it and its nested types | process | `Discover.fs` |
-| `SiteCache<'Key>` | member name `string` (a `Type list` once runtime type arguments exist) | the operation's `CallSite[]` for that key | per site (a constant in the compiled tree); at `Capacity` (256) entries it clears and refills | `Binders.fs`, for `(?) x name` with a variable name |
+| `SiteCache<'Key>` | `string * Type list` — the member name and the explicit type arguments; whichever is static is a constant in the key | the operation's `CallSite[]` for that key | per site (a constant in the compiled tree); at `Capacity` (256) entries it clears and refills | `Binders.fs`, for `(?) x name` with a variable name |
 | DLR rule cache | runtime types (restrictions) | the bound rule | per `CallSite<_>` | inside each site, owned by the DLR |
 
 `DlrCache` and the reflected-definition cache are the only process-wide state. The rest is baked
@@ -70,7 +70,7 @@ what C# passes as the calling class. Results come back as `obj` and go through a
 | `Dlr.cast<T>` | `Convert` with `ConvertExplicit` |
 | `Dlr.implicit` | `Convert` |
 | `x?Name` typed `A -> B -> R` | `InvokeMember` site with typed argument slots + `Convert`, wrapped in a curried F# function by `FunctionMember.CurriedN` / `TupledN`; `unit -> R` uses `FSharpReadOrInvokeBinder` |
-| `(?) x name`, variable name | the operation's delegate compiled once at translation time with its `CallSite`s as parameters (the shape does not depend on the name; the sites are lifted out of a template built for a placeholder), plus a `SiteCache` constant: `let sites = cache.Get(name) in delegate.Invoke(sites.[0], …, target, args…)`. A new name creates binders and sites (µs) — no `Compile()` — and then pays the DLR's own first bind like any site |
+| `(?) x name`, variable name; `x?M(Dlr.typeArgsOf ts)`, variable list | the operation's delegate compiled once at translation time with its `CallSite`s as parameters (the shape does not depend on the name; the sites are lifted out of a template built for a placeholder), plus a `SiteCache` constant keyed by `(name, types)`, whichever of the two is static being a constant in the key: `let sites = cache.Get((name, types)) in delegate.Invoke(sites.[0], …, target, args…)`. The operation's shape depends on neither input, only its sites do. A new name creates binders and sites (µs) — no `Compile()` — and then pays the DLR's own first bind like any site |
 
 ## The F#-aware binders
 
