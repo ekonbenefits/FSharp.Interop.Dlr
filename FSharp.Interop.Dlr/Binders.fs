@@ -379,6 +379,9 @@ module internal OptionalArguments =
 
     let private isNullValue (a: DynamicMetaObject) = a.HasValue && isNull a.Value
 
+    /// A concrete delegate type: `Delegate` and `MulticastDelegate` themselves have no `Invoke`.
+    let private isDelegate (t: Type) = typeof<Delegate>.IsAssignableFrom t && not (isNull (t.GetMethod "Invoke"))
+
     /// An F# function value for a delegate-typed parameter: a delegate over an adapter of the
     /// function's shape (`FunctionAdapters`), as F# itself converts a lambda argument to a
     /// `Func`/`Action` parameter at a static call.
@@ -418,8 +421,8 @@ module internal OptionalArguments =
         elif isOptional p && Conversions.fits (pt.GetGenericArguments().[0]) at then
             let inner = pt.GetGenericArguments().[0]
             Some(Expression.Call(pt.GetMethod("Some"), converted inner) :> Expression)
-        elif typeof<Delegate>.IsAssignableFrom pt && (FunctionShapes.domains at).IsSome then functionToDelegate pt a
-        elif typeof<Delegate>.IsAssignableFrom at && (FunctionShapes.domains pt).IsSome then delegateToFunction pt a
+        elif isDelegate pt && (FunctionShapes.domains at).IsSome then functionToDelegate pt a
+        elif isDelegate at && (FunctionShapes.domains pt).IsSome then delegateToFunction pt a
         else None
 
     /// Not C#'s overload resolution, but deterministic: among the methods the arguments fit, the

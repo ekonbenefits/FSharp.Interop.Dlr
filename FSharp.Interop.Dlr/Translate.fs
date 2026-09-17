@@ -360,7 +360,7 @@ module internal Translate =
         /// (which may compile to a void call) becomes a `Func<.., unit>`, not an `Action`.
         let rec func (bound: Set<Var>) (vars: Var list) (body: Expr) : Expr =
             let bound = vars |> List.fold (fun b v -> Set.add v b) bound
-            let body = asUnit (rewriteIn bound body)
+            let body = capturing (asUnit (rewriteIn bound body))
             let delegateType = Expression.GetFuncType(Array.append (vars |> List.map (fun v -> v.Type) |> Array.ofList) [| body.Type |])
             Expr.NewDelegate(delegateType, vars, body)
 
