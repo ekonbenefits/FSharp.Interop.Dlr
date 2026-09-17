@@ -22,6 +22,9 @@ type Widget() =
     member this.Touch() = this.Touched <- this.Touched + 1
     member _.Item with get (i: int) = i * 10
     member _.Run(f: Func<int, int>) = f.Invoke 21
+    member val Total = 10 with get, set
+    member val Label = "a" with get, set
+    member val Small: byte = 250uy with get, set
     member _.Default<'T>() : 'T = Unchecked.defaultof<'T>
     member _.TypeName<'T>() = typeof<'T>.Name
     member _.Pair<'A, 'B>(_: 'A, _: 'B) = sprintf "%s/%s" (typeof<'A>.Name) (typeof<'B>.Name)
@@ -37,6 +40,14 @@ type Widget() =
     member _.PeekSecretFromOutside(o: obj) : string =
         // A dlr block inside Widget itself: the binder context is Widget, so private members bind.
         dlr { return o?Secret }
+
+/// A real CLR event, for the IsEvent branch of += / -=. Not [<ReflectedDefinition>]: the
+/// [<CLIEvent>] accessor's stored quotation is one FSharp.Core cannot decode.
+type Clicker() =
+    let clicked = Event<int>()
+    [<CLIEvent>]
+    member _.Clicked = clicked.Publish
+    member _.Raise(n: int) = clicked.Trigger(n)
 
 /// Records which DLR operations reached it.
 type Recorder() =
