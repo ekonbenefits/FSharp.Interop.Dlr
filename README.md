@@ -10,12 +10,21 @@ Test and coverage badges are rewritten by CI from the last green run on `master`
 
 [![Build](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml/badge.svg)](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml)
 
-Experimental. A `dlr { }` computation expression in which the `?` operator (and friends) is
-never executed. The block's `Delay` closure identifies the call site and carries the captured
-variables; the block's body comes from the enclosing `[<ReflectedDefinition>]`; it is translated
-once into a LINQ expression tree whose Microsoft.CSharp `CallSite`s are baked in as constants and
+**C#'s `dynamic` for F#.** Inside a `dlr { }` block, `x?Name`, `x?Name(a, b)`, `x?Name <- v` and
+the rest below compile to exactly what the C# compiler emits for `d.Name`, `d.Name(a, b)`,
+`d.Name = v` on a `dynamic` variable: a Microsoft.CSharp runtime-binder call site per operation,
+created once, with its polymorphic rule cache, dispatching on the runtime type of the target. The
+same binder means the same behaviour: overload resolution with C#'s rules, named and optional
+arguments, implicit conversions, `ExpandoObject`/`DynamicObject`/`IDynamicMetaObjectProvider`,
+scripting-engine and COM objects (the last untested here), and a `RuntimeBinderException` when a
+bind fails.
+
+How: the `?` operator is never executed. The block's `Delay` closure identifies the call site and
+carries the captured variables; the body comes from the enclosing `[<ReflectedDefinition>]`; it is
+translated once into a LINQ expression tree whose `CallSite`s are baked in as constants and
 compiled to a `Func<closure, 'T>`. After the first call, a block costs one type-keyed lookup plus
-the delegate: about 25 ns.
+the delegate: about 25 ns, in line with C# `dynamic` and ~300x faster than binding by name at
+run time. Experimental.
 
 ```fsharp
 open FSharp.Interop.Dlr
@@ -113,6 +122,32 @@ one), can sit inside `task { }` / `async { }`, and work in F# Interactive script
 module `[<ReflectedDefinition>]` as usual). As in `async { }`, a `let mutable`
 cannot be captured by a loop or try body; use a `ref` or an object. Loops or `try` inside a lambda within the block (as opposed to at block
 level) are not translated (`LeafExpressionConverter` limit).
+
+## The same restrictions as C# `dynamic`
+
+Because it is the same binder and the same runtime model, what does not work with `dynamic` in
+C# does not work here either:
+
+- **Extension methods** are not found: the binder only sees the target's own members, as in C#.
+- **Static members** cannot be reached through an instance; there is no `dynamic` on a type.
+- **Private and internal members** bind only from code inside the declaring type (the binder's
+  accessibility context is the type that declares the member containing the block, as it is the
+  calling class in C#). F# `private` is IL `internal`, so it is visible within its assembly.
+- **Lambdas need a delegate type.** A dynamic call cannot infer a lambda's parameter types (C#
+  refuses the lambda outright), so build the delegate yourself: `Func<int, int>(fun x -> …)`,
+  `Action(fun () -> …)`. An F# function value is an `FSharpFunc` object, which a method expecting
+  `Func` will not accept.
+- **No compile-time checking.** A misspelt member, a wrong argument count or an impossible
+  conversion is a `RuntimeBinderException` at the call, not a compiler error.
+- **The target and the result are `obj`**, so value types box on the way in and out; arguments
+  keep their static types. `byref`/`inref`/`Span` cannot cross a dynamic operation.
+- **Generic methods** need their type arguments inferable from the arguments, exactly as C#
+  infers them; one that appears only in the return type has to be given with `Dlr.typeArgs`.
+- **No NativeAOT, no trimming** (below); the runtime binder compiles code at run time.
+
+And two that are F#'s rather than the binder's: the block needs `[<ReflectedDefinition>]` in scope
+(next section), and a `let mutable` cannot be captured by a loop or `try` body inside a block, as
+in `async { }`; use a `ref` or an object.
 
 Rules: the block must be inside a `[<ReflectedDefinition>]` scope; the attribute can go on the
 function or member containing it, or on an enclosing type or module, and the narrow form is the
