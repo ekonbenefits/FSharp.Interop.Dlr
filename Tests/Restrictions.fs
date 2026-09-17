@@ -72,13 +72,21 @@ let ``a failed bind is a RuntimeBinderException for every kind of miss`` () =
     (fun () -> (dlr { return Dlr.implicit d } : int) |> ignore) |> should throw typeof<RuntimeBinderException>  // no implicit conversion
 
 [<Fact>]
-let ``F# optional parameters are not optional to the binder`` () =
-    let o = box (Widget())
-    // ?step compiles to an FSharpOption<int> parameter with no [Optional] metadata: it cannot be omitted...
-    (fun () -> (dlr { return o?BumpF(1) } : int) |> ignore) |> should throw typeof<RuntimeBinderException>
-    // ...but FSharpOption<'T> has an op_Implicit from 'T, so a bare value converts, as does an explicit Some.
-    (dlr { return o?BumpF(1, 2) } : int) |> should equal 3
-    (dlr { return o?BumpF(1, Some 2) } : int) |> should equal 3
-    // ...while [<Optional; DefaultParameterValue>] is optional, as in C#.
+let ``F# optional parameters can be omitted, the library binding what C# cannot`` () =
+    let w = Widget()
+    let o = box w
+    // ?step is an FSharpOption<int> parameter with no [Optional] metadata: C#'s binder cannot omit
+    // it, so the library offers its own rule for that case (None for the omitted, Some for a bare value).
+    (dlr { return o?BumpF(1) } : int) |> should equal 2
+    (dlr { return o?BumpF(1, 2) } : int) |> should equal 3         // C#'s own path: op_Implicit to Some
+    (dlr { return o?BumpF(1, Some 5) } : int) |> should equal 6
+    (dlr { return o?Wrap() } : string) |> should equal "<x>"
+    (dlr { return o?Wrap("[") } : string) |> should equal "[x>"
+    (dlr { return o?Wrap("[", "]") } : string) |> should equal "[x]"
+    dlr { o?TouchF() }
+    dlr { o?TouchF(2) }
+    w.Touched |> should equal 3
+    let bump: int -> int = dlr { return o?BumpF }              // bound with the optional omitted
+    bump 10 |> should equal 11
+    // [<Optional; DefaultParameterValue>] parameters are C#'s own optional and were always fine.
     (dlr { return o?Bump(1) } : int) |> should equal 2
-    (dlr { return o?Bump(1, 5) } : int) |> should equal 6

@@ -109,6 +109,49 @@ type FSharpInvokeBinder(csharp: InvokeBinder, candidates: (Type * MethodInfo) li
             | Some rule -> rule
             | None -> csharp.FallbackInvoke(target, args, errorSuggestion)
 
+/// F# optional parameters (`?arg`) compile to `FSharpOption<'T>` parameters carrying
+/// `[<OptionalArgument>]` and nothing the C# binder recognises, so it can neither omit them nor,
+/// on its own, tell that a bare value should become `Some`. This finds a method the supplied
+/// arguments fit once omitted optionals are `None` and bare values are wrapped, as a rule the
+/// binder offers C# as its error suggestion: used only where C# itself could not bind.
+module internal OptionalArguments =
+    let private isOptional (p: ParameterInfo) =
+        p.GetCustomAttributes(typeof<OptionalArgumentAttribute>, false).Length > 0
+        && p.ParameterType.IsGenericType
+        && p.ParameterType.GetGenericTypeDefinition() = typedefof<option<_>>
+
+    /// The argument converted to the parameter type, or None if it does not fit.
+    let private fit (p: ParameterInfo) (a: DynamicMetaObject) : Expression option =
+        let pt = p.ParameterType
+        let at = a.LimitType
+        if pt.IsAssignableFrom at then Some(Expression.Convert(a.Expression, pt) :> Expression)
+        elif isOptional p && pt.GetGenericArguments().[0].IsAssignableFrom at then
+            let inner = pt.GetGenericArguments().[0]
+            Some(Expression.Call(pt.GetMethod("Some"), Expression.Convert(a.Expression, inner)) :> Expression)
+        else None
+
+    let tryCall (t: Type) (name: string) (target: DynamicMetaObject) (args: DynamicMetaObject[]) : DynamicMetaObject option =
+        t.GetMethods(BindingFlags.Public ||| BindingFlags.Instance)
+        |> Array.filter (fun m -> m.Name = name && not m.IsGenericMethodDefinition)
+        |> Array.sortBy (fun m -> m.GetParameters().Length)
+        |> Array.tryPick (fun m ->
+            let ps = m.GetParameters()
+            let required = ps |> Array.filter (fun p -> not (isOptional p)) |> Array.length
+            if args.Length < required || args.Length > ps.Length then None
+            else
+                let supplied = [ for i in 0 .. args.Length - 1 -> fit ps.[i] args.[i] ]
+                if supplied |> List.exists Option.isNone then None
+                else
+                    let omitted = [ for i in args.Length .. ps.Length - 1 -> Expression.Constant(null, ps.[i].ParameterType) :> Expression ]
+                    let call = Expression.Call(Expression.Convert(target.Expression, t), m, List.choose id supplied @ omitted)
+                    let value =
+                        if m.ReturnType = typeof<Void> then Expression.Block(call, Expression.Constant(null, typeof<obj>)) :> Expression
+                        else Expression.Convert(call, typeof<obj>) :> Expression
+                    let restrictions =
+                        Array.fold (fun (r: BindingRestrictions) (a: DynamicMetaObject) -> r.Merge(BindingRestrictions.GetTypeRestriction(a.Expression, a.LimitType)))
+                            (BindingRestrictions.GetTypeRestriction(target.Expression, t)) args
+                    Some(DynamicMetaObject(value, restrictions)))
+
 /// C#'s InvokeMember binder, aware of F# function values: when C# cannot invoke a member because
 /// it holds an `FSharpFunc` rather than a delegate, the rule applies the function instead. The
 /// decision is a binding rule restricted to the runtime type, so a site that sees several kinds of
@@ -135,7 +178,15 @@ type FSharpInvokeMemberBinder(name: string, csharp: InvokeMemberBinder, csharpIn
                 Array.fold (fun (r: BindingRestrictions) (a: DynamicMetaObject) -> r.Merge(BindingRestrictions.GetTypeRestriction(a.Expression, a.LimitType)))
                     (BindingRestrictions.GetTypeRestriction(target.Expression, t)) args
             DynamicMetaObject(call, restrictions)
-        | None -> csharp.FallbackInvokeMember(target, args, errorSuggestion)
+        | None ->
+            // A method with F# optional parameters, as the rule C# falls back to if it cannot bind.
+            let suggestion =
+                if target.HasValue && (args |> Array.forall (fun a -> a.HasValue)) then
+                    match OptionalArguments.tryCall t name target args with
+                    | Some rule -> rule
+                    | None -> errorSuggestion
+                else errorSuggestion
+            csharp.FallbackInvokeMember(target, args, suggestion)
 
     /// A dynamic target (Expando, DynamicObject) produced the member's value and asks for it to be
     /// invoked: an F# function is applied, anything else is C#'s Invoke (see FSharpInvokeBinder).

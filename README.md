@@ -121,9 +121,10 @@ Same binder, same limits — each pinned by a test in `Tests/Restrictions.fs`:
 - **Target and result are `obj`**, so value types box there; arguments do not. `byref` and
   `Span` cannot cross a dynamic operation.
 - **Generic type arguments** must be inferable from the arguments, or given with `Dlr.typeArgs`.
-- **F# optional parameters (`?arg`)** cannot be omitted: they are plain `FSharpOption<'T>`
-  parameters with no `[Optional]` metadata (a bare value still converts via `op_Implicit`).
-  `[<Optional; DefaultParameterValue>]` parameters are optional, as in C#.
+- **F# optional parameters (`?arg`)** — C#'s binder cannot omit them (they are `FSharpOption<'T>`
+  parameters with no `[Optional]` metadata), so where it fails the library binds the call itself:
+  omitted optionals are `None`, bare values become `Some`. The one place it goes beyond C#, along
+  with F# function members.
 - **No NativeAOT, no trimming.** The runtime binder, `LambdaExpression.Compile()` and the
   reflection that finds bodies and closure fields all need a JIT; the assembly is marked
   `IsAotCompatible=false` / `IsTrimmable=false`. Interpreted (non-AOT) browser-wasm works, and CI
