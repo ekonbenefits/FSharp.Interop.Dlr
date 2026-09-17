@@ -1,0 +1,75 @@
+---
+name: new-binder
+description: Checklist for adding or changing an F#-aware DLR binder (Binders.fs) in FSharp.Interop.Dlr — rule shape, C#-first vs ours-first, parallel paths, required tests, docs. Use for issues like structural operators (#20) or delegate conversion (#21).
+---
+
+# Adding an F#-aware binder
+
+Read `docs/internals.md` first; `FSharp.Interop.Dlr/Binders.fs` holds everything (helpers,
+`Accessibility`, `OptionalArguments`, `FunctionShapes`, the binders, the `Binders` module that
+`Translate.fs` calls to emit `siteCall` nodes).
+
+## Shape of a binder
+
+- Subclass the matching `System.Dynamic` binder (`InvokeMemberBinder`, `BinaryOperationBinder`,
+  …), wrapping the C# binder from `Microsoft.CSharp.RuntimeBinder.Binder.*` that the `Binders`
+  module builds. Construct it in a `private smartX` function next to the C# one and only when
+  the call qualifies (positional, non-generic); otherwise hand back C#'s binder unchanged.
+- **Rules, never exceptions.** Return a `DynamicMetaObject` whose `Restrictions` pin the runtime
+  types you inspected (`BindingRestrictions.GetTypeRestriction(expr, LimitType)` for each
+  operand; `GetInstanceRestriction(expr, null)` for null). A rule is cached per site, so the
+  site stays polymorphic and costs ~30 ns after the first call. Throwing in the binder is a
+  per-call cost of microseconds and defeats the cache.
+- Decide by `LimitType` (runtime type of an `obj` arg, static type of a typed arg), which is
+  the site's own restriction key. Declared member types come from reflection with the
+  `Accessibility` rules and the `context` type (the declaring type of the member containing the
+  block); never `GetMembers()` public-only.
+- If a meta-object has no value (`HasValue = false`) and you need one, return `Defer(...)`.
+- **Order:** C# first, ours as `errorSuggestion` — *unless* C# would silently succeed with the
+  wrong meaning (reference `==` on records, #20). Then ours first for the types where that
+  happens, restricted so everything else still reaches C#.
+- Delegates emitted through `Expression.Lambda`/`NewDelegate` need concrete delegate types:
+  `Expression.GetDelegateType` (any arity) rather than `Func<…>` literals.
+
+## Parallel paths — every behaviour needs all of them
+
+The misses caught in review were always "handled here, not there". Check each:
+
+- `FSharpInvokeMemberBinder` (`x?M(args)`), `FSharpReadOrInvokeBinder` (`unit -> R` read),
+  `FSharpInvokeBinder` (`Dlr.call` / a value invoked), `FunctionMember`/`CurriedInvoker`
+  (member read as `A -> B -> R`).
+- Result discarded (`ResultDiscarded`, void site) vs converted result vs `obj` result.
+- Typed args (`UseCompileTimeType`) vs `obj` args vs literals (`Constant`).
+- CLR target vs `DynamicObject`/`ExpandoObject` target (`FallbackInvoke` after the dynamic
+  object produced the member).
+- Arities: 0, 1, 2, 5, >5 (curried helpers stop at five; tupled >5 is a translation error).
+- Accessibility: public, internal, protected, private from inside the declaring type.
+- F# optional parameters (`OptionalArguments.tryCall`) as the error suggestion where a method
+  of that name exists.
+
+## Tests (AnyUnit `[<Fact>]` + FsUnit `should`, module under `[<ReflectedDefinition>]`)
+
+Put fixtures in `Tests/Fixtures.fs`, tests in the matching `Tests/*.fs` (new file: add it to
+`Tests/Tests.fsproj` **and** `Tests.Wasm/Tests.Wasm.fsproj`, which link the same sources).
+Minimum set for a binder change:
+
+- The happy path per parallel path above, including a `unit` result.
+- A **polymorphic** test: one site in a loop over alternating runtime types (`Tests/Polymorphic.fs`
+  style), including a real `DynamicObject`.
+- A type that has the CLR operator/member C# already handles — proves our rule does not
+  shadow it.
+- The failure: what still throws (`RuntimeBinderException`) or is a `DlrTranslationException`,
+  with a message assertion.
+- If a README restriction is lifted, delete its pin in `Tests/Restrictions.fs`.
+
+Gate: `dotnet test -c Debug`, `dotnet test -c Release` (optimizer inlining differs), and the
+`Tests.Wasm` run (interpreted runtime; expression compilation differs) — commands in CLAUDE.md.
+
+## Docs
+
+- `docs/internals.md`: the binder's rule, its order relative to C#, its restrictions.
+- `README.md`: the "F# things C# `dynamic` cannot do" list gets the new capability in one
+  bullet; the restrictions section loses the lifted one. Keep it terse — the owner asked for a
+  less wordy README more than once.
+- Benchmarks in the README are Release, Apple Silicon; if you touch the hot path, re-measure
+  before quoting numbers.
