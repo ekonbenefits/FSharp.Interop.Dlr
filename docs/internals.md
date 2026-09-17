@@ -113,17 +113,23 @@ private from inside the declaring type. Named or generic calls use C#'s binder u
 
 The same reflection fallback (`OptionalArguments.tryCall`, C#'s error suggestion) converts an F#
 function argument for a delegate parameter and a delegate argument for a function parameter.
-Function to delegate: `Delegate.CreateDelegate` over a `FunctionAdapters` instance whose `Invoke`
-has the delegate's exact signature (curried/tupled × result/void, 0–16 parameters, the
-`Func`/`Action` ceiling; `OptimizedClosures` for curried up to five), created per call from a
-cached adapter constructor; past sixteen (a custom delegate type), a lambda of the delegate's
-signature applying the function, compiled once per (function type, delegate type) and closed
-over the function value per call. Delegate
-to function: a `TupledDelegateFunction` or `CurryStep` chain invoking the delegate with
-`DynamicInvoke` — not `FuncConvert`, whose wrapper loses arguments on Mono's browser-wasm
-runtime. A related wasm fault, a nested non-capturing lambda losing its arguments, is why every
-lambda and delegate literal written in a block is made to capture the closure parameter there
-(`capturing` in `Translate.fs`, a no-op elsewhere). A parameter typed `Delegate` itself (WinForms `Control.Invoke`) gets the
+Function to delegate: a `FunctionAdapters` instance whose `Invoke` has the delegate's exact
+signature (curried/tupled × result/void, 0–16 parameters; `OptimizedClosures` for curried up to
+five), built per call by a factory emitted once per (function type, delegate type) as IL —
+`new Adapter(f)` and the delegate constructor over `Invoke`, ~30 ns, where
+`Delegate.CreateDelegate` per call is ~300 ns and a LINQ closure about the same; past sixteen
+parameters (a custom delegate type), a compiled lambda applying the function. Delegate to
+function: a typed `DelegateFunctions` wrapper (`FSharpFunc` subclass calling the delegate's
+`Invoke`; `OptimizedClosures` for curried, so `f a b` is one call) over the delegate rebound to
+the `Func`/`Action` of its signature, again constructed by emitted IL; past five parameters
+`TupledDelegateFunction`/`CurryStep` with `DynamicInvoke`. Not `FuncConvert`, whose wrapper loses
+arguments on Mono's browser-wasm runtime. A related wasm fault, a nested non-capturing lambda
+losing its arguments, is why every lambda and delegate literal written in a block is made to
+capture the closure parameter there (`capturing` in `Translate.fs`, a no-op elsewhere). Measured
+(Release, Apple Silicon): a bound call with a converted F# function argument ~140 ns, with a
+converted delegate ~185 ns, against ~40 ns for an argument needing no conversion. Calls of a
+curried F# function member go through `InvokeFast` (one call, no intermediate closures), ~38 ns.
+A parameter typed `Delegate` itself (WinForms `Control.Invoke`) gets the
 `Func`/`Action` F# would build for the function, and this rule goes *before* C#'s: left to C#,
 `FSharpFunc`'s own `op_Implicit` yields a `Converter<Unit, R>` for a `unit -> R`, a one-parameter
 delegate that a `DynamicInvoke()` then rejects.
