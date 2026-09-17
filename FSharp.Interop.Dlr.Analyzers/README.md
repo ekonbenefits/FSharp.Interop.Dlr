@@ -46,8 +46,10 @@ matters.
    <PropertyGroup>
      <!-- F# projects do not set this by default; without it the analyzer never runs. -->
      <RunAnalyzers>true</RunAnalyzers>
-     <!-- net10.0 on .NET SDK 10, net8.0 on SDK 8/9 — the folder for your tool version, not the package root. -->
-     <FSharpAnalyzersOtherFlags>--analyzers-path "$(PkgFSharp_Interop_Dlr_Analyzers)/analyzers/dotnet/fs/net10.0"</FSharpAnalyzersOtherFlags>
+     <!-- The build for your tool: net10.0 on .NET SDK 10, net8.0 on SDK 8/9. Not the package root. -->
+     <DlrAnalyzerFolder>net10.0</DlrAnalyzerFolder>
+     <DlrAnalyzerFolder Condition="$([MSBuild]::VersionLessThan('$(NETCoreSdkVersion)', '10.0'))">net8.0</DlrAnalyzerFolder>
+     <FSharpAnalyzersOtherFlags>--analyzers-path "$(PkgFSharp_Interop_Dlr_Analyzers)/analyzers/dotnet/fs/$(DlrAnalyzerFolder)"</FSharpAnalyzersOtherFlags>
      <!-- Optional: DLR001/DLR002 fail the build instead of warning. -->
      <FSharpAnalyzersContinueOnError>false</FSharpAnalyzersContinueOnError>
    </PropertyGroup>
