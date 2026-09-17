@@ -136,7 +136,7 @@ Same binder, same limits — each pinned by a test in `Tests/Restrictions.fs`:
   `IsAotCompatible=false` / `IsTrimmable=false`. Interpreted (non-AOT) browser-wasm works, and CI
   runs it, just not at JIT speed.
 
-Three places it goes beyond C#, for F#'s sake — as binder rules for what C# would have failed
+Four places it goes beyond C# — the first three as binder rules for what C# would have failed
 or got wrong, so nothing C# binds correctly changes:
 
 - **A member holding an F# function value can be called** (`e?Fn(21)`, a record field
@@ -151,6 +151,9 @@ or got wrong, so nothing C# binds correctly changes:
   them by reference (`{ X = 1 } == { X = 1 }` is `false` there) and has no `<` for them at all.
   Primitives, enums, strings (`==` only; `<` on strings and bools, which C# lacks, is F#'s), types declaring
   `op_Equality` and dynamic objects keep C#'s rules.
+- **Member names and generic type arguments may be run-time values**: `(?) x name` and
+  `Dlr.typeArgsOf ts` create the call sites per distinct name or type list, cached per site. C#'s
+  are fixed at compile time.
 
 ## How it works
 
