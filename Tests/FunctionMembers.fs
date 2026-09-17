@@ -18,6 +18,9 @@ let private bag () =
         "Tupled", box (fun (a: int, b: int) -> a * b)
         "Thunk", box (fun () -> "ran")
         "Three", box (fun (a: int) (b: int) (c: int) -> a + b + c)
+        "Four", box (fun (a: int) (b: int) (c: int) (d: int) -> a * 1000 + b * 100 + c * 10 + d)
+        "FourTupled", box (fun (a: int, b: int, c: int, d: int) -> a + b + c + d)
+        "Do", box (fun () -> ())
     ]
 
 [<Fact>]
@@ -33,6 +36,30 @@ let ``curried and tupled functions both take a tuple call`` () =
     (dlr { return e?Curried(1, 2) } : int) |> should equal 3
     (dlr { return e?Tupled(3, 4) } : int) |> should equal 12
     (dlr { return e?Three(1, 2, 3) } : int) |> should equal 6
+
+[<Fact>]
+let ``four arguments, curried and tupled, as a member call and through Dlr.call`` () =
+    let e = box (bag ())
+    (dlr { return e?Four(1, 2, 3, 4) } : int) |> should equal 1234
+    (dlr { return e?FourTupled(1, 2, 3, 4) } : int) |> should equal 10
+    (dlr { return (e |> Dlr.get "Four") |> Dlr.call (4, 3, 2, 1) } : int) |> should equal 4321
+    (dlr { return (e |> Dlr.get "FourTupled") |> Dlr.call (1, 1, 1, 1) } : int) |> should equal 4
+    let f: int -> int -> int -> int -> int = dlr { return e?Four }
+    f 5 6 7 8 |> should equal 5678
+
+[<Fact>]
+let ``a unit-returning F# function member called as a statement`` () =
+    let hits = ResizeArray<string>()
+    let e = box (Fixtures.expando [ "Log", box (fun (s: string) -> hits.Add s); "Tick", box (fun () -> hits.Add "tick") ])
+    dlr { e?Log("a") }
+    dlr { e?Tick() }
+    let tick = box (fun () -> hits.Add "called")
+    dlr { tick |> Dlr.call () }
+    let w = Widget()
+    let o = box w
+    dlr { o?Touch() }                        // a void method still binds with the result discarded
+    List.ofSeq hits |> should equal [ "a"; "tick"; "called" ]
+    w.Touched |> should equal 1
 
 [<Fact>]
 let ``a curried function applied F# style goes through the optimized closure`` () =

@@ -306,10 +306,12 @@ module internal Binders =
         let typeArgSeq = match typeArgs with [] -> null | ts -> ts :> seq<Type>
         let csharp = Binder.InvokeMember(flags, name, typeArgSeq, context, [ for a in all -> argInfo a ])
         let positional = args |> List.forall (fun a -> isNull a.Name)
-        if not positional || not typeArgs.IsEmpty || args.Length > 4 || discard then csharp
+        if not positional || not typeArgs.IsEmpty || args.Length > 4 then csharp
         else
-            let csharpInvoke = Binder.Invoke(CSharpBinderFlags.None, context, [ for a in all -> argInfo a ]) :?> InvokeBinder
-            FSharpInvokeMemberBinder(name, csharp :?> InvokeMemberBinder, csharpInvoke, FunctionShapes.candidates [ for a in args -> a.Type ] resultType) :> CallSiteBinder
+            // Discarded results too: the site is void-returning and the DLR drops the rule's value.
+            let csharpInvoke = Binder.Invoke(flags, context, [ for a in all -> argInfo a ]) :?> InvokeBinder
+            let result = if discard then typeof<unit> else resultType
+            FSharpInvokeMemberBinder(name, csharp :?> InvokeMemberBinder, csharpInvoke, FunctionShapes.candidates [ for a in args -> a.Type ] result) :> CallSiteBinder
 
     /// `x?Name(args)` whose inferred type is `A -> R`: InvokeMember, applying an F# function value
     /// held by the member when C# cannot invoke it.
@@ -322,9 +324,10 @@ module internal Binders =
         let all = target :: args
         let csharp = Binder.Invoke((if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None), context, [ for a in all -> argInfo a ])
         let positional = args |> List.forall (fun a -> isNull a.Name)
+        let result = if discard then typeof<unit> else resultType
         let binder =
-            if not positional || args.Length > 4 || discard then csharp
-            else FSharpInvokeBinder(csharp :?> InvokeBinder, FunctionShapes.candidates [ for a in args -> a.Type ] resultType) :> CallSiteBinder
+            if not positional || args.Length > 4 then csharp
+            else FSharpInvokeBinder(csharp :?> InvokeBinder, FunctionShapes.candidates [ for a in args -> a.Type ] result) :> CallSiteBinder
         siteCall binder all (if discard then voidType else typeof<obj>)
 
     /// `x?Name` read as an F# function type (see FunctionMember): the argument types come from the

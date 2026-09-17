@@ -24,7 +24,7 @@ type Indexed<'T> =
 /// </summary>
 [<AutoOpen>]
 module Operators =
-    /// <summary>Dynamic member get, or member invoke when applied: <c>x?Foo</c>, <c>x?Foo(a, b)</c>.</summary>
+    /// <summary>Dynamic member get, or member invoke when applied: <c>x?Foo</c>, <c>x?Foo(a, b)</c>. A member holding an F# function value is applied; read as a function type (<c>let f: int -> int = dlr { return x?Foo }</c>) it is a curried invoker of the member.</summary>
     val ( ? ) : target:obj -> name:string -> 'TResult
     /// <summary>Dynamic member set: <c>x?Foo &lt;- v</c>.</summary>
     val ( ?<- ) : target:obj -> name:string -> value:'TValue -> unit
@@ -82,7 +82,7 @@ type Dlr =
     static member cast<'T> : value: obj -> 'T
     /// <summary>Pipe-friendly member get: <c>x |> Dlr.get "Name"</c>; chains as <c>x |> Dlr.get "A" |> Dlr.get "B"</c>, and applied it invokes, like <c>?</c>: <c>(x |> Dlr.get "Add") (1, 2)</c>. The name may be computed.</summary>
     static member get: name: string -> target: obj -> 'T
-    /// <summary>Invoke the target itself (a delegate, a callable dynamic object): <c>f |> Dlr.call (a, b)</c>, <c>f |> Dlr.call ()</c>. Arguments follow the same rules as a member invocation.</summary>
+    /// <summary>Invoke the target itself (a delegate, a callable dynamic object, or an F# function value, curried or tupled): <c>f |> Dlr.call (a, b)</c>, <c>f |> Dlr.call ()</c>. Arguments follow the same rules as a member invocation.</summary>
     static member call: args: 'TArgs -> target: obj -> 'T
     /// <summary>C#'s <c>d.Name += v</c>: adds a handler to an event, or reads, adds and writes back for anything else: <c>btn |> Dlr.addAssign "Click" handler</c>, <c>stats |> Dlr.addAssign "Count" 1</c>.</summary>
     static member addAssign: name: string -> value: 'TValue -> target: obj -> unit
