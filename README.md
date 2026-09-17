@@ -142,7 +142,7 @@ or got wrong, so nothing C# binds correctly changes:
 - **`?=?` and `?<?` are structural on F# types**: records, unions, tuples, lists, options, sets
   — anything without a CLR operator — compare as F# `=` and `compare` do. C# would compare
   them by reference (`{ X = 1 } == { X = 1 }` is `false` there) and has no `<` for them at all.
-  Primitives, enums, strings (`==` only; `<` on strings is F#'s ordinal), types declaring
+  Primitives, enums, strings (`==` only; `<` on strings and bools, which C# lacks, is F#'s), types declaring
   `op_Equality` and dynamic objects keep C#'s rules.
 
 ## How it works

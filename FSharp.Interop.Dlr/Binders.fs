@@ -282,13 +282,14 @@ type FSharpBinaryOperationBinder(csharp: BinaryOperationBinder) =
         | _ -> failwith "unreachable"
 
     /// A type C#'s own operators cover, or that binds for itself (a dynamic object, whose own
-    /// rule reaches us as the error suggestion through C#). Strings have C# equality but no C#
-    /// ordering, so `<` on strings is F#'s ordinal comparison.
+    /// rule reaches us as the error suggestion through C#). Strings and bools have C# equality
+    /// but no C# ordering, so `<` on them is F#'s (ordinal; `false < true`).
     static let native (op: ExpressionType) (t: Type) =
         let t = match Nullable.GetUnderlyingType t with null -> t | u -> u
-        t.IsPrimitive || t.IsEnum || t = typeof<decimal> || typeof<Delegate>.IsAssignableFrom t
-        || typeof<IDynamicMetaObjectProvider>.IsAssignableFrom t
-        || (t = typeof<string> && (op = ExpressionType.Equal || op = ExpressionType.NotEqual))
+        let equality = op = ExpressionType.Equal || op = ExpressionType.NotEqual
+        (t.IsPrimitive && (equality || t <> typeof<bool>)) || t.IsEnum || t = typeof<decimal>
+        || typeof<Delegate>.IsAssignableFrom t || typeof<IDynamicMetaObjectProvider>.IsAssignableFrom t
+        || (t = typeof<string> && equality)
 
     static let declares (name: string) (t: Type) =
         t.GetMethods(BindingFlags.Public ||| BindingFlags.Static ||| BindingFlags.FlattenHierarchy)

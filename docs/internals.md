@@ -111,8 +111,8 @@ context type: public always, internal from the same assembly (F# `private` is IL
 private from inside the declaring type. Named or generic calls use C#'s binder unchanged. A member read as `… -> unit` is invoked through a void, result-discarded site.
 
 `FSharpBinaryOperationBinder` wraps C#'s for the six comparison operators. C# first when either
-operand is a type it covers — primitive, enum, decimal, delegate, string for `==`/`!=`, a
-dynamic object (whose own rule reaches us as C#'s error suggestion) — or declares the CLR
+operand is a type it covers — primitive, enum, decimal, delegate, string and bool for `==`/`!=` only (C# has no
+ordering for them), a dynamic object (whose own rule reaches us as C#'s error suggestion) — or declares the CLR
 operator (`op_Equality` and friends, including inherited); otherwise, and this is the one place
 our rule goes *before* C#, because C# would silently bind reference equality for a record, the
 rule is `LanguagePrimitives.GenericEquality`/`GenericComparison` on the boxed operands, restricted

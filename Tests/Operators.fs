@@ -95,6 +95,9 @@ let ``types with their own CLR operator or C# semantics keep them`` () =
     // Primitives, enums, strings: C# as before (including numeric widening across types).
     dlr { return box 1 ?=? box 1L } |> should equal true
     dlr { return box DayOfWeek.Monday ?<? box DayOfWeek.Friday } |> should equal true
+    // C# has enum ordering but no bool ordering; bools order as F#'s `false < true`.
+    dlr { return box false ?<? box true } |> should equal true
+    dlr { return box true ?<=? box false } |> should equal false
     dlr { return box "x" ?=? box "x" } |> should equal true
     // A dynamic object answers for itself.
     dlr { return box (EqualsAnything()) ?=? box { X = 1; Y = 2 } } |> should equal true
