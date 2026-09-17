@@ -131,28 +131,15 @@ Same binder, same limits — each pinned by a test in `Tests/Restrictions.fs`:
 
 ## How it works
 
-1. With no `Quote` member, `dlr { … }` desugars to `dlr.Run(dlr.Delay(fun () -> …), file, line)`.
-   `Delay` returns the closure unevaluated; its compiler-generated type is unique to the block and
-   its fields are the captured variables.
-2. On the first call, `Discover` finds the block's body in the enclosing `[<ReflectedDefinition>]`
-   (decoded once by FSharp.Core) by the baked line number.
-3. `Translate` turns free variables into reads of the closure's fields and each dynamic operation
-   into a call on a `CallSite<_>` embedded as a constant, then compiles the tree to a
-   `Func<obj, 'T>` cached by closure type. Invocation sites use C#'s binder wrapped in one that
-   also knows F# function values (`FSharpInvokeMemberBinder`): the decision is a DLR rule
-   restricted to the runtime type, so a site that sees several kinds of target keeps one cached
-   rule per kind.
+`dlr { … }` desugars to `dlr.Run(dlr.Delay(fun () -> …), file, line)`; `Delay` returns the
+closure unevaluated. Its compiler-generated type identifies the block and its fields hold the
+captured variables. On the first call the body is found in the enclosing `[<ReflectedDefinition>]`,
+translated into an expression tree with one `CallSite` per operation baked in as a constant, and
+compiled to a `Func<obj, 'T>` cached by closure type. Invocation sites use C#'s binder wrapped in
+one that also applies F# function values, as DLR rules per runtime type.
 
-Why not `Quote` the block? FSharp.Core rebuilds a quotation literal on every evaluation, ~4–10 µs
-each, with no cache; reflected definitions are decoded once.
-
-**Compiler assumptions.** The desugaring, caller-info arguments, `[<ReflectedDefinition>]` and
-`LeafExpressionConverter` are specified F#. The closure class shape is not: fields named after the
-captured variables (`this` as `this`, a `let mutable` as an `FSharpRef`), nesting in the module or
-`<StartupCode$…>` type, generic parameters named as the member's, and the Release optimizer
-inlining constants and once-called local functions (resolved from the reflected body). If any of
-that changes, the first call raises `DlrTranslationException` — nothing binds silently wrong — and
-CI builds with the .NET 8, 9 and 10 SDKs, Debug and Release, to catch it first.
+[docs/internals.md](docs/internals.md) has the full picture: every cache, every site and its
+argument flags, the F#-aware binders, and what the translator assumes about the compiler.
 
 ## Measured
 

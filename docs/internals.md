@@ -1,0 +1,144 @@
+# Internals: binders, call sites and caches
+
+What a `dlr { }` block turns into at run time, and where every piece of state lives. The README
+covers usage; this is for reading or changing the library.
+
+## The pipeline
+
+```
+dlr { … }                      F# desugars to  dlr.Run(dlr.Delay(fun () -> …), file, line)
+  │
+  ▼  Run                       key: the closure's compiler-generated type
+DlrCache ──miss──▶ Discover ──▶ Translate ──▶ LeafExpressionConverter ──▶ Func<obj, 'T>
+  │                (body from     (quotation → quotation with sites baked in)
+  │ hit             ReflectedDefinition)
+  ▼
+compiled.Invoke(closure)       ~25 ns: field reads + one CallSite per operation
+```
+
+`Delay` returns the closure unevaluated. `Run` never executes it; it is the call site's identity
+(its type) and the source of the captured values (its fields).
+
+## Caches
+
+| Cache | Key | Value | Lifetime | Where |
+| --- | --- | --- | --- | --- |
+| `DlrCache` | closure `Type` (one per block; per instantiation for generic members) | `Compiled { Delegate: Func<obj,'T>; ResultType }` | process; `DlrCache.clear()` drops it | `Cache.fs` |
+| reflected definitions | declaring `Type` (module or class) | every `(MethodBase, Expr)` with a reflected definition on it and its nested types | process | `Discover.fs` |
+| `NameCache<'Delegate>` | member name `string` | one compiled `Func<obj, args…, obj>` per distinct name | per site (a constant in the compiled tree) | `Binders.fs`, for `(?) x name` with a variable name |
+| DLR rule cache | runtime types (restrictions) | the bound rule | per `CallSite<_>` | inside each site, owned by the DLR |
+
+`DlrCache` and the reflected-definition cache are the only process-wide state. The rest is baked
+into a block's compiled delegate as constants, so it is collected with it.
+
+## Call sites
+
+Every dynamic operation becomes one `CallSite<TDelegate>` created at translation time and embedded
+in the expression tree as an `Expression.Constant` — the same thing the C# compiler emits as a
+static field per `dynamic` operation. The delegate type is `Func<CallSite, target, args…, result>`
+(`Action` when the result is discarded), built with `Expression.GetDelegateType` so it also works
+past `Func`'s arity. `Binders.siteCall` emits `site.Target.Invoke(site, target, args…)` as a
+quotation `Call` node; the site's polymorphic rule cache does the rest at run time.
+
+Argument typing, decided once per site (`Binders.Arg`):
+
+| position | static type | `CSharpArgumentInfoFlags` |
+| --- | --- | --- |
+| target | `obj` | `None` — dispatch on the runtime type |
+| argument with a known F# type | that type | `UseCompileTimeType` — C# overload rules on the static type, no boxing |
+| argument typed `obj` | `obj` | `None` — dispatch on the runtime type |
+| literal | its type | `UseCompileTimeType ||| Constant` — C#'s constant conversions |
+| `Dlr.named` field | its type | `… ||| NamedArgument` with the field name |
+
+The binder context (accessibility) is the type declaring the member that contains the block —
+what C# passes as the calling class. Results come back as `obj` and go through a second,
+`Convert` site to the inferred type (skipped for `obj`; `unit` uses `ResultDiscarded` instead).
+
+### Sites per operation
+
+| Syntax | Binder(s) |
+| --- | --- |
+| `x?Name` | `GetMember` + `Convert` |
+| `x?Name(a, b)` | `InvokeMember` (through `FSharpInvokeMemberBinder`, below) + `Convert` |
+| `x?Name <- v` | `SetMember` |
+| `Dlr.addAssign` / `subtractAssign` | `IsEvent`, then either `InvokeMember add_Name` (`InvokeSpecialName`, discarded) or `GetMember` + `BinaryOperation AddAssign` + `SetMember` (`ValueFromCompoundAssignment`) — the C# compiler's shape for `+=` |
+| `Dlr.call args x` | `Invoke` (through `FSharpInvokeBinder`) + `Convert` |
+| `(Dlr.idx x).[i]`, `<- v` | `GetIndex` / `SetIndex` |
+| `?+?` … | `BinaryOperation` + `Convert` |
+| `Dlr.neg` … | `UnaryOperation` + `Convert` |
+| `Dlr.cast<T>` | `Convert` with `ConvertExplicit` |
+| `Dlr.implicit` | `Convert` |
+| `x?Name` typed `A -> B -> R` | `InvokeMember` site with typed argument slots + `Convert`, wrapped in a curried F# function by `FunctionMember.CurriedN` / `TupledN`; `unit -> R` uses `FSharpReadOrInvokeBinder` |
+| `(?) x name`, variable name | a `NameCache` constant; `cache.Get(name).Invoke(target, args…)`, each entry a compiled delegate built from the same templates |
+
+## The F#-aware binders
+
+The C# binder invokes delegates and dynamic objects; an F# function value is an `FSharpFunc`
+object, which it reports as "Cannot invoke a non-delegate type". Three binders in `Binders.fs`
+subclass the DLR's binder types, wrap C#'s, and add the F# case in the fallbacks — as rules, not
+exceptions, so the decision is cached per runtime type like everything else:
+
+- **`FSharpInvokeMemberBinder`** (`x?Name(args)`). `FallbackInvokeMember` (a CLR target): if the
+  type has a public property or field of that name whose type is a candidate `FSharpFunc` shape,
+  the rule reads and applies it; otherwise C#'s binding. `FallbackInvoke` (a dynamic target has
+  produced the member's value): delegates to `FSharpInvokeBinder`.
+- **`FSharpInvokeBinder`** (`Dlr.call`, and the value step above). `FallbackInvoke`: if the value's
+  runtime type is a candidate, a rule applying it restricted to that type; otherwise C#'s `Invoke`.
+  A value-less meta-object (Expando's `BindInvokeMember` hands over the member before evaluating
+  it) is `Defer`red, so the nested site binds through this binder with the value.
+- **`FSharpReadOrInvokeBinder`** (`x?Name` read as `unit -> R`). A parameterless method is
+  invoked; a property or field is read (and applied if it is an F# function); on a dynamic
+  target the value itself is the result unless it is a delegate or function.
+
+The candidate shapes come from the call's inferred type: for arguments `A, B` and result `R`,
+`FSharpFunc<A * B, R>` (tupled) and `FSharpFunc<A, FSharpFunc<B, R>>` (curried), applied by the
+matching `Apply.TupledN` / `Apply.CurriedN` method — plain F# application, so
+`OptimizedClosures` and `InvokeFast` are the compiler's business. Up to four arguments; named or
+generic calls, and discarded results, use C#'s binder unchanged.
+
+## Translation notes
+
+- **Normalisation** first (`Translate.normalize`): `|>` / `<|` and applications of the curried
+  markers are beta-reduced (a parameter used once is substituted, otherwise `let`-bound), and
+  `let`s of literals and variables are inlined, so `w |> Dlr.get "A"` is the same node as
+  `Dlr.get "A" w` with a literal name.
+- **Captured variables** become reads of the closure's fields by name; a `let mutable` is an
+  `FSharpRef` field, read through `.Value`. When the Release optimizer inlined a value instead of
+  capturing it, its definition is taken from the enclosing member's reflected body: a `let`, or
+  the single application of a once-called local function.
+- **Control flow** the expression converter has no node for (`for`, `while`, `try`, `use`) is
+  emitted as calls to `DlrRuntime.*` helpers with the bodies as `Func` delegates (not F#
+  lambdas: on browser-wasm the `FuncConvert` wrapper the converter would add lost arguments).
+  `let rec` is tied through reference cells.
+- **Nested blocks** compile into the outer block: at run time their closure would be created by
+  the compiled tree, not the compiler, and would have no reflected body.
+- **`unit` bodies** end with the unit constant, since an F# `unit` call is `void` in IL and the
+  converter will not return that.
+
+## What the compiler is assumed to do
+
+Specified F#: the computation-expression desugaring, caller-info arguments, `[<ReflectedDefinition>]`,
+`LeafExpressionConverter`. Not specified — read by `Translate.captured` and `Discover`:
+
+- closure fields named after the captured variables, `this` as `this`, `FSharpRef` for mutables;
+- closures nested in the enclosing module type, or in the file's `<StartupCode$…>` class for
+  members of types declared in a namespace (hence the assembly-wide fallback in `Discover`);
+- generic members: a closure class generic over the member's type parameters, under the same
+  names (`Discover.instantiate` rebuilds the member with the closure's arguments);
+- the Release optimizer inlining constants and once-called local functions.
+
+A change in any of these raises `DlrTranslationException` on the first call at a site; nothing
+binds silently wrong. CI builds with the .NET 8, 9 and 10 SDKs in Debug and Release.
+
+## Measured
+
+Release, net10.0, Apple Silicon, 5M-call average:
+
+| | ns |
+| --- | --- |
+| block, `w?Add(i, 1)` on a method | 29 |
+| block, `e?Fn(i)` with `Fn` an F# function property | 33 |
+| one site alternating between the two kinds | 70 |
+| bound `int -> int -> int`, full application | 11 |
+| bound `unit -> int` property read | 8.5 |
+| static `w.Add(i, 1)` | 11–15 |
