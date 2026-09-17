@@ -556,8 +556,16 @@ type SiteCache<'Key when 'Key: equality>(template: 'Key -> Expr) =
         match entries.TryGetValue key with
         | true, sites -> sites
         | _ ->
-            if entries.Count >= SiteCache<'Key>.Capacity then entries.Clear()
-            entries.GetOrAdd(key, fun k -> Array.ofList (SiteCache<'Key>.Sites(template k)))
+            // Misses only: the admission (clear at capacity, then add) is one critical section,
+            // so concurrent misses cannot each pass the check and push the count past the bound.
+            lock entries (fun () ->
+                match entries.TryGetValue key with
+                | true, sites -> sites
+                | _ ->
+                    if entries.Count >= SiteCache<'Key>.Capacity then entries.Clear()
+                    let sites = Array.ofList (SiteCache<'Key>.Sites(template key))
+                    entries.[key] <- sites
+                    sites)
 
     /// `sites.[i]`, for the quotation (array indexing has no direct quotation form the converter takes).
     static member At(sites: CallSite[], i: int) : CallSite = sites.[i]

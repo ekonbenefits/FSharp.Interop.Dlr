@@ -73,12 +73,16 @@ let ``a site's name cache is bounded`` () =
         FSharp.Quotations.Expr.Value(site, site.GetType())
     let cache = SiteCache<string>(template)
     let first = cache.Get "n0"
-    obj.ReferenceEquals(cache.Get "n0", first) |> should equal true      // a hit is the same sites
+    obj.ReferenceEquals(cache.Get "n0", first) |> should equal true      // a hit returns the same sites
     first.Length |> should equal 1
     for i in 1 .. 1000 do cache.Get(sprintf "n%d" i) |> ignore
     (cache.Count <= SiteCache<string>.Capacity) |> should equal true
     cache.Get "n0" |> ignore                                             // still works after clearing
     (cache.Count >= 1) |> should equal true
+    // Concurrent misses cannot push it past the bound.
+    let cache2 = SiteCache<string>(template)
+    System.Threading.Tasks.Parallel.For(0, 4000, fun i -> cache2.Get(sprintf "p%d" i) |> ignore) |> ignore
+    (cache2.Count <= SiteCache<string>.Capacity) |> should equal true
 
 [<Fact>]
 let ``a thousand distinct names through one site`` () =

@@ -444,9 +444,11 @@ module internal Translate =
             | ShapeLambda(v, lambdaBody) -> Expr.Lambda(v, asUnit (rewriteIn (bound.Add v) lambdaBody))
             | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map rewrite args)
 
-        /// `(?) x name` with a computed name: the site becomes a NameCache constant holding a
-        /// template that, given a name, quotes the typed delegate for it; the emitted code is
-        /// `cache.Get(name).Invoke(target, args…)`. Argument names in `Dlr.named` stay static.
+        /// `(?) x name` with a computed name: the operation's delegate is compiled once here with
+        /// its call sites as parameters (lifted from a template built for a placeholder name), and
+        /// a SiteCache constant creates the sites per distinct name; the emitted code is
+        /// `let sites = cache.Get(name) in delegate.Invoke(sites.[0], …, target, args…)`.
+        /// Argument names in `Dlr.named` stay static.
         and computedName bound (nameExpr: Expr) (target: Expr) (argExprs: Expr list) (resultType: Type) (site: string -> Binders.Arg -> Binders.Arg list -> Expr) : Expr =
             let rewrite = rewriteIn bound
             let bindings, argInfos = argList bound argExprs
