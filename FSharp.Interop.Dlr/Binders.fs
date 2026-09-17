@@ -274,8 +274,8 @@ module DelegateFunction =
             Activator.CreateInstance(typedefof<TupledDelegateFunction<_, _>>.MakeGenericType(ga.[0], ga.[1]), [| box d |])
 
 /// Delegates over F# functions, for an F# function argument passed to a delegate-typed parameter:
-/// one adapter per shape whose `Invoke` method has the delegate's exact signature, so
-/// `Delegate.CreateDelegate` binds it directly. Real methods rather than an `Expression.Lambda`
+/// one adapter per shape (curried/tupled × result/void, 0–16 parameters) whose `Invoke` method
+/// has the delegate's exact signature, so `Delegate.CreateDelegate` binds it directly. Real methods rather than an `Expression.Lambda`
 /// inside the rule: on Mono's browser-wasm runtime a nested interpreted lambda loses its arguments
 /// (the same fault DlrRuntime's comment describes), and these are also faster.
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
@@ -284,61 +284,171 @@ module FunctionAdapters =
         member _.Invoke() : 'R = f ()
     type Curried0Unit(f: unit -> unit) =
         member _.Invoke() : unit = f ()
-    type Curried1<'A, 'R>(f: 'A -> 'R) =
+    type Curried1<'T1, 'R>(f: 'T1 -> 'R) =
         let f = f
-        member _.Invoke(a: 'A) : 'R = f a
-    type Curried1Unit<'A>(f: 'A -> unit) =
+        member _.Invoke(t1: 'T1) : 'R = f t1
+    type Curried1Unit<'T1>(f: 'T1 -> unit) =
         let f = f
-        member _.Invoke(a: 'A) : unit = f a
-    type Curried2<'A, 'B, 'R>(f: 'A -> 'B -> 'R) =
-        let f = OptimizedClosures.FSharpFunc<'A, 'B, 'R>.Adapt f
-        member _.Invoke(a: 'A, b: 'B) : 'R = f.Invoke(a, b)
-    type Curried2Unit<'A, 'B>(f: 'A -> 'B -> unit) =
-        let f = OptimizedClosures.FSharpFunc<'A, 'B, unit>.Adapt f
-        member _.Invoke(a: 'A, b: 'B) : unit = f.Invoke(a, b)
-    type Tupled2<'A, 'B, 'R>(f: 'A * 'B -> 'R) =
-        member _.Invoke(a: 'A, b: 'B) : 'R = f (a, b)
-    type Tupled2Unit<'A, 'B>(f: 'A * 'B -> unit) =
-        member _.Invoke(a: 'A, b: 'B) : unit = f (a, b)
-    type Curried3<'A, 'B, 'C, 'R>(f: 'A -> 'B -> 'C -> 'R) =
-        let f = OptimizedClosures.FSharpFunc<'A, 'B, 'C, 'R>.Adapt f
-        member _.Invoke(a: 'A, b: 'B, c: 'C) : 'R = f.Invoke(a, b, c)
-    type Curried3Unit<'A, 'B, 'C>(f: 'A -> 'B -> 'C -> unit) =
-        let f = OptimizedClosures.FSharpFunc<'A, 'B, 'C, unit>.Adapt f
-        member _.Invoke(a: 'A, b: 'B, c: 'C) : unit = f.Invoke(a, b, c)
-    type Tupled3<'A, 'B, 'C, 'R>(f: 'A * 'B * 'C -> 'R) =
-        member _.Invoke(a: 'A, b: 'B, c: 'C) : 'R = f (a, b, c)
-    type Tupled3Unit<'A, 'B, 'C>(f: 'A * 'B * 'C -> unit) =
-        member _.Invoke(a: 'A, b: 'B, c: 'C) : unit = f (a, b, c)
-    type Curried4<'A, 'B, 'C, 'D, 'R>(f: 'A -> 'B -> 'C -> 'D -> 'R) =
-        let f = OptimizedClosures.FSharpFunc<'A, 'B, 'C, 'D, 'R>.Adapt f
-        member _.Invoke(a: 'A, b: 'B, c: 'C, d: 'D) : 'R = f.Invoke(a, b, c, d)
-    type Curried4Unit<'A, 'B, 'C, 'D>(f: 'A -> 'B -> 'C -> 'D -> unit) =
-        let f = OptimizedClosures.FSharpFunc<'A, 'B, 'C, 'D, unit>.Adapt f
-        member _.Invoke(a: 'A, b: 'B, c: 'C, d: 'D) : unit = f.Invoke(a, b, c, d)
-    type Tupled4<'A, 'B, 'C, 'D, 'R>(f: 'A * 'B * 'C * 'D -> 'R) =
-        member _.Invoke(a: 'A, b: 'B, c: 'C, d: 'D) : 'R = f (a, b, c, d)
-    type Tupled4Unit<'A, 'B, 'C, 'D>(f: 'A * 'B * 'C * 'D -> unit) =
-        member _.Invoke(a: 'A, b: 'B, c: 'C, d: 'D) : unit = f (a, b, c, d)
-    type Curried5<'A, 'B, 'C, 'D, 'E, 'R>(f: 'A -> 'B -> 'C -> 'D -> 'E -> 'R) =
-        let f = OptimizedClosures.FSharpFunc<'A, 'B, 'C, 'D, 'E, 'R>.Adapt f
-        member _.Invoke(a: 'A, b: 'B, c: 'C, d: 'D, e: 'E) : 'R = f.Invoke(a, b, c, d, e)
-    type Curried5Unit<'A, 'B, 'C, 'D, 'E>(f: 'A -> 'B -> 'C -> 'D -> 'E -> unit) =
-        let f = OptimizedClosures.FSharpFunc<'A, 'B, 'C, 'D, 'E, unit>.Adapt f
-        member _.Invoke(a: 'A, b: 'B, c: 'C, d: 'D, e: 'E) : unit = f.Invoke(a, b, c, d, e)
-    type Tupled5<'A, 'B, 'C, 'D, 'E, 'R>(f: 'A * 'B * 'C * 'D * 'E -> 'R) =
-        member _.Invoke(a: 'A, b: 'B, c: 'C, d: 'D, e: 'E) : 'R = f (a, b, c, d, e)
-    type Tupled5Unit<'A, 'B, 'C, 'D, 'E>(f: 'A * 'B * 'C * 'D * 'E -> unit) =
-        member _.Invoke(a: 'A, b: 'B, c: 'C, d: 'D, e: 'E) : unit = f (a, b, c, d, e)
+        member _.Invoke(t1: 'T1) : unit = f t1
+    type Curried2<'T1, 'T2, 'R>(f: 'T1 -> 'T2 -> 'R) =
+        let f = OptimizedClosures.FSharpFunc<'T1, 'T2, 'R>.Adapt f
+        member _.Invoke(t1: 'T1, t2: 'T2) : 'R = f.Invoke(t1, t2)
+    type Curried2Unit<'T1, 'T2>(f: 'T1 -> 'T2 -> unit) =
+        let f = OptimizedClosures.FSharpFunc<'T1, 'T2, unit>.Adapt f
+        member _.Invoke(t1: 'T1, t2: 'T2) : unit = f.Invoke(t1, t2)
+    type Tupled2<'T1, 'T2, 'R>(f: 'T1 * 'T2 -> 'R) =
+        member _.Invoke(t1: 'T1, t2: 'T2) : 'R = f (t1, t2)
+    type Tupled2Unit<'T1, 'T2>(f: 'T1 * 'T2 -> unit) =
+        member _.Invoke(t1: 'T1, t2: 'T2) : unit = f (t1, t2)
+    type Curried3<'T1, 'T2, 'T3, 'R>(f: 'T1 -> 'T2 -> 'T3 -> 'R) =
+        let f = OptimizedClosures.FSharpFunc<'T1, 'T2, 'T3, 'R>.Adapt f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3) : 'R = f.Invoke(t1, t2, t3)
+    type Curried3Unit<'T1, 'T2, 'T3>(f: 'T1 -> 'T2 -> 'T3 -> unit) =
+        let f = OptimizedClosures.FSharpFunc<'T1, 'T2, 'T3, unit>.Adapt f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3) : unit = f.Invoke(t1, t2, t3)
+    type Tupled3<'T1, 'T2, 'T3, 'R>(f: 'T1 * 'T2 * 'T3 -> 'R) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3) : 'R = f (t1, t2, t3)
+    type Tupled3Unit<'T1, 'T2, 'T3>(f: 'T1 * 'T2 * 'T3 -> unit) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3) : unit = f (t1, t2, t3)
+    type Curried4<'T1, 'T2, 'T3, 'T4, 'R>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'R) =
+        let f = OptimizedClosures.FSharpFunc<'T1, 'T2, 'T3, 'T4, 'R>.Adapt f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4) : 'R = f.Invoke(t1, t2, t3, t4)
+    type Curried4Unit<'T1, 'T2, 'T3, 'T4>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> unit) =
+        let f = OptimizedClosures.FSharpFunc<'T1, 'T2, 'T3, 'T4, unit>.Adapt f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4) : unit = f.Invoke(t1, t2, t3, t4)
+    type Tupled4<'T1, 'T2, 'T3, 'T4, 'R>(f: 'T1 * 'T2 * 'T3 * 'T4 -> 'R) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4) : 'R = f (t1, t2, t3, t4)
+    type Tupled4Unit<'T1, 'T2, 'T3, 'T4>(f: 'T1 * 'T2 * 'T3 * 'T4 -> unit) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4) : unit = f (t1, t2, t3, t4)
+    type Curried5<'T1, 'T2, 'T3, 'T4, 'T5, 'R>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'R) =
+        let f = OptimizedClosures.FSharpFunc<'T1, 'T2, 'T3, 'T4, 'T5, 'R>.Adapt f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5) : 'R = f.Invoke(t1, t2, t3, t4, t5)
+    type Curried5Unit<'T1, 'T2, 'T3, 'T4, 'T5>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> unit) =
+        let f = OptimizedClosures.FSharpFunc<'T1, 'T2, 'T3, 'T4, 'T5, unit>.Adapt f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5) : unit = f.Invoke(t1, t2, t3, t4, t5)
+    type Tupled5<'T1, 'T2, 'T3, 'T4, 'T5, 'R>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 -> 'R) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5) : 'R = f (t1, t2, t3, t4, t5)
+    type Tupled5Unit<'T1, 'T2, 'T3, 'T4, 'T5>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 -> unit) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5) : unit = f (t1, t2, t3, t4, t5)
+    type Curried6<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'R>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'R) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6) : 'R = f t1 t2 t3 t4 t5 t6
+    type Curried6Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> unit) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6) : unit = f t1 t2 t3 t4 t5 t6
+    type Tupled6<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'R>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 -> 'R) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6) : 'R = f (t1, t2, t3, t4, t5, t6)
+    type Tupled6Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 -> unit) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6) : unit = f (t1, t2, t3, t4, t5, t6)
+    type Curried7<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'R>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'R) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7) : 'R = f t1 t2 t3 t4 t5 t6 t7
+    type Curried7Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> unit) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7) : unit = f t1 t2 t3 t4 t5 t6 t7
+    type Tupled7<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'R>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 -> 'R) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7) : 'R = f (t1, t2, t3, t4, t5, t6, t7)
+    type Tupled7Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 -> unit) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7) : unit = f (t1, t2, t3, t4, t5, t6, t7)
+    type Curried8<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'R>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'R) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8) : 'R = f t1 t2 t3 t4 t5 t6 t7 t8
+    type Curried8Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> unit) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8) : unit = f t1 t2 t3 t4 t5 t6 t7 t8
+    type Tupled8<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'R>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 -> 'R) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8) : 'R = f (t1, t2, t3, t4, t5, t6, t7, t8)
+    type Tupled8Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 -> unit) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8) : unit = f (t1, t2, t3, t4, t5, t6, t7, t8)
+    type Curried9<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'R>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'T9 -> 'R) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9) : 'R = f t1 t2 t3 t4 t5 t6 t7 t8 t9
+    type Curried9Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'T9 -> unit) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9) : unit = f t1 t2 t3 t4 t5 t6 t7 t8 t9
+    type Tupled9<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'R>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 * 'T9 -> 'R) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9) : 'R = f (t1, t2, t3, t4, t5, t6, t7, t8, t9)
+    type Tupled9Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 * 'T9 -> unit) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9) : unit = f (t1, t2, t3, t4, t5, t6, t7, t8, t9)
+    type Curried10<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'R>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'T9 -> 'T10 -> 'R) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10) : 'R = f t1 t2 t3 t4 t5 t6 t7 t8 t9 t10
+    type Curried10Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'T9 -> 'T10 -> unit) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10) : unit = f t1 t2 t3 t4 t5 t6 t7 t8 t9 t10
+    type Tupled10<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'R>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 * 'T9 * 'T10 -> 'R) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10) : 'R = f (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10)
+    type Tupled10Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 * 'T9 * 'T10 -> unit) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10) : unit = f (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10)
+    type Curried11<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'R>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'T9 -> 'T10 -> 'T11 -> 'R) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11) : 'R = f t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11
+    type Curried11Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'T9 -> 'T10 -> 'T11 -> unit) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11) : unit = f t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11
+    type Tupled11<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'R>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 * 'T9 * 'T10 * 'T11 -> 'R) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11) : 'R = f (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11)
+    type Tupled11Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 * 'T9 * 'T10 * 'T11 -> unit) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11) : unit = f (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11)
+    type Curried12<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'R>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'T9 -> 'T10 -> 'T11 -> 'T12 -> 'R) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12) : 'R = f t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12
+    type Curried12Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'T9 -> 'T10 -> 'T11 -> 'T12 -> unit) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12) : unit = f t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12
+    type Tupled12<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'R>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 * 'T9 * 'T10 * 'T11 * 'T12 -> 'R) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12) : 'R = f (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12)
+    type Tupled12Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 * 'T9 * 'T10 * 'T11 * 'T12 -> unit) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12) : unit = f (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12)
+    type Curried13<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'T13, 'R>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'T9 -> 'T10 -> 'T11 -> 'T12 -> 'T13 -> 'R) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12, t13: 'T13) : 'R = f t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12 t13
+    type Curried13Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'T13>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'T9 -> 'T10 -> 'T11 -> 'T12 -> 'T13 -> unit) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12, t13: 'T13) : unit = f t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12 t13
+    type Tupled13<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'T13, 'R>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 * 'T9 * 'T10 * 'T11 * 'T12 * 'T13 -> 'R) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12, t13: 'T13) : 'R = f (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13)
+    type Tupled13Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'T13>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 * 'T9 * 'T10 * 'T11 * 'T12 * 'T13 -> unit) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12, t13: 'T13) : unit = f (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13)
+    type Curried14<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'T13, 'T14, 'R>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'T9 -> 'T10 -> 'T11 -> 'T12 -> 'T13 -> 'T14 -> 'R) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12, t13: 'T13, t14: 'T14) : 'R = f t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12 t13 t14
+    type Curried14Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'T13, 'T14>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'T9 -> 'T10 -> 'T11 -> 'T12 -> 'T13 -> 'T14 -> unit) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12, t13: 'T13, t14: 'T14) : unit = f t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12 t13 t14
+    type Tupled14<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'T13, 'T14, 'R>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 * 'T9 * 'T10 * 'T11 * 'T12 * 'T13 * 'T14 -> 'R) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12, t13: 'T13, t14: 'T14) : 'R = f (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14)
+    type Tupled14Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'T13, 'T14>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 * 'T9 * 'T10 * 'T11 * 'T12 * 'T13 * 'T14 -> unit) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12, t13: 'T13, t14: 'T14) : unit = f (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14)
+    type Curried15<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'T13, 'T14, 'T15, 'R>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'T9 -> 'T10 -> 'T11 -> 'T12 -> 'T13 -> 'T14 -> 'T15 -> 'R) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12, t13: 'T13, t14: 'T14, t15: 'T15) : 'R = f t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12 t13 t14 t15
+    type Curried15Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'T13, 'T14, 'T15>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'T9 -> 'T10 -> 'T11 -> 'T12 -> 'T13 -> 'T14 -> 'T15 -> unit) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12, t13: 'T13, t14: 'T14, t15: 'T15) : unit = f t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12 t13 t14 t15
+    type Tupled15<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'T13, 'T14, 'T15, 'R>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 * 'T9 * 'T10 * 'T11 * 'T12 * 'T13 * 'T14 * 'T15 -> 'R) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12, t13: 'T13, t14: 'T14, t15: 'T15) : 'R = f (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15)
+    type Tupled15Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'T13, 'T14, 'T15>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 * 'T9 * 'T10 * 'T11 * 'T12 * 'T13 * 'T14 * 'T15 -> unit) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12, t13: 'T13, t14: 'T14, t15: 'T15) : unit = f (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15)
+    type Curried16<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'T13, 'T14, 'T15, 'T16, 'R>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'T9 -> 'T10 -> 'T11 -> 'T12 -> 'T13 -> 'T14 -> 'T15 -> 'T16 -> 'R) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12, t13: 'T13, t14: 'T14, t15: 'T15, t16: 'T16) : 'R = f t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12 t13 t14 t15 t16
+    type Curried16Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'T13, 'T14, 'T15, 'T16>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'T9 -> 'T10 -> 'T11 -> 'T12 -> 'T13 -> 'T14 -> 'T15 -> 'T16 -> unit) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12, t13: 'T13, t14: 'T14, t15: 'T15, t16: 'T16) : unit = f t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12 t13 t14 t15 t16
+    type Tupled16<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'T13, 'T14, 'T15, 'T16, 'R>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 * 'T9 * 'T10 * 'T11 * 'T12 * 'T13 * 'T14 * 'T15 * 'T16 -> 'R) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12, t13: 'T13, t14: 'T14, t15: 'T15, t16: 'T16) : 'R = f (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15, t16)
+    type Tupled16Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'T13, 'T14, 'T15, 'T16>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 * 'T9 * 'T10 * 'T11 * 'T12 * 'T13 * 'T14 * 'T15 * 'T16 -> unit) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12, t13: 'T13, t14: 'T14, t15: 'T15, t16: 'T16) : unit = f (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15, t16)
 
     let private conversions = System.Collections.Concurrent.ConcurrentDictionary<struct (Type * Type), (obj -> Delegate) option>()
 
     /// How to make a delegate of `delegateType` from a function value of `funcType`, or None when
     /// the shapes do not match (arity, the function's domains reference-assignable to the
-    /// delegate's parameters, a `unit` result only for a void delegate). Up to five parameters an
-    /// adapter instance is bound with `CreateDelegate` per call; past that a lambda of the
-    /// delegate's signature applying the function is compiled once here and closed over the
-    /// function value per call (any arity the delegate allows).
+    /// delegate's parameters, a `unit` result only for a void delegate). Up to sixteen parameters
+    /// (the `Func`/`Action` ceiling) an adapter instance is bound with `CreateDelegate` per call;
+    /// past that — a custom delegate type — a lambda of the delegate's signature applying the
+    /// function is compiled once here and closed over the function value per call.
     let tryConversion (funcType: Type) (delegateType: Type) : (obj -> Delegate) option =
         match conversions.TryGetValue(struct (funcType, delegateType)) with
         | true, c -> c
@@ -355,7 +465,7 @@ module FunctionAdapters =
                     let fitsParams = n = ps.Length && List.forall2 (fun (d: Type) (p: Type) -> d = p || (not d.IsValueType && d.IsAssignableFrom p)) ds ps
                     let fitsResult = if isVoid then unitResult else not unitResult && (invoke.ReturnType = result || (not result.IsValueType && invoke.ReturnType.IsAssignableFrom result))
                     if not (fitsParams && fitsResult) || (tupled && n < 2) then None
-                    elif n <= 5 then
+                    elif n <= 16 then
                         let name = (if tupled then "Tupled" else "Curried") + string n + (if isVoid then "Unit" else "")
                         let arity = n + (if isVoid then 0 else 1)
                         let def = typeof<Curried0Unit>.DeclaringType.GetNestedType(name + (if arity > 0 then "`" + string arity else ""))

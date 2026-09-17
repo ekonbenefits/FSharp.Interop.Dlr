@@ -114,10 +114,11 @@ private from inside the declaring type. Named or generic calls use C#'s binder u
 The same reflection fallback (`OptionalArguments.tryCall`, C#'s error suggestion) converts an F#
 function argument for a delegate parameter and a delegate argument for a function parameter.
 Function to delegate: `Delegate.CreateDelegate` over a `FunctionAdapters` instance whose `Invoke`
-has the delegate's exact signature (curried/tupled × result/void, up to five parameters;
-`OptimizedClosures` for curried), created per call from a cached adapter constructor; past five,
-a lambda of the delegate's signature applying the function, compiled once per (function type,
-delegate type) and closed over the function value per call. Delegate
+has the delegate's exact signature (curried/tupled × result/void, 0–16 parameters, the
+`Func`/`Action` ceiling; `OptimizedClosures` for curried up to five), created per call from a
+cached adapter constructor; past sixteen (a custom delegate type), a lambda of the delegate's
+signature applying the function, compiled once per (function type, delegate type) and closed
+over the function value per call. Delegate
 to function: a `TupledDelegateFunction` or `CurryStep` chain invoking the delegate with
 `DynamicInvoke` — not `FuncConvert`, whose wrapper loses arguments on Mono's browser-wasm
 runtime. A related wasm fault, a nested non-capturing lambda losing its arguments, is why every
