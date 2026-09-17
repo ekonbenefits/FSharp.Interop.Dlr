@@ -98,6 +98,10 @@ type Dlr =
     [<MethodImpl(MethodImplOptions.NoInlining)>]
     static member call (args: 'TArgs) (target: obj) : 'T = ignore (args, target); outside "Dlr.call"
     [<MethodImpl(MethodImplOptions.NoInlining)>]
+    static member addAssign (name: string) (value: 'TValue) (target: obj) : unit = ignore (name, value, target); outside "Dlr.addAssign"
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
+    static member subtractAssign (name: string) (value: 'TValue) (target: obj) : unit = ignore (name, value, target); outside "Dlr.subtractAssign"
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
     static member set (name: string) (value: 'TValue) (target: obj) : unit = ignore (name, value, target); outside "Dlr.set"
     [<MethodImpl(MethodImplOptions.NoInlining)>]
     static member invoke (name: string) (args: 'TArgs) (target: obj) : 'T = ignore (name, args, target); outside "Dlr.invoke"

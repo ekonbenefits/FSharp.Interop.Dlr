@@ -49,6 +49,8 @@ module internal Translate =
     let private opImplicit = opMethod <@ fun (v: obj) -> (Dlr.implicit v) : obj @>
     let private opGet = opMethod <@ fun (n: string) (t: obj) -> (Dlr.get n t) : obj @>
     let private opSet = opMethod <@ fun (n: string) (v: obj) (t: obj) -> Dlr.set n v t @>
+    let private opAddAssign = opMethod <@ fun (n: string) (v: obj) (t: obj) -> Dlr.addAssign n v t @>
+    let private opSubtractAssign = opMethod <@ fun (n: string) (v: obj) (t: obj) -> Dlr.subtractAssign n v t @>
     let private opInvoke = opMethod <@ fun (n: string) (a: obj) (t: obj) -> (Dlr.invoke n a t) : obj @>
     let private unaryOps =
         dict [
@@ -373,6 +375,8 @@ module internal Translate =
                 match nameExpr with
                 | Literal name -> Binders.getMember context (string name) (targetArg bound target) |> convert e.Type
                 | _ -> computedName bound nameExpr target [] e.Type (fun name targetArg _ -> Binders.getMember context name targetArg)
+            | Op opAddAssign [ nameExpr; Unboxed value; Unboxed target ] -> compoundAssign bound false nameExpr target value
+            | Op opSubtractAssign [ nameExpr; Unboxed value; Unboxed target ] -> compoundAssign bound true nameExpr target value
             | MemberOp(SetMember(target, nameExpr, value)) ->
                 match nameExpr with
                 | Literal name -> Binders.setMember context (string name) (targetArg bound target) (valueArg bound value) |> convert typeof<unit>
@@ -445,6 +449,23 @@ module internal Translate =
             Expr.Call(get, delegateType.GetMethod("Invoke"), targetExpr :: [ for a in argInfos -> a.Expr ])
             |> convert resultType
             |> bind bound bindings
+
+        /// `Dlr.addAssign`/`subtractAssign`: bind the target and value once, then both branches
+        /// of the IsEvent decision refer to them. A computed name goes through the NameCache
+        /// like any other member operation.
+        and compoundAssign bound (subtract: bool) (nameExpr: Expr) (target: Expr) (value: Expr) : Expr =
+            match nameExpr with
+            | Literal name ->
+                let t = rewriteIn bound target
+                let v = rewriteIn bound value
+                let tv = Var("target", typeof<obj>)
+                let vv = Var("value", v.Type)
+                let body = Binders.compoundAssign context (string name) subtract (Binders.dynamicArg (Expr.Var tv)) (Binders.typedArg (Expr.Var vv))
+                Expr.Let(tv, (if t.Type = typeof<obj> then t else Expr.Coerce(t, typeof<obj>)), Expr.Let(vv, v, body))
+            | _ ->
+                computedName bound nameExpr target [ value ] typeof<unit> (fun name targetArg args ->
+                    // The name-cache template already makes target and value delegate parameters.
+                    Expr.Sequential(Binders.compoundAssign context name subtract targetArg (List.head args), Expr.Value(null, typeof<obj>)))
 
         and targetArg bound (target: Expr) =
             let t = rewriteIn bound target

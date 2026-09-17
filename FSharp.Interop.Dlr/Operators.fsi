@@ -84,6 +84,10 @@ type Dlr =
     static member get: name: string -> target: obj -> 'T
     /// <summary>Invoke the target itself (a delegate, a callable dynamic object): <c>f |> Dlr.call (a, b)</c>, <c>f |> Dlr.call ()</c>. Arguments follow the same rules as a member invocation.</summary>
     static member call: args: 'TArgs -> target: obj -> 'T
+    /// <summary>C#'s <c>d.Name += v</c>: adds a handler to an event, or reads, adds and writes back for anything else: <c>btn |> Dlr.addAssign "Click" handler</c>, <c>stats |> Dlr.addAssign "Count" 1</c>.</summary>
+    static member addAssign: name: string -> value: 'TValue -> target: obj -> unit
+    /// <summary>C#'s <c>d.Name -= v</c>: removes a handler from an event, or reads, subtracts and writes back for anything else.</summary>
+    static member subtractAssign: name: string -> value: 'TValue -> target: obj -> unit
     /// <summary>Pipe-friendly member set: <c>x |> Dlr.set "Name" value</c>.</summary>
     static member set: name: string -> value: 'TValue -> target: obj -> unit
     /// <summary>Pipe-friendly invocation: <c>x |> Dlr.invoke "Add" (1, 2)</c>, <c>x |> Dlr.invoke "Touch" ()</c>; the arguments follow the same rules as <c>x?Add(1, 2)</c>, including <c>Dlr.named</c> and <c>Dlr.typeArgs</c>.</summary>

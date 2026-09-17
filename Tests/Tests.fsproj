@@ -58,6 +58,7 @@
     <Compile Include="Errors.fs" />
     <Compile Include="ComputedNames.fs" />
     <Compile Include="Pipes.fs" />
+    <Compile Include="CompoundAssign.fs" />
     <Compile Include="Unreflected.fs" />
   </ItemGroup>
 

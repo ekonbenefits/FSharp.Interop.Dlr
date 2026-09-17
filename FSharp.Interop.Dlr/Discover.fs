@@ -20,14 +20,19 @@ module internal Discover =
     /// per type: later blocks in the same type find their body without decoding again.
     let private reflectedCache = ConcurrentDictionary<Type, (MethodBase * Expr) list>()
 
+    /// A stored quotation FSharp.Core cannot decode (some compiler-generated members, e.g. a
+    /// [<CLIEvent>] accessor, have one) is not this block's, so it is skipped rather than fatal.
+    let private tryReflected (m: MethodBase) =
+        try Expr.TryGetReflectedDefinition m with _ -> None
+
     let rec private reflected (t: Type) : (MethodBase * Expr) list =
         reflectedCache.GetOrAdd(t, fun t ->
             [ for m in t.GetMethods all do
-                  match Expr.TryGetReflectedDefinition m with
+                  match tryReflected m with
                   | Some q -> yield (m :> MethodBase), q
                   | None -> ()
               for c in t.GetConstructors all do
-                  match Expr.TryGetReflectedDefinition c with
+                  match tryReflected c with
                   | Some q -> yield (c :> MethodBase), q
                   | None -> ()
               for n in t.GetNestedTypes all do
@@ -100,7 +105,7 @@ module internal Discover =
                 match instantiate closureType m with
                 | inst when obj.ReferenceEquals(inst, m) -> m, memberBody, body
                 | inst ->
-                    match Expr.TryGetReflectedDefinition inst with
+                    match tryReflected inst with
                     | Some q ->
                         match runsAt builderType file line q with
                         | [ b ] -> inst, q, b

@@ -24,6 +24,8 @@ let ``every operator and marker throws outside dlr`` () =
     outside (fun () -> (Dlr.implicit a : int) |> ignore)
     outside (fun () -> (Dlr.get "Count" w : int) |> ignore)
     outside (fun () -> Dlr.set "Count" 1 w)
+    outside (fun () -> Dlr.addAssign "Count" 1 w)
+    outside (fun () -> Dlr.subtractAssign "Count" 1 w)
     outside (fun () -> (Dlr.invoke "Add" (1, 2) w : int) |> ignore)
     outside (fun () -> (Dlr.neg a : int) |> ignore)
     outside (fun () -> (Dlr.not a : bool) |> ignore)

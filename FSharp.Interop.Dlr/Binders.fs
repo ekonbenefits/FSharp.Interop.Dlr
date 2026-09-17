@@ -137,6 +137,30 @@ module internal Binders =
         let all = target :: indexes @ [ value ]
         siteCall (Binder.SetIndex(CSharpBinderFlags.None, context, [ for a in all -> argInfo a ])) all typeof<obj>
 
+    /// C#'s `d.Name += v` / `-=`: an IsEvent site decides at run time between the event
+    /// accessor (`add_Name`/`remove_Name`, invoked as a special name) and read-modify-write
+    /// (GetMember, AddAssign/SubtractAssign, SetMember flagged as a compound assignment).
+    /// `target` and `value` must be variables, since both branches mention them.
+    let compoundAssign (context: Type) (name: string) (subtract: bool) (target: Arg) (value: Arg) : Expr =
+        let isEvent =
+            siteCall (Binder.IsEvent(CSharpBinderFlags.None, name, context)) [ target ] typeof<bool>
+        let accessor =
+            let binder =
+                Binder.InvokeMember(
+                    CSharpBinderFlags.InvokeSpecialName ||| CSharpBinderFlags.ResultDiscarded,
+                    (if subtract then "remove_" else "add_") + name, null, context, [ argInfo target; argInfo value ])
+            siteCall binder [ target; value ] voidType
+        let readModifyWrite =
+            let current = siteCall (Binder.GetMember(CSharpBinderFlags.None, name, context, [ argInfo target ])) [ target ] typeof<obj>
+            let op = if subtract then ExpressionType.SubtractAssign else ExpressionType.AddAssign
+            let combined =
+                siteCall (Binder.BinaryOperation(CSharpBinderFlags.None, op, context, [ argInfo (dynamicArg current); argInfo value ]))
+                    [ dynamicArg current; value ] typeof<obj>
+            let set =
+                Binder.SetMember(CSharpBinderFlags.ValueFromCompoundAssignment, name, context, [ argInfo target; argInfo (dynamicArg combined) ])
+            siteCall set [ target; dynamicArg combined ] typeof<obj>
+        Expr.IfThenElse(isEvent, Expr.Sequential(accessor, Expr.Value(())), Expr.Sequential(readModifyWrite, Expr.Value(())))
+
     let binaryOperation (context: Type) (op: ExpressionType) (left: Arg) (right: Arg) =
         let binder = Binder.BinaryOperation(CSharpBinderFlags.None, op, context, [ argInfo left; argInfo right ])
         siteCall binder [ left; right ] typeof<obj>
