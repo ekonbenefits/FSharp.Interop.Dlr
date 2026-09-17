@@ -381,6 +381,7 @@ module internal OptionalArguments =
 
     /// A concrete delegate type: `Delegate` and `MulticastDelegate` themselves have no `Invoke`.
     let private isDelegate (t: Type) = typeof<Delegate>.IsAssignableFrom t && not (isNull (t.GetMethod "Invoke"))
+    let private isAbstractDelegate (t: Type) = t = typeof<Delegate> || t = typeof<MulticastDelegate>
 
     /// An F# function value for a delegate-typed parameter: a delegate over an adapter of the
     /// function's shape (`FunctionAdapters`), as F# itself converts a lambda argument to a
@@ -423,7 +424,27 @@ module internal OptionalArguments =
             Some(Expression.Call(pt.GetMethod("Some"), converted inner) :> Expression)
         elif isDelegate pt && (FunctionShapes.domains at).IsSome then functionToDelegate pt a
         elif isDelegate at && (FunctionShapes.domains pt).IsSome then delegateToFunction pt a
+        elif isAbstractDelegate pt && (FunctionShapes.domains at).IsSome then
+            // `Delegate` itself (Control.Invoke): the Func/Action F# would build for the function.
+            // Left to C#, FSharpFunc's own op_Implicit makes a Converter<Unit, R> of a `unit -> R`
+            // — a one-parameter delegate, wrong for a `DynamicInvoke()` — so this goes first.
+            match FunctionShapes.domains at with
+            | Some(ds, _, result) ->
+                let ds = if ds = [ typeof<unit> ] then [] else ds
+                let delegateType = if result = typeof<unit> then Expression.GetActionType(Array.ofList ds) else Expression.GetFuncType(Array.ofList (ds @ [ result ]))
+                functionToDelegate delegateType a
+            | None -> None
         else None
+
+    /// A call has an argument that is an F# function in a slot typed `Delegate` in some candidate
+    /// method: C# would bind it through op_Implicit to a `Converter`, wrongly, so our rule goes first.
+    let hasAbstractDelegateSlot (context: Type) (t: Type) (name: string) (args: DynamicMetaObject[]) =
+        t.GetMethods(Accessibility.all)
+        |> Array.exists (fun m ->
+            m.Name = name && Accessibility.method' context m
+            && (let ps = m.GetParameters()
+                ps.Length >= args.Length
+                && Array.exists2 (fun (p: ParameterInfo) (a: DynamicMetaObject) -> isAbstractDelegate p.ParameterType && (FunctionShapes.domains a.LimitType).IsSome) (Array.sub ps 0 args.Length) args))
 
     /// Not C#'s overload resolution, but deterministic: among the methods the arguments fit, the
     /// one with the most exactly-typed argument slots wins, then the one with the fewest omitted
@@ -574,8 +595,12 @@ type FSharpInvokeMemberBinder(context: Type, name: string, csharp: InvokeMemberB
                 | None -> None)
         let hasMethod =
             t.GetMethods(Accessibility.all) |> Array.exists (fun m -> m.Name = name && Accessibility.method' context m)
+        let allValues = target.HasValue && (args |> Array.forall (fun a -> a.HasValue))
         match direct with
         | Some rule when not hasMethod -> rule
+        | _ when allValues && OptionalArguments.hasAbstractDelegateSlot context t name args
+                 && (OptionalArguments.tryCall context t name target args).IsSome ->
+            (OptionalArguments.tryCall context t name target args).Value
         | _ ->
             // A method of that name exists: C# binds it; our rules (a function-valued member of
             // the same name, or F# optional parameters) are only its error suggestion.
@@ -583,7 +608,7 @@ type FSharpInvokeMemberBinder(context: Type, name: string, csharp: InvokeMemberB
                 match direct with
                 | Some rule -> rule
                 | None ->
-                    if target.HasValue && (args |> Array.forall (fun a -> a.HasValue)) then
+                    if allValues then
                         match OptionalArguments.tryCall context t name target args with
                         | Some rule -> rule
                         | None -> errorSuggestion

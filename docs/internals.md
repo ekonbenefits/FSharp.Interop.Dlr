@@ -120,7 +120,10 @@ to function: a `TupledDelegateFunction` or `CurryStep` chain invoking the delega
 `DynamicInvoke` — not `FuncConvert`, whose wrapper loses arguments on Mono's browser-wasm
 runtime. A related wasm fault, a nested non-capturing lambda losing its arguments, is why every
 lambda and delegate literal written in a block is made to capture the closure parameter there
-(`capturing` in `Translate.fs`, a no-op elsewhere).
+(`capturing` in `Translate.fs`, a no-op elsewhere). A parameter typed `Delegate` itself (WinForms `Control.Invoke`) gets the
+`Func`/`Action` F# would build for the function, and this rule goes *before* C#'s: left to C#,
+`FSharpFunc`'s own `op_Implicit` yields a `Converter<Unit, R>` for a `unit -> R`, a one-parameter
+delegate that a `DynamicInvoke()` then rejects.
 
 `FSharpBinaryOperationBinder` wraps C#'s for the six comparison operators. C# first when either
 operand is a type it covers — primitive, enum, decimal, delegate, string and bool for `==`/`!=` only (C# has no

@@ -40,9 +40,13 @@ let ``overloads: the delegate parameter is one candidate among others`` () =
     (dlr { return o?Pick(1, "s") } : string) |> should equal "string:s"
     // A function whose shape does not fit any candidate is still a binder error.
     (fun () -> (dlr { return o?Map(1, fun (s: string) -> s.Length) } : int) |> ignore) |> should throw typeof<RuntimeBinderException>
-    // A parameter typed System.Delegate has no signature to adapt to, so it is not ours: C# binds
-    // it itself, through FSharpFunc's own op_Implicit to Converter<_, _> (a one-parameter delegate).
-    (dlr { return o?Raw(fun () -> "x") } : string) |> should equal "Converter`2"
+    // A parameter typed System.Delegate (Control.Invoke): the Func/Action F# would build, not the
+    // Converter<Unit, R> C# reaches through FSharpFunc's op_Implicit (a one-parameter delegate,
+    // which a DynamicInvoke() then rejects).
+    (dlr { return o?Raw(fun () -> "x") } : string) |> should equal "Func`1"
+    (dlr { return o?Marshal(fun () -> "marshalled") } : string) |> should equal "marshalled"
+    (dlr { return o?Raw(fun (i: int) -> i) } : string) |> should equal "Func`2"
+    (dlr { return o?Raw(fun () -> ()) } : string) |> should equal "Action"
     let raw = Func<string>(fun () -> "raw")
     (dlr { return o?Raw(raw) } : string) |> should equal "Func`1"
     // A delegate still binds directly, as before.
