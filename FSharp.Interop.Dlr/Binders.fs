@@ -82,20 +82,46 @@ module internal Accessibility =
 /// on its own, tell that a bare value should become `Some`. This finds a method the supplied
 /// arguments fit once omitted optionals are `None` and bare values are wrapped, as a rule the
 /// binder offers C# as its error suggestion: used only where C# itself could not bind.
+/// The implicit conversions C# applies to an argument, so our own rules accept what its binder would.
+module internal Conversions =
+    /// C#'s implicit numeric conversions, so an `int` argument fits an `int64` or `float` domain.
+    let widens (from: Type) (``to``: Type) =
+        let n = [ typeof<sbyte>, [ typeof<int16>; typeof<int32>; typeof<int64>; typeof<single>; typeof<double>; typeof<decimal> ]
+                  typeof<byte>, [ typeof<int16>; typeof<uint16>; typeof<int32>; typeof<uint32>; typeof<int64>; typeof<uint64>; typeof<single>; typeof<double>; typeof<decimal> ]
+                  typeof<int16>, [ typeof<int32>; typeof<int64>; typeof<single>; typeof<double>; typeof<decimal> ]
+                  typeof<uint16>, [ typeof<int32>; typeof<uint32>; typeof<int64>; typeof<uint64>; typeof<single>; typeof<double>; typeof<decimal> ]
+                  typeof<int32>, [ typeof<int64>; typeof<single>; typeof<double>; typeof<decimal> ]
+                  typeof<uint32>, [ typeof<int64>; typeof<uint64>; typeof<single>; typeof<double>; typeof<decimal> ]
+                  typeof<int64>, [ typeof<single>; typeof<double>; typeof<decimal> ]
+                  typeof<uint64>, [ typeof<single>; typeof<double>; typeof<decimal> ]
+                  typeof<char>, [ typeof<uint16>; typeof<int32>; typeof<uint32>; typeof<int64>; typeof<uint64>; typeof<single>; typeof<double>; typeof<decimal> ]
+                  typeof<single>, [ typeof<double> ] ]
+        n |> List.exists (fun (f, ts) -> f = from && List.contains ``to`` ts)
+
+    /// Assignable, or a C# implicit numeric widening (`Expression.Convert` does the widening in the rule).
+    let fits (paramType: Type) (argType: Type) = paramType.IsAssignableFrom argType || widens argType paramType
+
 module internal OptionalArguments =
     let private isOptional (p: ParameterInfo) =
         p.GetCustomAttributes(typeof<OptionalArgumentAttribute>, false).Length > 0
         && p.ParameterType.IsGenericType
         && p.ParameterType.GetGenericTypeDefinition() = typedefof<option<_>>
 
-    /// The argument converted to the parameter type, or None if it does not fit.
+    let private isNullValue (a: DynamicMetaObject) = a.HasValue && isNull a.Value
+
+    /// The argument converted to the parameter type, or None if it does not fit: assignable or
+    /// C#-widened, a null for a reference slot, a bare value for an optional as `Some`.
     let private fit (p: ParameterInfo) (a: DynamicMetaObject) : Expression option =
         let pt = p.ParameterType
         let at = a.LimitType
-        if pt.IsAssignableFrom at then Some(Expression.Convert(a.Expression, pt) :> Expression)
-        elif isOptional p && pt.GetGenericArguments().[0].IsAssignableFrom at then
+        let converted (toType: Type) = Expression.Convert(Expression.Convert(a.Expression, at), toType) :> Expression
+        if isNullValue a then
+            if pt.IsValueType && isNull (Nullable.GetUnderlyingType pt) then None
+            else Some(Expression.Constant(null, pt) :> Expression)
+        elif Conversions.fits pt at then Some(converted pt)
+        elif isOptional p && Conversions.fits (pt.GetGenericArguments().[0]) at then
             let inner = pt.GetGenericArguments().[0]
-            Some(Expression.Call(pt.GetMethod("Some"), Expression.Convert(a.Expression, inner)) :> Expression)
+            Some(Expression.Call(pt.GetMethod("Some"), converted inner) :> Expression)
         else None
 
     /// Not C#'s overload resolution, but deterministic: among the methods the arguments fit, the
@@ -124,9 +150,11 @@ module internal OptionalArguments =
             let value =
                 if m.ReturnType = typeof<Void> then Expression.Block(call, Expression.Constant(null, typeof<obj>)) :> Expression
                 else Expression.Convert(call, typeof<obj>) :> Expression
+            let restrict (a: DynamicMetaObject) =
+                if isNullValue a then BindingRestrictions.GetInstanceRestriction(a.Expression, null)
+                else BindingRestrictions.GetTypeRestriction(a.Expression, a.LimitType)
             let restrictions =
-                Array.fold (fun (r: BindingRestrictions) (a: DynamicMetaObject) -> r.Merge(BindingRestrictions.GetTypeRestriction(a.Expression, a.LimitType)))
-                    (BindingRestrictions.GetTypeRestriction(target.Expression, t)) args
+                Array.fold (fun (r: BindingRestrictions) a -> r.Merge(restrict a)) (BindingRestrictions.GetTypeRestriction(target.Expression, t)) args
             Some(DynamicMetaObject(value, restrictions))
         | [] -> None
 
@@ -138,23 +166,7 @@ module internal OptionalArguments =
 module internal FunctionShapes =
     let private isFunc (t: Type) = t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<FSharpFunc<_, _>>
 
-    /// C#'s implicit numeric conversions, so an `int` argument fits an `int64` or `float` domain.
-    let private widens (from: Type) (``to``: Type) =
-        let n = [ typeof<sbyte>, [ typeof<int16>; typeof<int32>; typeof<int64>; typeof<single>; typeof<double>; typeof<decimal> ]
-                  typeof<byte>, [ typeof<int16>; typeof<uint16>; typeof<int32>; typeof<uint32>; typeof<int64>; typeof<uint64>; typeof<single>; typeof<double>; typeof<decimal> ]
-                  typeof<int16>, [ typeof<int32>; typeof<int64>; typeof<single>; typeof<double>; typeof<decimal> ]
-                  typeof<uint16>, [ typeof<int32>; typeof<uint32>; typeof<int64>; typeof<uint64>; typeof<single>; typeof<double>; typeof<decimal> ]
-                  typeof<int32>, [ typeof<int64>; typeof<single>; typeof<double>; typeof<decimal> ]
-                  typeof<uint32>, [ typeof<int64>; typeof<uint64>; typeof<single>; typeof<double>; typeof<decimal> ]
-                  typeof<int64>, [ typeof<single>; typeof<double>; typeof<decimal> ]
-                  typeof<uint64>, [ typeof<single>; typeof<double>; typeof<decimal> ]
-                  typeof<char>, [ typeof<uint16>; typeof<int32>; typeof<uint32>; typeof<int64>; typeof<uint64>; typeof<single>; typeof<double>; typeof<decimal> ]
-                  typeof<single>, [ typeof<double> ] ]
-        n |> List.exists (fun (f, ts) -> f = from && List.contains ``to`` ts)
-
-    /// Assignable, or reachable by an implicit numeric conversion (`Expression.Convert` does
-    /// the widening in the rule).
-    let private fits (paramType: Type) (argType: Type) = paramType.IsAssignableFrom argType || widens argType paramType
+    let private fits (paramType: Type) (argType: Type) = Conversions.fits paramType argType
 
     /// The `FSharpFunc<_, _>` a type is or derives from: a function value's runtime type is a
     /// compiler-generated subclass (`f@12`), a member's declared type usually the base itself.

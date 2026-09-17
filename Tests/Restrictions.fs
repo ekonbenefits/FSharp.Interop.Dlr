@@ -94,7 +94,16 @@ let ``F# optional parameters can be omitted, the library binding what C# cannot`
     dlr { o?TouchF() }
     dlr { o?TouchF(2) }
     w.Touched |> should equal 3
+    // The library's rule accepts what C# would for the required slots: numeric widening, a null.
+    (dlr { return o?WidenF(5) } : int64) |> should equal 5L
+    (dlr { return o?WidenF(5, Some 2) } : int64) |> should equal 10L
+    (dlr { return o?WidenF(5, 3) } : int64) |> should equal 15L
+    (dlr { return o?LabelF(null) } : string) |> should equal "null"
+    (dlr { return o?LabelF(box null) } : string) |> should equal "null"
+    (dlr { return o?LabelF(box "s") } : string) |> should equal "s"
+    (fun () -> (dlr { return o?LabelF(box 5) } : string) |> ignore) |> should throw typeof<RuntimeBinderException>
     let bump: int -> int = dlr { return o?BumpF }              // bound with the optional omitted
     bump 10 |> should equal 11
     // [<Optional; DefaultParameterValue>] parameters are C#'s own optional and were always fine.
     (dlr { return o?Bump(1) } : int) |> should equal 2
+
