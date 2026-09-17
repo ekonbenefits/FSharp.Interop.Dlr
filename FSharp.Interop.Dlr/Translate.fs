@@ -8,6 +8,7 @@ open FSharp.Quotations.DerivedPatterns
 open FSharp.Quotations.ExprShape
 open FSharp.Reflection
 open Microsoft.FSharp.Linq.RuntimeHelpers
+open System.Runtime.CompilerServices
 
 /// Turns the reflected body of a `dlr { }` block into a `Func<obj, 'T>` over its Delay closure,
 /// with the DLR call sites baked in as constants.
@@ -443,31 +444,55 @@ module internal Translate =
             | ShapeLambda(v, lambdaBody) -> Expr.Lambda(v, asUnit (rewriteIn (bound.Add v) lambdaBody))
             | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map rewrite args)
 
-        /// `(?) x name` with a computed name: the site becomes a NameCache constant holding a
-        /// template that, given a name, quotes the typed delegate for it; the emitted code is
-        /// `cache.Get(name).Invoke(target, args…)`. Argument names in `Dlr.named` stay static.
+        /// `(?) x name` with a computed name: the operation's delegate is compiled once here with
+        /// its call sites as parameters (lifted from a template built for a placeholder name), and
+        /// a SiteCache constant creates the sites per distinct name; the emitted code is
+        /// `let sites = cache.Get(name) in delegate.Invoke(sites.[0], …, target, args…)`.
+        /// Argument names in `Dlr.named` stay static.
         and computedName bound (nameExpr: Expr) (target: Expr) (argExprs: Expr list) (resultType: Type) (site: string -> Binders.Arg -> Binders.Arg list -> Expr) : Expr =
             let rewrite = rewriteIn bound
             let bindings, argInfos = argList bound argExprs
             let targetVar = Var("target", typeof<obj>)
             let argVars = argInfos |> List.mapi (fun i a -> Var(sprintf "a%d" i, a.Type))
-            let delegateType =
-                Expression.GetDelegateType(Array.ofList (typeof<obj> :: [ for v in argVars -> v.Type ] @ [ typeof<obj> ]))
             let template (name: string) =
                 let args = List.map2 (fun (info: Binders.Arg) (v: Var) -> { info with Expr = Expr.Var v }) argInfos argVars
-                let body = site name (Binders.dynamicArg (Expr.Var targetVar)) args
-                Expr.NewDelegate(delegateType, targetVar :: argVars, (if body.Type = typeof<obj> then body else Expr.Coerce(body, typeof<obj>)))
-            let cacheType = typedefof<NameCache<_>>.MakeGenericType delegateType
-            let cache = Activator.CreateInstance(cacheType, [| box template |])
-            let get = Expr.Call(Expr.Value(cache, cacheType), cacheType.GetMethod("Get"), [ rewrite nameExpr ])
+                site name (Binders.dynamicArg (Expr.Var targetVar)) args
+            // The operation's shape does not depend on the name, only its sites do: build it once
+            // for a placeholder, lift every site constant into a parameter, and compile that one
+            // delegate now. Per name, the cache creates the sites and hands them back in the
+            // same order.
+            let placeholder = template "name"
+            let sites = SiteCache<string>.Sites placeholder
+            let siteVars = sites |> List.mapi (fun i s -> s, Var(sprintf "site%d" i, s.GetType()))
+            let rec lift (e: Expr) =
+                match e with
+                | Value(v, _) when (v :? CallSite) ->
+                    match siteVars |> List.tryFind (fun (s, _) -> obj.ReferenceEquals(s, v)) with
+                    | Some(_, var) -> Expr.Var var
+                    | None -> e
+                | ShapeVar _ -> e
+                | ShapeLambda(v, body) -> Expr.Lambda(v, lift body)
+                | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map lift args)
+            let body = lift placeholder
+            let delegateType =
+                Expression.GetDelegateType(Array.ofList ([ for _, v in siteVars -> v.Type ] @ typeof<obj> :: [ for v in argVars -> v.Type ] @ [ typeof<obj> ]))
+            let lambda =
+                Expr.NewDelegate(delegateType, [ for _, v in siteVars -> v ] @ targetVar :: argVars, (if body.Type = typeof<obj> then body else Expr.Coerce(body, typeof<obj>)))
+            let compiled = (Microsoft.FSharp.Linq.RuntimeHelpers.LeafExpressionConverter.QuotationToExpression lambda :?> LambdaExpression).Compile()
+            let cache = SiteCache<string>(template)
+            let sitesVar = Var("sites", typeof<CallSite[]>)
+            let at = typeof<SiteCache<string>>.GetMethod("At")
+            let siteArgs = siteVars |> List.mapi (fun i (_, v) -> Expr.Coerce(Expr.Call(at, [ Expr.Var sitesVar; Expr.Value i ]), v.Type))
             let t = rewrite target
             let targetExpr = if t.Type = typeof<obj> then t else Expr.Coerce(t, typeof<obj>)
-            let call = Expr.Call(get, delegateType.GetMethod("Invoke"), targetExpr :: [ for a in argInfos -> a.Expr ])
+            let call =
+                Expr.Let(sitesVar, Expr.Call(Expr.Value(cache, typeof<SiteCache<string>>), typeof<SiteCache<string>>.GetMethod("Get"), [ rewrite nameExpr ]),
+                         Expr.Call(Expr.Value(compiled, delegateType), delegateType.GetMethod("Invoke"), siteArgs @ targetExpr :: [ for a in argInfos -> a.Expr ]))
             (if FSharpType.IsFunction resultType then Expr.Coerce(call, resultType) else convert resultType call)
             |> bind bound bindings
 
         /// `Dlr.addAssign`/`subtractAssign`: bind the target and value once, then both branches
-        /// of the IsEvent decision refer to them. A computed name goes through the NameCache
+        /// of the IsEvent decision refer to them. A computed name goes through the SiteCache
         /// like any other member operation.
         and compoundAssign bound (subtract: bool) (nameExpr: Expr) (target: Expr) (value: Expr) : Expr =
             match nameExpr with
