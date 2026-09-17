@@ -17,6 +17,19 @@ type DlrBuilder() =
 [<AutoOpen>]
 module Builder =
     let dlr = DlrBuilder()
+[<AutoOpen>]
+module Operators =
+    let ( ? ) (target: obj) (name: string) : 'T = failwith "marker"
+    let ( ?<- ) (target: obj) (name: string) (value: 'V) : unit = failwith "marker"
+    let ( ?+? ) (left: obj) (right: obj) : 'T = failwith "marker"
+type Named<'T> private () = class end
+type Indexed<'T> private () =
+    member _.Item with get (i: obj) : 'T = failwith "marker" and set (i: obj) (v: 'T) = failwith "marker"
+[<Sealed; AbstractClass>]
+type Dlr =
+    static member get (name: string) (target: obj) : 'T = failwith "marker"
+    static member named (record: 'T) : Named<'T> = failwith "marker"
+    static member idx (target: obj) : Indexed<'T> = failwith "marker"
 
 namespace Demo
 open FSharp.Interop.Dlr
@@ -125,3 +138,51 @@ module Impl =
     let b () : int = dlr { return 2 }
 """
     msgs.Length |> should equal 2
+
+let private outside (msgs: Message list) = msgs |> List.filter (fun m -> m.Code = ReflectedDefinitionAnalyzer.OutsideCode)
+
+[<Fact>]
+let ``markers used outside a block are reported`` () =
+    let msgs =
+        run """
+module Impl =
+    let w = box 1
+    let a : int = w?Count
+    let b () = w?Count <- 1
+    let c : int = w ?+? (box 2)
+    let d : int = w |> Dlr.get "Count"
+    let e : int = (Dlr.idx w).[0]
+"""
+        |> outside
+    msgs.Length |> should equal 5
+    msgs |> List.forall (fun m -> m.Severity = Severity.Error) |> should equal true
+    msgs.[0].Message |> should haveSubstring "only meaningful inside dlr { }"
+
+[<Fact>]
+let ``markers inside a block, including inside a lambda in the block, are fine`` () =
+    run """
+module Impl =
+    let w = box 1
+    [<ReflectedDefinition>]
+    let a () : int = dlr { return w?Count }
+    [<ReflectedDefinition>]
+    let b () : int list = dlr { return [ 1; 2 ] |> List.map (fun i -> (w?Add(i) : int)) }
+    [<ReflectedDefinition>]
+    let c () : int = dlr { return w |> Dlr.get "Count" }
+"""
+    |> outside
+    |> should be Empty
+
+[<Fact>]
+let ``a marker outside a block in the same function as a block is still reported`` () =
+    let msgs =
+        run """
+module Impl =
+    let w = box 1
+    [<ReflectedDefinition>]
+    let f () : int =
+        let n: int = dlr { return w?Count }
+        n + w?Count
+"""
+        |> outside
+    msgs.Length |> should equal 1

@@ -1,8 +1,8 @@
 # FSharp.Interop.Dlr.Analyzers
 
-Build-time check for [FSharp.Interop.Dlr](https://github.com/ekonbenefits/FSharp.Interop.Dlr):
-a `dlr { }` block needs `[<ReflectedDefinition>]` on the function or member that contains it
-(or on an enclosing module or type), and without it the first call raises. This analyzer reports
+Build-time checks for [FSharp.Interop.Dlr](https://github.com/ekonbenefits/FSharp.Interop.Dlr).
+A `dlr { }` block needs `[<ReflectedDefinition>]` on the function or member that contains it
+(or on an enclosing module or type), and without it the first call raises; this analyzer reports
 that at build time, and in Ionide, with a fix that adds the attribute to the outermost binding
 containing the block, i.e. the function or member the compiler stores a definition for (a local
 function inside it is a closure and cannot carry the attribute). A block in module-level `do`
@@ -11,6 +11,7 @@ code is reported without a fix: move it into a function.
 | Code | Severity | Reports |
 | --- | --- | --- |
 | `DLR001` | Error | a `dlr { }` with no `[<ReflectedDefinition>]` on its enclosing function/member, module or type |
+| `DLR002` | Error | a `?` operator or `Dlr.*` marker used outside any `dlr { }` (it is only ever quoted; executed, it throws `InvalidOperationException`) |
 
 Wire it up the way any FSharp.Analyzers.SDK analyzer is:
 

@@ -6,6 +6,8 @@ open AnyUnit.Style.Xunit
 open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
 
+// This test calls every marker outside a block on purpose; the analyzer would report each one.
+// fsharpanalyzer: ignore-region-start DLR002
 [<Fact>]
 let ``every operator and marker throws outside dlr`` () =
     let w = box (Widget())
@@ -47,6 +49,7 @@ let ``every operator and marker throws outside dlr`` () =
     outside (fun () -> a ?>? b |> ignore)
     outside (fun () -> a ?>=? b |> ignore)
 
+// fsharpanalyzer: ignore-region-end
 [<Fact>]
 let ``dynamic member as first-class function is rejected`` () =
     let w = box (Widget())

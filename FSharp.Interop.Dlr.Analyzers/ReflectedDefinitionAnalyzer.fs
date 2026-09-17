@@ -9,6 +9,11 @@ open FSharp.Compiler.Text
 [<Literal>]
 let Code = "DLR001"
 
+/// A `?` operator or `Dlr.*` marker used outside any `dlr { }` block: it is only ever quoted, and
+/// executed it throws.
+[<Literal>]
+let OutsideCode = "DLR002"
+
 let private isReflectedDefinition (attributes: seq<FSharpAttribute>) =
     attributes
     |> Seq.exists (fun a ->
@@ -40,6 +45,27 @@ let rec private runCalls (e: FSharpExpr) : range list =
         | FSharpExprPatterns.Call(_, mfv, _, _, _) when isDlrRun mfv -> [ e.Range ]
         | _ -> []
     here @ (e.ImmediateSubExpressions |> List.collect runCalls)
+
+let private entityFullName (mfv: FSharpMemberOrFunctionOrValue) =
+    match mfv.DeclaringEntity with
+    | Some e -> (try e.FullName with _ -> "")
+    | None -> ""
+
+/// The operators (`?`, `?<-`, `?+?`, …) and the `Dlr.*` markers, plus `Indexed<'T>.Item`.
+let private isMarker (mfv: FSharpMemberOrFunctionOrValue) =
+    match entityFullName mfv with
+    | "FSharp.Interop.Dlr.Operators" | "FSharp.Interop.Dlr.Dlr" -> true
+    | name when name.StartsWith "FSharp.Interop.Dlr.Indexed" -> mfv.IsPropertyGetterMethod || mfv.IsPropertySetterMethod || mfv.IsProperty
+    | _ -> false
+
+/// Marker uses that are not inside a `dlr.Run(...)` subtree: range and display name. Structural
+/// rather than by range, since the synthesized `Run` call's range does not span the block body.
+/// The outermost marker of a nested use (`(Dlr.idx x).[i]`) is reported once.
+let rec private markersOutsideRun (e: FSharpExpr) : (range * string) list =
+    match e with
+    | FSharpExprPatterns.Call(_, mfv, _, _, _) when isDlrRun mfv -> []
+    | FSharpExprPatterns.Call(_, mfv, _, _, _) when isMarker mfv -> [ e.Range, mfv.DisplayName ]
+    | _ -> e.ImmediateSubExpressions |> List.collect markersOutsideRun
 
 /// A block with no reflected definition around it, and the declaration-level binding it sits in.
 type private Finding =
@@ -79,10 +105,35 @@ let private bindingKeyword (tree: ParsedInput) (m: range) : range option =
     ASTCollecting.walkAst walker tree
     best |> Option.map snd
 
-let private analyze (tree: ParsedInput) (typedTree: FSharpImplementationFileContents option) : Message list =
+/// Marker uses whose range is not inside any `dlr.Run(...)` call in the same declaration.
+let rec private outsideBlocks (decls: FSharpImplementationFileDeclaration list) : (range * string) list =
+    let inBody (body: FSharpExpr) =
+        markersOutsideRun body
+    decls
+    |> List.collect (fun decl ->
+        match decl with
+        | FSharpImplementationFileDeclaration.Entity(_, subDecls) -> outsideBlocks subDecls
+        | FSharpImplementationFileDeclaration.MemberOrFunctionOrValue(_, _, body) -> inBody body
+        | FSharpImplementationFileDeclaration.InitAction expr -> inBody expr)
+
+let private analyzeOutside (typedTree: FSharpImplementationFileContents option) : Message list =
     match typedTree with
     | None -> []
     | Some contents ->
+        outsideBlocks contents.Declarations
+        |> List.map (fun (m, name) ->
+            { Type = "dlr marker outside dlr { }"
+              Message = sprintf "'%s' is only meaningful inside dlr { }: it is inspected as a quotation, never executed, and calling it throws InvalidOperationException." name
+              Code = OutsideCode
+              Severity = Severity.Error
+              Range = m
+              Fixes = [] })
+
+let private analyze (tree: ParsedInput) (typedTree: FSharpImplementationFileContents option) : Message list =
+    analyzeOutside typedTree
+    @ match typedTree with
+      | None -> []
+      | Some contents ->
         findInDeclarations false contents.Declarations
         |> List.map (fun finding ->
             let fixes =
