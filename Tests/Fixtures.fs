@@ -52,6 +52,15 @@ type Clicker() =
     [<CLIEvent>]
     member _.Clicked = clicked.Publish
     member _.Raise(n: int) = clicked.Trigger(n)
+type IGreeter =
+    abstract Greet: string -> string
+
+/// F# interface implementations are always explicit: Greet exists only as IGreeter.Greet.
+type Greeter() =
+    member _.Name = "greeter"
+    interface IGreeter with
+        member _.Greet(who) = "hello " + who
+
 /// A C#-style extension method on Widget: the binder never sees these, as in C#.
 [<System.Runtime.CompilerServices.Extension>]
 type WidgetExtensions =
