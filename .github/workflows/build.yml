@@ -241,6 +241,31 @@ jobs:
           name: coverage
           path: coverage/merged/Cobertura.xml
 
+  # The package at the version MinVer computed for this commit, as an
+  # artifact - so the version a tag would ship is visible on every run
+  # before any tag is cut.
+  pack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Pack
+        run: |
+          dotnet pack FSharp.Interop.Dlr --configuration Release --output packages
+          dotnet pack FSharp.Interop.Dlr.Analyzers --configuration Release --output packages
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuget-package
+          path: packages/*.nupkg
+
   # After a green master run, rewrite the README's test and coverage badges
   # from that run's own numbers (the net10 Linux Release leg's test count,
   # the coverage job's merged cobertura), and commit only if a number changed.
