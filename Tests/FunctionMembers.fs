@@ -169,3 +169,36 @@ let ``an indexed property is left to C#, which binds it as an index, not a membe
     // As in C#, `d.Item(4)` is not how an indexer is called; the error is the binder's, not a
     // bind-time failure building a property read without its index.
     (fun () -> (dlr { return h?Item(4) } : int) |> ignore) |> should throw typeof<RuntimeBinderException>
+
+[<Fact>]
+let ``non-public F# function members and optional-parameter methods bind from an allowed context`` () =
+    // F# `member private` is IL internal: the whole assembly is an allowed context, like C#'s binder.
+    let h = Holders()
+    h.Reveal(h) |> should equal 9
+    h.RevealOptional(h) |> should equal 101
+    (dlr { return (box h)?Hidden(3) } : int) |> should equal 2
+
+[<Fact>]
+let ``an obj-typed argument matches a function shape by its runtime type`` () =
+    let e = box (Fixtures.expando [ "Fn", box (fun (x: int) -> x * 2); "Two", box (fun (a: int) (b: string) -> sprintf "%d%s" a b) ])
+    let n = box 21
+    let a, b = box 4, box "x"
+    (dlr { return e?Fn(n) } : int) |> should equal 42
+    (dlr { return e?Two(a, b) } : string) |> should equal "4x"
+    let f = box (fun (x: int) -> x + 1)
+    (dlr { return f |> Dlr.call n } : int) |> should equal 22
+
+[<Fact>]
+let ``unit -> unit binds a void method, an Action and a unit function`` () =
+    let w = Widget()
+    let touch: unit -> unit = dlr { return (box w)?Touch }
+    touch ()
+    let hits = ref 0
+    let e = box (Fixtures.expando [ "Act", box (Action(fun () -> hits.Value <- hits.Value + 1)); "Fn", box (fun () -> hits.Value <- hits.Value + 10) ])
+    let act: unit -> unit = dlr { return e?Act }
+    let fn: unit -> unit = dlr { return e?Fn }
+    act ()
+    fn ()
+    let log: string -> unit = dlr { return e?Fn2 }   // bound before the member exists...
+    (fun () -> log "x") |> should throw typeof<RuntimeBinderException>
+    (w.Touched, hits.Value) |> should equal (1, 11)

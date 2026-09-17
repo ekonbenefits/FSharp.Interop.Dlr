@@ -100,8 +100,13 @@ matching `Apply.TupledN` / `Apply.CurriedN` method with plain F# application (so
 `OptimizedClosures` and `InvokeFast` are the compiler's business) and the result boxed for the
 site's `Convert`. So a discarded call or a widened result still applies the function that is
 there. A CLR member whose declared type says nothing (`obj`, an interface) is read and handed to a
-nested `Invoke` site that decides by the value's runtime type. Up to four arguments; named or
-generic calls use C#'s binder unchanged.
+nested `Invoke` site that decides by the value's runtime type. The argument types a shape has to
+fit are the meta-objects' `LimitType`s — the runtime type of an `obj`-typed argument, the static
+type of a typed one — matching the site's own argument rules. Our reflection lookups (function
+members, optional-parameter methods) apply the C# binder's accessibility rule from the same
+context type: public always, internal from the same assembly (F# `private` is IL internal),
+private from inside the declaring type. Up to four arguments; named or generic calls use C#'s
+binder unchanged. A member read as `… -> unit` is invoked through a void, result-discarded site.
 
 ## Translation notes
 

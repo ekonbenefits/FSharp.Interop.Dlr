@@ -24,6 +24,11 @@ type Widget() =
     member val Touched = 0 with get, set
     member this.Touch() = this.Touched <- this.Touched + 1
     member _.Item with get (i: int) = i * 10
+    /// F# private: IL internal, reachable from this assembly's context, as the binder allows.
+    member private _.Hidden = fun (x: int) -> x - 1
+    member private _.BumpHidden(count: int, ?step: int) = count + defaultArg step 100
+    member _.Reveal(o: obj) : int = dlr { return o?Hidden(10) }
+    member _.RevealOptional(o: obj) : int = dlr { return o?BumpHidden(1) }
     member _.Run(f: Func<int, int>) = f.Invoke 21
     static member Make() = Widget()
     member val Total = 10 with get, set
@@ -59,11 +64,17 @@ type Counter(n: int) =
         if binder.Name = "Count" then result <- box n; true else false
 
 /// CLR members whose declared types say different things about what they hold.
+[<ReflectedDefinition>]
 type Holders() =
     member val AsObj: obj = box (fun (x: int) -> x * 3) with get, set
     member val AsDelegate: Func<int> = Func<int>(fun () -> 9) with get, set
     member val AsFunction: int -> int = (fun x -> x + 1) with get, set
     member _.Item with get (i: int) = i * 10
+    /// F# private: IL internal, reachable from this assembly's context, as the binder allows.
+    member private _.Hidden = fun (x: int) -> x - 1
+    member private _.BumpHidden(count: int, ?step: int) = count + defaultArg step 100
+    member _.Reveal(o: obj) : int = dlr { return o?Hidden(10) }
+    member _.RevealOptional(o: obj) : int = dlr { return o?BumpHidden(1) }
 
 type IGreeter =
     abstract Greet: string -> string
