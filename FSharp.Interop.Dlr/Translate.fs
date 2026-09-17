@@ -365,10 +365,10 @@ module internal Translate =
                 | Literal name ->
                     let discard = e.Type = typeof<unit>
                     let bindings, args = argList bound argExprs
-                    Binders.invokeMemberOrApply context (string name) typeArgs discard e.Type (targetArg bound target) args |> finish discard e.Type |> bind bound bindings
+                    Binders.invokeMemberOrApply context (string name) typeArgs discard (targetArg bound target) args |> finish discard e.Type |> bind bound bindings
                 | _ ->
                     computedName bound nameExpr target argExprs e.Type (fun name targetArg args ->
-                        Binders.invokeMemberOrApply context name typeArgs false e.Type targetArg args)
+                        Binders.invokeMemberOrApply context name typeArgs false targetArg args)
             | MemberOp(GetMember(target, nameExpr)) when FSharpType.IsFunction e.Type ->
                 // Read as an F# function: a curried invoker of the member (method, delegate or F#
                 // function), so `let f: int -> int -> int = dlr { return x?Add }` then `f 1 2`.
@@ -390,7 +390,7 @@ module internal Translate =
             | Op opCall [ argExpr; Unboxed target ] ->
                 let discard = e.Type = typeof<unit>
                 let bindings, args = argList bound (splitArgs argExpr)
-                Binders.invokeOrApply context discard e.Type (targetArg bound target) args |> finish discard e.Type |> bind bound bindings
+                Binders.invokeOrApply context discard (targetArg bound target) args |> finish discard e.Type |> bind bound bindings
             | PropertyGet(receiver, pi, indexes) when (IndexedProperty(receiver, pi)).IsSome ->
                 let target = (IndexedProperty(receiver, pi)).Value
                 Binders.getIndex context (targetArg bound target) (indexList bound indexes) |> convert e.Type

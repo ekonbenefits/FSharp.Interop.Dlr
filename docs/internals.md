@@ -93,11 +93,15 @@ exceptions, so the decision is cached per runtime type like everything else:
   invoked; a property or field is read (and applied if it is an F# function); on a dynamic
   target the value itself is the result unless it is a delegate or function.
 
-The candidate shapes come from the call's inferred type: for arguments `A, B` and result `R`,
-`FSharpFunc<A * B, R>` (tupled) and `FSharpFunc<A, FSharpFunc<B, R>>` (curried), applied by the
-matching `Apply.TupledN` / `Apply.CurriedN` method — plain F# application, so
-`OptimizedClosures` and `InvokeFast` are the compiler's business. Up to four arguments; named or
-generic calls, and discarded results, use C#'s binder unchanged.
+The shape is read off the *function's* type — the runtime type of a dynamic value, the declared
+type of a CLR member — never off the call's declared result: `FSharpFunc<A * B, R>` (tupled) or
+`FSharpFunc<A, FSharpFunc<B, R>>` (curried) whose domains the argument types fit, applied by the
+matching `Apply.TupledN` / `Apply.CurriedN` method with plain F# application (so
+`OptimizedClosures` and `InvokeFast` are the compiler's business) and the result boxed for the
+site's `Convert`. So a discarded call or a widened result still applies the function that is
+there. A CLR member whose declared type says nothing (`obj`, an interface) is read and handed to a
+nested `Invoke` site that decides by the value's runtime type. Up to four arguments; named or
+generic calls use C#'s binder unchanged.
 
 ## Translation notes
 

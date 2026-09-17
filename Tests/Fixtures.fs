@@ -52,6 +52,19 @@ type Clicker() =
     [<CLIEvent>]
     member _.Clicked = clicked.Publish
     member _.Raise(n: int) = clicked.Trigger(n)
+/// A DynamicObject with a Count, for the polymorphic-site tests (Recorder logs; this one is quiet).
+type Counter(n: int) =
+    inherit DynamicObject()
+    override _.TryGetMember(binder, result) =
+        if binder.Name = "Count" then result <- box n; true else false
+
+/// CLR members whose declared types say different things about what they hold.
+type Holders() =
+    member val AsObj: obj = box (fun (x: int) -> x * 3) with get, set
+    member val AsDelegate: Func<int> = Func<int>(fun () -> 9) with get, set
+    member val AsFunction: int -> int = (fun x -> x + 1) with get, set
+    member _.Item with get (i: int) = i * 10
+
 type IGreeter =
     abstract Greet: string -> string
 

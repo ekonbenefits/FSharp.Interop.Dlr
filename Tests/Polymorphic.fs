@@ -20,7 +20,7 @@ let ``get member: CLR object, Expando, DynamicObject and a dictionary through on
     let read (o: obj) : int = dlr { return o?Count }
     let clr = box (Counted(1))
     let expando = box (Fixtures.expando [ "Count", box 2 ])
-    let dyn = box (Fixtures.expando [ "Count", box 3 ])
+    let dyn = box (Counter(3))
     let dict = box (Dictionary<string, int>(dict [ "x", 0; "y", 0; "z", 0; "w", 0 ]))
     for _ in 1 .. rounds do
         [ read clr; read expando; read dyn; read dict ] |> should equal [ 1; 2; 3; 4 ]

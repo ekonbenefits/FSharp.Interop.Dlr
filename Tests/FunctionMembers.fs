@@ -136,3 +136,36 @@ let ``computed names take the same fallback`` () =
     let call (name: string) : int = dlr { return ((?) e name) (21) }
     call "Del" |> should equal 42
     call "Fn" |> should equal 42
+
+[<Fact>]
+let ``a discarded result still applies the function that is actually there`` () =
+    // The statement form infers `int -> unit`; the member is `int -> int`. The shape comes from the
+    // function, not the call, so it is applied and its value dropped, as C# drops a discarded result.
+    let calls = ResizeArray<int>()
+    let e = box (Fixtures.expando [ "Fn", box (fun (x: int) -> calls.Add x; x * 2) ])
+    dlr { e?Fn(21) }
+    let f = box (fun (x: int) -> calls.Add x; x)
+    dlr { f |> Dlr.call 7 }
+    List.ofSeq calls |> should equal [ 21; 7 ]
+
+[<Fact>]
+let ``a CLR member declared obj holding a function is applied by its runtime type`` () =
+    let h = box (Holders())
+    (dlr { return h?AsObj(2) } : int) |> should equal 6
+    (dlr { return h?AsFunction(2) } : int) |> should equal 3
+
+[<Fact>]
+let ``a CLR delegate property read as unit -> R is invoked, not returned`` () =
+    let h = box (Holders())
+    let d: unit -> int = dlr { return h?AsDelegate }
+    d () |> should equal 9
+    let f: int -> int = dlr { return h?AsObj }
+    f 5 |> should equal 15
+
+[<Fact>]
+let ``an indexed property is left to C#, which binds it as an index, not a member call`` () =
+    let h = box (Holders())
+    (dlr { return (Dlr.idx h).[2] } : int) |> should equal 20
+    // As in C#, `d.Item(4)` is not how an indexer is called; the error is the binder's, not a
+    // bind-time failure building a property read without its index.
+    (fun () -> (dlr { return h?Item(4) } : int) |> ignore) |> should throw typeof<RuntimeBinderException>
