@@ -269,7 +269,7 @@ type FSharpInvokeMemberBinder(context: Type, name: string, csharp: InvokeMemberB
     inherit InvokeMemberBinder(name, false, csharp.CallInfo)
     let invoke = FSharpInvokeBinder(csharpInvoke)
 
-    /// A CLR target: a public property or field of that name whose declared type is a fitting
+    /// A CLR target: an accessible property or field of that name whose declared type is a fitting
     /// FSharpFunc is applied directly; one whose declared type says nothing (`obj`, an interface)
     /// is read and handed to a nested Invoke site that decides by the value's runtime type;
     /// otherwise C#'s own binding, with a rule for F# optional parameters as its error suggestion.
@@ -337,7 +337,15 @@ type FSharpReadOrInvokeBinder(context: Type, name: string, csharp: InvokeMemberB
     override _.FallbackInvokeMember(target, args, errorSuggestion) =
         let t = target.LimitType
         match FunctionShapes.clrMember context t name target with
-        | None -> csharp.FallbackInvokeMember(target, args, errorSuggestion)
+        | None ->
+            // A method of optional parameters only, which C# cannot call with none, as error suggestion.
+            let suggestion =
+                if target.HasValue then
+                    match OptionalArguments.tryCall context t name target args with
+                    | Some rule -> rule
+                    | None -> errorSuggestion
+                else errorSuggestion
+            csharp.FallbackInvokeMember(target, args, suggestion)
         | Some(mt, read) ->
             let restriction = BindingRestrictions.GetTypeRestriction(target.Expression, t)
             match FunctionShapes.applyCall mt read args with
@@ -510,15 +518,8 @@ module internal Binders =
         let siteType = typedefof<CallSite<_>>.MakeGenericType delegateType
         Expr.Value(siteType.GetMethod("Create").Invoke(null, [| box binder |]), siteType)
 
-    let invokeMember (context: Type) (name: string) (typeArgs: Type list) (discard: bool) (target: Arg) (args: Arg list) =
-        let flags = if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None
-        let all = target :: args
-        let typeArgs = match typeArgs with [] -> null | ts -> ts :> seq<Type>
-        let binder = Binder.InvokeMember(flags, name, typeArgs, context, [ for a in all -> argInfo a ])
-        siteCall binder all (if discard then voidType else typeof<obj>)
-
     /// C#'s InvokeMember binder wrapped to apply F# function values (see FSharpInvokeMemberBinder)
-    /// for positional, non-generic calls of up to four arguments; otherwise C#'s binder as is.
+    /// for positional, non-generic calls of any arity; otherwise C#'s binder as is.
     let private smartInvokeMember (context: Type) (name: string) (typeArgs: Type list) (discard: bool) (all: Arg list) : CallSiteBinder =
         let args = List.tail all
         let flags = if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None

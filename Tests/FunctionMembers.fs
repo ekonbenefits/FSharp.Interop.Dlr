@@ -247,6 +247,15 @@ let ``reading a member as a curried function has no arity limit`` () =
     // A C# method of six parameters, bound curried.
     let sum6: int -> int -> int -> int -> int -> int -> int = dlr { return (box (Widget()))?Sum6 }
     sum6 1 2 3 4 5 6 |> should equal 21
+    // A unit result past five: the site is void, the last step returns unit.
+    let sixUnit: int -> int -> int -> int -> int -> int -> unit = dlr { return h?Six }
+    sixUnit 1 2 3 4 5 6
     // Tupled reads keep the five-element limit of the typed helpers.
     (fun () -> (dlr { return h?SixTupled } : int * int * int * int * int * int -> int) |> ignore)
     |> should throw typeof<DlrTranslationException>
+
+[<Fact>]
+let ``a method of only optional parameters can be read as unit -> R`` () =
+    let o = box (Widget())
+    let wrap: unit -> string = dlr { return o?Wrap }
+    wrap () |> should equal "<x>"
