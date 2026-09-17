@@ -75,7 +75,7 @@ it is correct there, just not at the numbers below.
 | `(?) x name`, `((?) x name)(a)`, `(?<-) x name v` with `name` a variable | the same binders, bound per distinct name at run time: the site holds one compiled delegate per name, made on first use, so a repeated name costs a dictionary lookup |
 | `x?Name(Dlr.typeArgs<A, B>(), a)` | InvokeMember with explicit generic type arguments (up to four; marker goes first). Without it, type arguments are inferred from the argument types as in C# |
 | `x?Name <- v` | SetMember |
-| `(!?x)(a)` | Invoke |
+| `x \|> Dlr.call (a, b)`, `x \|> Dlr.call ()` | Invoke: the object itself (a delegate, a callable dynamic object); chains after `Dlr.get` |
 | `(Dlr.idx x).[i]`, `(Dlr.idx x).[i, j] <- v` (up to four indexes) | GetIndex / SetIndex; element type inferred from use |
 | `?+? ?-? ?*? ?/? ?%? ?&&&? ?\|\|\|? ?^^^? ?<<<? ?>>>?` | BinaryOperation, then Convert |
 | `?=? ?<>? ?<? ?>? ?<=? ?>=?` | BinaryOperation, then Convert to bool |

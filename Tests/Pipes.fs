@@ -1,6 +1,7 @@
 [<ReflectedDefinition>]
 module Tests.Pipes
 
+open System
 open AnyUnit.Style.Xunit
 open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
@@ -62,3 +63,15 @@ let ``backward pipe and plain application work too`` () =
     let w = box (Widget())
     (dlr { return Dlr.get "Count" <| w } : int) |> should equal 3
     (dlr { return Dlr.get "Count" w } : int) |> should equal 3
+
+[<Fact>]
+let ``call the object itself through a pipe, with unit and named args`` () =
+    let f = box (Func<int, int>(fun x -> x * 2))
+    (dlr { return f |> Dlr.call 21 } : int) |> should equal 42
+    let hits = ref 0
+    let g = box (Action(fun () -> hits.Value <- hits.Value + 1))
+    dlr { g |> Dlr.call () }
+    hits.Value |> should equal 1
+    let r = Recorder()
+    let o = box r
+    (dlr { return (o |> Dlr.get "Self") |> Dlr.call (1, Dlr.named {| second = 2 |}) } : string) |> should equal "1|2"

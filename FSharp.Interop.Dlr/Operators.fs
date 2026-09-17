@@ -43,8 +43,6 @@ module Operators =
     let ( ? ) (target: obj) (name: string) : 'TResult = ignore (target, name); outside "?"
     [<MethodImpl(MethodImplOptions.NoInlining)>]
     let ( ?<- ) (target: obj) (name: string) (value: 'TValue) : unit = ignore (target, name, value); outside "?<-"
-    [<MethodImpl(MethodImplOptions.NoInlining)>]
-    let ( !? ) (target: obj) : 'TResult = ignore target; outside "!?"
 
     [<MethodImpl(MethodImplOptions.NoInlining)>]
     let ( ?%? ) (left: obj) (right: obj) : 'TResult = ignore (left, right); outside "?%?"
@@ -97,6 +95,8 @@ type Dlr =
     static member cast<'T> (value: obj) : 'T = ignore value; outside "Dlr.cast"
     [<MethodImpl(MethodImplOptions.NoInlining)>]
     static member get (name: string) (target: obj) : 'T = ignore (name, target); outside "Dlr.get"
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
+    static member call (args: 'TArgs) (target: obj) : 'T = ignore (args, target); outside "Dlr.call"
     [<MethodImpl(MethodImplOptions.NoInlining)>]
     static member set (name: string) (value: 'TValue) (target: obj) : unit = ignore (name, value, target); outside "Dlr.set"
     [<MethodImpl(MethodImplOptions.NoInlining)>]

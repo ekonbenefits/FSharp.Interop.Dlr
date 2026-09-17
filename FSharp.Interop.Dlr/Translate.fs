@@ -43,7 +43,7 @@ module internal Translate =
 
     let private opDynamic = opMethod <@ fun (t: obj) (n: string) -> ((?) t n) : obj @>
     let private opDynamicAssign = opMethod <@ fun (t: obj) (n: string) (v: obj) -> (?<-) t n v @>
-    let private opBang = opMethod <@ fun (t: obj) -> ((!?) t) : obj @>
+    let private opCall = opMethod <@ fun (a: obj) (t: obj) -> (Dlr.call a t) : obj @>
     let private opNamed = opMethod <@ fun (r: obj) -> Dlr.named r @>
     let private opCast = opMethod <@ fun (v: obj) -> Dlr.cast<obj> v @>
     let private opImplicit = opMethod <@ fun (v: obj) -> (Dlr.implicit v) : obj @>
@@ -379,7 +379,7 @@ module internal Translate =
                 | _ ->
                     computedName bound nameExpr target [ value ] typeof<unit> (fun name targetArg args ->
                         Binders.setMember context name targetArg (List.head args))
-            | Application(EtaReduced(Op opBang [ Unboxed target ]), argExpr) ->
+            | Op opCall [ argExpr; Unboxed target ] ->
                 let discard = e.Type = typeof<unit>
                 let bindings, args = argList bound (splitArgs argExpr)
                 Binders.invoke context discard (targetArg bound target) args |> finish discard e.Type |> bind bound bindings
