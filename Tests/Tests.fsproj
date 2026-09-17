@@ -27,14 +27,21 @@
     <PackageReference Include="FSharp.Analyzers.Build" PrivateAssets="all" />
   </ItemGroup>
 
-  <!-- Only so the analyzer builds first; skipped when analyzers are off (-p:RunAnalyzers=false),
-       which the older-SDK CI legs pass since the analyzer project targets net10.0. -->
-  <ItemGroup Condition="'$(RunAnalyzers)' != 'false'">
+  <!-- The analyzer build this SDK's fsharp-analyzers tool can load: net10.0 (SDK 0.39.2) on
+       .NET SDK 10, net8.0 (SDK 0.36.0) on 8 and 9. On SDK 10 the reference only makes the
+       analyzer build first (skipped when analyzers are off, -p:RunAnalyzers=false); on older
+       SDKs a -p:TargetFrameworks override would leak into it through restore, so CI's compilers
+       job builds the net8.0 analyzer itself before running it (with the 0.36.0 tool). -->
+  <PropertyGroup>
+    <AnalyzerTargetFramework>net10.0</AnalyzerTargetFramework>
+    <AnalyzerTargetFramework Condition="$([MSBuild]::VersionLessThan('$(NETCoreSdkVersion)', '10.0'))">net8.0</AnalyzerTargetFramework>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(RunAnalyzers)' != 'false' and '$(AnalyzerTargetFramework)' == 'net10.0'">
     <ProjectReference Include="..\FSharp.Interop.Dlr.Analyzers\FSharp.Interop.Dlr.Analyzers.fsproj" ReferenceOutputAssembly="false" SkipGetTargetFrameworkProperties="true" SetTargetFramework="TargetFramework=net10.0" />
   </ItemGroup>
 
   <PropertyGroup>
-    <FSharpAnalyzersOtherFlags>--analyzers-path "$(MSBuildThisFileDirectory)../FSharp.Interop.Dlr.Analyzers/bin/$(Configuration)/net10.0" --code-root "$(MSBuildThisFileDirectory).."</FSharpAnalyzersOtherFlags>
+    <FSharpAnalyzersOtherFlags>--analyzers-path "$(MSBuildThisFileDirectory)../FSharp.Interop.Dlr.Analyzers/bin/$(Configuration)/$(AnalyzerTargetFramework)" --code-root "$(MSBuildThisFileDirectory).."</FSharpAnalyzersOtherFlags>
     <RunAnalyzers Condition="'$(TargetFramework)' == 'net10.0'">true</RunAnalyzers>
     <!-- An analyzer error is a build error, not a warning. -->
     <FSharpAnalyzersContinueOnError>false</FSharpAnalyzersContinueOnError>
