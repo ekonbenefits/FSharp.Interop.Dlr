@@ -111,6 +111,17 @@ members, optional-parameter methods) apply the C# binder's accessibility rule fr
 context type: public always, internal from the same assembly (F# `private` is IL internal),
 private from inside the declaring type. Named or generic calls use C#'s binder unchanged. A member read as `… -> unit` is invoked through a void, result-discarded site.
 
+The same reflection fallback (`OptionalArguments.tryCall`, C#'s error suggestion) converts an F#
+function argument for a delegate parameter and a delegate argument for a function parameter.
+Function to delegate: `Delegate.CreateDelegate` over a `FunctionAdapters` instance whose `Invoke`
+has the delegate's exact signature (curried/tupled × result/void, up to five parameters;
+`OptimizedClosures` for curried), created per call from a cached adapter constructor. Delegate
+to function: a `TupledDelegateFunction` or `CurryStep` chain invoking the delegate with
+`DynamicInvoke` — not `FuncConvert`, whose wrapper loses arguments on Mono's browser-wasm
+runtime. A related wasm fault, a nested non-capturing lambda losing its arguments, is why every
+lambda and delegate literal written in a block is made to capture the closure parameter there
+(`capturing` in `Translate.fs`, a no-op elsewhere).
+
 `FSharpBinaryOperationBinder` wraps C#'s for the six comparison operators. C# first when either
 operand is a type it covers — primitive, enum, decimal, delegate, string and bool for `==`/`!=` only (C# has no
 ordering for them), a dynamic object (whose own rule reaches us as C#'s error suggestion) — or declares the CLR

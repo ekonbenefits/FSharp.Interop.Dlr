@@ -1,0 +1,55 @@
+[<ReflectedDefinition>]
+module Tests.Delegates
+
+open System
+open AnyUnit.Style.Xunit
+open AnyUnit.Style.FsUnit
+open FSharp.Interop.Dlr
+open Microsoft.CSharp.RuntimeBinder
+
+[<Fact>]
+let ``an F# lambda is converted to a delegate parameter`` () =
+    let c = Callbacks()
+    let o = box c
+    let seen = ResizeArray<int>()
+    dlr { o?Each([ 1; 2; 3 ], fun (i: int) -> seen.Add i) }
+    List.ofSeq seen |> should equal [ 1; 2; 3 ]
+    (dlr { return o?Map(20, fun (x: int) -> x + 1) } : int) |> should equal 21
+    (dlr { return o?Fold(3, 4, fun (a: int) (b: int) -> a * b) } : int) |> should equal 12     // curried into Func<int,int,int>
+    (dlr { return o?Fold(3, 4, fun (a: int, b: int) -> a - b) } : int) |> should equal -1      // tupled too
+    let f = fun (x: int) -> x * 2
+    (dlr { return o?Map(21, f) } : int) |> should equal 42                                     // a function value, typed
+    (dlr { return o?Map(21, box f) } : int) |> should equal 42                                 // and as obj, by runtime type
+    // Function-to-delegate adapters go to five parameters (like reads as functions); past that C#'s error stands.
+    (fun () -> (dlr { return o?Six(fun a b c d e (f: int) -> a + b + c + d + e + f) } : int) |> ignore) |> should throw typeof<RuntimeBinderException>
+
+[<Fact>]
+let ``a delegate is converted to an F# function parameter`` () =
+    let o = box (Callbacks())
+    (dlr { return o?Apply(20, Func<int, int>(fun x -> x + 1)) } : int) |> should equal 21
+    (dlr { return o?Apply2(3, 4, Func<int, int, int>(fun a b -> a * b)) } : int) |> should equal 12
+    (dlr { return o?ApplyTupled(3, 4, Func<int, int, int>(fun a b -> a - b)) } : int) |> should equal -1
+    let ran = Func<string>(fun () -> "ran")      // built outside: a zero-argument delegate literal has no quotation form the converter takes
+    (dlr { return o?Run(ran) } : string) |> should equal "ran"
+    (dlr { return o?Six'(Func<int, int, int, int, int, int, int>(fun a b c d e f -> a + b + c + d + e + f)) } : int) |> should equal 21
+
+[<Fact>]
+let ``overloads: the delegate parameter is one candidate among others`` () =
+    let o = box (Callbacks())
+    (dlr { return o?Pick(1, fun (x: int) -> x + 1) } : string) |> should equal "func:2"
+    (dlr { return o?Pick(1, "s") } : string) |> should equal "string:s"
+    // A function whose shape does not fit any candidate is still a binder error.
+    (fun () -> (dlr { return o?Map(1, fun (s: string) -> s.Length) } : int) |> ignore) |> should throw typeof<RuntimeBinderException>
+    // A delegate still binds directly, as before.
+    (dlr { return o?Map(20, Func<int, int>(fun x -> x + 2)) } : int) |> should equal 22
+
+[<Fact>]
+let ``one site alternates delegate and function arguments`` () =
+    let o = box (Callbacks())
+    let args: obj list = [ box (Func<int, int>(fun x -> x + 1)); box (fun (x: int) -> x + 10); box (Func<int, int>(fun x -> x + 100)) ]
+    let results = ResizeArray<int>()
+    dlr {
+        for a in args do
+            results.Add(o?Map(1, a))
+    }
+    List.ofSeq results |> should equal [ 2; 11; 101 ]

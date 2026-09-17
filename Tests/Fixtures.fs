@@ -261,3 +261,19 @@ type Vec(x: float) =
 type Inlines() =
     member inline _.Twice(v: ^T) : ^T = v + v
     member inline _.NameOf(v: ^T when ^T: (member Name: string)) : string = (^T: (member Name: string) v)
+
+// Delegate and F# function parameters, for the conversions C# does not do (F# lambda -> Func,
+// Func -> F# function) at a dynamic call.
+type Callbacks() =
+    member val Log = ResizeArray<string>() with get
+    member this.Each(items: int list, action: Action<int>) = for i in items do action.Invoke i
+    member _.Map(x: int, f: Func<int, int>) = f.Invoke x
+    member _.Fold(a: int, b: int, f: Func<int, int, int>) = f.Invoke(a, b)
+    member _.Apply(x: int, f: int -> int) = f x
+    member _.Apply2(a: int, b: int, f: int -> int -> int) = f a b
+    member _.ApplyTupled(a: int, b: int, f: int * int -> int) = f (a, b)
+    member _.Run(f: unit -> string) = f ()
+    member _.Pick(x: int, f: Func<int, int>) = "func:" + string (f.Invoke x)
+    member _.Pick(_: int, s: string) = "string:" + s
+    member _.Six(f: Func<int, int, int, int, int, int, int>) = f.Invoke(1, 2, 3, 4, 5, 6)
+    member _.Six'(f: int -> int -> int -> int -> int -> int -> int) = f 1 2 3 4 5 6

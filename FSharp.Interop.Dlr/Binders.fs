@@ -77,11 +77,6 @@ module internal Accessibility =
 
     let all = BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance
 
-/// F# optional parameters (`?arg`) compile to `FSharpOption<'T>` parameters carrying
-/// `[<OptionalArgument>]` and nothing the C# binder recognises, so it can neither omit them nor,
-/// on its own, tell that a bare value should become `Some`. This finds a method the supplied
-/// arguments fit once omitted optionals are `None` and bare values are wrapped, as a rule the
-/// binder offers C# as its error suggestion: used only where C# itself could not bind.
 /// The implicit conversions C# applies to an argument, so our own rules accept what its binder would.
 module internal Conversions =
     /// C#'s implicit numeric conversions, so an `int` argument fits an `int64` or `float` domain.
@@ -100,63 +95,6 @@ module internal Conversions =
 
     /// Assignable, or a C# implicit numeric widening (`Expression.Convert` does the widening in the rule).
     let fits (paramType: Type) (argType: Type) = paramType.IsAssignableFrom argType || widens argType paramType
-
-module internal OptionalArguments =
-    let private isOptional (p: ParameterInfo) =
-        p.GetCustomAttributes(typeof<OptionalArgumentAttribute>, false).Length > 0
-        && p.ParameterType.IsGenericType
-        && p.ParameterType.GetGenericTypeDefinition() = typedefof<option<_>>
-
-    let private isNullValue (a: DynamicMetaObject) = a.HasValue && isNull a.Value
-
-    /// The argument converted to the parameter type, or None if it does not fit: assignable or
-    /// C#-widened, a null for a reference slot, a bare value for an optional as `Some`.
-    let private fit (p: ParameterInfo) (a: DynamicMetaObject) : Expression option =
-        let pt = p.ParameterType
-        let at = a.LimitType
-        let converted (toType: Type) = Expression.Convert(Expression.Convert(a.Expression, at), toType) :> Expression
-        if isNullValue a then
-            if pt.IsValueType && isNull (Nullable.GetUnderlyingType pt) then None
-            else Some(Expression.Constant(null, pt) :> Expression)
-        elif Conversions.fits pt at then Some(converted pt)
-        elif isOptional p && Conversions.fits (pt.GetGenericArguments().[0]) at then
-            let inner = pt.GetGenericArguments().[0]
-            Some(Expression.Call(pt.GetMethod("Some"), converted inner) :> Expression)
-        else None
-
-    /// Not C#'s overload resolution, but deterministic: among the methods the arguments fit, the
-    /// one with the most exactly-typed argument slots wins, then the one with the fewest omitted
-    /// parameters; a tie is ambiguous and left to C#'s error.
-    let tryCall (context: Type) (t: Type) (name: string) (target: DynamicMetaObject) (args: DynamicMetaObject[]) : DynamicMetaObject option =
-        let fitting =
-            t.GetMethods(Accessibility.all)
-            |> Array.filter (fun m -> m.Name = name && not m.IsGenericMethodDefinition && Accessibility.method' context m)
-            |> Array.choose (fun m ->
-                let ps = m.GetParameters()
-                let required = ps |> Array.filter (fun p -> not (isOptional p)) |> Array.length
-                if args.Length < required || args.Length > ps.Length then None
-                else
-                    let supplied = [ for i in 0 .. args.Length - 1 -> fit ps.[i] args.[i] ]
-                    if supplied |> List.exists Option.isNone then None
-                    else
-                        let exact = Seq.zip ps args |> Seq.filter (fun (p, a) -> p.ParameterType = a.LimitType) |> Seq.length
-                        Some(m, ps, List.choose id supplied, exact))
-            |> Array.sortByDescending (fun (_, ps, _, exact) -> exact, -ps.Length)
-        match List.ofArray fitting with
-        | (_, ps1, _, e1) :: (_, ps2, _, e2) :: _ when e1 = e2 && ps1.Length = ps2.Length -> None   // ambiguous
-        | (m, ps, supplied, _) :: _ ->
-            let omitted = [ for i in args.Length .. ps.Length - 1 -> Expression.Constant(null, ps.[i].ParameterType) :> Expression ]
-            let call = Expression.Call(Expression.Convert(target.Expression, t), m, supplied @ omitted)
-            let value =
-                if m.ReturnType = typeof<Void> then Expression.Block(call, Expression.Constant(null, typeof<obj>)) :> Expression
-                else Expression.Convert(call, typeof<obj>) :> Expression
-            let restrict (a: DynamicMetaObject) =
-                if isNullValue a then BindingRestrictions.GetInstanceRestriction(a.Expression, null)
-                else BindingRestrictions.GetTypeRestriction(a.Expression, a.LimitType)
-            let restrictions =
-                Array.fold (fun (r: BindingRestrictions) a -> r.Merge(restrict a)) (BindingRestrictions.GetTypeRestriction(target.Expression, t)) args
-            Some(DynamicMetaObject(value, restrictions))
-        | [] -> None
 
 /// Whether a function type (the runtime type of a value, or a member's declared type) is an
 /// `FSharpFunc` that the call site's arguments fit, and the expression applying it. The shape
@@ -224,6 +162,24 @@ module internal FunctionShapes =
                             | _ -> None
                     chain read funcType args |> Option.map boxed
 
+    /// A function type's parameter list and result: `(A * B) -> R` is `[A; B]` tupled, `A -> B -> R`
+    /// is `[A; B]` curried (the chain followed as far as it is `FSharpFunc`), `A -> R` is `[A]`.
+    let domains (funcType: Type) : (Type list * bool * Type) option =
+        match funcBase funcType with
+        | None -> None
+        | Some ft ->
+            let ga = ft.GetGenericArguments()
+            if FSharp.Reflection.FSharpType.IsTuple ga.[0] then
+                Some(List.ofArray (FSharp.Reflection.FSharpType.GetTupleElements ga.[0]), true, ga.[1])
+            else
+                let rec chain (t: Type) (acc: Type list) =
+                    if isFunc t then
+                        let ga = t.GetGenericArguments()
+                        chain ga.[1] (ga.[0] :: acc)
+                    else List.rev acc, t
+                let ds, r = chain ga.[1] [ ga.[0] ]
+                Some(ds, false, r)
+
     let private restrictions (target: DynamicMetaObject) (targetType: Type) (args: DynamicMetaObject[]) =
         Array.fold (fun (r: BindingRestrictions) (a: DynamicMetaObject) -> r.Merge(BindingRestrictions.GetTypeRestriction(a.Expression, a.LimitType)))
             (BindingRestrictions.GetTypeRestriction(target.Expression, targetType)) args
@@ -256,6 +212,249 @@ module internal FunctionShapes =
     /// Whether a member's declared type says nothing useful about whether it holds a function:
     /// `obj`, an interface, an abstract class. Its value then goes through a nested site.
     let opaque (t: Type) = t = typeof<obj> || t.IsInterface || (t.IsAbstract && not t.IsSealed)
+
+/// One step of a curried F# function built at run time for a member read as a function of more
+/// arguments than the FunctionMember helpers cover: each step collects one argument and returns
+/// the next step, and the last invokes the site's delegate with all of them. This is exactly what
+/// F# emits for a curried function beyond OptimizedClosures' reach, minus InvokeFast.
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+type CurryStep<'A, 'R>(collected: obj list, next: obj list -> obj) =
+    inherit FSharpFunc<'A, 'R>()
+    override _.Invoke(a: 'A) : 'R = unbox<'R> (next (collected @ [ box a ]))
+
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+module CurriedInvoker =
+    /// A curried F# function of the given domain types (nested `FSharpFunc`s) whose final result,
+    /// converted, comes from invoking `site` (a `Func<CallSite, obj, args…, obj>`) with all the
+    /// arguments; `unitResult` sites are `Action`s.
+    /// A curried F# function of the given domain types whose final result is `finish` applied to
+    /// all the collected arguments.
+    let buildWith (domains: Type list) (resultType: Type) (finish: obj list -> obj) : obj =
+        // The function type of the step taking domains.[i]: FSharpFunc<d_i, type of the rest>.
+        let rec stepType (ds: Type list) =
+            match ds with
+            | [] -> resultType
+            | d :: rest -> typedefof<FSharpFunc<_, _>>.MakeGenericType(d, stepType rest)
+        let rec step (collected: obj list) (ds: Type list) : obj =
+            match ds with
+            | [] -> finish collected
+            | d :: rest ->
+                let next (args: obj list) = step args rest
+                Activator.CreateInstance(typedefof<CurryStep<_, _>>.MakeGenericType(d, stepType rest), [| box collected; box next |])
+        step [] domains
+
+    let build (domains: Type list) (resultType: Type) (site: CallSite) (convert: CallSite) (target: obj) : obj =
+        let siteDelegate = site.GetType().GetField("Target").GetValue(site) :?> Delegate
+        let convertDelegate = if isNull convert then null else convert.GetType().GetField("Target").GetValue(convert) :?> Delegate
+        buildWith domains resultType (fun args ->
+            let raw = siteDelegate.DynamicInvoke(Array.ofList (box site :: box target :: args))
+            if isNull convertDelegate then null else convertDelegate.DynamicInvoke([| box convert; raw |]))
+
+/// An F# function over a delegate, for a delegate argument passed to a function-typed parameter
+/// when `FuncConvert` has no matching shape: tupled (or one parameter) as one closure, curried
+/// as a `CurryStep` chain, the delegate invoked with `DynamicInvoke` when all arguments are in.
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+type TupledDelegateFunction<'T, 'R>(d: Delegate) =
+    inherit FSharpFunc<'T, 'R>()
+    override _.Invoke(t: 'T) : 'R =
+        let n = d.GetType().GetMethod("Invoke").GetParameters().Length   // not d.Method: an interpreted delegate's is synthetic
+        let args =
+            if n = 0 then [||]
+            elif n > 1 && FSharp.Reflection.FSharpType.IsTuple typeof<'T> then FSharp.Reflection.FSharpValue.GetTupleFields(box t)
+            else [| box t |]
+        unbox<'R> (d.DynamicInvoke args)
+
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+module DelegateFunction =
+    let Make (funcType: Type) (d: Delegate) : obj =
+        match FunctionShapes.domains funcType with
+        | Some(domains, false, result) when domains.Length > 1 -> CurriedInvoker.buildWith domains result (fun args -> d.DynamicInvoke(Array.ofList args))
+        | _ ->
+            let ga = funcType.GetGenericArguments()
+            Activator.CreateInstance(typedefof<TupledDelegateFunction<_, _>>.MakeGenericType(ga.[0], ga.[1]), [| box d |])
+
+/// Delegates over F# functions, for an F# function argument passed to a delegate-typed parameter:
+/// one adapter per shape whose `Invoke` method has the delegate's exact signature, so
+/// `Delegate.CreateDelegate` binds it directly. Real methods rather than an `Expression.Lambda`
+/// inside the rule: on Mono's browser-wasm runtime a nested interpreted lambda loses its arguments
+/// (the same fault DlrRuntime's comment describes), and these are also faster.
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+module FunctionAdapters =
+    type Curried0<'R>(f: unit -> 'R) =
+        member _.Invoke() : 'R = f ()
+    type Curried0Unit(f: unit -> unit) =
+        member _.Invoke() : unit = f ()
+    type Curried1<'A, 'R>(f: 'A -> 'R) =
+        let f = f
+        member _.Invoke(a: 'A) : 'R = f a
+    type Curried1Unit<'A>(f: 'A -> unit) =
+        let f = f
+        member _.Invoke(a: 'A) : unit = f a
+    type Curried2<'A, 'B, 'R>(f: 'A -> 'B -> 'R) =
+        let f = OptimizedClosures.FSharpFunc<'A, 'B, 'R>.Adapt f
+        member _.Invoke(a: 'A, b: 'B) : 'R = f.Invoke(a, b)
+    type Curried2Unit<'A, 'B>(f: 'A -> 'B -> unit) =
+        let f = OptimizedClosures.FSharpFunc<'A, 'B, unit>.Adapt f
+        member _.Invoke(a: 'A, b: 'B) : unit = f.Invoke(a, b)
+    type Tupled2<'A, 'B, 'R>(f: 'A * 'B -> 'R) =
+        member _.Invoke(a: 'A, b: 'B) : 'R = f (a, b)
+    type Tupled2Unit<'A, 'B>(f: 'A * 'B -> unit) =
+        member _.Invoke(a: 'A, b: 'B) : unit = f (a, b)
+    type Curried3<'A, 'B, 'C, 'R>(f: 'A -> 'B -> 'C -> 'R) =
+        let f = OptimizedClosures.FSharpFunc<'A, 'B, 'C, 'R>.Adapt f
+        member _.Invoke(a: 'A, b: 'B, c: 'C) : 'R = f.Invoke(a, b, c)
+    type Curried3Unit<'A, 'B, 'C>(f: 'A -> 'B -> 'C -> unit) =
+        let f = OptimizedClosures.FSharpFunc<'A, 'B, 'C, unit>.Adapt f
+        member _.Invoke(a: 'A, b: 'B, c: 'C) : unit = f.Invoke(a, b, c)
+    type Tupled3<'A, 'B, 'C, 'R>(f: 'A * 'B * 'C -> 'R) =
+        member _.Invoke(a: 'A, b: 'B, c: 'C) : 'R = f (a, b, c)
+    type Tupled3Unit<'A, 'B, 'C>(f: 'A * 'B * 'C -> unit) =
+        member _.Invoke(a: 'A, b: 'B, c: 'C) : unit = f (a, b, c)
+    type Curried4<'A, 'B, 'C, 'D, 'R>(f: 'A -> 'B -> 'C -> 'D -> 'R) =
+        let f = OptimizedClosures.FSharpFunc<'A, 'B, 'C, 'D, 'R>.Adapt f
+        member _.Invoke(a: 'A, b: 'B, c: 'C, d: 'D) : 'R = f.Invoke(a, b, c, d)
+    type Curried4Unit<'A, 'B, 'C, 'D>(f: 'A -> 'B -> 'C -> 'D -> unit) =
+        let f = OptimizedClosures.FSharpFunc<'A, 'B, 'C, 'D, unit>.Adapt f
+        member _.Invoke(a: 'A, b: 'B, c: 'C, d: 'D) : unit = f.Invoke(a, b, c, d)
+    type Tupled4<'A, 'B, 'C, 'D, 'R>(f: 'A * 'B * 'C * 'D -> 'R) =
+        member _.Invoke(a: 'A, b: 'B, c: 'C, d: 'D) : 'R = f (a, b, c, d)
+    type Tupled4Unit<'A, 'B, 'C, 'D>(f: 'A * 'B * 'C * 'D -> unit) =
+        member _.Invoke(a: 'A, b: 'B, c: 'C, d: 'D) : unit = f (a, b, c, d)
+    type Curried5<'A, 'B, 'C, 'D, 'E, 'R>(f: 'A -> 'B -> 'C -> 'D -> 'E -> 'R) =
+        let f = OptimizedClosures.FSharpFunc<'A, 'B, 'C, 'D, 'E, 'R>.Adapt f
+        member _.Invoke(a: 'A, b: 'B, c: 'C, d: 'D, e: 'E) : 'R = f.Invoke(a, b, c, d, e)
+    type Curried5Unit<'A, 'B, 'C, 'D, 'E>(f: 'A -> 'B -> 'C -> 'D -> 'E -> unit) =
+        let f = OptimizedClosures.FSharpFunc<'A, 'B, 'C, 'D, 'E, unit>.Adapt f
+        member _.Invoke(a: 'A, b: 'B, c: 'C, d: 'D, e: 'E) : unit = f.Invoke(a, b, c, d, e)
+    type Tupled5<'A, 'B, 'C, 'D, 'E, 'R>(f: 'A * 'B * 'C * 'D * 'E -> 'R) =
+        member _.Invoke(a: 'A, b: 'B, c: 'C, d: 'D, e: 'E) : 'R = f (a, b, c, d, e)
+    type Tupled5Unit<'A, 'B, 'C, 'D, 'E>(f: 'A * 'B * 'C * 'D * 'E -> unit) =
+        member _.Invoke(a: 'A, b: 'B, c: 'C, d: 'D, e: 'E) : unit = f (a, b, c, d, e)
+
+    let private adapters = System.Collections.Concurrent.ConcurrentDictionary<struct (Type * Type), ConstructorInfo>()
+
+    /// The adapter constructor for a function value's runtime shape and a delegate type, or None
+    /// when they do not match: same arity, the function's domains reference-assignable to the
+    /// delegate's parameters, a `unit` result only for a void delegate.
+    let tryAdapter (funcType: Type) (delegateType: Type) : ConstructorInfo option =
+        match adapters.TryGetValue(struct (funcType, delegateType)) with
+        | true, c -> Some c
+        | _ ->
+            let invoke = delegateType.GetMethod("Invoke")
+            let ps = [ for p in invoke.GetParameters() -> p.ParameterType ]
+            let isVoid = invoke.ReturnType = typeof<Void>
+            match FunctionShapes.domains funcType with
+            | Some(ds, tupled, result) ->
+                let ds = if ds = [ typeof<unit> ] then [] else ds
+                let n = ds.Length
+                let unitResult = result = typeof<unit>
+                let fitsParams = n = ps.Length && List.forall2 (fun (d: Type) (p: Type) -> d = p || (not d.IsValueType && d.IsAssignableFrom p)) ds ps
+                let fitsResult = if isVoid then unitResult else not unitResult && (invoke.ReturnType = result || (not result.IsValueType && invoke.ReturnType.IsAssignableFrom result))
+                if not (fitsParams && fitsResult) || n > 5 || (tupled && n < 2) then None
+                else
+                    let name = (if tupled then "Tupled" else "Curried") + string n + (if isVoid then "Unit" else "")
+                    let def = typeof<Curried0Unit>.DeclaringType.GetNestedType(name + (if n + (if isVoid then 0 else 1) > 0 then "`" + string (n + (if isVoid then 0 else 1)) else ""))
+                    let closed = if def.IsGenericTypeDefinition then def.MakeGenericType(Array.ofList (ds @ (if isVoid then [] else [ result ]))) else def
+                    let c = closed.GetConstructors().[0]
+                    adapters.[struct (funcType, delegateType)] <- c
+                    Some c
+            | None -> None
+
+    /// The delegate over `f`, built per call from its adapter.
+    let Make (delegateType: Type) (f: obj) : Delegate =
+        match tryAdapter (f.GetType()) delegateType with
+        | Some c -> Delegate.CreateDelegate(delegateType, c.Invoke [| f |], "Invoke")
+        | None -> raise (RuntimeBinderException(sprintf "Cannot convert an F# function of type '%s' to '%s'" (f.GetType().Name) delegateType.Name))
+
+/// F# optional parameters (`?arg`) compile to `FSharpOption<'T>` parameters carrying
+/// `[<OptionalArgument>]` and nothing the C# binder recognises, so it can neither omit them nor,
+/// on its own, tell that a bare value should become `Some`. This finds a method the supplied
+/// arguments fit once omitted optionals are `None` and bare values are wrapped, as a rule the
+/// binder offers C# as its error suggestion: used only where C# itself could not bind.
+module internal OptionalArguments =
+    let private isOptional (p: ParameterInfo) =
+        p.GetCustomAttributes(typeof<OptionalArgumentAttribute>, false).Length > 0
+        && p.ParameterType.IsGenericType
+        && p.ParameterType.GetGenericTypeDefinition() = typedefof<option<_>>
+
+    let private isNullValue (a: DynamicMetaObject) = a.HasValue && isNull a.Value
+
+    /// An F# function value for a delegate-typed parameter: a delegate over an adapter of the
+    /// function's shape (`FunctionAdapters`), as F# itself converts a lambda argument to a
+    /// `Func`/`Action` parameter at a static call.
+    let private functionToDelegate (delegateType: Type) (a: DynamicMetaObject) : Expression option =
+        match FunctionAdapters.tryAdapter a.LimitType delegateType with
+        | None -> None
+        | Some _ ->
+            let make = typeof<FunctionAdapters.Curried0Unit>.DeclaringType.GetMethod("Make")
+            Some(Expression.Convert(Expression.Call(make, Expression.Constant delegateType, Expression.Convert(a.Expression, typeof<obj>)), delegateType) :> Expression)
+
+    /// A delegate for an F# function-typed parameter: `DelegateFunction` (`DynamicInvoke`, any
+    /// shape; not `FuncConvert`, whose wrapper loses arguments on Mono's browser-wasm runtime).
+    let private delegateToFunction (funcType: Type) (a: DynamicMetaObject) : Expression option =
+        let dt = a.LimitType
+        let invoke = dt.GetMethod("Invoke")
+        let paramTypes = [ for p in invoke.GetParameters() -> p.ParameterType ]
+        // `unit -> R` takes a parameterless delegate.
+        let domainsOf = FunctionShapes.domains funcType |> Option.map (fun (ds, tupled, r) -> (if ds = [ typeof<unit> ] then [] else ds), tupled, r)
+        match domainsOf with
+        | Some(domains, _, result) when domains.Length = paramTypes.Length && List.forall2 (fun (d: Type) (p: Type) -> d = p) domains paramTypes
+                                          && (invoke.ReturnType = result || (invoke.ReturnType = typeof<Void> && result = typeof<unit>)) ->
+            let make = typeof<TupledDelegateFunction<obj, obj>>.Assembly.GetType("FSharp.Interop.Dlr.DelegateFunction").GetMethod("Make")
+            Some(Expression.Convert(Expression.Call(make, Expression.Constant funcType, Expression.Convert(a.Expression, typeof<Delegate>)), funcType) :> Expression)
+        | _ -> None
+
+    /// The argument converted to the parameter type, or None if it does not fit: assignable or
+    /// C#-widened, a null for a reference slot, a bare value for an optional as `Some`, an F#
+    /// function for a delegate parameter or a delegate for a function parameter.
+    let private fit (p: ParameterInfo) (a: DynamicMetaObject) : Expression option =
+        let pt = p.ParameterType
+        let at = a.LimitType
+        let converted (toType: Type) = Expression.Convert(Expression.Convert(a.Expression, at), toType) :> Expression
+        if isNullValue a then
+            if pt.IsValueType && isNull (Nullable.GetUnderlyingType pt) then None
+            else Some(Expression.Constant(null, pt) :> Expression)
+        elif Conversions.fits pt at then Some(converted pt)
+        elif isOptional p && Conversions.fits (pt.GetGenericArguments().[0]) at then
+            let inner = pt.GetGenericArguments().[0]
+            Some(Expression.Call(pt.GetMethod("Some"), converted inner) :> Expression)
+        elif typeof<Delegate>.IsAssignableFrom pt && (FunctionShapes.domains at).IsSome then functionToDelegate pt a
+        elif typeof<Delegate>.IsAssignableFrom at && (FunctionShapes.domains pt).IsSome then delegateToFunction pt a
+        else None
+
+    /// Not C#'s overload resolution, but deterministic: among the methods the arguments fit, the
+    /// one with the most exactly-typed argument slots wins, then the one with the fewest omitted
+    /// parameters; a tie is ambiguous and left to C#'s error.
+    let tryCall (context: Type) (t: Type) (name: string) (target: DynamicMetaObject) (args: DynamicMetaObject[]) : DynamicMetaObject option =
+        let fitting =
+            t.GetMethods(Accessibility.all)
+            |> Array.filter (fun m -> m.Name = name && not m.IsGenericMethodDefinition && Accessibility.method' context m)
+            |> Array.choose (fun m ->
+                let ps = m.GetParameters()
+                let required = ps |> Array.filter (fun p -> not (isOptional p)) |> Array.length
+                if args.Length < required || args.Length > ps.Length then None
+                else
+                    let supplied = [ for i in 0 .. args.Length - 1 -> fit ps.[i] args.[i] ]
+                    if supplied |> List.exists Option.isNone then None
+                    else
+                        let exact = Seq.zip ps args |> Seq.filter (fun (p, a) -> p.ParameterType = a.LimitType) |> Seq.length
+                        Some(m, ps, List.choose id supplied, exact))
+            |> Array.sortByDescending (fun (_, ps, _, exact) -> exact, -ps.Length)
+        match List.ofArray fitting with
+        | (_, ps1, _, e1) :: (_, ps2, _, e2) :: _ when e1 = e2 && ps1.Length = ps2.Length -> None   // ambiguous
+        | (m, ps, supplied, _) :: _ ->
+            let omitted = [ for i in args.Length .. ps.Length - 1 -> Expression.Constant(null, ps.[i].ParameterType) :> Expression ]
+            let call = Expression.Call(Expression.Convert(target.Expression, t), m, supplied @ omitted)
+            let value =
+                if m.ReturnType = typeof<Void> then Expression.Block(call, Expression.Constant(null, typeof<obj>)) :> Expression
+                else Expression.Convert(call, typeof<obj>) :> Expression
+            let restrict (a: DynamicMetaObject) =
+                if isNullValue a then BindingRestrictions.GetInstanceRestriction(a.Expression, null)
+                else BindingRestrictions.GetTypeRestriction(a.Expression, a.LimitType)
+            let restrictions =
+                Array.fold (fun (r: BindingRestrictions) a -> r.Merge(restrict a)) (BindingRestrictions.GetTypeRestriction(target.Expression, t)) args
+            Some(DynamicMetaObject(value, restrictions))
+        | [] -> None
 
 /// Equality and ordering with F# semantics where C# has none: records, unions, tuples, lists,
 /// options, sets and any other type without the CLR operator get `=`/`compare` (structural,
@@ -437,39 +636,6 @@ type FSharpReadOrInvokeBinder(context: Type, name: string, csharp: InvokeMemberB
             | None -> DynamicMetaObject(Expression.Dynamic(value, typeof<obj>, read), restriction)
 
     override _.FallbackInvoke(target, args, errorSuggestion) = value.FallbackInvoke(target, args, errorSuggestion)
-
-/// One step of a curried F# function built at run time for a member read as a function of more
-/// arguments than the FunctionMember helpers cover: each step collects one argument and returns
-/// the next step, and the last invokes the site's delegate with all of them. This is exactly what
-/// F# emits for a curried function beyond OptimizedClosures' reach, minus InvokeFast.
-[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
-type CurryStep<'A, 'R>(collected: obj list, next: obj list -> obj) =
-    inherit FSharpFunc<'A, 'R>()
-    override _.Invoke(a: 'A) : 'R = unbox<'R> (next (collected @ [ box a ]))
-
-[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
-module CurriedInvoker =
-    /// A curried F# function of the given domain types (nested `FSharpFunc`s) whose final result,
-    /// converted, comes from invoking `site` (a `Func<CallSite, obj, args…, obj>`) with all the
-    /// arguments; `unitResult` sites are `Action`s.
-    let build (domains: Type list) (resultType: Type) (site: CallSite) (convert: CallSite) (target: obj) : obj =
-        let siteDelegate = site.GetType().GetField("Target").GetValue(site) :?> Delegate
-        let convertDelegate = if isNull convert then null else convert.GetType().GetField("Target").GetValue(convert) :?> Delegate
-        let finish (args: obj list) : obj =
-            let raw = siteDelegate.DynamicInvoke(Array.ofList (box site :: box target :: args))
-            if isNull convertDelegate then null else convertDelegate.DynamicInvoke([| box convert; raw |])
-        // The function type of the step taking domains.[i]: FSharpFunc<d_i, type of the rest>.
-        let rec stepType (ds: Type list) =
-            match ds with
-            | [] -> resultType
-            | d :: rest -> typedefof<FSharpFunc<_, _>>.MakeGenericType(d, stepType rest)
-        let rec step (collected: obj list) (ds: Type list) : obj =
-            match ds with
-            | [] -> finish collected
-            | d :: rest ->
-                let next (args: obj list) = step args rest
-                Activator.CreateInstance(typedefof<CurryStep<_, _>>.MakeGenericType(d, stepType rest), [| box collected; box next |])
-        step [] domains
 
 /// A member read as an F# function type: `let f: int -> int -> int = dlr { return x?Add }`. The
 /// value is an F# function (curried, so partial application works) that invokes the member with
