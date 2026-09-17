@@ -69,6 +69,7 @@
     <Compile Include="Restrictions.fs" />
     <Compile Include="FunctionMembers.fs" />
     <Compile Include="Polymorphic.fs" />
+    <Compile Include="Constructors.fs" />
     <Compile Include="Unreflected.fs" />
   </ItemGroup>
 

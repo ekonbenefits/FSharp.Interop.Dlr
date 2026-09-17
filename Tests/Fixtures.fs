@@ -240,3 +240,13 @@ type EqualsAnything() =
         match binder.Operation with
         | System.Linq.Expressions.ExpressionType.Equal -> result <- box true; true
         | _ -> result <- null; false
+
+// Constructors chosen by the arguments' runtime types (Dlr.new').
+type Handler(kind: string, detail: string) =
+    new(c: Point) = Handler("point", string c.X + "," + string c.Y)
+    new(s: Shape) = Handler("shape", sprintf "%A" s)
+    new(o: obj) = Handler("obj", string o)
+    new() = Handler("none", "")
+    new(name: string, count: int) = Handler("named", name + ":" + string count)
+    member _.Kind = kind
+    member _.Detail = detail

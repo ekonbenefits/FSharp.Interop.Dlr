@@ -41,6 +41,12 @@ module internal Translate =
     let private opDynamicAssign = opMethod <@ fun (t: obj) (n: string) (v: obj) -> (?<-) t n v @>
     let private opCall = opMethod <@ fun (a: obj) (t: obj) -> (Dlr.call a t) : obj @>
     let private opNamed = opMethod <@ fun (r: obj) -> Dlr.named r @>
+    /// `Dlr.new'<T>(a, b, …)`: the type and the arguments (each unboxed to its static type).
+    let private (|New|_|) (e: Expr) =
+        match e with
+        | Call(None, mi, args) when mi.DeclaringType = typeof<Dlr> && mi.Name = "new'" ->
+            Some(mi.GetGenericArguments().[0], [ for a in args -> match a with Coerce(inner, t) when t = typeof<obj> -> inner | a -> a ])
+        | _ -> None
     let private opCast = opMethod <@ fun (v: obj) -> Dlr.cast<obj> v @>
     let private opImplicit = opMethod <@ fun (v: obj) -> (Dlr.implicit v) : obj @>
     let private opGet = opMethod <@ fun (n: string) (t: obj) -> (Dlr.get n t) : obj @>
@@ -383,6 +389,9 @@ module internal Translate =
                 | _ ->
                     computedName bound nameExpr target [ value ] typeof<unit> (fun name targetArg args ->
                         Binders.setMember context name targetArg (List.head args))
+            | New(t, argExprs) ->
+                let bindings, args = argList bound argExprs
+                Binders.invokeConstructor context t args |> convert e.Type |> bind bound bindings
             | Op opCall [ argExpr; Unboxed target ] ->
                 let discard = e.Type = typeof<unit>
                 let bindings, args = argList bound (splitArgs argExpr)

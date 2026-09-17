@@ -92,6 +92,24 @@ type Dlr =
     [<MethodImpl(MethodImplOptions.NoInlining)>]
     static member typeArgs<'A, 'B, 'C, 'D> () : TypeArgs = outside "Dlr.typeArgs"
     [<MethodImpl(MethodImplOptions.NoInlining)>]
+    static member new'<'T> () : 'T = outside "Dlr.new'"
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
+    static member new'<'T> (a: obj) : 'T = ignore (a); outside "Dlr.new'"
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
+    static member new'<'T> (a: obj, b: obj) : 'T = ignore (a, b); outside "Dlr.new'"
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
+    static member new'<'T> (a: obj, b: obj, c: obj) : 'T = ignore (a, b, c); outside "Dlr.new'"
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
+    static member new'<'T> (a: obj, b: obj, c: obj, d: obj) : 'T = ignore (a, b, c, d); outside "Dlr.new'"
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
+    static member new'<'T> (a: obj, b: obj, c: obj, d: obj, e: obj) : 'T = ignore (a, b, c, d, e); outside "Dlr.new'"
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
+    static member new'<'T> (a: obj, b: obj, c: obj, d: obj, e: obj, f: obj) : 'T = ignore (a, b, c, d, e, f); outside "Dlr.new'"
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
+    static member new'<'T> (a: obj, b: obj, c: obj, d: obj, e: obj, f: obj, g: obj) : 'T = ignore (a, b, c, d, e, f, g); outside "Dlr.new'"
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
+    static member new'<'T> (a: obj, b: obj, c: obj, d: obj, e: obj, f: obj, g: obj, h: obj) : 'T = ignore (a, b, c, d, e, f, g, h); outside "Dlr.new'"
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
     static member cast<'T> (value: obj) : 'T = ignore value; outside "Dlr.cast"
     [<MethodImpl(MethodImplOptions.NoInlining)>]
     static member get (name: string) (target: obj) : 'T = ignore (name, target); outside "Dlr.get"
