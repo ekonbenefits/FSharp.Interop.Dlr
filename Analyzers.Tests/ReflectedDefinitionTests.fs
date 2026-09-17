@@ -35,7 +35,13 @@ namespace Demo
 open FSharp.Interop.Dlr
 """
 
-let private options = lazy (mkOptionsFromProject "net10.0" [] |> Async.AwaitTask |> Async.RunSynchronously)
+let private options =
+    lazy
+        (// The SDK's test helper loads every *Analyzer*.dll under the current directory. Run
+         // from the repo root that would include the analyzer's net8.0 build (a different SDK
+         // version, which fails to load and fails the test), so use the test's own output.
+         System.Environment.CurrentDirectory <- System.AppContext.BaseDirectory
+         mkOptionsFromProject "net10.0" [] |> Async.AwaitTask |> Async.RunSynchronously)
 
 let private run (source: string) : Message list =
     let ctx = getContext options.Value (prelude + source)
