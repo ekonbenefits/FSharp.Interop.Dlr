@@ -63,15 +63,16 @@ let ``computed name that does not exist raises RuntimeBinderException`` () =
     let read (name: string) : obj = dlr { return (?) w name }
     (fun () -> read "Nope" |> ignore) |> should throw typeof<RuntimeBinderException>
 
+let private oneSiteTemplate (name: string) =
+    let binder = Microsoft.CSharp.RuntimeBinder.Binder.GetMember(Microsoft.CSharp.RuntimeBinder.CSharpBinderFlags.None, name, typeof<obj>, [ Microsoft.CSharp.RuntimeBinder.CSharpArgumentInfo.Create(Microsoft.CSharp.RuntimeBinder.CSharpArgumentInfoFlags.None, null) ])
+    let site = System.Runtime.CompilerServices.CallSite<System.Func<System.Runtime.CompilerServices.CallSite, obj, obj>>.Create binder
+    FSharp.Quotations.Expr.Value(site, site.GetType())
+
 [<Fact>]
 let ``a site's name cache is bounded`` () =
     // Direct: the cache is a constant inside the compiled block, so exercise the type itself with
     // a template that makes one site per key, as the translator's do.
-    let template (name: string) =
-        let binder = Microsoft.CSharp.RuntimeBinder.Binder.GetMember(Microsoft.CSharp.RuntimeBinder.CSharpBinderFlags.None, name, typeof<obj>, [ Microsoft.CSharp.RuntimeBinder.CSharpArgumentInfo.Create(Microsoft.CSharp.RuntimeBinder.CSharpArgumentInfoFlags.None, null) ])
-        let site = System.Runtime.CompilerServices.CallSite<System.Func<System.Runtime.CompilerServices.CallSite, obj, obj>>.Create binder
-        FSharp.Quotations.Expr.Value(site, site.GetType())
-    let cache = SiteCache<string>(template)
+    let cache = SiteCache<string>(oneSiteTemplate)
     let first = cache.Get "n0"
     obj.ReferenceEquals(cache.Get "n0", first) |> should equal true      // a hit returns the same sites
     first.Length |> should equal 1
@@ -79,10 +80,15 @@ let ``a site's name cache is bounded`` () =
     (cache.Count <= SiteCache<string>.Capacity) |> should equal true
     cache.Get "n0" |> ignore                                             // still works after clearing
     (cache.Count >= 1) |> should equal true
-    // Concurrent misses cannot push it past the bound.
-    let cache2 = SiteCache<string>(template)
-    System.Threading.Tasks.Parallel.For(0, 4000, fun i -> cache2.Get(sprintf "p%d" i) |> ignore) |> ignore
-    (cache2.Count <= SiteCache<string>.Capacity) |> should equal true
+
+// Needs real threads: on single-threaded wasm Parallel.For runs sequentially and would prove
+// nothing, so there the test is skipped rather than passed (AnyUnit has no threading capability yet).
+[<Fact>]
+let ``concurrent misses cannot push a site's name cache past its bound`` () =
+    if System.Environment.ProcessorCount < 2 then raise (AnyUnit.IgnoreException "needs more than one thread")
+    let cache = SiteCache<string>(oneSiteTemplate)
+    System.Threading.Tasks.Parallel.For(0, 4000, fun i -> cache.Get(sprintf "p%d" i) |> ignore) |> ignore
+    (cache.Count <= SiteCache<string>.Capacity) |> should equal true
 
 [<Fact>]
 let ``a thousand distinct names through one site`` () =
