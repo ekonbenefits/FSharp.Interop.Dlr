@@ -65,7 +65,8 @@ module internal Translate =
     let private tryWith = opMethod <@ fun (body: Func<obj>) (handler: Func<exn, obj>) -> DlrRuntime.tryWith body handler @>
     let private tryFinally = opMethod <@ fun (body: Func<obj>) (fin: Func<unit>) -> DlrRuntime.tryFinally body fin @>
     let private using = opMethod <@ fun (r: IDisposable) (body: Func<IDisposable, obj>) -> DlrRuntime.using r body @>
-    let private opIdx = opMethod <@ fun (t: obj) -> (Dlr.idx t) : Indexed<obj> @>
+    let private opItem = opMethod <@ fun (i: obj) (t: obj) -> (Dlr.item i t) : obj @>
+    let private opSetItem = opMethod <@ fun (i: obj) (v: obj) (t: obj) -> Dlr.setItem i v t @>
 
     let private binaryOps =
         dict [
@@ -142,13 +143,6 @@ module internal Translate =
             | other -> unsupported "Dlr.named applied to anything but an anonymous record literal" other
         match e with
         | Op opNamed _ -> peel [] e
-        | _ -> None
-
-    /// `(Dlr.idx x).[i, j]` as a getter or setter: the target and the index expressions.
-    let private IndexedProperty (receiver: Expr option, pi: Reflection.PropertyInfo) =
-        match receiver with
-        | Some(Op opIdx [ Unboxed target ]) when pi.Name = "Item" && pi.DeclaringType.IsGenericType && pi.DeclaringType.GetGenericTypeDefinition() = typedefof<Indexed<_>> ->
-            Some target
         | _ -> None
 
     /// The compiler eta-expands a dynamic member used as a statement:
@@ -396,12 +390,10 @@ module internal Translate =
                 let discard = e.Type = typeof<unit>
                 let bindings, args = argList bound (splitArgs argExpr)
                 Binders.invokeOrApply context discard (targetArg bound target) args |> finish discard e.Type |> bind bound bindings
-            | PropertyGet(receiver, pi, indexes) when (IndexedProperty(receiver, pi)).IsSome ->
-                let target = (IndexedProperty(receiver, pi)).Value
-                Binders.getIndex context (targetArg bound target) (indexList bound indexes) |> convert e.Type
-            | PropertySet(receiver, pi, indexes, Unboxed value) when (IndexedProperty(receiver, pi)).IsSome ->
-                let target = (IndexedProperty(receiver, pi)).Value
-                Binders.setIndex context (targetArg bound target) (indexList bound indexes) (valueArg bound value) |> convert typeof<unit>
+            | Op opItem [ Unboxed indexes; Unboxed target ] ->
+                Binders.getIndex context (targetArg bound target) (indexList bound (splitArgs indexes)) |> convert e.Type
+            | Op opSetItem [ Unboxed indexes; Unboxed value; Unboxed target ] ->
+                Binders.setIndex context (targetArg bound target) (indexList bound (splitArgs indexes)) (valueArg bound value) |> convert typeof<unit>
             | BinaryOp(op, Unboxed left, Unboxed right) ->
                 Binders.binaryOperation context op (valueArg bound left) (valueArg bound right) |> convert e.Type
             | UnaryOp(op, Unboxed operand) ->

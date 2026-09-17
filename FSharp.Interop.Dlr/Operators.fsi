@@ -10,14 +10,6 @@ type Named<'T> =
 type TypeArgs =
     class end
 
-/// <summary>Result of <c>Dlr.idx</c>; only meaningful inside <c>dlr { }</c>. Index with <c>.[i]</c>, <c>.[i, j]</c>, … up to four indexes.</summary>
-[<Sealed>]
-type Indexed<'T> =
-    member Item: i: obj -> 'T with get, set
-    member Item: i: obj * j: obj -> 'T with get, set
-    member Item: i: obj * j: obj * k: obj -> 'T with get, set
-    member Item: i: obj * j: obj * k: obj * l: obj -> 'T with get, set
-
 /// <summary>
 /// Operators recognised inside <c>dlr { }</c>. They are never executed: the builder inspects the
 /// quotation and compiles each one to a DLR call site. Calling any of them outside <c>dlr { }</c> throws.
@@ -68,8 +60,10 @@ module Operators =
 type Dlr =
     /// <summary>Marks an anonymous record as named arguments: <c>x?Method(a, Dlr.named {| count = 3 |})</c>. A bare anonymous record is a positional argument.</summary>
     static member named: record: 'T -> Named<'T>
-    /// <summary>Dynamic indexing: <c>(Dlr.idx x).[i]</c>, <c>(Dlr.idx x).[i, j] &lt;- v</c>. The element type is inferred from use.</summary>
-    static member idx: target: obj -> Indexed<'T>
+    /// <summary>Dynamic indexer get, target last: <c>x |&gt; Dlr.item i</c>, <c>x |&gt; Dlr.item (i, j)</c> (a tuple is several indexes, as for <c>Dlr.call</c>); the element type is inferred from use.</summary>
+    static member item: indexes: 'TIndexes -> target: obj -> 'T
+    /// <summary>Dynamic indexer set, target last: <c>x |&gt; Dlr.setItem i v</c>, <c>x |&gt; Dlr.setItem (i, j) v</c>.</summary>
+    static member setItem: indexes: 'TIndexes -> value: 'TValue -> target: obj -> unit
     /// <summary>Explicit generic type arguments for a member invocation: <c>x?Get(Dlr.typeArgs&lt;int&gt;())</c> calls <c>Get&lt;int&gt;()</c>. Must be the first argument.</summary>
     static member typeArgs<'A> : unit -> TypeArgs
     /// <summary>Two explicit generic type arguments.</summary>

@@ -23,13 +23,11 @@ module Operators =
     let ( ?<- ) (target: obj) (name: string) (value: 'V) : unit = failwith "marker"
     let ( ?+? ) (left: obj) (right: obj) : 'T = failwith "marker"
 type Named<'T> private () = class end
-type Indexed<'T> private () =
-    member _.Item with get (i: obj) : 'T = failwith "marker" and set (i: obj) (v: 'T) = failwith "marker"
 [<Sealed; AbstractClass>]
 type Dlr =
     static member get (name: string) (target: obj) : 'T = failwith "marker"
     static member named (record: 'T) : Named<'T> = failwith "marker"
-    static member idx (target: obj) : Indexed<'T> = failwith "marker"
+    static member item (indexes: 'TIndexes) (target: obj) : 'T = failwith "marker"
 
 namespace Demo
 open FSharp.Interop.Dlr
@@ -157,7 +155,7 @@ module Impl =
     let b () = w?Count <- 1
     let c : int = w ?+? (box 2)
     let d : int = w |> Dlr.get "Count"
-    let e : int = (Dlr.idx w).[0]
+    let e : int = w |> Dlr.item 0
 """
         |> outside
     msgs.Length |> should equal 5

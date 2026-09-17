@@ -75,7 +75,7 @@ let ``set member and index through one site over different kinds`` () =
         set (box e) (i * 10)
         w.Count |> should equal i
         (dlr { return (box e)?Count } : int) |> should equal (i * 10)
-    let index (o: obj) (k: obj) : int = dlr { return (Dlr.idx o).[k] }
+    let index (o: obj) (k: obj) : int = dlr { return o |> Dlr.item k }
     let dict = Dictionary<string, int>(dict [ "a", 1 ])
     let arr = [| 7; 8 |]
     for _ in 1 .. rounds do

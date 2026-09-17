@@ -51,16 +51,15 @@ let private entityFullName (mfv: FSharpMemberOrFunctionOrValue) =
     | Some e -> (try e.FullName with _ -> "")
     | None -> ""
 
-/// The operators (`?`, `?<-`, `?+?`, …) and the `Dlr.*` markers, plus `Indexed<'T>.Item`.
+/// The operators (`?`, `?<-`, `?+?`, …) and the `Dlr.*` markers.
 let private isMarker (mfv: FSharpMemberOrFunctionOrValue) =
     match entityFullName mfv with
     | "FSharp.Interop.Dlr.Operators" | "FSharp.Interop.Dlr.Dlr" -> true
-    | name when name.StartsWith "FSharp.Interop.Dlr.Indexed" -> mfv.IsPropertyGetterMethod || mfv.IsPropertySetterMethod || mfv.IsProperty
     | _ -> false
 
 /// Marker uses that are not inside a `dlr.Run(...)` subtree: range and display name. Structural
 /// rather than by range, since the synthesized `Run` call's range does not span the block body.
-/// The outermost marker of a nested use (`(Dlr.idx x).[i]`) is reported once.
+/// The outermost marker of a nested use (`Dlr.item (x |> Dlr.get "A") 0`) is reported once.
 let rec private markersOutsideRun (e: FSharpExpr) : (range * string) list =
     match e with
     | FSharpExprPatterns.Call(_, mfv, _, _, _) when isDlrRun mfv -> []
