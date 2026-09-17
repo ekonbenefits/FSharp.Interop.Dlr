@@ -27,7 +27,9 @@
     <PackageReference Include="FSharp.Analyzers.Build" PrivateAssets="all" />
   </ItemGroup>
 
-  <ItemGroup>
+  <!-- Only so the analyzer builds first; skipped when analyzers are off (-p:RunAnalyzers=false),
+       which the older-SDK CI legs pass since the analyzer project targets net10.0. -->
+  <ItemGroup Condition="'$(RunAnalyzers)' != 'false'">
     <ProjectReference Include="..\FSharp.Interop.Dlr.Analyzers\FSharp.Interop.Dlr.Analyzers.fsproj" ReferenceOutputAssembly="false" SkipGetTargetFrameworkProperties="true" SetTargetFramework="TargetFramework=net10.0" />
   </ItemGroup>
 
