@@ -75,8 +75,8 @@ instantiation); so do nested blocks, blocks inside `task { }` / `async { }`, and
 
 ## Syntax
 
-A member name may be a variable: the site then compiles one delegate per distinct name on first
-use, and a repeated name costs a dictionary lookup.
+A member name may be a variable: the site then creates its call sites per distinct name on first
+use (kept up to 256 names, then cleared), and a repeated name costs a dictionary lookup.
 
 | Syntax | Binder |
 | --- | --- |

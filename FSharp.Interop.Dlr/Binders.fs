@@ -520,18 +520,47 @@ type FunctionMember =
     static member Tupled5Unit<'A, 'B, 'C, 'D, 'E>(invoke: CallSite<Action<CallSite, obj, 'A, 'B, 'C, 'D, 'E>>, target: obj) : 'A * 'B * 'C * 'D * 'E -> unit =
         fun (a, b, c, d, e) -> invoke.Target.Invoke(invoke, target, a, b, c, d, e)
 
-/// A call site whose member name is only known at run time (`(?) x name` with `name` a variable):
-/// one compiled, typed delegate per distinct name, made on first use from a quotation template
-/// the translator built for the site, so after that first call a name costs one dictionary
-/// lookup and behaves exactly like a literal.
+/// The call sites of an operation whose binder inputs are only known at run time (`(?) x name`
+/// with `name` a variable): one set of sites per distinct key, created on first use from a
+/// quotation template the translator built for the operation, and read back out of it. The
+/// delegate that invokes them is compiled once, at translation time, with the sites as
+/// parameters — so a new key costs the binders and sites (~µs, a few hundred bytes), not a
+/// `LambdaExpression.Compile()`, and a repeated key costs one dictionary lookup. Bounded: at
+/// `Capacity` entries the cache is cleared and refills, a miss being cheap.
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
-type NameCache<'Delegate when 'Delegate :> Delegate>(template: string -> Expr) =
-    let compiled = System.Collections.Concurrent.ConcurrentDictionary<string, 'Delegate>()
+type SiteCache<'Key when 'Key: equality>(template: 'Key -> Expr) =
+    let entries = System.Collections.Concurrent.ConcurrentDictionary<'Key, CallSite[]>()
 
-    member _.Get(name: string) : 'Delegate =
-        compiled.GetOrAdd(name, fun n ->
-            let linq = Microsoft.FSharp.Linq.RuntimeHelpers.LeafExpressionConverter.QuotationToExpression(template n) :?> LambdaExpression
-            linq.Compile() :?> 'Delegate)
+    /// The `CallSite` constants in a template's expression, one per distinct site, in traversal
+    /// order — the order the translator's parameters follow.
+    static member Sites(e: Expr) : CallSite list =
+        let found = System.Collections.Generic.List<CallSite>()
+        let rec walk (e: Expr) =
+            match e with
+            | Patterns.Value(v, _) ->
+                match v with
+                | :? CallSite as site when not (found |> Seq.exists (fun s -> obj.ReferenceEquals(s, site))) -> found.Add site
+                | _ -> ()
+            | ExprShape.ShapeVar _ -> ()
+            | ExprShape.ShapeLambda(_, body) -> walk body
+            | ExprShape.ShapeCombination(_, args) -> List.iter walk args
+        walk e
+        List.ofSeq found
+
+    /// Entries kept per cache before it is cleared.
+    static member val Capacity = 256 with get, set
+
+    member _.Count = entries.Count
+
+    member _.Get(key: 'Key) : CallSite[] =
+        match entries.TryGetValue key with
+        | true, sites -> sites
+        | _ ->
+            if entries.Count >= SiteCache<'Key>.Capacity then entries.Clear()
+            entries.GetOrAdd(key, fun k -> Array.ofList (SiteCache<'Key>.Sites(template k)))
+
+    /// `sites.[i]`, for the quotation (array indexing has no direct quotation form the converter takes).
+    static member At(sites: CallSite[], i: int) : CallSite = sites.[i]
 
 /// Builds Microsoft.CSharp binders and emits the quotation fragment that calls a
 /// pre-created CallSite: `Call(FieldGet(Value site, Target), Invoke, site :: args)`.

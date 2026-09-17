@@ -62,3 +62,32 @@ let ``computed name that does not exist raises RuntimeBinderException`` () =
     let w = box (Widget())
     let read (name: string) : obj = dlr { return (?) w name }
     (fun () -> read "Nope" |> ignore) |> should throw typeof<RuntimeBinderException>
+
+[<Fact>]
+let ``a site's name cache is bounded`` () =
+    // Direct: the cache is a constant inside the compiled block, so exercise the type itself with
+    // a template that makes one site per key, as the translator's do.
+    let template (name: string) =
+        let binder = Microsoft.CSharp.RuntimeBinder.Binder.GetMember(Microsoft.CSharp.RuntimeBinder.CSharpBinderFlags.None, name, typeof<obj>, [ Microsoft.CSharp.RuntimeBinder.CSharpArgumentInfo.Create(Microsoft.CSharp.RuntimeBinder.CSharpArgumentInfoFlags.None, null) ])
+        let site = System.Runtime.CompilerServices.CallSite<System.Func<System.Runtime.CompilerServices.CallSite, obj, obj>>.Create binder
+        FSharp.Quotations.Expr.Value(site, site.GetType())
+    let cache = SiteCache<string>(template)
+    let first = cache.Get "n0"
+    obj.ReferenceEquals(cache.Get "n0", first) |> should equal true      // a hit is the same sites
+    first.Length |> should equal 1
+    for i in 1 .. 1000 do cache.Get(sprintf "n%d" i) |> ignore
+    (cache.Count <= SiteCache<string>.Capacity) |> should equal true
+    cache.Get "n0" |> ignore                                             // still works after clearing
+    (cache.Count >= 1) |> should equal true
+
+[<Fact>]
+let ``a thousand distinct names through one site`` () =
+    let w = box (Widget())
+    let hits = ResizeArray<int>()
+    let names = [ for i in 1 .. 1000 -> if i % 2 = 0 then "Count" else "Name" + string i ]
+    dlr {
+        for n in names do
+            try hits.Add((?) w n)
+            with :? RuntimeBinderException -> ()
+    }
+    List.ofSeq hits |> should equal [ for _ in 1 .. 500 -> 3 ]
