@@ -21,7 +21,22 @@
     <PackageReference Include="AnyUnit.Style.Xunit" />
     <PackageReference Include="AnyUnit.Style.FsUnit" />
     <PackageReference Include="coverlet.MTP" />
+    <!-- Dogfood: FSharp.Analyzers.Build runs the repo's own analyzer over this project after it
+         compiles (the fsharp-analyzers tool comes from .config/dotnet-tools.json). Unreflected.fs
+         carries the one intentional DLR001 behind an ignore-line comment. -->
+    <PackageReference Include="FSharp.Analyzers.Build" PrivateAssets="all" />
   </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FSharp.Interop.Dlr.Analyzers\FSharp.Interop.Dlr.Analyzers.fsproj" ReferenceOutputAssembly="false" SkipGetTargetFrameworkProperties="true" SetTargetFramework="TargetFramework=net10.0" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <FSharpAnalyzersOtherFlags>--analyzers-path "$(MSBuildThisFileDirectory)../FSharp.Interop.Dlr.Analyzers/bin/$(Configuration)/net10.0" --code-root "$(MSBuildThisFileDirectory).."</FSharpAnalyzersOtherFlags>
+    <RunAnalyzers Condition="'$(TargetFramework)' == 'net10.0'">true</RunAnalyzers>
+    <!-- An analyzer error is a build error, not a warning. -->
+    <FSharpAnalyzersContinueOnError>false</FSharpAnalyzersContinueOnError>
+  </PropertyGroup>
 
   <ItemGroup>
     <Compile Include="AssemblyInfo.fs" />

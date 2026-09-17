@@ -31,6 +31,13 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      # The Tests project runs the repo's own analyzer as part of its build
+      # (FSharp.Analyzers.Build; the fsharp-analyzers tool is in the tool
+      # manifest), so a dlr { } without the attribute is a build error here
+      # - the one deliberate case, Tests/Unreflected.fs, carries an ignore.
+      - name: Restore tools
+        run: dotnet tool restore
+
       # Both configurations on purpose: the Release optimizer inlines
       # closure captures the Debug build leaves as fields, and the
       # quotation translation has to cope with either (it didn't, once).
@@ -61,24 +68,6 @@ jobs:
           dotnet Analyzers.Tests/bin/${{ matrix.configuration }}/net10.0/Analyzers.Tests.dll \
             --report-anyunit-json results/Analyzers-net10-${{ matrix.configuration }}.json \
             --platform-suffix ${{ matrix.configuration }}
-
-      # End to end through the real fsharp-analyzers tool over the real test
-      # project: exactly one block lacks the attribute on purpose
-      # (Tests/Unreflected.fs), so exactly one DLR001 is the pass condition.
-      - name: Analyzer smoke test
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          dotnet tool install --global fsharp-analyzers --version 0.39.2
-          export PATH="$PATH:$HOME/.dotnet/tools"
-          set +e
-          out=$(fsharp-analyzers --project Tests/Tests.fsproj \
-            --analyzers-path FSharp.Interop.Dlr.Analyzers/bin/${{ matrix.configuration }}/net10.0 \
-            --code-root . 2>&1)
-          set -e
-          echo "$out" | grep DLR001 || true
-          count=$(echo "$out" | grep -c "DLR001" || true)
-          echo "$out" | grep -q "Unreflected.fs.*DLR001" && [ "$count" = "1" ]
 
       - name: Test (net48)
         if: runner.os == 'Windows'
@@ -128,8 +117,10 @@ jobs:
           printf '{ "sdk": { "version": "%s.0", "rollForward": "latestFeature" }, "test": { "runner": "Microsoft.Testing.Platform" } }' "${{ matrix.sdk }}" > global.json
           dotnet --version
 
+      # RunAnalyzers=false: the analyzer tool needs the .NET 10 runtime,
+      # which these older-SDK legs deliberately do not have.
       - name: Build with this compiler
-        run: dotnet build Tests/Tests.fsproj --configuration ${{ matrix.configuration }} -p:TargetFrameworks=net${{ matrix.sdk }}
+        run: dotnet build Tests/Tests.fsproj --configuration ${{ matrix.configuration }} -p:TargetFrameworks=net${{ matrix.sdk }} -p:RunAnalyzers=false
 
       - name: Test
         shell: bash
@@ -225,7 +216,7 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Build
-        run: dotnet build --configuration Debug
+        run: dotnet build --configuration Debug -p:RunAnalyzers=false
 
       - name: Test with coverage
         shell: bash
