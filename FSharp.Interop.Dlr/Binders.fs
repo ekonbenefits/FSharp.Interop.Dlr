@@ -331,39 +331,57 @@ module FunctionAdapters =
     type Tupled5Unit<'A, 'B, 'C, 'D, 'E>(f: 'A * 'B * 'C * 'D * 'E -> unit) =
         member _.Invoke(a: 'A, b: 'B, c: 'C, d: 'D, e: 'E) : unit = f (a, b, c, d, e)
 
-    let private adapters = System.Collections.Concurrent.ConcurrentDictionary<struct (Type * Type), ConstructorInfo>()
+    let private conversions = System.Collections.Concurrent.ConcurrentDictionary<struct (Type * Type), (obj -> Delegate) option>()
 
-    /// The adapter constructor for a function value's runtime shape and a delegate type, or None
-    /// when they do not match: same arity, the function's domains reference-assignable to the
-    /// delegate's parameters, a `unit` result only for a void delegate.
-    let tryAdapter (funcType: Type) (delegateType: Type) : ConstructorInfo option =
-        match adapters.TryGetValue(struct (funcType, delegateType)) with
-        | true, c -> Some c
+    /// How to make a delegate of `delegateType` from a function value of `funcType`, or None when
+    /// the shapes do not match (arity, the function's domains reference-assignable to the
+    /// delegate's parameters, a `unit` result only for a void delegate). Up to five parameters an
+    /// adapter instance is bound with `CreateDelegate` per call; past that a lambda of the
+    /// delegate's signature applying the function is compiled once here and closed over the
+    /// function value per call (any arity the delegate allows).
+    let tryConversion (funcType: Type) (delegateType: Type) : (obj -> Delegate) option =
+        match conversions.TryGetValue(struct (funcType, delegateType)) with
+        | true, c -> c
         | _ ->
             let invoke = delegateType.GetMethod("Invoke")
             let ps = [ for p in invoke.GetParameters() -> p.ParameterType ]
             let isVoid = invoke.ReturnType = typeof<Void>
-            match FunctionShapes.domains funcType with
-            | Some(ds, tupled, result) ->
-                let ds = if ds = [ typeof<unit> ] then [] else ds
-                let n = ds.Length
-                let unitResult = result = typeof<unit>
-                let fitsParams = n = ps.Length && List.forall2 (fun (d: Type) (p: Type) -> d = p || (not d.IsValueType && d.IsAssignableFrom p)) ds ps
-                let fitsResult = if isVoid then unitResult else not unitResult && (invoke.ReturnType = result || (not result.IsValueType && invoke.ReturnType.IsAssignableFrom result))
-                if not (fitsParams && fitsResult) || n > 5 || (tupled && n < 2) then None
-                else
-                    let name = (if tupled then "Tupled" else "Curried") + string n + (if isVoid then "Unit" else "")
-                    let def = typeof<Curried0Unit>.DeclaringType.GetNestedType(name + (if n + (if isVoid then 0 else 1) > 0 then "`" + string (n + (if isVoid then 0 else 1)) else ""))
-                    let closed = if def.IsGenericTypeDefinition then def.MakeGenericType(Array.ofList (ds @ (if isVoid then [] else [ result ]))) else def
-                    let c = closed.GetConstructors().[0]
-                    adapters.[struct (funcType, delegateType)] <- c
-                    Some c
-            | None -> None
+            let conversion =
+                match FunctionShapes.domains funcType with
+                | Some(ds, tupled, result) ->
+                    let ds = if ds = [ typeof<unit> ] then [] else ds
+                    let n = ds.Length
+                    let unitResult = result = typeof<unit>
+                    let fitsParams = n = ps.Length && List.forall2 (fun (d: Type) (p: Type) -> d = p || (not d.IsValueType && d.IsAssignableFrom p)) ds ps
+                    let fitsResult = if isVoid then unitResult else not unitResult && (invoke.ReturnType = result || (not result.IsValueType && invoke.ReturnType.IsAssignableFrom result))
+                    if not (fitsParams && fitsResult) || (tupled && n < 2) then None
+                    elif n <= 5 then
+                        let name = (if tupled then "Tupled" else "Curried") + string n + (if isVoid then "Unit" else "")
+                        let arity = n + (if isVoid then 0 else 1)
+                        let def = typeof<Curried0Unit>.DeclaringType.GetNestedType(name + (if arity > 0 then "`" + string arity else ""))
+                        let closed = if def.IsGenericTypeDefinition then def.MakeGenericType(Array.ofList (ds @ (if isVoid then [] else [ result ]))) else def
+                        let c = closed.GetConstructors().[0]
+                        Some(fun (f: obj) -> Delegate.CreateDelegate(delegateType, c.Invoke [| f |], "Invoke"))
+                    else
+                        let fParam = Expression.Parameter(typeof<obj>, "f")
+                        let parameters = [| for p in invoke.GetParameters() -> Expression.Parameter(p.ParameterType, p.Name) |]
+                        let args = [| for p in parameters -> DynamicMetaObject(p, BindingRestrictions.Empty) |]
+                        FunctionShapes.applyCall funcType (Expression.Convert(fParam, funcType)) args
+                        |> Option.map (fun call ->
+                            let body =
+                                if isVoid then Expression.Block(typeof<Void>, [| call |]) :> Expression
+                                else Expression.Convert(call, invoke.ReturnType) :> Expression
+                            let inner = Expression.Lambda(delegateType, body, parameters)
+                            let factory = Expression.Lambda<Func<obj, Delegate>>(Expression.Convert(inner, typeof<Delegate>), fParam).Compile()
+                            fun (f: obj) -> factory.Invoke f)
+                | None -> None
+            conversions.[struct (funcType, delegateType)] <- conversion
+            conversion
 
-    /// The delegate over `f`, built per call from its adapter.
+    /// The delegate over `f`.
     let Make (delegateType: Type) (f: obj) : Delegate =
-        match tryAdapter (f.GetType()) delegateType with
-        | Some c -> Delegate.CreateDelegate(delegateType, c.Invoke [| f |], "Invoke")
+        match tryConversion (f.GetType()) delegateType with
+        | Some convert -> convert f
         | None -> raise (RuntimeBinderException(sprintf "Cannot convert an F# function of type '%s' to '%s'" (f.GetType().Name) delegateType.Name))
 
 /// F# optional parameters (`?arg`) compile to `FSharpOption<'T>` parameters carrying
@@ -383,11 +401,11 @@ module internal OptionalArguments =
     let private isDelegate (t: Type) = typeof<Delegate>.IsAssignableFrom t && not (isNull (t.GetMethod "Invoke"))
     let private isAbstractDelegate (t: Type) = t = typeof<Delegate> || t = typeof<MulticastDelegate>
 
-    /// An F# function value for a delegate-typed parameter: a delegate over an adapter of the
-    /// function's shape (`FunctionAdapters`), as F# itself converts a lambda argument to a
-    /// `Func`/`Action` parameter at a static call.
+    /// An F# function value for a delegate-typed parameter: a delegate over the function
+    /// (`FunctionAdapters`), as F# itself converts a lambda argument to a `Func`/`Action`
+    /// parameter at a static call.
     let private functionToDelegate (delegateType: Type) (a: DynamicMetaObject) : Expression option =
-        match FunctionAdapters.tryAdapter a.LimitType delegateType with
+        match FunctionAdapters.tryConversion a.LimitType delegateType with
         | None -> None
         | Some _ ->
             let make = typeof<FunctionAdapters.Curried0Unit>.DeclaringType.GetMethod("Make")
@@ -429,7 +447,7 @@ module internal OptionalArguments =
             // Left to C#, FSharpFunc's own op_Implicit makes a Converter<Unit, R> of a `unit -> R`
             // — a one-parameter delegate, wrong for a `DynamicInvoke()` — so this goes first.
             match FunctionShapes.domains at with
-            | Some(ds, _, _) when ds.Length > 5 -> None      // past the adapters' arity: C#'s own binding
+            | Some(ds, _, _) when ds.Length > 16 -> None     // no Func/Action of that many parameters
             | Some(ds, _, result) ->
                 let ds = if ds = [ typeof<unit> ] then [] else ds
                 let delegateType = if result = typeof<unit> then Expression.GetActionType(Array.ofList ds) else Expression.GetFuncType(Array.ofList (ds @ [ result ]))

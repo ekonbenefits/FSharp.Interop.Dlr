@@ -144,7 +144,7 @@ or got wrong, so nothing C# binds correctly changes:
 - **An F# function fits a delegate parameter, and a delegate fits a function parameter**:
   `x?Each(items, fun i -> …)` against an `Action<int>`, `x?Apply(3, Func<int, int>(…))` against
   an `int -> int` — the conversions F# does at a static call. C#'s binder sees an `FSharpFunc`
-  and a `Func` as unrelated types. Function-to-delegate up to five parameters.
+  and a `Func` as unrelated types.
 - **F# optional parameters (`?arg`) can be omitted**: omitted ones are `None`, bare values become
   `Some`. C#'s binder cannot omit them (they are `FSharpOption<'T>` parameters with no `[Optional]`
   metadata).

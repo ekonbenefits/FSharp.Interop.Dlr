@@ -20,8 +20,9 @@ let ``an F# lambda is converted to a delegate parameter`` () =
     let f = fun (x: int) -> x * 2
     (dlr { return o?Map(21, f) } : int) |> should equal 42                                     // a function value, typed
     (dlr { return o?Map(21, box f) } : int) |> should equal 42                                 // and as obj, by runtime type
-    // Function-to-delegate adapters go to five parameters (like reads as functions); past that C#'s error stands.
-    (fun () -> (dlr { return o?Six(fun a b c d e (f: int) -> a + b + c + d + e + f) } : int) |> ignore) |> should throw typeof<RuntimeBinderException>
+    // Past five parameters a compiled lambda takes over: any arity the delegate allows.
+    (dlr { return o?Six(fun a b c d e (f: int) -> a + b + c + d + e + f) } : int) |> should equal 21
+    (dlr { return o?Six(fun (a, b, c, d, e, f: int) -> a * b * c * d * e * f) } : int) |> should equal 720
 
 [<Fact>]
 let ``a delegate is converted to an F# function parameter`` () =
@@ -49,8 +50,7 @@ let ``overloads: the delegate parameter is one candidate among others`` () =
     (dlr { return o?Raw(fun () -> ()) } : string) |> should equal "Action"
     let raw = Func<string>(fun () -> "raw")
     (dlr { return o?Raw(raw) } : string) |> should equal "Func`1"
-    // Past five parameters the adapters stop and C# binds as before (its op_Implicit Converter).
-    (dlr { return o?Raw(fun a b c d e (f: int) -> a + b + c + d + e + f) } : string) |> should equal "Converter`2"
+    (dlr { return o?Raw(fun a b c d e (f: int) -> a + b + c + d + e + f) } : string) |> should equal "Func`7"
     // A delegate still binds directly, as before.
     (dlr { return o?Map(20, Func<int, int>(fun x -> x + 2)) } : int) |> should equal 22
 
