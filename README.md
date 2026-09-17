@@ -80,16 +80,17 @@ use, and a repeated name costs a dictionary lookup.
 | Syntax | Binder |
 | --- | --- |
 | `x?Name` | GetMember, then Convert to the inferred type |
-| `x?Name(a, b)`, `x?Name()` | InvokeMember. Arguments keep their static type; `obj` arguments dispatch on the runtime type; literals get C#'s constant conversions (`5` to `byte`, `0` to an enum, `null` to any reference type) |
+| `x?Name(a, b)`, `x?Name()` | InvokeMember. Arguments keep their static type; `obj` arguments dispatch on the runtime type; literals get C#'s constant conversions (`5` to `byte`, `0` to an enum, `null` to any reference type). A member holding an F# function value (curried or tupled) is applied when the binder cannot invoke it |
 | `x?Name(a, Dlr.named {\| p = v \|})` | named arguments (a bare anonymous record is one positional argument) |
 | `x?Name(Dlr.typeArgs<A, B>(), a)` | explicit type arguments (up to four, first); otherwise inferred from the arguments as in C# |
+| `x?Name` typed `A -> B -> R` | a curried F# function that invokes the member when fully applied — a method, a delegate or an F# function alike — so `let add: int -> int -> int = dlr { return w?Add }`, then `add 1 2` or `add 1` partially; `A * B -> R` calls with a tuple; `unit -> R` reads a property or calls a parameterless method |
 | `x?Name <- v` | SetMember |
 | `(?) x name`, `((?) x name)(a)`, `(?<-) x name v` | the same three as plain function applications |
 | `x \|> Dlr.get "Name"` | GetMember, target last, for pipelines; applied to arguments it invokes, like `?` |
 | `x \|> Dlr.invoke "Name" (a, b)` | InvokeMember, target last |
 | `x \|> Dlr.set "Name" v` | SetMember, target last |
 | `x \|> Dlr.addAssign "Name" v`, `x \|> Dlr.subtractAssign "Name" v` | C#'s `+=` / `-=`: an IsEvent site picks the event accessor (`add_` / `remove_`) or read-modify-write |
-| `x \|> Dlr.call (a, b)`, `x \|> Dlr.call ()` | Invoke the object itself (a delegate, a callable dynamic object) |
+| `x \|> Dlr.call (a, b)`, `x \|> Dlr.call ()` | Invoke the object itself: a delegate, a callable dynamic object, or an F# function value |
 | `(Dlr.idx x).[i]`, `(Dlr.idx x).[i, j] <- v` | GetIndex / SetIndex, up to four indexes |
 | `?+? ?-? ?*? ?/? ?%? ?&&&? ?\|\|\|? ?^^^? ?<<<? ?>>>?` | BinaryOperation, then Convert |
 | `?=? ?<>? ?<? ?>? ?<=? ?>=?` | BinaryOperation, then Convert to `bool` |
@@ -109,44 +110,47 @@ Same binder, same limits — each pinned by a test in `Tests/Restrictions.fs`:
 
 - **Extension methods** are not found; the binder sees only the target's own members.
 - **Static members** cannot be reached through an instance.
+- **Explicitly implemented interface members** are not found: the binder sees the runtime type's
+  public members, and an explicit implementation is a private method named `IFoo.Bar`. In F#
+  every interface implementation is explicit, so `o?Dispose()` on an F# `IDisposable` fails
+  unless the type also exposes the member; cast to the interface statically (`o :?> IFoo`) and
+  call it there.
 - **Accessibility is the calling type's**: `private` binds only inside the declaring type,
   `internal` anywhere in the assembly. F# `private` compiles to IL `internal`.
-- **Lambdas need a delegate type** (`Func<int, int>(fun x -> …)`); an F# function value is an
-  `FSharpFunc`, not a `Func`.
+- **Lambdas passed as arguments need a delegate type** (`Func<int, int>(fun x -> …)`); an F#
+  function value is an `FSharpFunc`, not a `Func`.
 - **No compile-time checking**: a misspelt member or wrong arity is a `RuntimeBinderException`
   at the call.
 - **Target and result are `obj`**, so value types box there; arguments do not. `byref` and
   `Span` cannot cross a dynamic operation.
 - **Generic type arguments** must be inferable from the arguments, or given with `Dlr.typeArgs`.
-- **F# optional parameters (`?arg`)** cannot be omitted: they are plain `FSharpOption<'T>`
-  parameters with no `[Optional]` metadata (a bare value still converts via `op_Implicit`).
-  `[<Optional; DefaultParameterValue>]` parameters are optional, as in C#.
 - **No NativeAOT, no trimming.** The runtime binder, `LambdaExpression.Compile()` and the
   reflection that finds bodies and closure fields all need a JIT; the assembly is marked
   `IsAotCompatible=false` / `IsTrimmable=false`. Interpreted (non-AOT) browser-wasm works, and CI
   runs it, just not at JIT speed.
 
+Two places it goes beyond C#, for F#'s sake — both as binder rules where C# would have failed,
+so nothing C# can bind changes:
+
+- **A member holding an F# function value can be called** (`e?Fn(21)`, a record field
+  `h?OnPair(3, 4)`, `f |> Dlr.call 21`), curried or tupled, any arity; and any member can be read
+  as an F# function type (`let add: int -> int -> int = dlr { return w?Add }`; curried any
+  arity, tupled up to five), which C# has no form for.
+- **F# optional parameters (`?arg`) can be omitted**: omitted ones are `None`, bare values become
+  `Some`. C#'s binder cannot omit them (they are `FSharpOption<'T>` parameters with no `[Optional]`
+  metadata).
+
 ## How it works
 
-1. With no `Quote` member, `dlr { … }` desugars to `dlr.Run(dlr.Delay(fun () -> …), file, line)`.
-   `Delay` returns the closure unevaluated; its compiler-generated type is unique to the block and
-   its fields are the captured variables.
-2. On the first call, `Discover` finds the block's body in the enclosing `[<ReflectedDefinition>]`
-   (decoded once by FSharp.Core) by the baked line number.
-3. `Translate` turns free variables into reads of the closure's fields and each dynamic operation
-   into a call on a `CallSite<_>` embedded as a constant, then compiles the tree to a
-   `Func<obj, 'T>` cached by closure type.
+`dlr { … }` desugars to `dlr.Run(dlr.Delay(fun () -> …), file, line)`; `Delay` returns the
+closure unevaluated. Its compiler-generated type identifies the block and its fields hold the
+captured variables. On the first call the body is found in the enclosing `[<ReflectedDefinition>]`,
+translated into an expression tree with one `CallSite` per operation baked in as a constant, and
+compiled to a `Func<obj, 'T>` cached by closure type. Invocation sites use C#'s binder wrapped in
+one that also applies F# function values, as DLR rules per runtime type.
 
-Why not `Quote` the block? FSharp.Core rebuilds a quotation literal on every evaluation, ~4–10 µs
-each, with no cache; reflected definitions are decoded once.
-
-**Compiler assumptions.** The desugaring, caller-info arguments, `[<ReflectedDefinition>]` and
-`LeafExpressionConverter` are specified F#. The closure class shape is not: fields named after the
-captured variables (`this` as `this`, a `let mutable` as an `FSharpRef`), nesting in the module or
-`<StartupCode$…>` type, generic parameters named as the member's, and the Release optimizer
-inlining constants and once-called local functions (resolved from the reflected body). If any of
-that changes, the first call raises `DlrTranslationException` — nothing binds silently wrong — and
-CI builds with the .NET 8, 9 and 10 SDKs, Debug and Release, to catch it first.
+[docs/internals.md](docs/internals.md) has the full picture: every cache, every site and its
+argument flags, the F#-aware binders, and what the translator assumes about the compiler.
 
 ## Measured
 

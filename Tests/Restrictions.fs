@@ -21,6 +21,14 @@ let ``static members cannot be reached through an instance`` () =
     (fun () -> (dlr { return o?Make() } : obj) |> ignore) |> should throw typeof<RuntimeBinderException>
 
 [<Fact>]
+let ``explicitly implemented interface members are not found`` () =
+    let g = box (Greeter())
+    (dlr { return g?Name } : string) |> should equal "greeter"                 // a public member binds
+    (fun () -> (dlr { return g?Greet("you") } : string) |> ignore) |> should throw typeof<RuntimeBinderException>
+    // The way through: a static cast to the interface.
+    (g :?> IGreeter).Greet "you" |> should equal "hello you"
+
+[<Fact>]
 let ``accessibility is the calling type's`` () =
     // Widget.Secret is `member private`, which is IL internal: reachable from this assembly...
     let w = Widget()
@@ -30,9 +38,9 @@ let ``accessibility is the calling type's`` () =
     (fun () -> (dlr { return s?_firstChar } : char) |> ignore) |> should throw typeof<RuntimeBinderException>
 
 [<Fact>]
-let ``lambdas need a delegate type`` () =
+let ``lambdas passed as arguments need a delegate type`` () =
     let o = box (Widget())
-    let asFunction = fun (x: int) -> x * 2          // an FSharpFunc object
+    let asFunction = fun (x: int) -> x * 2          // an FSharpFunc object: not a Func<int,int>
     (fun () -> (dlr { return o?Run(asFunction) } : int) |> ignore) |> should throw typeof<RuntimeBinderException>
     let asDelegate = Func<int, int>(fun x -> x * 2)
     (dlr { return o?Run(asDelegate) } : int) |> should equal 42
@@ -72,13 +80,30 @@ let ``a failed bind is a RuntimeBinderException for every kind of miss`` () =
     (fun () -> (dlr { return Dlr.implicit d } : int) |> ignore) |> should throw typeof<RuntimeBinderException>  // no implicit conversion
 
 [<Fact>]
-let ``F# optional parameters are not optional to the binder`` () =
-    let o = box (Widget())
-    // ?step compiles to an FSharpOption<int> parameter with no [Optional] metadata: it cannot be omitted...
-    (fun () -> (dlr { return o?BumpF(1) } : int) |> ignore) |> should throw typeof<RuntimeBinderException>
-    // ...but FSharpOption<'T> has an op_Implicit from 'T, so a bare value converts, as does an explicit Some.
-    (dlr { return o?BumpF(1, 2) } : int) |> should equal 3
-    (dlr { return o?BumpF(1, Some 2) } : int) |> should equal 3
-    // ...while [<Optional; DefaultParameterValue>] is optional, as in C#.
+let ``F# optional parameters can be omitted, the library binding what C# cannot`` () =
+    let w = Widget()
+    let o = box w
+    // ?step is an FSharpOption<int> parameter with no [Optional] metadata: C#'s binder cannot omit
+    // it, so the library offers its own rule for that case (None for the omitted, Some for a bare value).
+    (dlr { return o?BumpF(1) } : int) |> should equal 2
+    (dlr { return o?BumpF(1, 2) } : int) |> should equal 3         // C#'s own path: op_Implicit to Some
+    (dlr { return o?BumpF(1, Some 5) } : int) |> should equal 6
+    (dlr { return o?Wrap() } : string) |> should equal "<x>"
+    (dlr { return o?Wrap("[") } : string) |> should equal "[x>"
+    (dlr { return o?Wrap("[", "]") } : string) |> should equal "[x]"
+    dlr { o?TouchF() }
+    dlr { o?TouchF(2) }
+    w.Touched |> should equal 3
+    // The library's rule accepts what C# would for the required slots: numeric widening, a null.
+    (dlr { return o?WidenF(5) } : int64) |> should equal 5L
+    (dlr { return o?WidenF(5, Some 2) } : int64) |> should equal 10L
+    (dlr { return o?WidenF(5, 3) } : int64) |> should equal 15L
+    (dlr { return o?LabelF(null) } : string) |> should equal "null"
+    (dlr { return o?LabelF(box null) } : string) |> should equal "null"
+    (dlr { return o?LabelF(box "s") } : string) |> should equal "s"
+    (fun () -> (dlr { return o?LabelF(box 5) } : string) |> ignore) |> should throw typeof<RuntimeBinderException>
+    let bump: int -> int = dlr { return o?BumpF }              // bound with the optional omitted
+    bump 10 |> should equal 11
+    // [<Optional; DefaultParameterValue>] parameters are C#'s own optional and were always fine.
     (dlr { return o?Bump(1) } : int) |> should equal 2
-    (dlr { return o?Bump(1, 5) } : int) |> should equal 6
+

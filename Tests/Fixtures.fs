@@ -19,9 +19,28 @@ type Widget() =
     member _.Greet(greeting: string, name: string) = greeting + ", " + name
     member _.Bump(count: int, [<Optional; DefaultParameterValue(1)>] step: int) = count + step
     member _.BumpF(count: int, ?step: int) = count + defaultArg step 1
+    member _.Wrap(?prefix: string, ?suffix: string) = (defaultArg prefix "<") + "x" + (defaultArg suffix ">")
+    member this.TouchF(?times: int) = for _ in 1 .. defaultArg times 1 do this.Touch()
+    member _.WidenF(n: int64, ?scale: int) = n * int64 (defaultArg scale 1)
+    member _.LabelF(s: string, ?tag: string) = (if isNull s then "null" else s) + defaultArg tag ""
     member val Touched = 0 with get, set
     member this.Touch() = this.Touched <- this.Touched + 1
     member _.Item with get (i: int) = i * 10
+    /// F# private: IL internal, reachable from this assembly's context, as the binder allows.
+    member private _.Hidden = fun (x: int) -> x - 1
+    member private _.BumpHidden(count: int, ?step: int) = count + defaultArg step 100
+    member _.Reveal(o: obj) : int = dlr { return o?Hidden(10) }
+    /// Protected: reachable from a derived type's context.
+    abstract Family: int -> int
+    default _.Family(x) = x * 2
+    member _.Overloaded(s: string, ?tag: string) = "string:" + s + defaultArg tag ""
+    member _.Overloaded(o: obj, ?tag: string) = "obj:" + string o + defaultArg tag ""
+    member _.Wide = fun (x: int64) -> x + 1L
+    member _.Five = fun (a: int) (b: int) (c: int) (d: int) (e: int) -> a + b + c + d + e
+    member _.Six = fun (a: int) (b: int) (c: int) (d: int) (e: int) (f: int) -> a * b * c * d * e * f
+    member _.SixTupled = fun (a: int, b: int, c: int, d: int, e: int, f: int) -> a + b + c + d + e + f
+    member _.Eight = fun (a: int) (b: int) (c: int) (d: int) (e: int) (f: int) (g: int) (h: int) -> a + b + c + d + e + f + g + h
+    member _.RevealOptional(o: obj) : int = dlr { return o?BumpHidden(1) }
     member _.Run(f: Func<int, int>) = f.Invoke 21
     static member Make() = Widget()
     member val Total = 10 with get, set
@@ -36,6 +55,7 @@ type Widget() =
     member _.Kind(_: DayOfWeek) = "enum"
     member _.Kind(_: obj) = "obj"
     member _.Text(_: string) = "string"
+    member _.Sum6(a: int, b: int, c: int, d: int, e: int, f: int) = a + b + c + d + e + f
     member _.Text(_: int) = "int"
     member val Ratio = 2.75 with get, set
     member private _.Secret = "hidden"
@@ -50,6 +70,52 @@ type Clicker() =
     [<CLIEvent>]
     member _.Clicked = clicked.Publish
     member _.Raise(n: int) = clicked.Trigger(n)
+/// A DynamicObject with a Count, for the polymorphic-site tests (Recorder logs; this one is quiet).
+type Counter(n: int) =
+    inherit DynamicObject()
+    override _.TryGetMember(binder, result) =
+        if binder.Name = "Count" then result <- box n; true else false
+
+/// CLR members whose declared types say different things about what they hold.
+[<ReflectedDefinition>]
+type Holders() =
+    member val AsObj: obj = box (fun (x: int) -> x * 3) with get, set
+    member val AsDelegate: Func<int> = Func<int>(fun () -> 9) with get, set
+    member val AsFunction: int -> int = (fun x -> x + 1) with get, set
+    member _.Item with get (i: int) = i * 10
+    /// F# private: IL internal, reachable from this assembly's context, as the binder allows.
+    member private _.Hidden = fun (x: int) -> x - 1
+    member private _.BumpHidden(count: int, ?step: int) = count + defaultArg step 100
+    member _.Reveal(o: obj) : int = dlr { return o?Hidden(10) }
+    /// Protected: reachable from a derived type's context.
+    abstract Family: int -> int
+    default _.Family(x) = x * 2
+    member _.Overloaded(s: string, ?tag: string) = "string:" + s + defaultArg tag ""
+    member _.Overloaded(o: obj, ?tag: string) = "obj:" + string o + defaultArg tag ""
+    member _.Wide = fun (x: int64) -> x + 1L
+    member _.WideTupled = fun (x: int64, y: int64) -> x + y
+    member _.WideCurried = fun (x: int64) (y: int64) -> x + y
+    member _.Five = fun (a: int) (b: int) (c: int) (d: int) (e: int) -> a + b + c + d + e
+    member _.Six = fun (a: int) (b: int) (c: int) (d: int) (e: int) (f: int) -> a * b * c * d * e * f
+    member _.SixTupled = fun (a: int, b: int, c: int, d: int, e: int, f: int) -> a + b + c + d + e + f
+    member _.Eight = fun (a: int) (b: int) (c: int) (d: int) (e: int) (f: int) (g: int) (h: int) -> a + b + c + d + e + f + g + h
+    member _.RevealOptional(o: obj) : int = dlr { return o?BumpHidden(1) }
+
+type Derived() =
+    inherit Holders()
+    override _.Family(x) = x * 3
+    [<ReflectedDefinition>]
+    member this.CallFamily(o: obj) : int = dlr { return o?Family(5) }
+
+type IGreeter =
+    abstract Greet: string -> string
+
+/// F# interface implementations are always explicit: Greet exists only as IGreeter.Greet.
+type Greeter() =
+    member _.Name = "greeter"
+    interface IGreeter with
+        member _.Greet(who) = "hello " + who
+
 /// A C#-style extension method on Widget: the binder never sees these, as in C#.
 [<System.Runtime.CompilerServices.Extension>]
 type WidgetExtensions =
