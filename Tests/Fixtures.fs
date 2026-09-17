@@ -42,12 +42,16 @@ type Widget() =
 type Recorder() =
     inherit DynamicObject()
     member val Log = ResizeArray<string>()
-    override this.TryGetMember(binder, result) =
-        this.Log.Add("get " + binder.Name)
-        result <- box binder.Name
-        true
     override this.TrySetMember(binder, value) =
         this.Log.Add(sprintf "set %s=%O" binder.Name value)
+        true
+    override this.TryInvoke(_, args, result) =
+        this.Log.Add(sprintf "invoke self(%d args)" args.Length)
+        result <- box (String.Join("|", args))
+        true
+    override this.TryGetMember(binder, result) =
+        this.Log.Add("get " + binder.Name)
+        result <- (if binder.Name = "Self" then box this else box binder.Name)
         true
     override this.TryInvokeMember(binder, args, result) =
         let names = binder.CallInfo.ArgumentNames |> String.concat ","

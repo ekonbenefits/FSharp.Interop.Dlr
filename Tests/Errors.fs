@@ -13,7 +13,7 @@ let ``every operator and marker throws outside dlr`` () =
     let outside (f: unit -> unit) = f |> should throw typeof<InvalidOperationException>
     outside (fun () -> (w?Count : int) |> ignore)
     outside (fun () -> w?Count <- 1)
-    outside (fun () -> ((Dlr.force w) : int) |> ignore)
+    outside (fun () -> (Dlr.call 1 w : int) |> ignore)
     outside (fun () -> Dlr.named {| a = 1 |} |> ignore)
     outside (fun () -> (Dlr.idx w : Indexed<int>) |> ignore)
     outside (fun () -> Dlr.typeArgs<int>() |> ignore)
@@ -44,12 +44,6 @@ let ``every operator and marker throws outside dlr`` () =
     outside (fun () -> a ?=? b |> ignore)
     outside (fun () -> a ?>? b |> ignore)
     outside (fun () -> a ?>=? b |> ignore)
-
-[<Fact>]
-let ``Dlr.force without application is rejected`` () =
-    let f = box (Func<int, int>(fun x -> x))
-    (fun () -> (dlr { return (Dlr.force f : int -> int) } |> ignore))
-    |> should throw typeof<DlrTranslationException>
 
 [<Fact>]
 let ``dynamic member as first-class function is rejected`` () =

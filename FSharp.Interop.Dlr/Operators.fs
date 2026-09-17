@@ -96,7 +96,7 @@ type Dlr =
     [<MethodImpl(MethodImplOptions.NoInlining)>]
     static member get (name: string) (target: obj) : 'T = ignore (name, target); outside "Dlr.get"
     [<MethodImpl(MethodImplOptions.NoInlining)>]
-    static member force (target: obj) : 'T = ignore target; outside "Dlr.force"
+    static member call (args: 'TArgs) (target: obj) : 'T = ignore (args, target); outside "Dlr.call"
     [<MethodImpl(MethodImplOptions.NoInlining)>]
     static member set (name: string) (value: 'TValue) (target: obj) : unit = ignore (name, value, target); outside "Dlr.set"
     [<MethodImpl(MethodImplOptions.NoInlining)>]

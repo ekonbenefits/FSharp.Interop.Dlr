@@ -82,8 +82,8 @@ type Dlr =
     static member cast<'T> : value: obj -> 'T
     /// <summary>Pipe-friendly member get: <c>x |> Dlr.get "Name"</c>; chains as <c>x |> Dlr.get "A" |> Dlr.get "B"</c>, and applied it invokes, like <c>?</c>: <c>(x |> Dlr.get "Add") (1, 2)</c>. The name may be computed.</summary>
     static member get: name: string -> target: obj -> 'T
-    /// <summary>Invoke the target itself (a delegate, a callable dynamic object), applied like a function: <c>(Dlr.force f) (a, b)</c>.</summary>
-    static member force: target: obj -> 'T
+    /// <summary>Invoke the target itself (a delegate, a callable dynamic object): <c>f |> Dlr.call (a, b)</c>, <c>f |> Dlr.call ()</c>. Arguments follow the same rules as a member invocation.</summary>
+    static member call: args: 'TArgs -> target: obj -> 'T
     /// <summary>Pipe-friendly member set: <c>x |> Dlr.set "Name" value</c>.</summary>
     static member set: name: string -> value: 'TValue -> target: obj -> unit
     /// <summary>Pipe-friendly invocation: <c>x |> Dlr.invoke "Add" (1, 2)</c>, <c>x |> Dlr.invoke "Touch" ()</c>; the arguments follow the same rules as <c>x?Add(1, 2)</c>, including <c>Dlr.named</c> and <c>Dlr.typeArgs</c>.</summary>
