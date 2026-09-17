@@ -48,6 +48,7 @@
     <Compile Include="..\Tests\ComputedNames.fs" Link="ComputedNames.fs" />
     <Compile Include="..\Tests\Pipes.fs" Link="Pipes.fs" />
     <Compile Include="..\Tests\CompoundAssign.fs" Link="CompoundAssign.fs" />
+    <Compile Include="..\Tests\Restrictions.fs" Link="Restrictions.fs" />
     <Compile Include="..\Tests\Unreflected.fs" Link="Unreflected.fs" />
   </ItemGroup>
 
