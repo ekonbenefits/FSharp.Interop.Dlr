@@ -93,6 +93,7 @@ and a repeated key costs a dictionary lookup.
 | `x \|> Dlr.set "Name" v` | SetMember, target last |
 | `x \|> Dlr.addAssign "Name" v`, `x \|> Dlr.subtractAssign "Name" v` | C#'s `+=` / `-=`: an IsEvent site picks the event accessor (`add_` / `remove_`) or read-modify-write |
 | `x \|> Dlr.call (a, b)`, `x \|> Dlr.call ()` | Invoke the object itself: a delegate, a callable dynamic object, or an F# function value |
+| `Dlr.static'<T>()?Name(a)`, `Dlr.static'<T>()?Prop`, `… <- v`, and the pipe forms | a static target, C#'s `T.Name(dynamicArg)`: the overload is chosen by the arguments' runtime types (multiple dispatch); static properties, fields and events are resolved by reflection, since C#'s binder has no static form for them |
 | `Dlr.new'<T>(a, b)`, `Dlr.new'<T>()` | InvokeConstructor, C#'s `new T(dynamicArg)`: the constructor overload is chosen by the arguments' runtime types (multiple dispatch); up to eight arguments, `Dlr.named` allowed |
 | `x \|> Dlr.item i`, `x \|> Dlr.item (i, j)`, `x \|> Dlr.setItem (i, j) v` | GetIndex / SetIndex, target last; a tuple is several indexes |
 | `?+? ?-? ?*? ?/? ?%? ?&&&? ?\|\|\|? ?^^^? ?<<<? ?>>>?` | BinaryOperation, then Convert |
@@ -112,7 +113,8 @@ outside a block throws `InvalidOperationException`; they exist only to be quoted
 Same binder, same limits — each pinned by a test in `Tests/Restrictions.fs`:
 
 - **Extension methods** are not found; the binder sees only the target's own members.
-- **Static members** cannot be reached through an instance.
+- **Static members** cannot be reached through an instance; they have their own target,
+  `Dlr.static'<T>()`.
 - **Explicitly implemented interface members** are not found: the binder sees the runtime type's
   public members, and an explicit implementation is a private method named `IFoo.Bar`. In F#
   every interface implementation is explicit, so `o?Dispose()` on an F# `IDisposable` fails

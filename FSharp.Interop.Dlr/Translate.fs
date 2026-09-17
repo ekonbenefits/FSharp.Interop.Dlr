@@ -112,6 +112,12 @@ module internal Translate =
         | Call(None, mi, [ types ]) when mi.DeclaringType = typeof<Dlr> && mi.Name = "typeArgsOf" -> Some(RuntimeTypes types)
         | _ -> None
 
+    /// `Dlr.static'<T>()` as a target: the type.
+    let private (|StaticTarget|_|) (e: Expr) =
+        match e with
+        | Call(None, mi, []) when mi.DeclaringType = typeof<Dlr> && mi.Name = "static'" -> Some(mi.GetGenericArguments().[0])
+        | _ -> None
+
     let private (|Op|_|) (def: Reflection.MethodInfo) (e: Expr) =
         match e with
         | Call(None, mi, args) when genericDef mi = def -> Some args
@@ -489,11 +495,12 @@ module internal Translate =
         and keyedSite bound (nameExpr: Expr) (typeArgs: TypeArgsSpec) (target: Expr) (argExprs: Expr list) (resultType: Type) (site: string -> Type list -> Binders.Arg -> Binders.Arg list -> Expr) : Expr =
             let rewrite = rewriteIn bound
             let bindings, argInfos = argList bound argExprs
-            let targetVar = Var("target", typeof<obj>)
+            let targetInfo = targetArg bound target
+            let targetVar = Var("target", targetInfo.Type)
             let argVars = argInfos |> List.mapi (fun i a -> Var(sprintf "a%d" i, a.Type))
             let template (name: string, types: Type list) =
                 let args = List.map2 (fun (info: Binders.Arg) (v: Var) -> { info with Expr = Expr.Var v }) argInfos argVars
-                site name types (Binders.dynamicArg (Expr.Var targetVar)) args
+                site name types { targetInfo with Expr = Expr.Var targetVar } args
             // The operation's shape does not depend on the key, only its sites do: build it once
             // for a placeholder, lift every site constant into a parameter, and compile that one
             // delegate now. Per key, the cache creates the sites and hands them back in the
@@ -520,7 +527,7 @@ module internal Translate =
                 | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map lift args)
             let body = lift placeholder
             let delegateType =
-                Expression.GetDelegateType(Array.ofList ([ for _, v in siteVars -> v.Type ] @ typeof<obj> :: [ for v in argVars -> v.Type ] @ [ typeof<obj> ]))
+                Expression.GetDelegateType(Array.ofList ([ for _, v in siteVars -> v.Type ] @ targetVar.Type :: [ for v in argVars -> v.Type ] @ [ typeof<obj> ]))
             // A discarded result is a void site: the delegate still returns obj, so hand back null.
             let boxed =
                 if body.Type = typeof<obj> then body
@@ -533,11 +540,9 @@ module internal Translate =
             let sitesVar = Var("sites", typeof<CallSite[]>)
             let at = cacheType.GetMethod("At")
             let siteArgs = siteVars |> List.mapi (fun i (_, v) -> Expr.Coerce(Expr.Call(at, [ Expr.Var sitesVar; Expr.Value i ]), v.Type))
-            let t = rewrite target
-            let targetExpr = if t.Type = typeof<obj> then t else Expr.Coerce(t, typeof<obj>)
             let call =
                 Expr.Let(sitesVar, Expr.Call(Expr.Value(cache, cacheType), cacheType.GetMethod("Get"), [ Expr.NewTuple [ nameE; typesE ] ]),
-                         Expr.Call(Expr.Value(compiled, delegateType), delegateType.GetMethod("Invoke"), siteArgs @ targetExpr :: [ for a in argInfos -> a.Expr ]))
+                         Expr.Call(Expr.Value(compiled, delegateType), delegateType.GetMethod("Invoke"), siteArgs @ targetInfo.Expr :: [ for a in argInfos -> a.Expr ]))
             (if FSharpType.IsFunction resultType then Expr.Coerce(call, resultType) else convert resultType call)
             |> bind bound bindings
 
@@ -547,9 +552,9 @@ module internal Translate =
         and compoundAssign bound (subtract: bool) (nameExpr: Expr) (target: Expr) (value: Expr) : Expr =
             match nameExpr with
             | Literal name ->
-                let t = rewriteIn bound target
+                let targetInfo = targetArg bound target
                 let v = rewriteIn bound value
-                let tv = Var("target", typeof<obj>)
+                let tv = Var("target", targetInfo.Type)
                 let vv = Var("value", v.Type)
                 // A literal value keeps C#'s constant conversions (a byte member += 1) even though
                 // it is read through a variable here.
@@ -558,16 +563,19 @@ module internal Translate =
                     match value with
                     | Value _ -> Binders.constant a
                     | _ -> a
-                let body = Binders.compoundAssign context (string name) subtract (Binders.dynamicArg (Expr.Var tv)) valueArg
-                Expr.Let(tv, (if t.Type = typeof<obj> then t else Expr.Coerce(t, typeof<obj>)), Expr.Let(vv, v, body))
+                let body = Binders.compoundAssign context (string name) subtract { targetInfo with Expr = Expr.Var tv } valueArg
+                Expr.Let(tv, targetInfo.Expr, Expr.Let(vv, v, body))
             | _ ->
                 computedName bound nameExpr target [ value ] typeof<unit> (fun name targetArg args ->
                     // The name-cache template already makes target and value delegate parameters.
                     Expr.Sequential(Binders.compoundAssign context name subtract targetArg (List.head args), Expr.Value(null, typeof<obj>)))
 
         and targetArg bound (target: Expr) =
-            let t = rewriteIn bound target
-            Binders.dynamicArg (if t.Type = typeof<obj> then t else Expr.Coerce(t, typeof<obj>))
+            match target with
+            | StaticTarget t -> Binders.staticTarget t
+            | _ ->
+                let t = rewriteIn bound target
+                Binders.dynamicArg (if t.Type = typeof<obj> then t else Expr.Coerce(t, typeof<obj>))
 
         and valueArg bound (value: Expr) =
             match value with
@@ -604,6 +612,9 @@ module internal Translate =
                 let lambda = Expr.NewDelegate(delegateType, [ closure ], rewritten)
                 LeafExpressionConverter.QuotationToExpression lambda :?> LambdaExpression
             with :? DlrTranslationException -> reraise ()
+               // A static member resolved here by reflection and missing is the binder's kind of
+               // error, as it would be at the call for an instance target.
+               | :? Microsoft.CSharp.RuntimeBinder.RuntimeBinderException -> reraise ()
                | ex -> raise (DlrTranslationException(sprintf "dlr { } could not compile this body: %s\n%A" ex.Message body))
         { Delegate = linq.Compile()
           ResultType = resultType }

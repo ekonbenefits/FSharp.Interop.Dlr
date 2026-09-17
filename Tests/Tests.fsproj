@@ -71,6 +71,7 @@
     <Compile Include="Polymorphic.fs" />
     <Compile Include="Constructors.fs" />
     <Compile Include="Mutables.fs" />
+    <Compile Include="StaticTargets.fs" />
     <Compile Include="Unreflected.fs" />
   </ItemGroup>
 

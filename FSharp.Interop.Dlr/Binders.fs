@@ -585,18 +585,27 @@ module internal Binders =
         { Expr: Expr
           Type: Type
           Flags: CSharpArgumentInfoFlags
-          Name: string }
+          Name: string
+          /// The type when the argument is a static target (`Dlr.static'<T>()`), else null.
+          Static: Type }
 
     /// A dynamically typed argument: the binder dispatches on its runtime type.
     let dynamicArg (e: Expr) =
-        { Expr = e; Type = typeof<obj>; Flags = CSharpArgumentInfoFlags.None; Name = null }
+        { Expr = e; Type = typeof<obj>; Flags = CSharpArgumentInfoFlags.None; Name = null; Static = null }
+
+    /// A type as the target (`Dlr.static'<T>()`, `Dlr.new'<T>`): argument 0 of the site is
+    /// `typeof<T>` flagged as a static type, the C# compiler's shape for `T.Member(…)`.
+    let staticTarget (t: Type) =
+        { Expr = Expr.Value(t, typeof<Type>); Type = typeof<Type>; Flags = CSharpArgumentInfoFlags.UseCompileTimeType ||| CSharpArgumentInfoFlags.IsStaticType; Name = null; Static = t }
+
+    let isStatic (a: Arg) = not (isNull a.Static)
 
     /// A statically typed argument: the binder uses the quotation's type, as C# would.
     /// An `obj`-typed expression stays dynamic so F# callers get FSharp.Interop.Dynamic-like
     /// overload resolution on boxed values.
     let typedArg (e: Expr) =
         if e.Type = typeof<obj> then dynamicArg e
-        else { Expr = e; Type = e.Type; Flags = CSharpArgumentInfoFlags.UseCompileTimeType; Name = null }
+        else { Expr = e; Type = e.Type; Flags = CSharpArgumentInfoFlags.UseCompileTimeType; Name = null; Static = null }
 
     let private withFlag (flag: CSharpArgumentInfoFlags) (arg: Arg) =
         // Spelled out with int locals: `|||` straight on the enum resolved to the dynamic
@@ -625,11 +634,27 @@ module internal Binders =
         let target = Expr.FieldGet(siteExpr, siteType.GetField("Target"))
         Expr.Call(target, delegateType.GetMethod("Invoke"), siteExpr :: [ for a in args -> a.Expr ])
 
-    let getMember (context: Type) (name: string) (target: Arg) =
-        siteCall (Binder.GetMember(CSharpBinderFlags.None, name, context, [ argInfo target ])) [ target ] typeof<obj>
+    /// C#'s GetMember/SetMember binders have no static form (C# never needs one: `T.P` is never
+    /// dynamic), so a static property or field is resolved here by reflection, with the same
+    /// accessibility rule, and read or written directly; a miss is the binder's kind of error.
+    let private staticMember (context: Type) (t: Type) (name: string) : Choice<PropertyInfo, FieldInfo> =
+        let flags = BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Static ||| BindingFlags.FlattenHierarchy
+        let property =
+            t.GetProperties flags
+            |> Array.tryFind (fun p -> p.Name = name && p.GetIndexParameters().Length = 0 && (let m = p.GetGetMethod(true) in not (isNull m) && Accessibility.method' context m))
+        match property with
+        | Some p -> Choice1Of2 p
+        | None ->
+            match t.GetFields flags |> Array.tryFind (fun f -> f.Name = name && Accessibility.field context f) with
+            | Some f -> Choice2Of2 f
+            | None -> raise (RuntimeBinderException(sprintf "'%s' does not contain a definition for '%s'" t.FullName name))
 
-    let setMember (context: Type) (name: string) (target: Arg) (value: Arg) =
-        siteCall (Binder.SetMember(CSharpBinderFlags.None, name, context, [ argInfo target; argInfo value ])) [ target; value ] typeof<obj>
+    let getMember (context: Type) (name: string) (target: Arg) =
+        if isStatic target then
+            match staticMember context target.Static name with
+            | Choice1Of2 p -> Expr.Coerce(Expr.PropertyGet(p), typeof<obj>)
+            | Choice2Of2 f -> Expr.Coerce(Expr.FieldGet(f), typeof<obj>)
+        else siteCall (Binder.GetMember(CSharpBinderFlags.None, name, context, [ argInfo target ])) [ target ] typeof<obj>
 
     /// A `CallSite<_>` for `binder` over `args`, as a `Value` node and its type.
     let private site (binder: CallSiteBinder) (args: Arg list) (resultType: Type) =
@@ -646,7 +671,8 @@ module internal Binders =
         let typeArgSeq = match typeArgs with [] -> null | ts -> ts :> seq<Type>
         let csharp = Binder.InvokeMember(flags, name, typeArgSeq, context, [ for a in all -> argInfo a ])
         let positional = args |> List.forall (fun a -> isNull a.Name)
-        if not positional || not typeArgs.IsEmpty then csharp
+        // A static target is C#'s alone: our function-member rules look at the instance.
+        if not positional || not typeArgs.IsEmpty || isStatic (List.head all) then csharp
         else
             // Discarded results too: the site is void-returning and the DLR drops the rule's value.
             let csharpInvoke = Binder.Invoke(flags, context, [ for a in all -> argInfo a ]) :?> InvokeBinder
@@ -662,8 +688,7 @@ module internal Binders =
     /// runtime types. The type goes in as argument 0 of the site, flagged as a static type,
     /// exactly as the C# compiler emits it.
     let invokeConstructor (context: Type) (t: Type) (args: Arg list) =
-        let typeArg = { Expr = Expr.Value(t, typeof<Type>); Type = typeof<Type>; Flags = CSharpArgumentInfoFlags.UseCompileTimeType ||| CSharpArgumentInfoFlags.IsStaticType; Name = null }
-        let all = typeArg :: args
+        let all = staticTarget t :: args
         siteCall (Binder.InvokeConstructor(CSharpBinderFlags.None, context, [ for a in all -> argInfo a ])) all typeof<obj>
 
     /// `Dlr.call args target`, applying `target` itself when it is an F# function.
@@ -734,29 +759,66 @@ module internal Binders =
         let all = target :: indexes @ [ value ]
         siteCall (Binder.SetIndex(CSharpBinderFlags.None, context, [ for a in all -> argInfo a ])) all typeof<obj>
 
+    /// Implicit conversion of an `obj`-typed expression to `resultType`. `obj` is a no-op and
+    /// `unit` discards the value.
+    let convert (context: Type) (resultType: Type) (e: Expr) : Expr =
+        if resultType = typeof<obj> then e
+        elif resultType = typeof<unit> then Expr.Sequential(e, Expr.Value(()))
+        else
+            let binder = Binder.Convert(CSharpBinderFlags.None, resultType, context)
+            siteCall binder [ dynamicArg e ] resultType
+
+    let setMember (context: Type) (name: string) (target: Arg) (value: Arg) =
+        if isStatic target then
+            let fitted (t: Type) =
+                if t.IsAssignableFrom value.Type then Expr.Coerce(value.Expr, t)
+                else convert context t (if value.Type = typeof<obj> then value.Expr else Expr.Coerce(value.Expr, typeof<obj>))
+            let write =
+                match staticMember context target.Static name with
+                | Choice1Of2 p when not (isNull (p.GetSetMethod true)) && Accessibility.method' context (p.GetSetMethod true) -> Expr.PropertySet(p, fitted p.PropertyType)
+                | Choice1Of2 p -> raise (RuntimeBinderException(sprintf "Property or indexer '%s.%s' cannot be assigned to -- it is read only" target.Static.FullName p.Name))
+                | Choice2Of2 f when f.IsInitOnly || f.IsLiteral -> raise (RuntimeBinderException(sprintf "A readonly field cannot be assigned to ('%s.%s')" target.Static.FullName f.Name))
+                | Choice2Of2 f -> Expr.FieldSet(f, fitted f.FieldType)
+            Expr.Sequential(write, Expr.Value(null, typeof<obj>))
+        else siteCall (Binder.SetMember(CSharpBinderFlags.None, name, context, [ argInfo target; argInfo value ])) [ target; value ] typeof<obj>
+
     /// C#'s `d.Name += v` / `-=`: an IsEvent site decides at run time between the event
     /// accessor (`add_Name`/`remove_Name`, invoked as a special name) and read-modify-write
     /// (GetMember, AddAssign/SubtractAssign, SetMember flagged as a compound assignment).
     /// `target` and `value` must be variables, since both branches mention them.
     let compoundAssign (context: Type) (name: string) (subtract: bool) (target: Arg) (value: Arg) : Expr =
-        let isEvent =
-            siteCall (Binder.IsEvent(CSharpBinderFlags.None, name, context)) [ target ] typeof<bool>
         let accessor =
             let binder =
                 Binder.InvokeMember(
                     CSharpBinderFlags.InvokeSpecialName ||| CSharpBinderFlags.ResultDiscarded,
                     (if subtract then "remove_" else "add_") + name, null, context, [ argInfo target; argInfo value ])
             siteCall binder [ target; value ] voidType
-        let readModifyWrite =
-            let current = siteCall (Binder.GetMember(CSharpBinderFlags.None, name, context, [ argInfo target ])) [ target ] typeof<obj>
+        let readModifyWrite () =
+            let current = getMember context name target
             let op = if subtract then ExpressionType.SubtractAssign else ExpressionType.AddAssign
             let combined =
                 siteCall (Binder.BinaryOperation(CSharpBinderFlags.None, op, context, [ argInfo (dynamicArg current); argInfo value ]))
                     [ dynamicArg current; value ] typeof<obj>
-            let set =
-                Binder.SetMember(CSharpBinderFlags.ValueFromCompoundAssignment, name, context, [ argInfo target; argInfo (dynamicArg combined) ])
-            siteCall set [ target; dynamicArg combined ] typeof<obj>
-        Expr.IfThenElse(isEvent, Expr.Sequential(accessor, Expr.Value(())), Expr.Sequential(readModifyWrite, Expr.Value(())))
+            if isStatic target then setMember context name target (dynamicArg combined)
+            else
+                let set =
+                    Binder.SetMember(CSharpBinderFlags.ValueFromCompoundAssignment, name, context, [ argInfo target; argInfo (dynamicArg combined) ])
+                siteCall set [ target; dynamicArg combined ] typeof<obj>
+        if isStatic target then
+            // Decided here, by reflection, and done by reflection too: C#'s IsEvent binder looks
+            // at the object and its InvokeMember has no static form for accessors (C# compiles
+            // `T.E += h` statically). Only the branch that applies is built.
+            let ev = target.Static.GetEvent(name, BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Static ||| BindingFlags.FlattenHierarchy)
+            if not (isNull ev) && Accessibility.method' context (ev.GetAddMethod true) then
+                let m = if subtract then ev.GetRemoveMethod true else ev.GetAddMethod true
+                let handler =
+                    if ev.EventHandlerType.IsAssignableFrom value.Type then Expr.Coerce(value.Expr, ev.EventHandlerType)
+                    else convert context ev.EventHandlerType (if value.Type = typeof<obj> then value.Expr else Expr.Coerce(value.Expr, typeof<obj>))
+                Expr.Sequential(Expr.Call(m, [ handler ]), Expr.Value(()))
+            else Expr.Sequential(readModifyWrite (), Expr.Value(()))
+        else
+            let isEvent = siteCall (Binder.IsEvent(CSharpBinderFlags.None, name, context)) [ target ] typeof<bool>
+            Expr.IfThenElse(isEvent, Expr.Sequential(accessor, Expr.Value(())), Expr.Sequential(readModifyWrite (), Expr.Value(())))
 
     let binaryOperation (context: Type) (op: ExpressionType) (left: Arg) (right: Arg) =
         let csharp = Binder.BinaryOperation(CSharpBinderFlags.None, op, context, [ argInfo left; argInfo right ]) :?> BinaryOperationBinder
@@ -766,15 +828,6 @@ module internal Binders =
     let unaryOperation (context: Type) (op: ExpressionType) (operand: Arg) =
         let binder = Binder.UnaryOperation(CSharpBinderFlags.None, op, context, [ argInfo operand ])
         siteCall binder [ operand ] typeof<obj>
-
-    /// Implicit conversion of an `obj`-typed expression to `resultType`. `obj` is a no-op and
-    /// `unit` discards the value.
-    let convert (context: Type) (resultType: Type) (e: Expr) : Expr =
-        if resultType = typeof<obj> then e
-        elif resultType = typeof<unit> then Expr.Sequential(e, Expr.Value(()))
-        else
-            let binder = Binder.Convert(CSharpBinderFlags.None, resultType, context)
-            siteCall binder [ dynamicArg e ] resultType
 
     /// Explicit conversion (a C# cast) of an `obj`-typed expression to `resultType`.
     let convertExplicit (context: Type) (resultType: Type) (e: Expr) : Expr =

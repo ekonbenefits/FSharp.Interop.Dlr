@@ -74,6 +74,8 @@ type Dlr =
     static member typeArgs<'A, 'B, 'C, 'D> : unit -> TypeArgs
     /// <summary>Explicit generic type arguments as a list: <c>x?M(Dlr.typeArgsOf [ typeof&lt;A&gt;; typeof&lt;B&gt;; … ])</c> for more than four, or <c>x?M(Dlr.typeArgsOf ts)</c> with types only known at run time (one set of call sites per distinct list, cached per site like a computed name). Must be the first argument.</summary>
     static member typeArgsOf: types: System.Type list -> TypeArgs
+    /// <summary>A static target, C#'s <c>T.Member(dynamicArg)</c>: <c>Dlr.static'&lt;Renderer&gt;()?Draw(shape)</c> picks the overload by <c>shape</c>'s runtime type (multiple dispatch); also static property get/set, generic statics with <c>Dlr.typeArgs</c>, and the pipe forms. The unit argument is because F# has no generic values.</summary>
+    static member static'<'T> : unit -> obj
     /// <summary>Construct a <c>'T</c> with the constructor chosen at run time by the arguments, C#'s <c>new T(dynamicArg)</c>: <c>Dlr.new'&lt;Handler&gt;(shape)</c>, <c>Dlr.new'&lt;Point&gt;(1, 2)</c>, <c>Dlr.new'&lt;Widget&gt;()</c>. Arguments keep their static type and follow the same rules as a member invocation, including <c>Dlr.named</c>; up to eight.</summary>
     static member new'<'T> : unit -> 'T
     /// <summary>Construct a <c>'T</c> from 1 argument.</summary>

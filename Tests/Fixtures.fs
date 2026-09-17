@@ -261,3 +261,17 @@ type Vec(x: float) =
 type Inlines() =
     member inline _.Twice(v: ^T) : ^T = v + v
     member inline _.NameOf(v: ^T when ^T: (member Name: string)) : string = (^T: (member Name: string) v)
+
+// A static target (Dlr.static'): overloads picked by the runtime type of an obj argument.
+type Renderer private () =
+    static let changed = Event<Handler<int>, int>()
+    static member Draw(p: Point) = "point " + string p.X
+    static member Draw(s: Shape) = "shape " + (match s with Circle r -> string r | Rect _ -> "rect")
+    static member Draw(o: obj) = "obj " + string o
+    static member val Scale = 1.0 with get, set
+    static member Parse<'T>(s: string) : 'T = System.Convert.ChangeType(s, typeof<'T>) :?> 'T
+    static member Twice = fun (x: int) -> x * 2
+    [<CLIEvent>]
+    static member Changed = changed.Publish
+    static member Raise(n: int) = changed.Trigger(null, n)
+    static member private Secret() = "secret"
