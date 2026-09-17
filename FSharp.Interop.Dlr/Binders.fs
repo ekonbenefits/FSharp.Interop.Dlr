@@ -257,6 +257,77 @@ module internal FunctionShapes =
     /// `obj`, an interface, an abstract class. Its value then goes through a nested site.
     let opaque (t: Type) = t = typeof<obj> || t.IsInterface || (t.IsAbstract && not t.IsSealed)
 
+/// Equality and ordering with F# semantics where C# has none: records, unions, tuples, lists,
+/// options, sets and any other type without the CLR operator get `=`/`compare` (structural,
+/// through `LanguagePrimitives`) instead of C#'s reference equality or "operator cannot be
+/// applied". Types C# handles itself — primitives, enums, strings, delegates, and any type that
+/// declares the operator — keep C#'s binding, as do all non-comparison operators.
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+type FSharpBinaryOperationBinder(csharp: BinaryOperationBinder) =
+    inherit BinaryOperationBinder(csharp.Operation)
+
+    static let operatorName =
+        dict [ ExpressionType.Equal, "op_Equality"; ExpressionType.NotEqual, "op_Inequality"
+               ExpressionType.LessThan, "op_LessThan"; ExpressionType.LessThanOrEqual, "op_LessThanOrEqual"
+               ExpressionType.GreaterThan, "op_GreaterThan"; ExpressionType.GreaterThanOrEqual, "op_GreaterThanOrEqual" ]
+
+    static let equality =
+        match <@ LanguagePrimitives.GenericEquality (box 1) (box 2) @> with
+        | Patterns.Call(_, mi, _) -> mi
+        | _ -> failwith "unreachable"
+
+    static let comparison =
+        match <@ LanguagePrimitives.GenericComparison (box 1 :?> IComparable) (box 2 :?> IComparable) @> with
+        | Patterns.Call(_, mi, _) -> mi.GetGenericMethodDefinition().MakeGenericMethod typeof<obj>
+        | _ -> failwith "unreachable"
+
+    /// A type C#'s own operators cover, or that binds for itself (a dynamic object, whose own
+    /// rule reaches us as the error suggestion through C#). Strings and bools have C# equality
+    /// but no C# ordering, so `<` on them is F#'s (ordinal; `false < true`).
+    static let native (op: ExpressionType) (t: Type) =
+        let t = match Nullable.GetUnderlyingType t with null -> t | u -> u
+        let equality = op = ExpressionType.Equal || op = ExpressionType.NotEqual
+        (t.IsPrimitive && (equality || t <> typeof<bool>)) || t.IsEnum || t = typeof<decimal>
+        || typeof<Delegate>.IsAssignableFrom t || typeof<IDynamicMetaObjectProvider>.IsAssignableFrom t
+        || (t = typeof<string> && equality)
+
+    static let declares (name: string) (t: Type) =
+        t.GetMethods(BindingFlags.Public ||| BindingFlags.Static ||| BindingFlags.FlattenHierarchy)
+        |> Array.exists (fun m -> m.Name = name && m.GetParameters().Length = 2)
+
+    let isNullValue (a: DynamicMetaObject) = a.HasValue && isNull a.Value
+
+    /// Whether the operation is one this binder may bind structurally.
+    static member IsComparison(op: ExpressionType) = operatorName.ContainsKey op
+
+    override this.FallbackBinaryOperation(target, arg, errorSuggestion) =
+        let structural =
+            match operatorName.TryGetValue this.Operation with
+            | true, name ->
+                let operands = [ target; arg ] |> List.filter (fun a -> not (isNullValue a)) |> List.map (fun a -> a.LimitType)
+                not operands.IsEmpty && operands |> List.forall (fun t -> not (native this.Operation t) && not (declares name t))
+            | _ -> false
+        if not structural then csharp.FallbackBinaryOperation(target, arg, errorSuggestion)
+        else
+            let boxed (a: DynamicMetaObject) = Expression.Convert(a.Expression, typeof<obj>) :> Expression
+            let l, r = boxed target, boxed arg
+            let value : Expression =
+                match this.Operation with
+                | ExpressionType.Equal -> Expression.Call(equality, l, r)
+                | ExpressionType.NotEqual -> Expression.Not(Expression.Call(equality, l, r))
+                | op ->
+                    let c = Expression.Call(comparison, l, r)
+                    let zero = Expression.Constant 0
+                    match op with
+                    | ExpressionType.LessThan -> Expression.LessThan(c, zero)
+                    | ExpressionType.LessThanOrEqual -> Expression.LessThanOrEqual(c, zero)
+                    | ExpressionType.GreaterThan -> Expression.GreaterThan(c, zero)
+                    | _ -> Expression.GreaterThanOrEqual(c, zero)
+            let restrict (a: DynamicMetaObject) =
+                if isNullValue a then BindingRestrictions.GetInstanceRestriction(a.Expression, null)
+                else BindingRestrictions.GetTypeRestriction(a.Expression, a.LimitType)
+            DynamicMetaObject(Expression.Convert(value, typeof<obj>), (restrict target).Merge(restrict arg))
+
 /// C#'s Invoke binder, aware of F# function targets (`Dlr.call` on a function value, and the
 /// value step of a member invocation).
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
@@ -643,7 +714,8 @@ module internal Binders =
         Expr.IfThenElse(isEvent, Expr.Sequential(accessor, Expr.Value(())), Expr.Sequential(readModifyWrite, Expr.Value(())))
 
     let binaryOperation (context: Type) (op: ExpressionType) (left: Arg) (right: Arg) =
-        let binder = Binder.BinaryOperation(CSharpBinderFlags.None, op, context, [ argInfo left; argInfo right ])
+        let csharp = Binder.BinaryOperation(CSharpBinderFlags.None, op, context, [ argInfo left; argInfo right ]) :?> BinaryOperationBinder
+        let binder = if FSharpBinaryOperationBinder.IsComparison op then FSharpBinaryOperationBinder csharp :> CallSiteBinder else csharp :> CallSiteBinder
         siteCall binder [ left; right ] typeof<obj>
 
     let unaryOperation (context: Type) (op: ExpressionType) (operand: Arg) =

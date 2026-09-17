@@ -213,3 +213,30 @@ and BagMeta(expression, bag: Bag) =
         DynamicMetaObject(call, restrictions ())
     static member Get(bag: Bag, name: string) : obj = bag.Data.[name]
     static member Set(bag: Bag, name: string, value: obj) : obj = bag.Data.[name] <- value; value
+
+// Structural types for the equality/comparison binder: no CLR operators, F# semantics.
+type Point = { X: int; Y: int }
+[<Struct>]
+type SPoint = { SX: int; SY: int }
+type Shape =
+    | Circle of int
+    | Rect of int * int
+type Money(amount: int) =
+    member _.Amount = amount
+    /// A class with its own CLR operator: C# binds it, structural rules stay out.
+    static member op_Equality(a: Money, b: Money) = a.Amount = b.Amount
+    static member op_Inequality(a: Money, b: Money) = a.Amount <> b.Amount
+    override _.Equals(o) = match o with :? Money as m -> m.Amount = amount | _ -> false
+    override _.GetHashCode() = amount
+/// Equal by Equals, not comparable.
+type Opaque(tag: string) =
+    member _.Tag = tag
+    override _.Equals(o) = match o with :? Opaque as x -> x.Tag = tag | _ -> false
+    override _.GetHashCode() = tag.GetHashCode()
+/// A DynamicObject that answers `==` itself: dynamic targets keep their own say.
+type EqualsAnything() =
+    inherit DynamicObject()
+    override _.TryBinaryOperation(binder, _arg, result) =
+        match binder.Operation with
+        | System.Linq.Expressions.ExpressionType.Equal -> result <- box true; true
+        | _ -> result <- null; false
