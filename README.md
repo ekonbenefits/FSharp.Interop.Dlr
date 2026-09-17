@@ -2,8 +2,8 @@
 
 [![CI](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml/badge.svg)](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml)
 [![Tests](https://img.shields.io/badge/tests-123%20passed-brightgreen.svg?style=flat)](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml)
-[![Line coverage](https://img.shields.io/badge/line%20coverage-91%25-brightgreen.svg?style=flat)](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml)
-[![Branch coverage](https://img.shields.io/badge/branch%20coverage-90%25-brightgreen.svg?style=flat)](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml)
+[![Line coverage](https://img.shields.io/badge/line%20coverage-86%25-green.svg?style=flat)](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml)
+[![Branch coverage](https://img.shields.io/badge/branch%20coverage-85%25-green.svg?style=flat)](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](License.txt)
 
 Test and coverage badges are rewritten by CI from the last green run on `master`.
