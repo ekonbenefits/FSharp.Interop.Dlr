@@ -175,10 +175,6 @@ module internal FunctionShapes =
         elif isFunc t then Some t
         else funcBase t.BaseType
 
-    /// The argument types a shape has to fit: each meta-object's LimitType, i.e. the runtime type
-    /// of a dynamic (`obj`-typed) argument and the static type of a typed one.
-    let argTypes (args: DynamicMetaObject[]) = [ for a in args -> a.LimitType ]
-
     let private invoke (f: Expression) (funcType: Type) (arg: Expression) : Expression =
         Expression.Call(f, funcType.GetMethod("Invoke"), arg) :> Expression
 
