@@ -46,15 +46,16 @@ matters.
    <PropertyGroup>
      <!-- F# projects do not set this by default; without it the analyzer never runs. -->
      <RunAnalyzers>true</RunAnalyzers>
-     <FSharpAnalyzersOtherFlags>--analyzers-path "$(PkgFSharp_Interop_Dlr_Analyzers)/analyzers/dotnet/fs"</FSharpAnalyzersOtherFlags>
+     <!-- net10.0 on .NET SDK 10, net8.0 on SDK 8/9 — the folder for your tool version, not the package root. -->
+     <FSharpAnalyzersOtherFlags>--analyzers-path "$(PkgFSharp_Interop_Dlr_Analyzers)/analyzers/dotnet/fs/net10.0"</FSharpAnalyzersOtherFlags>
      <!-- Optional: DLR001/DLR002 fail the build instead of warning. -->
      <FSharpAnalyzersContinueOnError>false</FSharpAnalyzersContinueOnError>
    </PropertyGroup>
    ```
 
-   The package root holds both builds and the tool skips the one made for the other SDK
-   version (logging that it did); to keep the log clean, point at the `net10.0` or `net8.0`
-   subfolder for your SDK instead.
+   Not the package root: it holds both builds, and while tool 0.39.2 just logs that it skipped
+   the other one, tool 0.36.0 reports the diagnostics and then exits with -3 ("failed to load
+   some assemblies"), which is a build failure with `FSharpAnalyzersContinueOnError=false`.
 
 3. Check it actually runs: a clean build prints nothing, so remove one `[<ReflectedDefinition>]`
    and build — you should see `error DLR001: dlr { } needs [<ReflectedDefinition>] …`. If not,
