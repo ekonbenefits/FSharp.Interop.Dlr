@@ -14,21 +14,22 @@ open FSharp.Interop.Dlr
 
 let w = box (Widget())
 
-[<ReflectedDefinition>]          // on the function (or member) that contains the block; see below
+[<ReflectedDefinition>]          // on the function that contains the blocks, not the module (see below)
 let demo () =
-let n: int = dlr { return w?Count }                       // GetMember + Convert to int
-let s: string = dlr { return w?Greet("Hi", Dlr.named {| name = "Jay" |}) }   // InvokeMember, named arg
-dlr { w?Count <- 9 }                                       // SetMember
-let sum: int = dlr { return (box 1) ?+? (box 2) }          // BinaryOperation
-let v: int = dlr { return (Dlr.idx w).[1, 2] }             // GetIndex
-dlr { (Dlr.idx w).[1, 2] <- v }                            // SetIndex
-let name: string = dlr { return root |> Dlr.get "Child" |> Dlr.get "Name" }   // pipe order
-let depth: int =                                           // recursion over a runtime-shaped graph
-    dlr {
-        let rec depth (node: obj) : int =
-            if isNull node then 0 else 1 + depth node?Child
-        return depth root
-    }
+    let n: int = dlr { return w?Count }                       // GetMember + Convert to int
+    let s: string = dlr { return w?Greet("Hi", Dlr.named {| name = "Jay" |}) }   // InvokeMember, named arg
+    dlr { w?Count <- 9 }                                       // SetMember
+    let sum: int = dlr { return (box 1) ?+? (box 2) }          // BinaryOperation
+    let v: int = dlr { return (Dlr.idx w).[1, 2] }             // GetIndex
+    dlr { (Dlr.idx w).[1, 2] <- v }                            // SetIndex
+    let name: string = dlr { return root |> Dlr.get "Child" |> Dlr.get "Name" }   // pipe order
+    let depth: int =                                           // recursion over a runtime-shaped graph
+        dlr {
+            let rec depth (node: obj) : int =
+                if isNull node then 0 else 1 + depth node?Child
+            return depth root
+        }
+    n, s, sum, v, name, depth
 ```
 
 Targets `netstandard2.0` and `net10.0`. Depends on FSharp.Core ≥ 6.0.1 and, on
@@ -90,9 +91,10 @@ module `[<ReflectedDefinition>]` as usual). As in `async { }`, a `let mutable`
 cannot be captured by a loop or try body; use a `ref` or an object. Loops or `try` inside a lambda within the block (as opposed to at block
 level) are not translated (`LeafExpressionConverter` limit).
 
-Rules: the function or member containing the block must be `[<ReflectedDefinition>]` (a clear
-`DlrTranslationException` says so otherwise); one `dlr { }` per source line (the body is located by
-line inside the reflected definition).
+Rules: the block must be inside a `[<ReflectedDefinition>]` scope; the attribute can go on the
+function or member containing it, or on an enclosing type or module, and the narrow form is the
+one to reach for (a clear `DlrTranslationException` says so otherwise). One `dlr { }` per source
+line (the body is located by line inside the reflected definition).
 
 **Keep the attribute narrow.** `[<ReflectedDefinition>]` makes the compiler store a quotation of
 everything it covers, and ordinary F# often has no quotation form (inner generic functions, byrefs
