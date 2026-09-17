@@ -148,6 +148,11 @@ C# does not work here either:
   infers them; one that appears only in the return type has to be given with `Dlr.typeArgs`.
 - **No NativeAOT, no trimming** (below); the runtime binder compiles code at run time.
 
+- **F# optional parameters (`?arg`) are not optional to the binder.** They compile to plain
+  `FSharpOption<'T>` parameters with no `[Optional]` metadata, so a dynamic call cannot omit one
+  (a bare value does convert, through `FSharpOption`'s `op_Implicit`); only
+  `[<Optional; DefaultParameterValue(…)>]` parameters are optional, and those work as in C#.
+
 Each of these is pinned by a test in `Tests/Restrictions.fs`. And two that are F#'s rather than the
 binder's: the block needs `[<ReflectedDefinition>]` in scope
 (next section), and a `let mutable` cannot be captured by a loop or `try` body inside a block, as

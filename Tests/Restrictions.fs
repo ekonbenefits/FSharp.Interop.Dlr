@@ -70,3 +70,15 @@ let ``a failed bind is a RuntimeBinderException for every kind of miss`` () =
     (fun () -> (dlr { return o?Nope } : obj) |> ignore) |> should throw typeof<RuntimeBinderException>          // no member
     (fun () -> (dlr { return o?Add("a", "b") } : int) |> ignore) |> should throw typeof<RuntimeBinderException> // no overload
     (fun () -> (dlr { return Dlr.implicit d } : int) |> ignore) |> should throw typeof<RuntimeBinderException>  // no implicit conversion
+
+[<Fact>]
+let ``F# optional parameters are not optional to the binder`` () =
+    let o = box (Widget())
+    // ?step compiles to an FSharpOption<int> parameter with no [Optional] metadata: it cannot be omitted...
+    (fun () -> (dlr { return o?BumpF(1) } : int) |> ignore) |> should throw typeof<RuntimeBinderException>
+    // ...but FSharpOption<'T> has an op_Implicit from 'T, so a bare value converts, as does an explicit Some.
+    (dlr { return o?BumpF(1, 2) } : int) |> should equal 3
+    (dlr { return o?BumpF(1, Some 2) } : int) |> should equal 3
+    // ...while [<Optional; DefaultParameterValue>] is optional, as in C#.
+    (dlr { return o?Bump(1) } : int) |> should equal 2
+    (dlr { return o?Bump(1, 5) } : int) |> should equal 6

@@ -18,6 +18,7 @@ type Widget() =
     member _.Add(a: int, b: int) = a + b
     member _.Greet(greeting: string, name: string) = greeting + ", " + name
     member _.Bump(count: int, [<Optional; DefaultParameterValue(1)>] step: int) = count + step
+    member _.BumpF(count: int, ?step: int) = count + defaultArg step 1
     member val Touched = 0 with get, set
     member this.Touch() = this.Touched <- this.Touched + 1
     member _.Item with get (i: int) = i * 10
