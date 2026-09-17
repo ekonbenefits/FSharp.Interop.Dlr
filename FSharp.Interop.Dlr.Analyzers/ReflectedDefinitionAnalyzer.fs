@@ -41,10 +41,10 @@ let rec private runCalls (e: FSharpExpr) : range list =
         | _ -> []
     here @ (e.ImmediateSubExpressions |> List.collect runCalls)
 
-/// A block with no reflected definition around it, and the innermost binding to fix.
+/// A block with no reflected definition around it, and the declaration-level binding it sits in.
 type private Finding =
     { Block: range
-      /// Name of the innermost function or member, for the message.
+      /// The function or member the compiler stores a definition for, for the message; None for module-level code.
       Binding: FSharpMemberOrFunctionOrValue option }
 
 let rec private findInDeclarations (reflected: bool) (decls: FSharpImplementationFileDeclaration list) : Finding list =
@@ -57,7 +57,9 @@ let rec private findInDeclarations (reflected: bool) (decls: FSharpImplementatio
             if reflected || memberIsReflected mfv then []
             else runCalls body |> List.map (fun r -> { Block = r; Binding = Some mfv })
         | FSharpImplementationFileDeclaration.InitAction expr ->
-            if reflected then [] else runCalls expr |> List.map (fun r -> { Block = r; Binding = None }))
+            // Module-level `do` compiles into the static initializer, which has no reflected
+            // definition even under a module attribute: always a finding, never fixable in place.
+            runCalls expr |> List.map (fun r -> { Block = r; Binding = None }))
 
 /// The `let` / `member` keyword position of the outermost syntax binding containing `m`, for
 /// the fix: the attribute goes on its own line before the keyword, at the keyword's indentation.
@@ -84,12 +86,13 @@ let private analyze (tree: ParsedInput) (typedTree: FSharpImplementationFileCont
         findInDeclarations false contents.Declarations
         |> List.map (fun finding ->
             let fixes =
-                match bindingKeyword tree finding.Block with
-                | Some keyword ->
+                match finding.Binding, bindingKeyword tree finding.Block with
+                | None, _ -> []
+                | Some _, Some keyword ->
                     let insertAt = Range.mkRange keyword.FileName keyword.Start keyword.Start
                     let indent = String.replicate keyword.StartColumn " "
                     [ { FromRange = insertAt; FromText = ""; ToText = "[<ReflectedDefinition>]\n" + indent } ]
-                | None -> []
+                | Some _, None -> []
             let where =
                 match finding.Binding with
                 | Some mfv -> sprintf "'%s'" mfv.DisplayName

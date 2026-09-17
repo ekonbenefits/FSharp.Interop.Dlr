@@ -3,7 +3,10 @@
 Build-time check for [FSharp.Interop.Dlr](https://github.com/ekonbenefits/FSharp.Interop.Dlr):
 a `dlr { }` block needs `[<ReflectedDefinition>]` on the function or member that contains it
 (or on an enclosing module or type), and without it the first call raises. This analyzer reports
-that at build time, and in Ionide, with a fix that adds the attribute to the innermost binding.
+that at build time, and in Ionide, with a fix that adds the attribute to the outermost binding
+containing the block, i.e. the function or member the compiler stores a definition for (a local
+function inside it is a closure and cannot carry the attribute). A block in module-level `do`
+code is reported without a fix: move it into a function.
 
 | Code | Severity | Reports |
 | --- | --- | --- |

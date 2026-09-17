@@ -104,6 +104,19 @@ module Impl =
     Assert.messageContains "move the block into a function" msgs.[0] |> should equal true
 
 [<Fact>]
+let ``module-level code is reported even under a module attribute`` () =
+    // The static initializer has no reflected definition, so the attribute cannot help there.
+    let msgs =
+        run """
+[<ReflectedDefinition>]
+module Impl =
+    let w = box 1
+    do (dlr { return 3 } : int) |> ignore
+"""
+    msgs.Length |> should equal 1
+    msgs.[0].Fixes |> should be Empty
+
+[<Fact>]
 let ``two blocks give two reports`` () =
     let msgs =
         run """

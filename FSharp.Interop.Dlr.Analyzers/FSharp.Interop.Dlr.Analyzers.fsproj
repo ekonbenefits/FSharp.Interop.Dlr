@@ -4,7 +4,8 @@
     An FSharp.Analyzers.SDK analyzer: a dlr { } whose enclosing function or member (or any
     enclosing module or type) is not [<ReflectedDefinition>] fails at the first call; this
     reports it at build time (through FSharp.Analyzers.Build) and in Ionide, with a fix that puts
-    the attribute on the innermost binding. Packaged in the analyzers/dotnet/fs layout the SDK's
+    the attribute on the outermost binding containing the block (the declaration the compiler
+    stores; a local function inside it is a closure and cannot carry the attribute). Packaged in the analyzers/dotnet/fs layout the SDK's
     tooling looks in; the assembly name has to contain "Analyzer" to be picked up.
   -->
   <PropertyGroup>
