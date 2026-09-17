@@ -12,6 +12,8 @@ dotnet test -c Release            # Release inlining has broken things Debug pas
 dotnet build Tests.Wasm -c Release && (cd Tests.Wasm/bin/Release/net10.0-browser/wwwroot && bun runtests.mjs)
 ```
 Analyzer tests (`Analyzers.Tests`) run as part of `dotnet test`. CI treats warnings as errors.
+CI (`build.yml`) is manual-only (`workflow_dispatch`) while the repo is private and out of
+Actions minutes, so the local gate above is the gate; run the workflow by hand to publish.
 
 ## Conventions
 
