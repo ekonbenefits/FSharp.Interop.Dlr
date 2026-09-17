@@ -113,22 +113,26 @@ Same binder, same limits — each pinned by a test in `Tests/Restrictions.fs`:
 - **Accessibility is the calling type's**: `private` binds only inside the declaring type,
   `internal` anywhere in the assembly. F# `private` compiles to IL `internal`.
 - **Lambdas passed as arguments need a delegate type** (`Func<int, int>(fun x -> …)`); an F#
-  function value is an `FSharpFunc`, not a `Func`. (A member that *holds* an F# function is
-  fine: the binder cannot invoke it, so the library reads and applies it — the one place it goes
-  beyond C#.)
+  function value is an `FSharpFunc`, not a `Func`.
 - **No compile-time checking**: a misspelt member or wrong arity is a `RuntimeBinderException`
   at the call.
 - **Target and result are `obj`**, so value types box there; arguments do not. `byref` and
   `Span` cannot cross a dynamic operation.
 - **Generic type arguments** must be inferable from the arguments, or given with `Dlr.typeArgs`.
-- **F# optional parameters (`?arg`)** — C#'s binder cannot omit them (they are `FSharpOption<'T>`
-  parameters with no `[Optional]` metadata), so where it fails the library binds the call itself:
-  omitted optionals are `None`, bare values become `Some`. The one place it goes beyond C#, along
-  with F# function members.
 - **No NativeAOT, no trimming.** The runtime binder, `LambdaExpression.Compile()` and the
   reflection that finds bodies and closure fields all need a JIT; the assembly is marked
   `IsAotCompatible=false` / `IsTrimmable=false`. Interpreted (non-AOT) browser-wasm works, and CI
   runs it, just not at JIT speed.
+
+Two places it goes beyond C#, for F#'s sake — both as binder rules where C# would have failed,
+so nothing C# can bind changes:
+
+- **A member holding an F# function value can be called** (`e?Fn(21)`, a record field
+  `h?OnPair(3, 4)`, `f |> Dlr.call 21`), curried or tupled; and any member can be read as an F#
+  function type (`let add: int -> int -> int = dlr { return w?Add }`), which C# has no form for.
+- **F# optional parameters (`?arg`) can be omitted**: omitted ones are `None`, bare values become
+  `Some`. C#'s binder cannot omit them (they are `FSharpOption<'T>` parameters with no `[Optional]`
+  metadata).
 
 ## How it works
 
