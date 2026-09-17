@@ -102,10 +102,10 @@ and a repeated key costs a dictionary lookup.
 | `Dlr.implicit x` | implicit Convert to the inferred type: widening, `op_Implicit`, `TryConvert` |
 
 Around them, ordinary F#: `let`, `let rec`, `use`, `if`, `for`, `while`, `try … with`,
-`try … finally`, and any code that quotations can express. Loop bodies reuse the block's call
-sites; a `RuntimeBinderException` can be caught inside the block. As in `async { }`, a
-`let mutable` cannot be captured by a loop or `try` body — use a `ref`. Calling any operator or
-`Dlr.*` marker outside a block throws `InvalidOperationException`; they exist only to be quoted.
+`try … finally`, `let mutable` (inside the block or captured from outside, assigned anywhere in
+it), and any code that quotations can express. Loop bodies reuse the block's call sites; a
+`RuntimeBinderException` can be caught inside the block. Calling any operator or `Dlr.*` marker
+outside a block throws `InvalidOperationException`; they exist only to be quoted.
 
 ## The same restrictions as C# `dynamic`
 

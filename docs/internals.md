@@ -133,7 +133,9 @@ on both runtime types (instance-restricted for a null). Non-comparable types fai
 - **Control flow** the expression converter has no node for (`for`, `while`, `try`, `use`) is
   emitted as calls to `DlrRuntime.*` helpers with the bodies as `Func` delegates (not F#
   lambdas: on browser-wasm the `FuncConvert` wrapper the converter would add lost arguments).
-  `let rec` is tied through reference cells.
+  `let rec` is tied through reference cells, and so is a `let mutable` of the block: loop and
+  `try` bodies are compiled into delegates, and a tree variable cannot be assigned from inside
+  one. A captured mutable already is a cell, so `v <- x` writes its `Value`.
 - **Nested blocks** compile into the outer block: at run time their closure would be created by
   the compiled tree, not the compiler, and would have no reflected body.
 - **`unit` bodies** end with the unit constant, since an F# `unit` call is `void` in IL and the

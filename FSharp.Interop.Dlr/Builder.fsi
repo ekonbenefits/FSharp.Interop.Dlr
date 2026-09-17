@@ -19,7 +19,7 @@ type DlrBuilder =
     member Combine: first: unit * rest: (unit -> 'T) -> 'T
     /// <summary><c>for x in items do …</c>; the body's dynamic call sites are created once and reused across iterations.</summary>
     member For: items: seq<'T> * body: ('T -> unit) -> unit
-    /// <summary><c>while guard do …</c>; note F# does not let a <c>let mutable</c> be captured by the loop body, use a <c>ref</c>.</summary>
+    /// <summary><c>while guard do …</c>; a <c>let mutable</c>, in the block or captured, may be read and assigned by the guard and the body.</summary>
     member While: guard: (unit -> bool) * body: (unit -> unit) -> unit
     /// <summary><c>try … with</c>; a <c>RuntimeBinderException</c> from a failed dynamic bind can be caught here like any other.</summary>
     member TryWith: body: (unit -> 'T) * handler: (exn -> 'T) -> 'T

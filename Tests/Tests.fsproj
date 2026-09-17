@@ -70,6 +70,7 @@
     <Compile Include="FunctionMembers.fs" />
     <Compile Include="Polymorphic.fs" />
     <Compile Include="Constructors.fs" />
+    <Compile Include="Mutables.fs" />
     <Compile Include="Unreflected.fs" />
   </ItemGroup>
 
