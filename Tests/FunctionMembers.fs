@@ -209,6 +209,13 @@ let ``an int argument fits an int64 function domain by C#'s implicit widening`` 
     (dlr { return h?Wide(41) } : int64) |> should equal 42L
     let e = box (Fixtures.expando [ "F", box (fun (x: float) -> x * 2.0) ])
     (dlr { return e?F(21) } : float) |> should equal 42.0
+    // A boxed int (dynamic argument) widens the same way: unboxed as int, then converted.
+    let n = box 41
+    (dlr { return h?Wide(n) } : int64) |> should equal 42L
+    (dlr { return e?F(n) } : float) |> should equal 82.0
+    let m = box 2
+    (dlr { return h?WideTupled(n, m) } : int64) |> should equal 43L
+    (dlr { return h?WideCurried(n, m) } : int64) |> should equal 43L
 
 [<Fact>]
 let ``optional-parameter overloads pick the more specific one deterministically`` () =

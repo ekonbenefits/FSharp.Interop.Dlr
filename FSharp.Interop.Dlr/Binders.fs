@@ -182,7 +182,11 @@ module internal FunctionShapes =
     let private invoke (f: Expression) (funcType: Type) (arg: Expression) : Expression =
         Expression.Call(f, funcType.GetMethod("Invoke"), arg) :> Expression
 
-    let private convertTo (t: Type) (a: DynamicMetaObject) = Expression.Convert(a.Expression, t) :> Expression
+    /// Through the LimitType first: an `obj`-typed argument is unboxed as its runtime type, then
+    /// widened; converting `obj` straight to `int64` would unbox a boxed `int` as `int64` and throw.
+    let private convertTo (t: Type) (a: DynamicMetaObject) =
+        let unboxed = if a.Expression.Type = a.LimitType then a.Expression else Expression.Convert(a.Expression, a.LimitType) :> Expression
+        if a.LimitType = t then unboxed else Expression.Convert(unboxed, t) :> Expression
 
     /// The call applying `read` (an expression whose value is of `funcType`) with `args`, boxed,
     /// if the shape fits: `unit -> R` for no arguments, `A -> R` for one, and for more either a
