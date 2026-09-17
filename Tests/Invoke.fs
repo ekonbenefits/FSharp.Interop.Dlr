@@ -84,7 +84,7 @@ let ``unit result discards`` () =
 [<Fact>]
 let ``invoke the target itself`` () =
     let f = box (Func<int, int>(fun x -> x * 2))
-    (dlr { return (!?f)(21) } : int) |> should equal 42
+    (dlr { return (Dlr.force f) (21) } : int) |> should equal 42
 
 [<Fact>]
 let ``delegate arg passes through`` () =
@@ -96,7 +96,7 @@ let ``delegate arg passes through`` () =
 let ``invoke the target with a unit result`` () =
     let mutable hits = 0
     let f = box (Action<int>(fun x -> hits <- hits + x))
-    dlr { (!?f)(5) }
+    dlr { (Dlr.force f) (5) }
     hits |> should equal 5
 
 [<Fact>]

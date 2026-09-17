@@ -43,7 +43,7 @@ module internal Translate =
 
     let private opDynamic = opMethod <@ fun (t: obj) (n: string) -> ((?) t n) : obj @>
     let private opDynamicAssign = opMethod <@ fun (t: obj) (n: string) (v: obj) -> (?<-) t n v @>
-    let private opBang = opMethod <@ fun (t: obj) -> ((!?) t) : obj @>
+    let private opForce = opMethod <@ fun (t: obj) -> (Dlr.force t) : obj @>
     let private opNamed = opMethod <@ fun (r: obj) -> Dlr.named r @>
     let private opCast = opMethod <@ fun (v: obj) -> Dlr.cast<obj> v @>
     let private opImplicit = opMethod <@ fun (v: obj) -> (Dlr.implicit v) : obj @>
@@ -379,7 +379,7 @@ module internal Translate =
                 | _ ->
                     computedName bound nameExpr target [ value ] typeof<unit> (fun name targetArg args ->
                         Binders.setMember context name targetArg (List.head args))
-            | Application(EtaReduced(Op opBang [ Unboxed target ]), argExpr) ->
+            | Application(EtaReduced(Op opForce [ Unboxed target ]), argExpr) ->
                 let discard = e.Type = typeof<unit>
                 let bindings, args = argList bound (splitArgs argExpr)
                 Binders.invoke context discard (targetArg bound target) args |> finish discard e.Type |> bind bound bindings
@@ -389,6 +389,8 @@ module internal Translate =
             | PropertySet(receiver, pi, indexes, Unboxed value) when (IndexedProperty(receiver, pi)).IsSome ->
                 let target = (IndexedProperty(receiver, pi)).Value
                 Binders.setIndex context (targetArg bound target) (indexList bound indexes) (valueArg bound value) |> convert typeof<unit>
+            | Op opForce [ _ ] ->
+                unsupported "Dlr.force without arguments; apply it: (Dlr.force f) (args)" e
             | BinaryOp(op, Unboxed left, Unboxed right) ->
                 Binders.binaryOperation context op (valueArg bound left) (valueArg bound right) |> convert e.Type
             | UnaryOp(op, Unboxed operand) ->

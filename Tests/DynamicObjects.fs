@@ -10,9 +10,9 @@ open FSharp.Interop.Dlr
 open Microsoft.CSharp.RuntimeBinder
 
 [<Fact>]
-let ``TryInvoke handles !? on a DynamicObject`` () =
+let ``TryInvoke handles Dlr.force on a DynamicObject`` () =
     let a = box (Arith(1))
-    (dlr { return (!?a)(1, 2) } : string) |> should equal "invoked with 2 args"
+    (dlr { return (Dlr.force a) (1, 2) } : string) |> should equal "invoked with 2 args"
 
 [<Fact>]
 let ``TryBinaryOperation handles the operators`` () =
