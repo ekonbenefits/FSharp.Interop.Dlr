@@ -95,18 +95,18 @@ exceptions, so the decision is cached per runtime type like everything else:
 
 The shape is read off the *function's* type — the runtime type of a dynamic value, the declared
 type of a CLR member — never off the call's declared result: `FSharpFunc<A * B, R>` (tupled) or
-`FSharpFunc<A, FSharpFunc<B, R>>` (curried) whose domains the argument types fit, applied by the
-matching `Apply.TupledN` / `Apply.CurriedN` method with plain F# application (so
-`OptimizedClosures` and `InvokeFast` are the compiler's business) and the result boxed for the
-site's `Convert`. So a discarded call or a widened result still applies the function that is
+`FSharpFunc<A, FSharpFunc<B, R>>` (curried) whose domains the argument types fit. The rule is
+built for any arity: a tuple construction and one `Invoke` for tupled, a chain of `Invoke` calls
+for curried (each step's result is the next function; `OptimizedClosures` override `Invoke`
+too, so the chain is correct, just not `InvokeFast`), the result boxed for the site's `Convert`. So a discarded call or a widened result still applies the function that is
 there. A CLR member whose declared type says nothing (`obj`, an interface) is read and handed to a
-nested `Invoke` site that decides by the value's runtime type. The argument types a shape has to
-fit are the meta-objects' `LimitType`s — the runtime type of an `obj`-typed argument, the static
+nested `Invoke` site that decides by the value's runtime type. Reading a member *as* a function
+(`FunctionMember.CurriedN`/`TupledN`) constructs an F# closure and so has per-arity helpers, up to
+five like `OptimizedClosures`. The argument types a shape has to fit are the meta-objects' `LimitType`s — the runtime type of an `obj`-typed argument, the static
 type of a typed one — matching the site's own argument rules. Our reflection lookups (function
 members, optional-parameter methods) apply the C# binder's accessibility rule from the same
 context type: public always, internal from the same assembly (F# `private` is IL internal),
-private from inside the declaring type. Up to four arguments; named or generic calls use C#'s
-binder unchanged. A member read as `… -> unit` is invoked through a void, result-discarded site.
+private from inside the declaring type. Named or generic calls use C#'s binder unchanged. A member read as `… -> unit` is invoked through a void, result-discarded site.
 
 ## Translation notes
 

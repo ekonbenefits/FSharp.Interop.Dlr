@@ -223,10 +223,19 @@ let ``a protected member binds from a derived context`` () =
     d.CallFamily(d) |> should equal 15
 
 [<Fact>]
-let ``reading a member as a function of more than four arguments is a clear translation error`` () =
+let ``calling an F# function member has no arity limit`` () =
     let h = box (Holders())
-    (fun () -> (dlr { return h?Five } : int -> int -> int -> int -> int -> int) |> ignore)
+    (dlr { return h?Five(1, 2, 3, 4, 5) } : int) |> should equal 15
+    (dlr { return h?Six(1, 2, 3, 4, 5, 6) } : int) |> should equal 720
+    (dlr { return h?SixTupled(1, 2, 3, 4, 5, 6) } : int) |> should equal 21
+    (dlr { return h?Eight(1, 2, 3, 4, 5, 6, 7, 8) } : int) |> should equal 36
+    let six = box (fun (a: int) (b: int) (c: int) (d: int) (e: int) (f: int) -> a + b + c + d + e + f)
+    (dlr { return six |> Dlr.call (1, 1, 1, 1, 1, 1) } : int) |> should equal 6
+
+[<Fact>]
+let ``reading a member as a function goes to five arguments, then a clear translation error`` () =
+    let h = box (Holders())
+    let five: int -> int -> int -> int -> int -> int = dlr { return h?Five }
+    five 1 2 3 4 5 |> should equal 15
+    (fun () -> (dlr { return h?Six } : int -> int -> int -> int -> int -> int -> int) |> ignore)
     |> should throw typeof<DlrTranslationException>
-    // The same limit applies to calling an F# function member: five arguments go to C#, which
-    // cannot invoke an FSharpFunc. A delegate has no such limit.
-    (fun () -> (dlr { return h?Five(1, 2, 3, 4, 5) } : int) |> ignore) |> should throw typeof<RuntimeBinderException>

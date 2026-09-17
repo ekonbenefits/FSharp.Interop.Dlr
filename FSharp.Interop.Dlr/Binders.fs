@@ -130,24 +130,11 @@ module internal OptionalArguments =
             Some(DynamicMetaObject(value, restrictions))
         | [] -> None
 
-/// Applying an F# function value with the arguments of a call site: one overload per shape,
-/// tupled or curried. Each returns the result boxed; the site's Convert does the rest.
-[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
-[<AbstractClass; Sealed>]
-type Apply =
-    static member Unit<'R>(f: FSharpFunc<unit, 'R>) : obj = box (f ())
-    static member One<'A, 'R>(f: FSharpFunc<'A, 'R>, a: 'A) : obj = box (f a)
-    static member Tupled2<'A, 'B, 'R>(f: FSharpFunc<'A * 'B, 'R>, a: 'A, b: 'B) : obj = box (f (a, b))
-    static member Curried2<'A, 'B, 'R>(f: FSharpFunc<'A, FSharpFunc<'B, 'R>>, a: 'A, b: 'B) : obj = box (f a b)
-    static member Tupled3<'A, 'B, 'C, 'R>(f: FSharpFunc<'A * 'B * 'C, 'R>, a: 'A, b: 'B, c: 'C) : obj = box (f (a, b, c))
-    static member Curried3<'A, 'B, 'C, 'R>(f: FSharpFunc<'A, FSharpFunc<'B, FSharpFunc<'C, 'R>>>, a: 'A, b: 'B, c: 'C) : obj = box (f a b c)
-    static member Tupled4<'A, 'B, 'C, 'D, 'R>(f: FSharpFunc<'A * 'B * 'C * 'D, 'R>, a: 'A, b: 'B, c: 'C, d: 'D) : obj = box (f (a, b, c, d))
-    static member Curried4<'A, 'B, 'C, 'D, 'R>(f: FSharpFunc<'A, FSharpFunc<'B, FSharpFunc<'C, FSharpFunc<'D, 'R>>>>, a: 'A, b: 'B, c: 'C, d: 'D) : obj = box (f a b c d)
-
 /// Whether a function type (the runtime type of a value, or a member's declared type) is an
-/// `FSharpFunc` that the call site's arguments fit, and how to apply it. The shapes come from the
-/// function itself, not from the call's declared result: a discarded result or a widened one
-/// still applies the function that is actually there.
+/// `FSharpFunc` that the call site's arguments fit, and the expression applying it. The shape
+/// comes from the function itself, not from the call's declared result: a discarded result or a
+/// widened one still applies the function that is there. Any arity: a curried function is a
+/// chain of `Invoke` calls, a tupled one a tuple construction and one `Invoke`.
 module internal FunctionShapes =
     let private isFunc (t: Type) = t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<FSharpFunc<_, _>>
 
@@ -176,51 +163,58 @@ module internal FunctionShapes =
         elif isFunc t then Some t
         else funcBase t.BaseType
 
-    /// The curried domains and final result of an FSharpFunc type, up to `n` domains.
-    let rec private curried (n: int) (t: Type) : (Type list * Type) option =
-        if n = 0 then Some([], t)
-        elif isFunc t then
-            let ga = t.GetGenericArguments()
-            curried (n - 1) ga.[1] |> Option.map (fun (ds, r) -> ga.[0] :: ds, r)
-        else None
-
-    /// The Apply method for `funcType` applied to arguments of `argTypes`, if it fits.
-    let applyFor (argTypes: Type list) (funcType: Type) : MethodInfo option =
-        match funcBase funcType with
-        | None -> None
-        | Some funcType ->
-            let ga = funcType.GetGenericArguments()
-            let domain, result = ga.[0], ga.[1]
-            let apply name (types: Type list) = typeof<Apply>.GetMethod(name).MakeGenericMethod(Array.ofList types)
-            match argTypes with
-            | [] when domain = typeof<unit> -> Some(apply "Unit" [ result ])
-            | [ a ] when fits domain a -> Some(apply "One" [ domain; result ])
-            | [] | [ _ ] -> None
-            | _ ->
-                let n = argTypes.Length
-                if FSharp.Reflection.FSharpType.IsTuple domain
-                   && (let es = FSharp.Reflection.FSharpType.GetTupleElements domain in es.Length = n && List.forall2 fits (List.ofArray es) argTypes) then
-                    Some(apply (sprintf "Tupled%d" n) (List.ofArray (FSharp.Reflection.FSharpType.GetTupleElements domain) @ [ result ]))
-                else
-                    match curried n funcType with
-                    | Some(ds, r) when List.forall2 fits ds argTypes -> Some(apply (sprintf "Curried%d" n) (ds @ [ r ]))
-                    | _ -> None
-
-    let private restrictions (target: DynamicMetaObject) (targetType: Type) (args: DynamicMetaObject[]) =
-        Array.fold (fun (r: BindingRestrictions) (a: DynamicMetaObject) -> r.Merge(BindingRestrictions.GetTypeRestriction(a.Expression, a.LimitType)))
-            (BindingRestrictions.GetTypeRestriction(target.Expression, targetType)) args
-
     /// The argument types a shape has to fit: each meta-object's LimitType, i.e. the runtime type
     /// of a dynamic (`obj`-typed) argument and the static type of a typed one.
     let argTypes (args: DynamicMetaObject[]) = [ for a in args -> a.LimitType ]
 
-    /// The call applying `read` (an expression of `funcType`) with `args`, if the shape fits.
+    let private invoke (f: Expression) (funcType: Type) (arg: Expression) : Expression =
+        Expression.Call(f, funcType.GetMethod("Invoke"), arg) :> Expression
+
+    let private convertTo (t: Type) (a: DynamicMetaObject) = Expression.Convert(a.Expression, t) :> Expression
+
+    /// The call applying `read` (an expression whose value is of `funcType`) with `args`, boxed,
+    /// if the shape fits: `unit -> R` for no arguments, `A -> R` for one, and for more either a
+    /// tuple domain of that size or a curried chain of that depth.
     let applyCall (funcType: Type) (read: Expression) (args: DynamicMetaObject[]) : Expression option =
-        applyFor (argTypes args) funcType
-        |> Option.map (fun apply ->
-            let ps = apply.GetParameters()
-            let arguments = (Expression.Convert(read, ps.[0].ParameterType) :> Expression) :: [ for i, a in Array.indexed args -> Expression.Convert(a.Expression, ps.[i + 1].ParameterType) :> Expression ]
-            Expression.Call(apply, arguments) :> Expression)
+        match funcBase funcType with
+        | None -> None
+        | Some ft ->
+            let ga = ft.GetGenericArguments()
+            let domain = ga.[0]
+            let f = Expression.Convert(read, ft) :> Expression
+            let boxed (e: Expression) = Expression.Convert(e, typeof<obj>) :> Expression
+            match List.ofArray args with
+            | [] when domain = typeof<unit> -> Some(boxed (invoke f ft (Expression.Constant(null, typeof<unit>))))
+            | [ a ] when fits domain a.LimitType -> Some(boxed (invoke f ft (convertTo domain a)))
+            | [] | [ _ ] -> None
+            | args ->
+                let n = args.Length
+                let tupled =
+                    if FSharp.Reflection.FSharpType.IsTuple domain then
+                        let es = List.ofArray (FSharp.Reflection.FSharpType.GetTupleElements domain)
+                        if es.Length = n && List.forall2 fits es (List.map (fun (a: DynamicMetaObject) -> a.LimitType) args) then
+                            let tuple = Expression.New(domain.GetConstructor(Array.ofList es), List.map2 convertTo es args)
+                            Some(boxed (invoke f ft tuple))
+                        else None
+                    else None
+                match tupled with
+                | Some call -> Some call
+                | None ->
+                    // Curried: each domain in turn must fit, and each step's result is the next function.
+                    let rec chain (fe: Expression) (t: Type) (remaining: DynamicMetaObject list) =
+                        match remaining with
+                        | [] -> Some fe
+                        | a :: rest ->
+                            match funcBase t with
+                            | Some ft when fits (ft.GetGenericArguments().[0]) a.LimitType ->
+                                let ga = ft.GetGenericArguments()
+                                chain (invoke (Expression.Convert(fe, ft)) ft (convertTo ga.[0] a)) ga.[1] rest
+                            | _ -> None
+                    chain read funcType args |> Option.map boxed
+
+    let private restrictions (target: DynamicMetaObject) (targetType: Type) (args: DynamicMetaObject[]) =
+        Array.fold (fun (r: BindingRestrictions) (a: DynamicMetaObject) -> r.Merge(BindingRestrictions.GetTypeRestriction(a.Expression, a.LimitType)))
+            (BindingRestrictions.GetTypeRestriction(target.Expression, targetType)) args
 
     /// A rule applying `value` with `args` if its runtime type is a fitting FSharpFunc: the DLR
     /// caches it under that type restriction, so a site keeps one rule per kind of value it sees.
@@ -376,6 +370,10 @@ type FunctionMember =
         fun (a, b, c) -> convert.Target.Invoke(convert, invoke.Target.Invoke(invoke, target, a, b, c))
     static member Tupled4<'A, 'B, 'C, 'D, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, 'B, 'C, 'D, obj>>, convert: CallSite<Func<CallSite, obj, 'R>>, target: obj) : 'A * 'B * 'C * 'D -> 'R =
         fun (a, b, c, d) -> convert.Target.Invoke(convert, invoke.Target.Invoke(invoke, target, a, b, c, d))
+    static member Curried5<'A, 'B, 'C, 'D, 'E, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, 'B, 'C, 'D, 'E, obj>>, convert: CallSite<Func<CallSite, obj, 'R>>, target: obj) : 'A -> 'B -> 'C -> 'D -> 'E -> 'R =
+        fun a b c d e -> convert.Target.Invoke(convert, invoke.Target.Invoke(invoke, target, a, b, c, d, e))
+    static member Tupled5<'A, 'B, 'C, 'D, 'E, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, 'B, 'C, 'D, 'E, obj>>, convert: CallSite<Func<CallSite, obj, 'R>>, target: obj) : 'A * 'B * 'C * 'D * 'E -> 'R =
+        fun (a, b, c, d, e) -> convert.Target.Invoke(convert, invoke.Target.Invoke(invoke, target, a, b, c, d, e))
     // `… -> unit`: a void site, nothing to convert.
     static member Curried0Unit(invoke: CallSite<Action<CallSite, obj>>, target: obj) : unit -> unit =
         fun () -> invoke.Target.Invoke(invoke, target)
@@ -393,6 +391,10 @@ type FunctionMember =
         fun (a, b, c) -> invoke.Target.Invoke(invoke, target, a, b, c)
     static member Tupled4Unit<'A, 'B, 'C, 'D>(invoke: CallSite<Action<CallSite, obj, 'A, 'B, 'C, 'D>>, target: obj) : 'A * 'B * 'C * 'D -> unit =
         fun (a, b, c, d) -> invoke.Target.Invoke(invoke, target, a, b, c, d)
+    static member Curried5Unit<'A, 'B, 'C, 'D, 'E>(invoke: CallSite<Action<CallSite, obj, 'A, 'B, 'C, 'D, 'E>>, target: obj) : 'A -> 'B -> 'C -> 'D -> 'E -> unit =
+        fun a b c d e -> invoke.Target.Invoke(invoke, target, a, b, c, d, e)
+    static member Tupled5Unit<'A, 'B, 'C, 'D, 'E>(invoke: CallSite<Action<CallSite, obj, 'A, 'B, 'C, 'D, 'E>>, target: obj) : 'A * 'B * 'C * 'D * 'E -> unit =
+        fun (a, b, c, d, e) -> invoke.Target.Invoke(invoke, target, a, b, c, d, e)
 
 /// A call site whose member name is only known at run time (`(?) x name` with `name` a variable):
 /// one compiled, typed delegate per distinct name, made on first use from a quotation template
@@ -490,7 +492,7 @@ module internal Binders =
         let typeArgSeq = match typeArgs with [] -> null | ts -> ts :> seq<Type>
         let csharp = Binder.InvokeMember(flags, name, typeArgSeq, context, [ for a in all -> argInfo a ])
         let positional = args |> List.forall (fun a -> isNull a.Name)
-        if not positional || not typeArgs.IsEmpty || args.Length > 4 then csharp
+        if not positional || not typeArgs.IsEmpty then csharp
         else
             // Discarded results too: the site is void-returning and the DLR drops the rule's value.
             let csharpInvoke = Binder.Invoke(flags, context, [ for a in all -> argInfo a ]) :?> InvokeBinder
@@ -508,7 +510,7 @@ module internal Binders =
         let csharp = Binder.Invoke((if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None), context, [ for a in all -> argInfo a ])
         let positional = args |> List.forall (fun a -> isNull a.Name)
         let binder =
-            if not positional || args.Length > 4 then csharp
+            if not positional then csharp
             else FSharpInvokeBinder(csharp :?> InvokeBinder) :> CallSiteBinder
         siteCall binder all (if discard then voidType else typeof<obj>)
 
@@ -527,9 +529,9 @@ module internal Binders =
             | [ d ] when d = typeof<unit> -> false, []
             | [ d ] when FSharp.Reflection.FSharpType.IsTuple d -> true, List.ofArray (FSharp.Reflection.FSharpType.GetTupleElements d)
             | ds -> false, ds
-        if argTypes.Length > 4 then
+        if argTypes.Length > 5 then
             raise (DlrTranslationException(
-                    sprintf "dlr { } can read a member as a function of up to four arguments; '%s' is read as one of %d. F# function values are applied with up to four arguments; beyond that store a delegate." name argTypes.Length))
+                    sprintf "dlr { } can read a member as a function of up to five arguments (F#'s optimized closures go that far); '%s' is read as one of %d. Calling it, x?%s(…), has no such limit." name argTypes.Length name))
         let invokeArgs = [ for t in argTypes -> typedArg (Expr.Value(null, t)) ]
         let all = target :: invokeArgs
         // `… -> unit` invokes with the result discarded (a void site), as a statement call does.
