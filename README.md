@@ -75,15 +75,16 @@ instantiation); so do nested blocks, blocks inside `task { }` / `async { }`, and
 
 ## Syntax
 
-A member name may be a variable: the site then creates its call sites per distinct name on first
-use (kept up to 256 names, then cleared), and a repeated name costs a dictionary lookup.
+A member name, or the type-argument list of `Dlr.typeArgsOf`, may be a variable: the site then
+creates its call sites per distinct name/types on first use (kept up to 256 keys, then cleared),
+and a repeated key costs a dictionary lookup.
 
 | Syntax | Binder |
 | --- | --- |
 | `x?Name` | GetMember, then Convert to the inferred type |
 | `x?Name(a, b)`, `x?Name()` | InvokeMember. Arguments keep their static type; `obj` arguments dispatch on the runtime type; literals get C#'s constant conversions (`5` to `byte`, `0` to an enum, `null` to any reference type). A member holding an F# function value (curried or tupled) is applied when the binder cannot invoke it |
 | `x?Name(a, Dlr.named {\| p = v \|})` | named arguments (a bare anonymous record is one positional argument) |
-| `x?Name(Dlr.typeArgs<A, B>(), a)`, `x?Name(Dlr.typeArgsOf [ typeof<A>; … ], a)` | explicit type arguments, first (`typeArgs` up to four; `typeArgsOf` any number, as a literal list of `typeof`); otherwise inferred from the arguments as in C# |
+| `x?Name(Dlr.typeArgs<A, B>(), a)`, `x?Name(Dlr.typeArgsOf ts, a)` | explicit type arguments, first: `typeArgs` up to four; `typeArgsOf` any number, and its list may be a variable — types only known at run time, which C# `dynamic` cannot do (cached per site like a computed name); otherwise inferred from the arguments as in C# |
 | `x?Name` typed `A -> B -> R` | a curried F# function that invokes the member when fully applied — a method, a delegate or an F# function alike — so `let add: int -> int -> int = dlr { return w?Add }`, then `add 1 2` or `add 1` partially; `A * B -> R` calls with a tuple; `unit -> R` reads a property or calls a parameterless method |
 | `x?Name <- v` | SetMember |
 | `(?) x name`, `((?) x name)(a)`, `(?<-) x name v` | the same three as plain function applications |
