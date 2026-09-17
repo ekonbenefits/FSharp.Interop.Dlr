@@ -381,8 +381,9 @@ module internal Translate =
                     let bindings, args = argList bound argExprs
                     Binders.invokeMemberOrApply context (string name) ts discard (targetArg bound target) args |> finish discard e.Type |> bind bound bindings
                 | _ ->
+                    let discard = e.Type = typeof<unit>
                     keyedSite bound nameExpr typeArgs target argExprs e.Type (fun name ts targetArg args ->
-                        Binders.invokeMemberOrApply context name ts false targetArg args)
+                        Binders.invokeMemberOrApply context name ts discard targetArg args)
             | MemberOp(GetMember(target, nameExpr)) when FSharpType.IsFunction e.Type ->
                 // Read as an F# function: a curried invoker of the member (method, delegate or F#
                 // function), so `let f: int -> int -> int = dlr { return x?Add }` then `f 1 2`.
@@ -492,8 +493,12 @@ module internal Translate =
             let body = lift placeholder
             let delegateType =
                 Expression.GetDelegateType(Array.ofList ([ for _, v in siteVars -> v.Type ] @ typeof<obj> :: [ for v in argVars -> v.Type ] @ [ typeof<obj> ]))
-            let lambda =
-                Expr.NewDelegate(delegateType, [ for _, v in siteVars -> v ] @ targetVar :: argVars, (if body.Type = typeof<obj> then body else Expr.Coerce(body, typeof<obj>)))
+            // A discarded result is a void site: the delegate still returns obj, so hand back null.
+            let boxed =
+                if body.Type = typeof<obj> then body
+                elif body.Type = typeof<unit> || body.Type = typeof<Void> then Expr.Sequential(body, Expr.Value(null, typeof<obj>))
+                else Expr.Coerce(body, typeof<obj>)
+            let lambda = Expr.NewDelegate(delegateType, [ for _, v in siteVars -> v ] @ targetVar :: argVars, boxed)
             let compiled = (Microsoft.FSharp.Linq.RuntimeHelpers.LeafExpressionConverter.QuotationToExpression lambda :?> LambdaExpression).Compile()
             let cache = SiteCache<string * Type list>(template)
             let cacheType = typeof<SiteCache<string * Type list>>

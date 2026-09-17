@@ -101,3 +101,14 @@ let ``a thousand distinct names through one site`` () =
             with :? RuntimeBinderException -> ()
     }
     List.ofSeq hits |> should equal [ for _ in 1 .. 500 -> 3 ]
+
+[<Fact>]
+let ``a void method by a computed name is a discarded call`` () =
+    let w = Widget()
+    let o = box w
+    let m = "Touch"
+    dlr { (?) o m () }
+    w.Touched |> should equal 1
+    let t = typeof<int>
+    dlr { o?TouchT(Dlr.typeArgsOf [ t ]) }
+    w.Touched |> should equal 2

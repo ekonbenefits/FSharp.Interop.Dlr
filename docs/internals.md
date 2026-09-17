@@ -70,7 +70,7 @@ what C# passes as the calling class. Results come back as `obj` and go through a
 | `Dlr.cast<T>` | `Convert` with `ConvertExplicit` |
 | `Dlr.implicit` | `Convert` |
 | `x?Name` typed `A -> B -> R` | `InvokeMember` site with typed argument slots + `Convert`, wrapped in a curried F# function by `FunctionMember.CurriedN` / `TupledN`; `unit -> R` uses `FSharpReadOrInvokeBinder` |
-| `(?) x name`, variable name; `x?M(Dlr.typeArgsOf ts)`, variable list | the operation's delegate compiled once at translation time with its `CallSite`s as parameters (the shape does not depend on the name; the sites are lifted out of a template built for a placeholder), plus a `SiteCache` constant: `let sites = cache.Get(name) in delegate.Invoke(sites.[0], …, target, args…)`. A new name creates binders and sites (µs) — no `Compile()` — and then pays the DLR's own first bind like any site |
+| `(?) x name`, variable name; `x?M(Dlr.typeArgsOf ts)`, variable list | the operation's delegate compiled once at translation time with its `CallSite`s as parameters (the shape does not depend on the name; the sites are lifted out of a template built for a placeholder), plus a `SiteCache` constant keyed by `(name, types)`, whichever of the two is static being a constant in the key: `let sites = cache.Get((name, types)) in delegate.Invoke(sites.[0], …, target, args…)`. The operation's shape depends on neither input, only its sites do. A new name creates binders and sites (µs) — no `Compile()` — and then pays the DLR's own first bind like any site |
 
 ## The F#-aware binders
 

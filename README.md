@@ -126,7 +126,8 @@ Same binder, same limits — each pinned by a test in `Tests/Restrictions.fs`:
   at the call.
 - **Target and result are `obj`**, so value types box there; arguments do not. `byref` and
   `Span` cannot cross a dynamic operation.
-- **Generic type arguments** must be inferable from the arguments, or given with `Dlr.typeArgs`.
+- **Generic type arguments** must be inferable from the arguments, or given explicitly —
+  `Dlr.typeArgs<A, B>()` or `Dlr.typeArgsOf [ … ]`, whose list may even be a run-time value.
 - **`inline` members with a member constraint** (`^T: (member Name: string)`) are found but
   throw `NotSupportedException` when called: their body only exists at inlining sites.
   Operator constraints (`v + v`) are fine, they resolve at run time.
