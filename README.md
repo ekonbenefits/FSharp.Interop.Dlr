@@ -129,8 +129,8 @@ Same binder, same limits — each pinned by a test in `Tests/Restrictions.fs`:
   `IsAotCompatible=false` / `IsTrimmable=false`. Interpreted (non-AOT) browser-wasm works, and CI
   runs it, just not at JIT speed.
 
-Two places it goes beyond C#, for F#'s sake — both as binder rules where C# would have failed,
-so nothing C# can bind changes:
+Three places it goes beyond C#, for F#'s sake — as binder rules for what C# would have failed
+or got wrong, so nothing C# binds correctly changes:
 
 - **A member holding an F# function value can be called** (`e?Fn(21)`, a record field
   `h?OnPair(3, 4)`, `f |> Dlr.call 21`), curried or tupled, any arity; and any member can be read
@@ -139,6 +139,11 @@ so nothing C# can bind changes:
 - **F# optional parameters (`?arg`) can be omitted**: omitted ones are `None`, bare values become
   `Some`. C#'s binder cannot omit them (they are `FSharpOption<'T>` parameters with no `[Optional]`
   metadata).
+- **`?=?` and `?<?` are structural on F# types**: records, unions, tuples, lists, options, sets
+  — anything without a CLR operator — compare as F# `=` and `compare` do. C# would compare
+  them by reference (`{ X = 1 } == { X = 1 }` is `false` there) and has no `<` for them at all.
+  Primitives, enums, strings (`==` only; `<` on strings is F#'s ordinal), types declaring
+  `op_Equality` and dynamic objects keep C#'s rules.
 
 ## How it works
 
