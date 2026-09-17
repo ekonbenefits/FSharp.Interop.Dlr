@@ -92,6 +92,8 @@ type Dlr =
     [<MethodImpl(MethodImplOptions.NoInlining)>]
     static member typeArgs<'A, 'B, 'C, 'D> () : TypeArgs = outside "Dlr.typeArgs"
     [<MethodImpl(MethodImplOptions.NoInlining)>]
+    static member typeArgsOf (types: System.Type list) : TypeArgs = ignore types; outside "Dlr.typeArgsOf"
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
     static member new'<'T> () : 'T = outside "Dlr.new'"
     [<MethodImpl(MethodImplOptions.NoInlining)>]
     static member new'<'T> (a: obj) : 'T = ignore (a); outside "Dlr.new'"

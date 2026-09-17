@@ -122,6 +122,19 @@ let ``wrong type argument arity raises RuntimeBinderException`` () =
     |> should throw typeof<RuntimeBinderException>
 
 [<Fact>]
+let ``typeArgsOf takes a literal list of any length`` () =
+    let w = box (Widget())
+    (dlr { return w?TypeName(Dlr.typeArgsOf [ typeof<int> ]) } : string) |> should equal "Int32"
+    (dlr { return w?Pair(Dlr.typeArgsOf [ typeof<obj>; typeof<string> ], 1, "x") } : string) |> should equal "Object/String"
+    (dlr { return w?FiveNames(Dlr.typeArgsOf [ typeof<int>; typeof<string>; typeof<float>; typeof<bool>; typeof<char> ]) } : string)
+    |> should equal "Int32/String/Double/Boolean/Char"
+    // An empty list is no type arguments: inference as without the marker.
+    (dlr { return w?Echo(Dlr.typeArgsOf [], 41) } : int) |> should equal 41
+    // Only a literal: the site is created with its type arguments.
+    let ts = [ typeof<int> ]
+    (fun () -> (dlr { return w?TypeName(Dlr.typeArgsOf ts) } : string) |> ignore) |> should throw typeof<DlrTranslationException>
+
+[<Fact>]
 let ``typeArgs must come first`` () =
     let w = box (Widget())
     (fun () -> (dlr { return w?Pair(1, Dlr.typeArgs<int, int>()) } : string) |> ignore)

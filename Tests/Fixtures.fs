@@ -49,6 +49,7 @@ type Widget() =
     member _.Default<'T>() : 'T = Unchecked.defaultof<'T>
     member _.TypeName<'T>() = typeof<'T>.Name
     member _.Pair<'A, 'B>(_: 'A, _: 'B) = sprintf "%s/%s" (typeof<'A>.Name) (typeof<'B>.Name)
+    member _.FiveNames<'A, 'B, 'C, 'D, 'E>() = String.Join("/", [| typeof<'A>.Name; typeof<'B>.Name; typeof<'C>.Name; typeof<'D>.Name; typeof<'E>.Name |])
     member _.Echo<'T>(x: 'T) : 'T = x
     member _.Narrow(_: byte) = "byte"
     member _.Narrow(_: int64) = "int64"

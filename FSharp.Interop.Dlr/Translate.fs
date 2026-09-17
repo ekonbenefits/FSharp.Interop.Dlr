@@ -87,10 +87,24 @@ module internal Translate =
             opMethod <@ fun (l: obj) (r: obj) -> l ?>=? r @>, ExpressionType.GreaterThanOrEqual
         ]
 
-    /// `Dlr.typeArgs<A, B>()`: the explicit type arguments of the call being built.
+    /// A literal `[ typeof<A>; typeof<B>; … ]`.
+    let rec private (|TypeOfList|_|) (e: Expr) =
+        match e with
+        | NewUnionCase(empty, []) when empty.Name = "Empty" -> Some []
+        | NewUnionCase(cons, [ Call(None, mi, []); TypeOfList rest ]) when cons.Name = "Cons" && mi.Name = "TypeOf" && mi.IsGenericMethod ->
+            Some(mi.GetGenericArguments().[0] :: rest)
+        | _ -> None
+
+    /// `Dlr.typeArgs<A, B>()` or `Dlr.typeArgsOf [ typeof<A>; typeof<B> ]`: the explicit type
+    /// arguments of the call being built. The list form must be a literal of `typeof`s: the site
+    /// is created with its type arguments, so a list only known at run time has no site to use
+    /// (the computed-name cache is the shape that would need; not yet).
     let private (|TypeArgs|_|) (e: Expr) =
         match e with
         | Call(None, mi, []) when mi.DeclaringType = typeof<Dlr> && mi.Name = "typeArgs" -> Some(List.ofArray (mi.GetGenericArguments()))
+        | Call(None, mi, [ TypeOfList ts ]) when mi.DeclaringType = typeof<Dlr> && mi.Name = "typeArgsOf" -> Some ts
+        | Call(None, mi, [ other ]) when mi.DeclaringType = typeof<Dlr> && mi.Name = "typeArgsOf" ->
+            raise (DlrTranslationException(sprintf "dlr { } needs Dlr.typeArgsOf's list to be a literal of typeof<…> (a list known only at run time is not supported yet): %A" other))
         | _ -> None
 
     let private (|Op|_|) (def: Reflection.MethodInfo) (e: Expr) =
