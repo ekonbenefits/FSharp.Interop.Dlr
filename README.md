@@ -87,6 +87,7 @@ Members (a name may also be a variable: the site then holds one compiled delegat
 | `x \|> Dlr.get "Name"` | GetMember with the target last, for pipelines: `root \|> Dlr.get "Child" \|> Dlr.get "Name"`; applied to arguments it invokes, like `?` |
 | `x \|> Dlr.invoke "Name" (a, b)` | InvokeMember, target last |
 | `x \|> Dlr.set "Name" v` | SetMember, target last |
+| `x \|> Dlr.addAssign "Name" v`, `x \|> Dlr.subtractAssign "Name" v` | C#'s `+=` / `-=`: an IsEvent site decides at run time between the event accessor (`add_Name` / `remove_Name`) and read-modify-write (GetMember, AddAssign / SubtractAssign, SetMember) |
 
 The object itself and indexers:
 

@@ -24,6 +24,7 @@ type Widget() =
     member _.Run(f: Func<int, int>) = f.Invoke 21
     member val Total = 10 with get, set
     member val Label = "a" with get, set
+    member val Small: byte = 250uy with get, set
     member _.Default<'T>() : 'T = Unchecked.defaultof<'T>
     member _.TypeName<'T>() = typeof<'T>.Name
     member _.Pair<'A, 'B>(_: 'A, _: 'B) = sprintf "%s/%s" (typeof<'A>.Name) (typeof<'B>.Name)

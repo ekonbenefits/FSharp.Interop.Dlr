@@ -20,7 +20,7 @@ module internal Discover =
     /// per type: later blocks in the same type find their body without decoding again.
     let private reflectedCache = ConcurrentDictionary<Type, (MethodBase * Expr) list>()
 
-    /// A stored quotation FSharp.Core cannot decode (some compiler-generated members, e.g. a
+    /// A stored quotation that FSharp.Core cannot decode (some compiler-generated members, e.g. a
     /// [<CLIEvent>] accessor, have one) is not this block's, so it is skipped rather than fatal.
     let private tryReflected (m: MethodBase) =
         try Expr.TryGetReflectedDefinition m with _ -> None

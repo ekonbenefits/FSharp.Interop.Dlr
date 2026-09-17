@@ -28,6 +28,13 @@ let ``addAssign on a numeric property reads, adds and writes back`` () =
     w.Total |> should equal 12
 
 [<Fact>]
+let ``addAssign of an int literal to a byte member uses the constant conversion`` () =
+    let w = Widget()
+    let o = box w
+    dlr { o |> Dlr.addAssign "Small" 5 }
+    w.Small |> should equal 255uy
+
+[<Fact>]
 let ``addAssign on a string concatenates, like C#`` () =
     let w = Widget()
     let o = box w

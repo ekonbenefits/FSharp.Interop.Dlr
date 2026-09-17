@@ -460,7 +460,14 @@ module internal Translate =
                 let v = rewriteIn bound value
                 let tv = Var("target", typeof<obj>)
                 let vv = Var("value", v.Type)
-                let body = Binders.compoundAssign context (string name) subtract (Binders.dynamicArg (Expr.Var tv)) (Binders.typedArg (Expr.Var vv))
+                // A literal value keeps C#'s constant conversions (a byte member += 1) even though
+                // it is read through a variable here.
+                let valueArg =
+                    let a = Binders.typedArg (Expr.Var vv)
+                    match value with
+                    | Value _ -> Binders.constant a
+                    | _ -> a
+                let body = Binders.compoundAssign context (string name) subtract (Binders.dynamicArg (Expr.Var tv)) valueArg
                 Expr.Let(tv, (if t.Type = typeof<obj> then t else Expr.Coerce(t, typeof<obj>)), Expr.Let(vv, v, body))
             | _ ->
                 computedName bound nameExpr target [ value ] typeof<unit> (fun name targetArg args ->
