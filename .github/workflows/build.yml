@@ -265,6 +265,56 @@ jobs:
           name: nuget-package
           path: packages/*.nupkg
 
+  # After a green master run, rewrite the README's test and coverage badges
+  # from that run's own numbers (the net10 Linux Release leg's test count,
+  # the coverage job's cobertura), and commit only if a number changed.
+  # [skip ci] so the badge commit does not start another run.
+  badges:
+    needs: [test, compilers, wasm-mtp, coverage]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: anyunit-results-ubuntu-latest-Release
+          path: results
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: coverage
+          path: coverage
+
+      - name: Rewrite badges
+        shell: bash
+        run: |
+          set -e
+          tests=$(python3 - <<'PY'
+          import json, glob
+          d = json.load(open(glob.glob('results/Tests-net10-Release.json')[0]))
+          n = sum(1 for a in d['Assemblies'] for f in a['Fixtures'] for t in f['Tests'] for r in t['Results'] if r['Kind'] == 'Success')
+          print(n)
+          PY
+          )
+          read line branch < <(python3 - <<'PY'
+          import glob, xml.etree.ElementTree as ET
+          t = ET.parse(glob.glob('coverage/coverage.cobertura.*.xml')[0]).getroot()
+          print(round(float(t.get('line-rate')) * 100), round(float(t.get('branch-rate')) * 100))
+          PY
+          )
+          color() { if [ "$1" -ge 90 ]; then echo brightgreen; elif [ "$1" -ge 75 ]; then echo green; else echo yellow; fi; }
+          sed -i -E "s|tests-[0-9]+%20passed-[a-z]+|tests-${tests}%20passed-brightgreen|" README.md
+          sed -i -E "s|line%20coverage-[0-9]+%25-[a-z]+|line%20coverage-${line}%25-$(color $line)|" README.md
+          sed -i -E "s|branch%20coverage-[0-9]+%25-[a-z]+|branch%20coverage-${branch}%25-$(color $branch)|" README.md
+          git diff --quiet README.md && { echo "badges unchanged"; exit 0; }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "README: badges from the latest master run (${tests} tests, ${line}% line, ${branch}% branch) [skip ci]"
+          git push
+
   # Every push to master publishes the package MinVer versioned it as
   # (1.0.0-alpha.0.<height> until a v1.0.0 tag exists, then the tag) to
   # the ekonbenefits GitHub Packages feed, once every test leg is green.
