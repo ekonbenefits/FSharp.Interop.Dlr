@@ -440,9 +440,10 @@ module internal Translate =
             | Var v when isCaptured bound v -> captured (rewriteIn bound) v
             | VarSet(v, value) when isCaptured bound v -> assignCaptured v (rewrite value)
             | ShapeVar _ -> e
-            // A `let mutable` of the block has no expression-tree form (a tree variable cannot be
-            // assigned from the delegates loops and try blocks become): it lives in a reference
-            // cell, as the compiler does for a captured one, reads and writes going through it.
+            // A `let mutable` of the block has no expression-tree form: loop and try bodies are
+            // compiled into delegates, and a tree variable cannot be assigned from inside one. So
+            // it lives in a reference cell, as the compiler does for a captured mutable, with
+            // reads and writes going through the cell.
             | Let(v, def, letBody) when v.IsMutable ->
                 let cell = Var(v.Name, typedefof<Ref<_>>.MakeGenericType v.Type)
                 let value = cell.Type.GetProperty("Value")
