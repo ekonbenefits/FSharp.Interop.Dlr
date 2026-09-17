@@ -107,3 +107,12 @@ let ``F# optional parameters can be omitted, the library binding what C# cannot`
     // [<Optional; DefaultParameterValue>] parameters are C#'s own optional and were always fine.
     (dlr { return o?Bump(1) } : int) |> should equal 2
 
+
+[<Fact>]
+let ``inline members bind, but a member constraint has no run-time form`` () =
+    let m = box (Inlines())
+    // Operator constraints resolve through F#'s dynamic operator implementations.
+    (dlr { return m?Twice(21) } : int) |> should equal 42
+    (dlr { return m?Twice(Vec 1.5) } : Vec).X |> should equal 3.0
+    // A member constraint is compiled to a throw: the binder finds the method, the body cannot run.
+    (fun () -> (dlr { return m?NameOf(Widget()) } : string) |> ignore) |> should throw typeof<System.NotSupportedException>

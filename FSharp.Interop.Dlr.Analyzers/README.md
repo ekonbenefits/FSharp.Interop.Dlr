@@ -50,7 +50,8 @@ matters.
      <DlrAnalyzerFolder>net10.0</DlrAnalyzerFolder>
      <DlrAnalyzerFolder Condition="$([MSBuild]::VersionLessThan('$(NETCoreSdkVersion)', '10.0'))">net8.0</DlrAnalyzerFolder>
      <FSharpAnalyzersOtherFlags>--analyzers-path "$(PkgFSharp_Interop_Dlr_Analyzers)/analyzers/dotnet/fs/$(DlrAnalyzerFolder)"</FSharpAnalyzersOtherFlags>
-     <!-- Optional: DLR001/DLR002 fail the build instead of warning. -->
+     <!-- Without this, DLR001/DLR002 and a tool that fails to run are all downgraded to warnings
+          (MSBuild's Exec with ContinueOnError) and the build succeeds. -->
      <FSharpAnalyzersContinueOnError>false</FSharpAnalyzersContinueOnError>
    </PropertyGroup>
    ```

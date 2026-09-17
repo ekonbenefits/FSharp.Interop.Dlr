@@ -250,3 +250,12 @@ type Handler(kind: string, detail: string) =
     new(name: string, count: int) = Handler("named", name + ":" + string count)
     member _.Kind = kind
     member _.Detail = detail
+
+// Inline members: the compiled method is real, and operator constraints resolve at run time
+// through F#'s dynamic operator implementations, but a member constraint cannot.
+type Vec(x: float) =
+    member _.X = x
+    static member (+) (a: Vec, b: Vec) = Vec(a.X + b.X)
+type Inlines() =
+    member inline _.Twice(v: ^T) : ^T = v + v
+    member inline _.NameOf(v: ^T when ^T: (member Name: string)) : string = (^T: (member Name: string) v)

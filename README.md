@@ -126,6 +126,9 @@ Same binder, same limits — each pinned by a test in `Tests/Restrictions.fs`:
 - **Target and result are `obj`**, so value types box there; arguments do not. `byref` and
   `Span` cannot cross a dynamic operation.
 - **Generic type arguments** must be inferable from the arguments, or given with `Dlr.typeArgs`.
+- **`inline` members with a member constraint** (`^T: (member Name: string)`) are found but
+  throw `NotSupportedException` when called: their body only exists at inlining sites.
+  Operator constraints (`v + v`) are fine, they resolve at run time.
 - **No NativeAOT, no trimming.** The runtime binder, `LambdaExpression.Compile()` and the
   reflection that finds bodies and closure fields all need a JIT; the assembly is marked
   `IsAotCompatible=false` / `IsTrimmable=false`. Interpreted (non-AOT) browser-wasm works, and CI
