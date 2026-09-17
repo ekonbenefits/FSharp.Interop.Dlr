@@ -66,7 +66,8 @@ type Report(data: obj) =
 
 Without it, the first call raises a `DlrTranslationException` that says so. The
 [`FSharp.Interop.Dlr.Analyzers`](FSharp.Interop.Dlr.Analyzers/README.md) package reports it at
-build time instead (`DLR001`, with a fix), through `FSharp.Analyzers.Build` and in Ionide.
+build time instead (`DLR001`, with a fix), and reports a `?` or `Dlr.*` used outside any block
+(`DLR002`), through `FSharp.Analyzers.Build` and in Ionide.
 
 One `dlr { }` per source line. Blocks in generic functions and members work (one site per
 instantiation); so do nested blocks, blocks inside `task { }` / `async { }`, and F# Interactive.
