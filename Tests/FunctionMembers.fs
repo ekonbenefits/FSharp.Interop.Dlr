@@ -233,9 +233,20 @@ let ``calling an F# function member has no arity limit`` () =
     (dlr { return six |> Dlr.call (1, 1, 1, 1, 1, 1) } : int) |> should equal 6
 
 [<Fact>]
-let ``reading a member as a function goes to five arguments, then a clear translation error`` () =
+let ``reading a member as a curried function has no arity limit`` () =
     let h = box (Holders())
     let five: int -> int -> int -> int -> int -> int = dlr { return h?Five }
     five 1 2 3 4 5 |> should equal 15
-    (fun () -> (dlr { return h?Six } : int -> int -> int -> int -> int -> int -> int) |> ignore)
+    // Past five, a run-time-built curried closure, as F# itself does past OptimizedClosures.
+    let six: int -> int -> int -> int -> int -> int -> int = dlr { return h?Six }
+    six 1 2 3 4 5 6 |> should equal 720
+    let partial = six 1 2 3
+    partial 4 5 6 |> should equal 720
+    let eight: int -> int -> int -> int -> int -> int -> int -> int -> int64 = dlr { return h?Eight }
+    eight 1 2 3 4 5 6 7 8 |> should equal 36L
+    // A C# method of six parameters, bound curried.
+    let sum6: int -> int -> int -> int -> int -> int -> int = dlr { return (box (Widget()))?Sum6 }
+    sum6 1 2 3 4 5 6 |> should equal 21
+    // Tupled reads keep the five-element limit of the typed helpers.
+    (fun () -> (dlr { return h?SixTupled } : int * int * int * int * int * int -> int) |> ignore)
     |> should throw typeof<DlrTranslationException>

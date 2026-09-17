@@ -53,6 +53,7 @@ type Widget() =
     member _.Kind(_: DayOfWeek) = "enum"
     member _.Kind(_: obj) = "obj"
     member _.Text(_: string) = "string"
+    member _.Sum6(a: int, b: int, c: int, d: int, e: int, f: int) = a + b + c + d + e + f
     member _.Text(_: int) = "int"
     member val Ratio = 2.75 with get, set
     member private _.Secret = "hidden"

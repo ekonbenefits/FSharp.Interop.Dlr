@@ -347,6 +347,39 @@ type FSharpReadOrInvokeBinder(context: Type, name: string, csharp: InvokeMemberB
 
     override _.FallbackInvoke(target, args, errorSuggestion) = value.FallbackInvoke(target, args, errorSuggestion)
 
+/// One step of a curried F# function built at run time for a member read as a function of more
+/// arguments than the FunctionMember helpers cover: each step collects one argument and returns
+/// the next step, and the last invokes the site's delegate with all of them. This is exactly what
+/// F# emits for a curried function beyond OptimizedClosures' reach, minus InvokeFast.
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+type CurryStep<'A, 'R>(collected: obj list, next: obj list -> obj) =
+    inherit FSharpFunc<'A, 'R>()
+    override _.Invoke(a: 'A) : 'R = unbox<'R> (next (collected @ [ box a ]))
+
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+module CurriedInvoker =
+    /// A curried F# function of the given domain types (nested `FSharpFunc`s) whose final result,
+    /// converted, comes from invoking `site` (a `Func<CallSite, obj, args…, obj>`) with all the
+    /// arguments; `unitResult` sites are `Action`s.
+    let build (domains: Type list) (resultType: Type) (site: CallSite) (convert: CallSite) (target: obj) : obj =
+        let siteDelegate = site.GetType().GetField("Target").GetValue(site) :?> Delegate
+        let convertDelegate = if isNull convert then null else convert.GetType().GetField("Target").GetValue(convert) :?> Delegate
+        let finish (args: obj list) : obj =
+            let raw = siteDelegate.DynamicInvoke(Array.ofList (box site :: box target :: args))
+            if isNull convertDelegate then null else convertDelegate.DynamicInvoke([| box convert; raw |])
+        // The function type of the step taking domains.[i]: FSharpFunc<d_i, type of the rest>.
+        let rec stepType (ds: Type list) =
+            match ds with
+            | [] -> resultType
+            | d :: rest -> typedefof<FSharpFunc<_, _>>.MakeGenericType(d, stepType rest)
+        let rec step (collected: obj list) (ds: Type list) : obj =
+            match ds with
+            | [] -> finish collected
+            | d :: rest ->
+                let next (args: obj list) = step args rest
+                Activator.CreateInstance(typedefof<CurryStep<_, _>>.MakeGenericType(d, stepType rest), [| box collected; box next |])
+        step [] domains
+
 /// A member read as an F# function type: `let f: int -> int -> int = dlr { return x?Add }`. The
 /// value is an F# function (curried, so partial application works) that invokes the member with
 /// the collected arguments when fully applied and converts the result; the site's binder handles
@@ -529,9 +562,7 @@ module internal Binders =
             | [ d ] when d = typeof<unit> -> false, []
             | [ d ] when FSharp.Reflection.FSharpType.IsTuple d -> true, List.ofArray (FSharp.Reflection.FSharpType.GetTupleElements d)
             | ds -> false, ds
-        if argTypes.Length > 5 then
-            raise (DlrTranslationException(
-                    sprintf "dlr { } can read a member as a function of up to five arguments (F#'s optimized closures go that far); '%s' is read as one of %d. Calling it, x?%s(…), has no such limit." name argTypes.Length name))
+
         let invokeArgs = [ for t in argTypes -> typedArg (Expr.Value(null, t)) ]
         let all = target :: invokeArgs
         // `… -> unit` invokes with the result discarded (a void site), as a statement call does.
@@ -545,7 +576,19 @@ module internal Binders =
             else smartInvokeMember context name [] discard all
         let invokeSite = site binder all (if discard then voidType else typeof<obj>)
         let shape = (if tupled then "Tupled" else "Curried") + string argTypes.Length
-        if discard then
+        if argTypes.Length > 5 && not tupled then
+            // Beyond the typed helpers: a run-time-built curried closure (CurriedInvoker), which is
+            // what F# itself does past OptimizedClosures, with DynamicInvoke at the end.
+            let convertSite = if discard then Expr.Value(null, typeof<CallSite>) else site (Binder.Convert(CSharpBinderFlags.None, resultType, context)) [ dynamicArg (Expr.Value(null, typeof<obj>)) ] resultType
+            let mi = typeof<CurryStep<obj, obj>>.Assembly.GetType("FSharp.Interop.Dlr.CurriedInvoker").GetMethod("build")
+            let call =
+                Expr.Call(mi, [ Expr.Value(argTypes, typeof<Type list>); Expr.Value((if discard then typeof<unit> else resultType), typeof<Type>)
+                                Expr.Coerce(invokeSite, typeof<CallSite>); Expr.Coerce(convertSite, typeof<CallSite>); target.Expr ])
+            Expr.Coerce(call, functionType)
+        elif argTypes.Length > 5 then
+            raise (DlrTranslationException(
+                    sprintf "dlr { } can read a member as a tupled function of up to five elements; '%s' is read as one of %d. Read it curried, or call it: x?%s(…)." name argTypes.Length name))
+        elif discard then
             let helper = typeof<FunctionMember>.GetMethod(shape + "Unit")
             let helper = if argTypes.IsEmpty then helper else helper.MakeGenericMethod(Array.ofList argTypes)
             Expr.Call(helper, [ invokeSite; target.Expr ])
