@@ -131,6 +131,14 @@ jobs:
           dotnet build FSharp.Interop.Dlr.Analyzers --configuration ${{ matrix.configuration }} -p:TargetFrameworks=net8.0
           dotnet build Tests/Tests.fsproj --configuration ${{ matrix.configuration }} -p:TargetFrameworks=net${{ matrix.sdk }} --no-incremental \
             -p:RunAnalyzers=true -p:FSharpAnalyzersExeHost= -p:FSharpAnalyzersExe=fsharp-analyzers
+          # Prove it loaded: with the suppression removed the build must fail on DLR001.
+          sed -i 's|// fsharpanalyzer: ignore-line-next DLR001|// suppression removed for the CI check|' Tests/Unreflected.fs
+          if dotnet build Tests/Tests.fsproj --configuration ${{ matrix.configuration }} -p:TargetFrameworks=net${{ matrix.sdk }} --no-incremental \
+               -p:RunAnalyzers=true -p:FSharpAnalyzersExeHost= -p:FSharpAnalyzersExe=fsharp-analyzers > analyzer-check.log 2>&1; then
+            echo "expected the build to fail on DLR001"; cat analyzer-check.log; exit 1
+          fi
+          grep -q "error DLR001" analyzer-check.log || { echo "build failed but not on DLR001"; cat analyzer-check.log; exit 1; }
+          git checkout Tests/Unreflected.fs
 
       - name: Test
         shell: bash
