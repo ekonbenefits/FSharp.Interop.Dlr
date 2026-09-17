@@ -21,7 +21,7 @@ let demo (w: obj) (root: obj) =
     let n: int = dlr { return w?Count }                                           // get + convert
     let s: string = dlr { return w?Greet("Hi", Dlr.named {| name = "Jay" |}) }   // call, named arg
     dlr { w?Count <- 9 }                                                          // set
-    let v: int = dlr { return (Dlr.idx w).[1, 2] }                                // index
+    let v: int = dlr { return w |> Dlr.item (1, 2) }                              // index
     let name: string = dlr { return root |> Dlr.get "Child" |> Dlr.get "Name" }   // pipelines
     let depth: int =                                                              // recursion
         dlr {
@@ -93,7 +93,7 @@ use, and a repeated name costs a dictionary lookup.
 | `x \|> Dlr.addAssign "Name" v`, `x \|> Dlr.subtractAssign "Name" v` | C#'s `+=` / `-=`: an IsEvent site picks the event accessor (`add_` / `remove_`) or read-modify-write |
 | `x \|> Dlr.call (a, b)`, `x \|> Dlr.call ()` | Invoke the object itself: a delegate, a callable dynamic object, or an F# function value |
 | `Dlr.new'<T>(a, b)`, `Dlr.new'<T>()` | InvokeConstructor, C#'s `new T(dynamicArg)`: the constructor overload is chosen by the arguments' runtime types (multiple dispatch); up to eight arguments, `Dlr.named` allowed |
-| `(Dlr.idx x).[i]`, `(Dlr.idx x).[i, j] <- v` | GetIndex / SetIndex, up to four indexes |
+| `x \|> Dlr.item i`, `x \|> Dlr.item (i, j)`, `x \|> Dlr.setItem (i, j) v` | GetIndex / SetIndex, target last; a tuple is several indexes |
 | `?+? ?-? ?*? ?/? ?%? ?&&&? ?\|\|\|? ?^^^? ?<<<? ?>>>?` | BinaryOperation, then Convert |
 | `?=? ?<>? ?<? ?>? ?<=? ?>=?` | BinaryOperation, then Convert to `bool` |
 | `Dlr.neg x`, `Dlr.not x`, `Dlr.complement x` | UnaryOperation, then Convert |

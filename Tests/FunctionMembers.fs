@@ -165,7 +165,7 @@ let ``a CLR delegate property read as unit -> R is invoked, not returned`` () =
 [<Fact>]
 let ``an indexed property is left to C#, which binds it as an index, not a member call`` () =
     let h = box (Holders())
-    (dlr { return (Dlr.idx h).[2] } : int) |> should equal 20
+    (dlr { return h |> Dlr.item 2 } : int) |> should equal 20
     // As in C#, `d.Item(4)` is not how an indexer is called; the error is the binder's, not a
     // bind-time failure building a property read without its index.
     (fun () -> (dlr { return h?Item(4) } : int) |> ignore) |> should throw typeof<RuntimeBinderException>

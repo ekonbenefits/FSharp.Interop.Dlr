@@ -62,7 +62,7 @@ let ``try inside a loop keeps going`` () =
     let acc = ResizeArray<string>()
     dlr {
         for n in names do
-            try acc.Add(string (Dlr.idx w).[n])
+            try acc.Add(string (w |> Dlr.item n))
             with :? RuntimeBinderException -> acc.Add("?")
     }
     // Widget has no string indexer, so every item fails the same way: the point is the loop survives.
