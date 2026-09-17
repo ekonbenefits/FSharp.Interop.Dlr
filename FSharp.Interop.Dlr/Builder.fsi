@@ -5,8 +5,9 @@ open System.Runtime.InteropServices
 
 /// <summary>
 /// Builder for <c>dlr { }</c>. The body is never executed as written: its closure identifies the
-/// block, the block's quotation comes from the enclosing <c>[&lt;ReflectedDefinition&gt;]</c>, and it is
-/// compiled once into a delegate whose DLR call sites are constants and whose input is the closure.
+/// block, the block's quotation comes from the <c>[&lt;ReflectedDefinition&gt;]</c> on the function or
+/// member containing it (or on an enclosing type or module), and it is compiled once into a
+/// delegate whose DLR call sites are constants and whose input is the closure.
 /// </summary>
 [<Sealed>]
 type DlrBuilder =
@@ -35,5 +36,5 @@ type DlrBuilder =
 
 [<AutoOpen>]
 module Builder =
-    /// <summary>The <c>dlr { }</c> computation expression. The enclosing module, type or member must be <c>[&lt;ReflectedDefinition&gt;]</c>.</summary>
+    /// <summary>The <c>dlr { }</c> computation expression. Put <c>[&lt;ReflectedDefinition&gt;]</c> on the function or member that contains the block (an enclosing type or module also works, but only when everything in it can be quoted).</summary>
     val dlr: DlrBuilder

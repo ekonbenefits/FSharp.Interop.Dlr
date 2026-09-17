@@ -12,23 +12,24 @@ the delegate: about 25 ns.
 ```fsharp
 open FSharp.Interop.Dlr
 
-[<ReflectedDefinition>]          // on the module, type or member that contains the dlr { } blocks
-module Demo =
-
 let w = box (Widget())
-let n: int = dlr { return w?Count }                       // GetMember + Convert to int
-let s: string = dlr { return w?Greet("Hi", Dlr.named {| name = "Jay" |}) }   // InvokeMember, named arg
-dlr { w?Count <- 9 }                                       // SetMember
-let sum: int = dlr { return (box 1) ?+? (box 2) }          // BinaryOperation
-let v: int = dlr { return (Dlr.idx w).[1, 2] }             // GetIndex
-dlr { (Dlr.idx w).[1, 2] <- v }                            // SetIndex
-let name: string = dlr { return root |> Dlr.get "Child" |> Dlr.get "Name" }   // pipe order
-let depth: int =                                           // recursion over a runtime-shaped graph
-    dlr {
-        let rec depth (node: obj) : int =
-            if isNull node then 0 else 1 + depth node?Child
-        return depth root
-    }
+
+[<ReflectedDefinition>]          // on the function that contains the blocks, not the module (see below)
+let demo () =
+    let n: int = dlr { return w?Count }                       // GetMember + Convert to int
+    let s: string = dlr { return w?Greet("Hi", Dlr.named {| name = "Jay" |}) }   // InvokeMember, named arg
+    dlr { w?Count <- 9 }                                       // SetMember
+    let sum: int = dlr { return (box 1) ?+? (box 2) }          // BinaryOperation
+    let v: int = dlr { return (Dlr.idx w).[1, 2] }             // GetIndex
+    dlr { (Dlr.idx w).[1, 2] <- v }                            // SetIndex
+    let name: string = dlr { return root |> Dlr.get "Child" |> Dlr.get "Name" }   // pipe order
+    let depth: int =                                           // recursion over a runtime-shaped graph
+        dlr {
+            let rec depth (node: obj) : int =
+                if isNull node then 0 else 1 + depth node?Child
+            return depth root
+        }
+    n, s, sum, v, name, depth
 ```
 
 Targets `netstandard2.0` and `net10.0`. Depends on FSharp.Core ≥ 6.0.1 and, on
@@ -90,9 +91,27 @@ module `[<ReflectedDefinition>]` as usual). As in `async { }`, a `let mutable`
 cannot be captured by a loop or try body; use a `ref` or an object. Loops or `try` inside a lambda within the block (as opposed to at block
 level) are not translated (`LeafExpressionConverter` limit).
 
-Rules: the enclosing module, type or member must be `[<ReflectedDefinition>]` (a clear
-`DlrTranslationException` says so otherwise); one `dlr { }` per source line (the body is located by
-line inside the reflected definition). Blocks inside generic functions or members work; each
+Rules: the block must be inside a `[<ReflectedDefinition>]` scope; the attribute can go on the
+function or member containing it, or on an enclosing type or module, and the narrow form is the
+one to reach for (a clear `DlrTranslationException` says so otherwise). One `dlr { }` per source
+line (the body is located by line inside the reflected definition).
+
+**Keep the attribute narrow.** `[<ReflectedDefinition>]` makes the compiler store a quotation of
+everything it covers, and ordinary F# often has no quotation form (inner generic functions, byrefs
+and `Span`, some struct mutation), so on a whole module it breaks unrelated code. Put it on the one
+function or member that contains the block:
+
+```fsharp
+[<ReflectedDefinition>]
+let total (rows: obj) : decimal = dlr { return rows?Sum("Amount") }
+
+type Report(data: obj) =
+    [<ReflectedDefinition>]
+    member _.Total: decimal = dlr { return data?Total }
+```
+
+A module-level attribute is fine for a small module that only holds `dlr` code (the tests do that);
+a nested `module` is a convenient way to fence such code off. Blocks inside generic functions or members work; each
 instantiation is its own site, compiled with the concrete types.
 Calling any of the operators or `Dlr.*` markers outside `dlr { }` throws `InvalidOperationException`.
 The `Dlr.*` markers exist only to give F# something it can type-check; `Named<'T>`, `Indexed<'T>` and

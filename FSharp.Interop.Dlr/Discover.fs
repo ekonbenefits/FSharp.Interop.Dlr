@@ -109,7 +109,7 @@ module internal Discover =
             { Context = m.DeclaringType; MemberBody = memberBody; Body = body }
         | [] ->
             raise (DlrTranslationException(
-                    sprintf "dlr { } at %s:%d needs [<ReflectedDefinition>] on its enclosing module, type or member so the body can be compiled (closure %s in %s)."
+                    sprintf "dlr { } at %s:%d needs [<ReflectedDefinition>] on the function or member that contains it, so its body can be compiled (closure %s in %s). Put the attribute on that one binding, not the whole module, unless everything in the module can be quoted."
                         file line closureType.Name holder.FullName))
         | many ->
             raise (DlrTranslationException(

@@ -8,4 +8,5 @@ open FSharp.Interop.Dlr
 let ``dlr without ReflectedDefinition reports what is missing`` () =
     let w = box (Widget())
     let ex = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> (dlr { return w?Count } : int) |> ignore)
-    ex.Message |> should haveSubstring "ReflectedDefinition"
+    ex.Message |> should haveSubstring "[<ReflectedDefinition>] on the function or member that contains it"
+    ex.Message |> should haveSubstring "not the whole module"
