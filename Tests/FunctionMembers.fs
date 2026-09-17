@@ -41,12 +41,46 @@ let ``a curried function applied F# style goes through the optimized closure`` (
     r |> should equal 15
 
 [<Fact>]
-let ``a function-typed member can be fetched and applied outside the block`` () =
+let ``a member read as a function type is a curried invoker of it`` () =
+    // Whatever the member is: an F# function, a delegate, a method. Applied when fully applied.
     let e = box (bag ())
     let f: int -> int = dlr { return e?Fn }
     f 4 |> should equal 8
     let g: int -> int -> int = dlr { return e |> Dlr.get "Curried" }
     g 2 3 |> should equal 5
+    let d: int -> int = dlr { return e?Del }
+    d 21 |> should equal 42
+    let w = box (Widget())
+    let add: int -> int -> int = dlr { return w?Add }
+    add 40 2 |> should equal 42
+    let addTupled: int * int -> int = dlr { return w?Add }
+    addTupled (40, 2) |> should equal 42
+
+[<Fact>]
+let ``a curried invoker supports partial application and converts its result`` () =
+    let w = box (Widget())
+    let add: int -> int -> int64 = dlr { return w?Add }
+    let add40 = add 40
+    add40 2 |> should equal 42L
+    let pick: obj -> string = dlr { return w?Pick }
+    pick (box 1) |> should equal "int"
+
+[<Fact>]
+let ``unit -> R reads a property or invokes a parameterless method`` () =
+    let w = Widget()
+    let o = box w
+    let count: unit -> int = dlr { return o?Count }
+    count () |> should equal 3
+    w.Count <- 5
+    count () |> should equal 5                       // deferred: reads on each call
+    let describe: unit -> string = dlr { return o?Describe }
+    describe () |> should equal "described"
+
+[<Fact>]
+let ``a computed name read as a function type`` () =
+    let w = box (Widget())
+    let bind (name: string) : int -> int -> int = dlr { return (?) w name }
+    (bind "Add") 1 2 |> should equal 3
 
 [<Fact>]
 let ``Dlr.call applies an F# function target`` () =

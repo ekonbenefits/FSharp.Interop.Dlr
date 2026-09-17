@@ -369,9 +369,13 @@ module internal Translate =
                 | _ ->
                     computedName bound nameExpr target argExprs e.Type (fun name targetArg args ->
                         Binders.invokeMemberOrApply context name typeArgs false e.Type targetArg args)
+            | MemberOp(GetMember(target, nameExpr)) when FSharpType.IsFunction e.Type ->
+                // Read as an F# function: a curried invoker of the member (method, delegate or F#
+                // function), so `let f: int -> int -> int = dlr { return x?Add }` then `f 1 2`.
+                match nameExpr with
+                | Literal name -> Binders.functionMember context (string name) e.Type (targetArg bound target)
+                | _ -> computedName bound nameExpr target [] e.Type (fun name targetArg _ -> Binders.functionMember context name e.Type targetArg)
             | MemberOp(GetMember(target, nameExpr)) ->
-                // A function-typed result (`let f: int -> int = dlr { return x?Fn }`) is a get plus a
-                // conversion to that FSharpFunc type, which only an F# function value satisfies.
                 match nameExpr with
                 | Literal name -> Binders.getMember context (string name) (targetArg bound target) |> convert e.Type
                 | _ -> computedName bound nameExpr target [] e.Type (fun name targetArg _ -> Binders.getMember context name targetArg)
@@ -440,14 +444,15 @@ module internal Translate =
                 Expression.GetDelegateType(Array.ofList (typeof<obj> :: [ for v in argVars -> v.Type ] @ [ typeof<obj> ]))
             let template (name: string) =
                 let args = List.map2 (fun (info: Binders.Arg) (v: Var) -> { info with Expr = Expr.Var v }) argInfos argVars
-                Expr.NewDelegate(delegateType, targetVar :: argVars, site name (Binders.dynamicArg (Expr.Var targetVar)) args)
+                let body = site name (Binders.dynamicArg (Expr.Var targetVar)) args
+                Expr.NewDelegate(delegateType, targetVar :: argVars, (if body.Type = typeof<obj> then body else Expr.Coerce(body, typeof<obj>)))
             let cacheType = typedefof<NameCache<_>>.MakeGenericType delegateType
             let cache = Activator.CreateInstance(cacheType, [| box template |])
             let get = Expr.Call(Expr.Value(cache, cacheType), cacheType.GetMethod("Get"), [ rewrite nameExpr ])
             let t = rewrite target
             let targetExpr = if t.Type = typeof<obj> then t else Expr.Coerce(t, typeof<obj>)
-            Expr.Call(get, delegateType.GetMethod("Invoke"), targetExpr :: [ for a in argInfos -> a.Expr ])
-            |> convert resultType
+            let call = Expr.Call(get, delegateType.GetMethod("Invoke"), targetExpr :: [ for a in argInfos -> a.Expr ])
+            (if FSharpType.IsFunction resultType then Expr.Coerce(call, resultType) else convert resultType call)
             |> bind bound bindings
 
         /// `Dlr.addAssign`/`subtractAssign`: bind the target and value once, then both branches

@@ -83,7 +83,7 @@ use, and a repeated name costs a dictionary lookup.
 | `x?Name(a, b)`, `x?Name()` | InvokeMember. Arguments keep their static type; `obj` arguments dispatch on the runtime type; literals get C#'s constant conversions (`5` to `byte`, `0` to an enum, `null` to any reference type). A member holding an F# function value (curried or tupled) is applied when the binder cannot invoke it |
 | `x?Name(a, Dlr.named {\| p = v \|})` | named arguments (a bare anonymous record is one positional argument) |
 | `x?Name(Dlr.typeArgs<A, B>(), a)` | explicit type arguments (up to four, first); otherwise inferred from the arguments as in C# |
-| `x?Name` typed `A -> R` | GetMember converted to that function type: `let f: int -> int = dlr { return x?Fn }`, then `f 4` |
+| `x?Name` typed `A -> B -> R` | a curried F# function that invokes the member when fully applied — a method, a delegate or an F# function alike — so `let add: int -> int -> int = dlr { return w?Add }`, then `add 1 2` or `add 1` partially; `A * B -> R` calls with a tuple; `unit -> R` reads a property or calls a parameterless method |
 | `x?Name <- v` | SetMember |
 | `(?) x name`, `((?) x name)(a)`, `(?<-) x name v` | the same three as plain function applications |
 | `x \|> Dlr.get "Name"` | GetMember, target last, for pipelines; applied to arguments it invokes, like `?` |

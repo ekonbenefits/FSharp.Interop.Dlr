@@ -131,6 +131,48 @@ type InvokeOrApply =
             | :? FSharpFunc<'A, FSharpFunc<'B, FSharpFunc<'C, FSharpFunc<'D, 'R>>>> as f -> box (f a b c d)
             | _ -> InvokeOrApply.Rethrow ex
 
+/// A member read as an F# function type: `let f: int -> int -> int = dlr { return x?Add }`. The
+/// value is an F# function (curried, so partial application works) that invokes the member with
+/// the collected arguments when fully applied, whether the member is a method, a delegate or an F#
+/// function (through InvokeOrApply), and converts the result. `unit -> R` reads a property or
+/// invokes a parameterless method. Tupled variants for `A * B -> R`.
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+[<AbstractClass; Sealed>]
+type FunctionMember =
+    static member private Convert<'R>(site: CallSite<Func<CallSite, obj, 'R>>, value: obj) : 'R =
+        site.Target.Invoke(site, value)
+
+    static member Curried0<'R>(invoke: CallSite<Func<CallSite, obj, obj>>, get: CallSite<Func<CallSite, obj, obj>>, convert: CallSite<Func<CallSite, obj, 'R>>, target: obj) : unit -> 'R =
+        fun () ->
+            let value =
+                try invoke.Target.Invoke(invoke, target)
+                with :? Microsoft.CSharp.RuntimeBinder.RuntimeBinderException ->
+                    match get.Target.Invoke(get, target) with
+                    | :? FSharpFunc<unit, 'R> as f -> box (f ())
+                    | v -> v      // a property: `unit -> R` reads it
+            FunctionMember.Convert(convert, value)
+
+    static member Curried1<'A, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, obj>>, get: CallSite<Func<CallSite, obj, obj>>, convert: CallSite<Func<CallSite, obj, 'R>>, target: obj) : 'A -> 'R =
+        fun a -> FunctionMember.Convert(convert, InvokeOrApply.Invoke<'A, 'R>(invoke, get, target, a))
+
+    static member Curried2<'A, 'B, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, 'B, obj>>, get: CallSite<Func<CallSite, obj, obj>>, convert: CallSite<Func<CallSite, obj, 'R>>, target: obj) : 'A -> 'B -> 'R =
+        fun a b -> FunctionMember.Convert(convert, InvokeOrApply.Invoke<'A, 'B, 'R>(invoke, get, target, a, b))
+
+    static member Curried3<'A, 'B, 'C, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, 'B, 'C, obj>>, get: CallSite<Func<CallSite, obj, obj>>, convert: CallSite<Func<CallSite, obj, 'R>>, target: obj) : 'A -> 'B -> 'C -> 'R =
+        fun a b c -> FunctionMember.Convert(convert, InvokeOrApply.Invoke<'A, 'B, 'C, 'R>(invoke, get, target, a, b, c))
+
+    static member Curried4<'A, 'B, 'C, 'D, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, 'B, 'C, 'D, obj>>, get: CallSite<Func<CallSite, obj, obj>>, convert: CallSite<Func<CallSite, obj, 'R>>, target: obj) : 'A -> 'B -> 'C -> 'D -> 'R =
+        fun a b c d -> FunctionMember.Convert(convert, InvokeOrApply.Invoke<'A, 'B, 'C, 'D, 'R>(invoke, get, target, a, b, c, d))
+
+    static member Tupled2<'A, 'B, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, 'B, obj>>, get: CallSite<Func<CallSite, obj, obj>>, convert: CallSite<Func<CallSite, obj, 'R>>, target: obj) : 'A * 'B -> 'R =
+        fun (a, b) -> FunctionMember.Convert(convert, InvokeOrApply.Invoke<'A, 'B, 'R>(invoke, get, target, a, b))
+
+    static member Tupled3<'A, 'B, 'C, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, 'B, 'C, obj>>, get: CallSite<Func<CallSite, obj, obj>>, convert: CallSite<Func<CallSite, obj, 'R>>, target: obj) : 'A * 'B * 'C -> 'R =
+        fun (a, b, c) -> FunctionMember.Convert(convert, InvokeOrApply.Invoke<'A, 'B, 'C, 'R>(invoke, get, target, a, b, c))
+
+    static member Tupled4<'A, 'B, 'C, 'D, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, 'B, 'C, 'D, obj>>, get: CallSite<Func<CallSite, obj, obj>>, convert: CallSite<Func<CallSite, obj, 'R>>, target: obj) : 'A * 'B * 'C * 'D -> 'R =
+        fun (a, b, c, d) -> FunctionMember.Convert(convert, InvokeOrApply.Invoke<'A, 'B, 'C, 'D, 'R>(invoke, get, target, a, b, c, d))
+
 /// A call site whose member name is only known at run time (`(?) x name` with `name` a variable):
 /// one compiled, typed delegate per distinct name, made on first use from a quotation template
 /// the translator built for the site, so after that first call a name costs one dictionary
@@ -218,6 +260,32 @@ module internal Binders =
         let typeArgs = match typeArgs with [] -> null | ts -> ts :> seq<Type>
         let binder = Binder.InvokeMember(flags, name, typeArgs, context, [ for a in all -> argInfo a ])
         siteCall binder all (if discard then voidType else typeof<obj>)
+
+    /// `x?Name` read as an F# function type (see FunctionMember): the argument types come from the
+    /// function type's domains, curried or tupled; `unit -> R` takes none.
+    let functionMember (context: Type) (name: string) (functionType: Type) (target: Arg) : Expr =
+        let rec domains (t: Type) =
+            if Reflection.FSharpType.IsFunction t then
+                let d, r = Reflection.FSharpType.GetFunctionElements t
+                let ds, result = domains r
+                d :: ds, result
+            else [], t
+        let ds, resultType = domains functionType
+        let tupled, argTypes =
+            match ds with
+            | [ d ] when d = typeof<unit> -> false, []
+            | [ d ] when Reflection.FSharpType.IsTuple d -> true, List.ofArray (Reflection.FSharpType.GetTupleElements d)
+            | ds -> false, ds
+        let argInfos = [ for t in argTypes -> if t = typeof<obj> then CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.None, null) else CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.UseCompileTimeType, null) ]
+        let invokeArgs = [ for t in argTypes -> { Expr = Expr.Value(null, t); Type = t; Flags = CSharpArgumentInfoFlags.None; Name = null } ]
+        let invokeSite = site (Binder.InvokeMember(CSharpBinderFlags.None, name, null, context, argInfo target :: argInfos)) (target :: invokeArgs) typeof<obj>
+        let getSite = site (Binder.GetMember(CSharpBinderFlags.None, name, context, [ argInfo target ])) [ target ] typeof<obj>
+        let convertSite = site (Binder.Convert(CSharpBinderFlags.None, resultType, context)) [ dynamicArg (Expr.Value(null, typeof<obj>)) ] resultType
+        let helperName = (if tupled then "Tupled" else "Curried") + string argTypes.Length
+        let helper =
+            typeof<FunctionMember>.GetMethod(helperName)
+            |> fun m -> m.MakeGenericMethod(Array.ofList (argTypes @ [ resultType ]))
+        Expr.Call(helper, [ invokeSite; getSite; convertSite; target.Expr ])
 
     /// `x?Name(args)` whose inferred type is `A -> R`: InvokeMember, falling back to applying an
     /// F# function value held by the member (see InvokeOrApply). Positional, non-generic calls with
