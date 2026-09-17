@@ -133,8 +133,9 @@ Two places it goes beyond C#, for F#'s sake — both as binder rules where C# wo
 so nothing C# can bind changes:
 
 - **A member holding an F# function value can be called** (`e?Fn(21)`, a record field
-  `h?OnPair(3, 4)`, `f |> Dlr.call 21`), curried or tupled; and any member can be read as an F#
-  function type (`let add: int -> int -> int = dlr { return w?Add }`), which C# has no form for.
+  `h?OnPair(3, 4)`, `f |> Dlr.call 21`), curried or tupled, up to four arguments; and any member
+  can be read as an F# function type (`let add: int -> int -> int = dlr { return w?Add }`), which
+  C# has no form for.
 - **F# optional parameters (`?arg`) can be omitted**: omitted ones are `None`, bare values become
   `Some`. C#'s binder cannot omit them (they are `FSharpOption<'T>` parameters with no `[Optional]`
   metadata).

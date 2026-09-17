@@ -202,3 +202,31 @@ let ``unit -> unit binds a void method, an Action and a unit function`` () =
     let log: string -> unit = dlr { return e?Fn2 }   // bound before the member exists...
     (fun () -> log "x") |> should throw typeof<RuntimeBinderException>
     (w.Touched, hits.Value) |> should equal (1, 11)
+
+[<Fact>]
+let ``an int argument fits an int64 function domain by C#'s implicit widening`` () =
+    let h = box (Holders())
+    (dlr { return h?Wide(41) } : int64) |> should equal 42L
+    let e = box (Fixtures.expando [ "F", box (fun (x: float) -> x * 2.0) ])
+    (dlr { return e?F(21) } : float) |> should equal 42.0
+
+[<Fact>]
+let ``optional-parameter overloads pick the more specific one deterministically`` () =
+    let h = box (Holders())
+    let s = "x"
+    (dlr { return h?Overloaded(s) } : string) |> should equal "string:x"
+    (dlr { return h?Overloaded(box 1) } : string) |> should equal "obj:1"
+
+[<Fact>]
+let ``a protected member binds from a derived context`` () =
+    let d = Derived()
+    d.CallFamily(d) |> should equal 15
+
+[<Fact>]
+let ``reading a member as a function of more than four arguments is a clear translation error`` () =
+    let h = box (Holders())
+    (fun () -> (dlr { return h?Five } : int -> int -> int -> int -> int -> int) |> ignore)
+    |> should throw typeof<DlrTranslationException>
+    // The same limit applies to calling an F# function member: five arguments go to C#, which
+    // cannot invoke an FSharpFunc. A delegate has no such limit.
+    (fun () -> (dlr { return h?Five(1, 2, 3, 4, 5) } : int) |> ignore) |> should throw typeof<RuntimeBinderException>

@@ -28,6 +28,13 @@ type Widget() =
     member private _.Hidden = fun (x: int) -> x - 1
     member private _.BumpHidden(count: int, ?step: int) = count + defaultArg step 100
     member _.Reveal(o: obj) : int = dlr { return o?Hidden(10) }
+    /// Protected: reachable from a derived type's context.
+    abstract Family: int -> int
+    default _.Family(x) = x * 2
+    member _.Overloaded(s: string, ?tag: string) = "string:" + s + defaultArg tag ""
+    member _.Overloaded(o: obj, ?tag: string) = "obj:" + string o + defaultArg tag ""
+    member _.Wide = fun (x: int64) -> x + 1L
+    member _.Five = fun (a: int) (b: int) (c: int) (d: int) (e: int) -> a + b + c + d + e
     member _.RevealOptional(o: obj) : int = dlr { return o?BumpHidden(1) }
     member _.Run(f: Func<int, int>) = f.Invoke 21
     static member Make() = Widget()
@@ -74,7 +81,20 @@ type Holders() =
     member private _.Hidden = fun (x: int) -> x - 1
     member private _.BumpHidden(count: int, ?step: int) = count + defaultArg step 100
     member _.Reveal(o: obj) : int = dlr { return o?Hidden(10) }
+    /// Protected: reachable from a derived type's context.
+    abstract Family: int -> int
+    default _.Family(x) = x * 2
+    member _.Overloaded(s: string, ?tag: string) = "string:" + s + defaultArg tag ""
+    member _.Overloaded(o: obj, ?tag: string) = "obj:" + string o + defaultArg tag ""
+    member _.Wide = fun (x: int64) -> x + 1L
+    member _.Five = fun (a: int) (b: int) (c: int) (d: int) (e: int) -> a + b + c + d + e
     member _.RevealOptional(o: obj) : int = dlr { return o?BumpHidden(1) }
+
+type Derived() =
+    inherit Holders()
+    override _.Family(x) = x * 3
+    [<ReflectedDefinition>]
+    member this.CallFamily(o: obj) : int = dlr { return o?Family(5) }
 
 type IGreeter =
     abstract Greet: string -> string

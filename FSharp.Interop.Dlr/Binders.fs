@@ -8,6 +8,10 @@ open System.Runtime.CompilerServices
 open Microsoft.CSharp.RuntimeBinder
 open FSharp.Quotations
 
+/// Raised when a `dlr { }` body uses something the translator does not handle.
+type DlrTranslationException(message: string) =
+    inherit Exception(message)
+
 /// Control-flow helpers the compiled block calls: `LeafExpressionConverter` cannot translate F# loop
 /// or try nodes, but it can translate lambdas, so those become calls to these with the bodies as lambdas.
 ///
@@ -51,16 +55,25 @@ module internal Accessibility =
     let private sameAssembly (context: Type) (declaring: Type) = context.Assembly = declaring.Assembly
     let rec private within (context: Type) (declaring: Type) =
         not (isNull context) && (context = declaring || (context.IsNested && within context.DeclaringType declaring))
+    let rec private derived (context: Type) (declaring: Type) =
+        not (isNull context) && (declaring.IsAssignableFrom context || (context.IsNested && derived context.DeclaringType declaring))
+
+    /// The C# rule: public; internal from the assembly; protected from a derived type; protected
+    /// internal from either; private protected from a derived type in the assembly; private from
+    /// inside the declaring type (including nested types).
+    let private accessible (context: Type) (declaring: Type) (isPublic, isAssembly, isFamily, isFamilyOrAssembly, isFamilyAndAssembly, isPrivate) =
+        isPublic
+        || (isAssembly && sameAssembly context declaring)
+        || (isFamily && derived context declaring)
+        || (isFamilyOrAssembly && (sameAssembly context declaring || derived context declaring))
+        || (isFamilyAndAssembly && sameAssembly context declaring && derived context declaring)
+        || (isPrivate && within context declaring)
 
     let method' (context: Type) (m: MethodBase) =
-        m.IsPublic
-        || ((m.IsAssembly || m.IsFamilyOrAssembly) && sameAssembly context m.DeclaringType)
-        || (m.IsPrivate && within context m.DeclaringType)
+        accessible context m.DeclaringType (m.IsPublic, m.IsAssembly, m.IsFamily, m.IsFamilyOrAssembly, m.IsFamilyAndAssembly, m.IsPrivate)
 
     let field (context: Type) (f: FieldInfo) =
-        f.IsPublic
-        || ((f.IsAssembly || f.IsFamilyOrAssembly) && sameAssembly context f.DeclaringType)
-        || (f.IsPrivate && within context f.DeclaringType)
+        accessible context f.DeclaringType (f.IsPublic, f.IsAssembly, f.IsFamily, f.IsFamilyOrAssembly, f.IsFamilyAndAssembly, f.IsPrivate)
 
     let all = BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance
 
@@ -85,27 +98,37 @@ module internal OptionalArguments =
             Some(Expression.Call(pt.GetMethod("Some"), Expression.Convert(a.Expression, inner)) :> Expression)
         else None
 
+    /// Not C#'s overload resolution, but deterministic: among the methods the arguments fit, the
+    /// one with the most exactly-typed argument slots wins, then the one with the fewest omitted
+    /// parameters; a tie is ambiguous and left to C#'s error.
     let tryCall (context: Type) (t: Type) (name: string) (target: DynamicMetaObject) (args: DynamicMetaObject[]) : DynamicMetaObject option =
-        t.GetMethods(Accessibility.all)
-        |> Array.filter (fun m -> m.Name = name && not m.IsGenericMethodDefinition && Accessibility.method' context m)
-        |> Array.sortBy (fun m -> m.GetParameters().Length)
-        |> Array.tryPick (fun m ->
-            let ps = m.GetParameters()
-            let required = ps |> Array.filter (fun p -> not (isOptional p)) |> Array.length
-            if args.Length < required || args.Length > ps.Length then None
-            else
-                let supplied = [ for i in 0 .. args.Length - 1 -> fit ps.[i] args.[i] ]
-                if supplied |> List.exists Option.isNone then None
+        let fitting =
+            t.GetMethods(Accessibility.all)
+            |> Array.filter (fun m -> m.Name = name && not m.IsGenericMethodDefinition && Accessibility.method' context m)
+            |> Array.choose (fun m ->
+                let ps = m.GetParameters()
+                let required = ps |> Array.filter (fun p -> not (isOptional p)) |> Array.length
+                if args.Length < required || args.Length > ps.Length then None
                 else
-                    let omitted = [ for i in args.Length .. ps.Length - 1 -> Expression.Constant(null, ps.[i].ParameterType) :> Expression ]
-                    let call = Expression.Call(Expression.Convert(target.Expression, t), m, List.choose id supplied @ omitted)
-                    let value =
-                        if m.ReturnType = typeof<Void> then Expression.Block(call, Expression.Constant(null, typeof<obj>)) :> Expression
-                        else Expression.Convert(call, typeof<obj>) :> Expression
-                    let restrictions =
-                        Array.fold (fun (r: BindingRestrictions) (a: DynamicMetaObject) -> r.Merge(BindingRestrictions.GetTypeRestriction(a.Expression, a.LimitType)))
-                            (BindingRestrictions.GetTypeRestriction(target.Expression, t)) args
-                    Some(DynamicMetaObject(value, restrictions)))
+                    let supplied = [ for i in 0 .. args.Length - 1 -> fit ps.[i] args.[i] ]
+                    if supplied |> List.exists Option.isNone then None
+                    else
+                        let exact = Seq.zip ps args |> Seq.filter (fun (p, a) -> p.ParameterType = a.LimitType) |> Seq.length
+                        Some(m, ps, List.choose id supplied, exact))
+            |> Array.sortByDescending (fun (_, ps, _, exact) -> exact, -ps.Length)
+        match List.ofArray fitting with
+        | (_, ps1, _, e1) :: (_, ps2, _, e2) :: _ when e1 = e2 && ps1.Length = ps2.Length -> None   // ambiguous
+        | (m, ps, supplied, _) :: _ ->
+            let omitted = [ for i in args.Length .. ps.Length - 1 -> Expression.Constant(null, ps.[i].ParameterType) :> Expression ]
+            let call = Expression.Call(Expression.Convert(target.Expression, t), m, supplied @ omitted)
+            let value =
+                if m.ReturnType = typeof<Void> then Expression.Block(call, Expression.Constant(null, typeof<obj>)) :> Expression
+                else Expression.Convert(call, typeof<obj>) :> Expression
+            let restrictions =
+                Array.fold (fun (r: BindingRestrictions) (a: DynamicMetaObject) -> r.Merge(BindingRestrictions.GetTypeRestriction(a.Expression, a.LimitType)))
+                    (BindingRestrictions.GetTypeRestriction(target.Expression, t)) args
+            Some(DynamicMetaObject(value, restrictions))
+        | [] -> None
 
 /// Applying an F# function value with the arguments of a call site: one overload per shape,
 /// tupled or curried. Each returns the result boxed; the site's Convert does the rest.
@@ -127,7 +150,24 @@ type Apply =
 /// still applies the function that is actually there.
 module internal FunctionShapes =
     let private isFunc (t: Type) = t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<FSharpFunc<_, _>>
-    let private fits (paramType: Type) (argType: Type) = paramType.IsAssignableFrom argType
+
+    /// C#'s implicit numeric conversions, so an `int` argument fits an `int64` or `float` domain.
+    let private widens (from: Type) (``to``: Type) =
+        let n = [ typeof<sbyte>, [ typeof<int16>; typeof<int32>; typeof<int64>; typeof<single>; typeof<double>; typeof<decimal> ]
+                  typeof<byte>, [ typeof<int16>; typeof<uint16>; typeof<int32>; typeof<uint32>; typeof<int64>; typeof<uint64>; typeof<single>; typeof<double>; typeof<decimal> ]
+                  typeof<int16>, [ typeof<int32>; typeof<int64>; typeof<single>; typeof<double>; typeof<decimal> ]
+                  typeof<uint16>, [ typeof<int32>; typeof<uint32>; typeof<int64>; typeof<uint64>; typeof<single>; typeof<double>; typeof<decimal> ]
+                  typeof<int32>, [ typeof<int64>; typeof<single>; typeof<double>; typeof<decimal> ]
+                  typeof<uint32>, [ typeof<int64>; typeof<uint64>; typeof<single>; typeof<double>; typeof<decimal> ]
+                  typeof<int64>, [ typeof<single>; typeof<double>; typeof<decimal> ]
+                  typeof<uint64>, [ typeof<single>; typeof<double>; typeof<decimal> ]
+                  typeof<char>, [ typeof<uint16>; typeof<int32>; typeof<uint32>; typeof<int64>; typeof<uint64>; typeof<single>; typeof<double>; typeof<decimal> ]
+                  typeof<single>, [ typeof<double> ] ]
+        n |> List.exists (fun (f, ts) -> f = from && List.contains ``to`` ts)
+
+    /// Assignable, or reachable by an implicit numeric conversion (`Expression.Convert` does
+    /// the widening in the rule).
+    let private fits (paramType: Type) (argType: Type) = paramType.IsAssignableFrom argType || widens argType paramType
 
     /// The `FSharpFunc<_, _>` a type is or derives from: a function value's runtime type is a
     /// compiler-generated subclass (`f@12`), a member's declared type usually the base itself.
@@ -253,15 +293,22 @@ type FSharpInvokeMemberBinder(context: Type, name: string, csharp: InvokeMemberB
                     let nested = Expression.Dynamic(invoke, typeof<obj>, (read :: [ for a in args -> a.Expression ]))
                     Some(DynamicMetaObject(nested, restrictions))
                 | None -> None)
+        let hasMethod =
+            t.GetMethods(Accessibility.all) |> Array.exists (fun m -> m.Name = name && Accessibility.method' context m)
         match direct with
-        | Some rule -> rule
-        | None ->
+        | Some rule when not hasMethod -> rule
+        | _ ->
+            // A method of that name exists: C# binds it; our rules (a function-valued member of
+            // the same name, or F# optional parameters) are only its error suggestion.
             let suggestion =
-                if target.HasValue && (args |> Array.forall (fun a -> a.HasValue)) then
-                    match OptionalArguments.tryCall context t name target args with
-                    | Some rule -> rule
-                    | None -> errorSuggestion
-                else errorSuggestion
+                match direct with
+                | Some rule -> rule
+                | None ->
+                    if target.HasValue && (args |> Array.forall (fun a -> a.HasValue)) then
+                        match OptionalArguments.tryCall context t name target args with
+                        | Some rule -> rule
+                        | None -> errorSuggestion
+                    else errorSuggestion
             csharp.FallbackInvokeMember(target, args, suggestion)
 
     /// A dynamic target (Expando, DynamicObject) produced the member's value and asks for it to be
@@ -480,6 +527,9 @@ module internal Binders =
             | [ d ] when d = typeof<unit> -> false, []
             | [ d ] when FSharp.Reflection.FSharpType.IsTuple d -> true, List.ofArray (FSharp.Reflection.FSharpType.GetTupleElements d)
             | ds -> false, ds
+        if argTypes.Length > 4 then
+            raise (DlrTranslationException(
+                    sprintf "dlr { } can read a member as a function of up to four arguments; '%s' is read as one of %d. F# function values are applied with up to four arguments; beyond that store a delegate." name argTypes.Length))
         let invokeArgs = [ for t in argTypes -> typedArg (Expr.Value(null, t)) ]
         let all = target :: invokeArgs
         // `… -> unit` invokes with the result discarded (a void site), as a statement call does.

@@ -9,10 +9,6 @@ open FSharp.Quotations.ExprShape
 open FSharp.Reflection
 open Microsoft.FSharp.Linq.RuntimeHelpers
 
-/// Raised when a `dlr { }` body uses something the translator does not handle.
-type DlrTranslationException(message: string) =
-    inherit Exception(message)
-
 /// Turns the reflected body of a `dlr { }` block into a `Func<obj, 'T>` over its Delay closure,
 /// with the DLR call sites baked in as constants.
 module internal Translate =

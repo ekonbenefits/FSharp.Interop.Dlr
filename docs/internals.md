@@ -79,8 +79,8 @@ subclass the DLR's binder types, wrap C#'s, and add the F# case in the fallbacks
 exceptions, so the decision is cached per runtime type like everything else:
 
 - **`FSharpInvokeMemberBinder`** (`x?Name(args)`). `FallbackInvokeMember` (a CLR target): if the
-  type has a public property or field of that name whose type is a candidate `FSharpFunc` shape,
-  the rule reads and applies it; otherwise C#'s binding — with a rule for a method whose F#
+  type has an accessible property or field of that name whose type is a fitting `FSharpFunc`
+  shape and no method of that name, the rule reads and applies it; otherwise C#'s binding — with a rule for a method whose F#
   optional parameters (`?arg`, i.e. `[<OptionalArgument>] FSharpOption<'T>`) the arguments fit
   once omitted ones are `None` and bare values `Some`, offered as the *error suggestion*, which
   C# uses only where its own binding fails (`OptionalArguments.tryCall`). `FallbackInvoke` (a dynamic target has
