@@ -278,7 +278,7 @@ module internal Translate =
         | Op pipeRight [ x; f ] -> applied f x
         | Op pipeLeft [ f; x ] -> applied f x
         | Application(f, x) -> applied f x
-        | Let(v, (Value _ | Var _ as value), body) -> normalize (body.Substitute(fun v' -> if v' = v then Some value else None))
+        | Let(v, (Value _ | Var _ as value), body) when not v.IsMutable -> normalize (body.Substitute(fun v' -> if v' = v then Some value else None))
         // The eta-expanded statement form `let clo = x?Foo in clo ()` once its lambda is applied.
         | Let(v, value, Application(Var v', arg)) when v = v' -> applied value arg
         | ShapeVar _ -> e
@@ -319,6 +319,18 @@ module internal Translate =
                         raise (DlrTranslationException(
                                 sprintf "dlr { } could not find captured variable '%s' on closure %s (fields: %s), a let binding for it, or a single application supplying it (the optimizer inlined it; give the enclosing local function more than one call site or hoist the block)."
                                     v.Name closureType.Name (String.Join(", ", fields.Keys))))
+
+        /// `v <- value` on a captured `let mutable`: a write through its FSharpRef cell.
+        let assignCaptured (v: Var) (value: Expr) : Expr =
+            match fields.TryGetValue v.Name with
+            | true, f when f.FieldType.IsGenericType
+                           && f.FieldType.GetGenericTypeDefinition() = typedefof<Ref<_>>
+                           && f.FieldType.GetGenericArguments().[0] = v.Type ->
+                Expr.PropertySet(Expr.FieldGet(self, f), f.FieldType.GetProperty("Value"), value)
+            | _ ->
+                raise (DlrTranslationException(
+                        sprintf "dlr { } assigns '%s', which is not a captured mutable on closure %s (fields: %s)."
+                            v.Name closureType.Name (String.Join(", ", fields.Keys))))
 
         /// A `unit` expression may compile to a void call, which cannot be the value of a lambda or
         /// of the block; end it with the unit constant so the tree has a `Unit` value.
@@ -426,7 +438,22 @@ module internal Translate =
 
             // Everything else: captured variables become field reads, structure is rebuilt as-is.
             | Var v when isCaptured bound v -> captured (rewriteIn bound) v
+            | VarSet(v, value) when isCaptured bound v -> assignCaptured v (rewrite value)
             | ShapeVar _ -> e
+            // A `let mutable` of the block has no expression-tree form (a tree variable cannot be
+            // assigned from the delegates loops and try blocks become): it lives in a reference
+            // cell, as the compiler does for a captured one, reads and writes going through it.
+            | Let(v, def, letBody) when v.IsMutable ->
+                let cell = Var(v.Name, typedefof<Ref<_>>.MakeGenericType v.Type)
+                let value = cell.Type.GetProperty("Value")
+                let rec subst (e: Expr) =
+                    match e with
+                    | VarSet(v', x) when v' = v -> Expr.PropertySet(Expr.Var cell, value, subst x)
+                    | Var v' when v' = v -> Expr.PropertyGet(Expr.Var cell, value)
+                    | ShapeVar _ -> e
+                    | ShapeLambda(x, b) -> Expr.Lambda(x, subst b)
+                    | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map subst args)
+                Expr.Let(cell, Expr.NewObject(cell.Type.GetConstructor([| v.Type |]), [ rewrite def ]), rewriteIn (bound.Add cell) (subst letBody))
             | Let(v, def, letBody) -> Expr.Let(v, rewrite def, rewriteIn (bound.Add v) letBody)
             // `let rec` has no expression-tree form; tie the knot through reference cells, as the
             // compiler does: each binding becomes a cell, uses read the cell, and the definitions
