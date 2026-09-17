@@ -49,6 +49,8 @@ let ``overloads: the delegate parameter is one candidate among others`` () =
     (dlr { return o?Raw(fun () -> ()) } : string) |> should equal "Action"
     let raw = Func<string>(fun () -> "raw")
     (dlr { return o?Raw(raw) } : string) |> should equal "Func`1"
+    // Past five parameters the adapters stop and C# binds as before (its op_Implicit Converter).
+    (dlr { return o?Raw(fun a b c d e (f: int) -> a + b + c + d + e + f) } : string) |> should equal "Converter`2"
     // A delegate still binds directly, as before.
     (dlr { return o?Map(20, Func<int, int>(fun x -> x + 2)) } : int) |> should equal 22
 

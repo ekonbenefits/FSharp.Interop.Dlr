@@ -429,6 +429,7 @@ module internal OptionalArguments =
             // Left to C#, FSharpFunc's own op_Implicit makes a Converter<Unit, R> of a `unit -> R`
             // — a one-parameter delegate, wrong for a `DynamicInvoke()` — so this goes first.
             match FunctionShapes.domains at with
+            | Some(ds, _, _) when ds.Length > 5 -> None      // past the adapters' arity: C#'s own binding
             | Some(ds, _, result) ->
                 let ds = if ds = [ typeof<unit> ] then [] else ds
                 let delegateType = if result = typeof<unit> then Expression.GetActionType(Array.ofList ds) else Expression.GetFuncType(Array.ofList (ds @ [ result ]))
