@@ -53,6 +53,33 @@ jobs:
             --report-anyunit-json results/Tests-net10-${{ matrix.configuration }}.json \
             --platform-suffix ${{ matrix.configuration }}
 
+      # The analyzer's own tests type-check small sources through the SDK's
+      # testing package (it creates a scratch project and restores it).
+      - name: Test (analyzers)
+        shell: bash
+        run: |
+          dotnet Analyzers.Tests/bin/${{ matrix.configuration }}/net10.0/Analyzers.Tests.dll \
+            --report-anyunit-json results/Analyzers-net10-${{ matrix.configuration }}.json \
+            --platform-suffix ${{ matrix.configuration }}
+
+      # End to end through the real fsharp-analyzers tool over the real test
+      # project: exactly one block lacks the attribute on purpose
+      # (Tests/Unreflected.fs), so exactly one DLR001 is the pass condition.
+      - name: Analyzer smoke test
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          dotnet tool install --global fsharp-analyzers --version 0.39.2
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          set +e
+          out=$(fsharp-analyzers --project Tests/Tests.fsproj \
+            --analyzers-path FSharp.Interop.Dlr.Analyzers/bin/${{ matrix.configuration }}/net10.0 \
+            --code-root . 2>&1)
+          set -e
+          echo "$out" | grep DLR001 || true
+          count=$(echo "$out" | grep -c "DLR001" || true)
+          echo "$out" | grep -q "Unreflected.fs.*DLR001" && [ "$count" = "1" ]
+
       - name: Test (net48)
         if: runner.os == 'Windows'
         shell: bash
@@ -237,7 +264,9 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Pack
-        run: dotnet pack FSharp.Interop.Dlr --configuration Release --output packages
+        run: |
+          dotnet pack FSharp.Interop.Dlr --configuration Release --output packages
+          dotnet pack FSharp.Interop.Dlr.Analyzers --configuration Release --output packages
 
       - name: Upload package
         uses: actions/upload-artifact@v4

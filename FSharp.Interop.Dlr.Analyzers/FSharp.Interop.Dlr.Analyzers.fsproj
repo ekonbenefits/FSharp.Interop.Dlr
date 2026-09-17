@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    An FSharp.Analyzers.SDK analyzer: a dlr { } whose enclosing function or member (or any
+    enclosing module or type) is not [<ReflectedDefinition>] fails at the first call; this
+    reports it at build time (through FSharp.Analyzers.Build) and in Ionide, with a fix that puts
+    the attribute on the innermost binding. Packaged in the analyzers/dotnet/fs layout the SDK's
+    tooling looks in; the assembly name has to contain "Analyzer" to be picked up.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Build-time check that every dlr { } sits in a [&lt;ReflectedDefinition&gt;] function or member (FSharp.Analyzers.SDK analyzer for FSharp.Interop.Dlr)</Description>
+    <Authors>Jay Tuley</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/ekonbenefits/FSharp.Interop.Dlr</PackageProjectUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>fsharp analyzers fsharp-analyzer dlr</PackageTags>
+    <DevelopmentDependency>true</DevelopmentDependency>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <IncludeSymbols>false</IncludeSymbols>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
+    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- FSharp.Analyzers.SDK pins FSharp.Core exactly (it must match the editor host); keep in step. -->
+    <PackageReference Include="FSharp.Core" VersionOverride="10.1.400" />
+    <PackageReference Include="FSharp.Analyzers.SDK" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+    <None Include="$(OutputPath)$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/fs" Visible="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="ReflectedDefinitionAnalyzer.fs" />
+  </ItemGroup>
+
+</Project>
