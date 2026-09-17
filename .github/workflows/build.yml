@@ -194,16 +194,13 @@ jobs:
           path: results/*.json
           if-no-files-found: warn
 
-  # Line/branch coverage of the library from the net10 Debug run, via
-  # coverlet's MTP extension (the test exe instruments itself; no
-  # separate collector process). Restricted to the library assembly:
-  # coverlet instruments every assembly it can find sources for, and
-  # FSharp.Core's PDB source-links, so left to its defaults it spends
-  # ~80s rewriting FSharp.Core and then the process dies with
-  # BadImageFormatException "Bad IL range" at the entry point - the
-  # rewrite of FSharp.Core 10.1 is not valid IL. Debug so the
-  # optimizer's inlining doesn't hide lines. Summary on the run page,
-  # cobertura as an artifact.
+  # Line/branch coverage of the library, via coverlet's MTP extension (the
+  # test exe instruments itself). Restricted to the library assembly:
+  # coverlet instruments every assembly it can find sources for, and its
+  # rewrite of FSharp.Core 10.1 is not valid IL. Debug AND Release, merged:
+  # the translator has paths only the Release optimizer reaches (inlined
+  # captures resolved from the reflected body) and paths only Debug does,
+  # so either alone under-reports tested code by several points.
   coverage:
     runs-on: ubuntu-latest
     steps:
@@ -216,58 +213,37 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Build
-        run: dotnet build --configuration Debug -p:RunAnalyzers=false
+        run: |
+          dotnet build Tests/Tests.fsproj --configuration Debug -p:RunAnalyzers=false
+          dotnet build Tests/Tests.fsproj --configuration Release -p:RunAnalyzers=false
 
       - name: Test with coverage
         shell: bash
         run: |
-          dotnet Tests/bin/Debug/net10.0/Tests.dll \
-            --coverlet --coverlet-output-format cobertura \
-            --coverlet-include '[FSharp.Interop.Dlr]*' \
-            --results-directory coverage
+          for c in Debug Release; do
+            dotnet Tests/bin/$c/net10.0/Tests.dll \
+              --coverlet --coverlet-output-format cobertura \
+              --coverlet-include '[FSharp.Interop.Dlr]*' \
+              --results-directory coverage/$c
+          done
 
-      - name: Coverage summary
+      - name: Merge and summarise
         shell: bash
         run: |
           set -e
           dotnet tool install --global dotnet-reportgenerator-globaltool
-          reportgenerator -reports:'coverage/coverage.cobertura.*.xml' -targetdir:coveragereport -reporttypes:MarkdownSummaryGithub
-          cat coveragereport/SummaryGithub.md >> "$GITHUB_STEP_SUMMARY"
+          reportgenerator -reports:'coverage/*/coverage.cobertura.*.xml' -targetdir:coverage/merged -reporttypes:'Cobertura;MarkdownSummaryGithub'
+          cat coverage/merged/SummaryGithub.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4
         with:
           name: coverage
-          path: coverage/coverage.cobertura.*.xml
-
-  # The package at the version MinVer computed for this commit, as an
-  # artifact - so the version a tag would ship is visible on every run
-  # before any tag is cut.
-  pack:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-      - uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '10.0.x'
-
-      - name: Pack
-        run: |
-          dotnet pack FSharp.Interop.Dlr --configuration Release --output packages
-          dotnet pack FSharp.Interop.Dlr.Analyzers --configuration Release --output packages
-
-      - name: Upload package
-        uses: actions/upload-artifact@v4
-        with:
-          name: nuget-package
-          path: packages/*.nupkg
+          path: coverage/merged/Cobertura.xml
 
   # After a green master run, rewrite the README's test and coverage badges
   # from that run's own numbers (the net10 Linux Release leg's test count,
-  # the coverage job's cobertura), and commit only if a number changed.
+  # the coverage job's merged cobertura), and commit only if a number changed.
   # [skip ci] so the badge commit does not start another run.
   badges:
     needs: [test, compilers, wasm-mtp, coverage]
@@ -301,7 +277,7 @@ jobs:
           )
           read line branch < <(python3 - <<'PY'
           import glob, xml.etree.ElementTree as ET
-          t = ET.parse(glob.glob('coverage/coverage.cobertura.*.xml')[0]).getroot()
+          t = ET.parse(glob.glob('coverage/**/Cobertura.xml', recursive=True)[0]).getroot()
           print(round(float(t.get('line-rate')) * 100), round(float(t.get('branch-rate')) * 100))
           PY
           )
