@@ -113,8 +113,8 @@ Same binder, same limits — each pinned by a test in `Tests/Restrictions.fs`:
 - **Explicitly implemented interface members** are not found: the binder sees the runtime type's
   public members, and an explicit implementation is a private method named `IFoo.Bar`. In F#
   every interface implementation is explicit, so `o?Dispose()` on an F# `IDisposable` fails
-  unless the type also exposes the member; cast to the interface (`Dlr.cast<IFoo> o`, or
-  statically) and call it there.
+  unless the type also exposes the member; cast to the interface statically (`o :?> IFoo`) and
+  call it there.
 - **Accessibility is the calling type's**: `private` binds only inside the declaring type,
   `internal` anywhere in the assembly. F# `private` compiles to IL `internal`.
 - **Lambdas passed as arguments need a delegate type** (`Func<int, int>(fun x -> …)`); an F#

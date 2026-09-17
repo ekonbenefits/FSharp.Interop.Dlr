@@ -25,9 +25,7 @@ let ``explicitly implemented interface members are not found`` () =
     let g = box (Greeter())
     (dlr { return g?Name } : string) |> should equal "greeter"                 // a public member binds
     (fun () -> (dlr { return g?Greet("you") } : string) |> ignore) |> should throw typeof<RuntimeBinderException>
-    // The way through: as the interface, dynamically or statically.
-    let asInterface: IGreeter = dlr { return Dlr.cast<IGreeter> g }
-    asInterface.Greet "you" |> should equal "hello you"
+    // The way through: a static cast to the interface.
     (g :?> IGreeter).Greet "you" |> should equal "hello you"
 
 [<Fact>]
