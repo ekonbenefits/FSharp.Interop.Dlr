@@ -23,6 +23,7 @@ let ``every operator and marker throws outside dlr`` () =
     outside (fun () -> Dlr.typeArgs<int, int>() |> ignore)
     outside (fun () -> Dlr.typeArgs<int, int, int>() |> ignore)
     outside (fun () -> Dlr.typeArgs<int, int, int, int>() |> ignore)
+    outside (fun () -> Dlr.typeArgsOf [ typeof<int> ] |> ignore)
     outside (fun () -> (Dlr.new'<Widget>() : Widget) |> ignore)
     outside (fun () -> (Dlr.new'<Widget>(1) : Widget) |> ignore)
     outside (fun () -> (Dlr.new'<Widget>(1, 2, 3, 4, 5, 6, 7, 8) : Widget) |> ignore)

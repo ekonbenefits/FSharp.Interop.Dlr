@@ -72,6 +72,8 @@ type Dlr =
     static member typeArgs<'A, 'B, 'C> : unit -> TypeArgs
     /// <summary>Four explicit generic type arguments.</summary>
     static member typeArgs<'A, 'B, 'C, 'D> : unit -> TypeArgs
+    /// <summary>Explicit generic type arguments as a list, for more than four: <c>x?M(Dlr.typeArgsOf [ typeof&lt;A&gt;; typeof&lt;B&gt;; … ])</c>. The list must be a literal of <c>typeof</c>s (a runtime list is not supported yet). Must be the first argument.</summary>
+    static member typeArgsOf: types: System.Type list -> TypeArgs
     /// <summary>Construct a <c>'T</c> with the constructor chosen at run time by the arguments, C#'s <c>new T(dynamicArg)</c>: <c>Dlr.new'&lt;Handler&gt;(shape)</c>, <c>Dlr.new'&lt;Point&gt;(1, 2)</c>, <c>Dlr.new'&lt;Widget&gt;()</c>. Arguments keep their static type and follow the same rules as a member invocation, including <c>Dlr.named</c>; up to eight.</summary>
     static member new'<'T> : unit -> 'T
     /// <summary>Construct a <c>'T</c> from 1 argument.</summary>
