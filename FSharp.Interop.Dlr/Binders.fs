@@ -621,6 +621,14 @@ module internal Binders =
         let all = target :: args
         siteCall (smartInvokeMember context name typeArgs discard all) all (if discard then voidType else typeof<obj>)
 
+    /// `Dlr.new'<T>(args)`: C#'s `new T(…)` with the constructor chosen by the arguments'
+    /// runtime types. The type goes in as argument 0 of the site, flagged as a static type,
+    /// exactly as the C# compiler emits it.
+    let invokeConstructor (context: Type) (t: Type) (args: Arg list) =
+        let typeArg = { Expr = Expr.Value(t, typeof<Type>); Type = typeof<Type>; Flags = CSharpArgumentInfoFlags.UseCompileTimeType ||| CSharpArgumentInfoFlags.IsStaticType; Name = null }
+        let all = typeArg :: args
+        siteCall (Binder.InvokeConstructor(CSharpBinderFlags.None, context, [ for a in all -> argInfo a ])) all typeof<obj>
+
     /// `Dlr.call args target`, applying `target` itself when it is an F# function.
     let invokeOrApply (context: Type) (discard: bool) (target: Arg) (args: Arg list) =
         let all = target :: args

@@ -63,6 +63,7 @@ what C# passes as the calling class. Results come back as `obj` and go through a
 | `x?Name <- v` | `SetMember` |
 | `Dlr.addAssign` / `subtractAssign` | `IsEvent`, then either `InvokeMember add_Name` (`InvokeSpecialName`, discarded) or `GetMember` + `BinaryOperation AddAssign` + `SetMember` (`ValueFromCompoundAssignment`) — the C# compiler's shape for `+=` |
 | `Dlr.call args x` | `Invoke` (through `FSharpInvokeBinder`) + `Convert` |
+| `Dlr.new'<T>(a, b)` | `InvokeConstructor` + `Convert`; `typeof<T>` is argument 0 of the site, flagged `UseCompileTimeType ||| IsStaticType`, the C# compiler's shape for `new T(dynamicArg)` |
 | `(Dlr.idx x).[i]`, `<- v` | `GetIndex` / `SetIndex` |
 | `?+?` … | `BinaryOperation` + `Convert` |
 | `Dlr.neg` … | `UnaryOperation` + `Convert` |

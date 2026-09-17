@@ -78,6 +78,24 @@ type Dlr =
     static member typeArgs<'A, 'B, 'C> : unit -> TypeArgs
     /// <summary>Four explicit generic type arguments.</summary>
     static member typeArgs<'A, 'B, 'C, 'D> : unit -> TypeArgs
+    /// <summary>Construct a <c>'T</c> with the constructor chosen at run time by the arguments, C#'s <c>new T(dynamicArg)</c>: <c>Dlr.new'&lt;Handler&gt;(shape)</c>, <c>Dlr.new'&lt;Point&gt;(1, 2)</c>, <c>Dlr.new'&lt;Widget&gt;()</c>. Arguments keep their static type and follow the same rules as a member invocation, including <c>Dlr.named</c>; up to eight.</summary>
+    static member new'<'T> : unit -> 'T
+    /// <summary>Construct a <c>'T</c> from 1 argument.</summary>
+    static member new'<'T> : a: obj -> 'T
+    /// <summary>Construct a <c>'T</c> from 2 arguments.</summary>
+    static member new'<'T> : a: obj * b: obj -> 'T
+    /// <summary>Construct a <c>'T</c> from 3 arguments.</summary>
+    static member new'<'T> : a: obj * b: obj * c: obj -> 'T
+    /// <summary>Construct a <c>'T</c> from 4 arguments.</summary>
+    static member new'<'T> : a: obj * b: obj * c: obj * d: obj -> 'T
+    /// <summary>Construct a <c>'T</c> from 5 arguments.</summary>
+    static member new'<'T> : a: obj * b: obj * c: obj * d: obj * e: obj -> 'T
+    /// <summary>Construct a <c>'T</c> from 6 arguments.</summary>
+    static member new'<'T> : a: obj * b: obj * c: obj * d: obj * e: obj * f: obj -> 'T
+    /// <summary>Construct a <c>'T</c> from 7 arguments.</summary>
+    static member new'<'T> : a: obj * b: obj * c: obj * d: obj * e: obj * f: obj * g: obj -> 'T
+    /// <summary>Construct a <c>'T</c> from 8 arguments.</summary>
+    static member new'<'T> : a: obj * b: obj * c: obj * d: obj * e: obj * f: obj * g: obj * h: obj -> 'T
     /// <summary>Explicit conversion, like a C# cast: <c>Dlr.cast&lt;int&gt; x?Ratio</c>. Results of <c>?</c> convert implicitly on their own.</summary>
     static member cast<'T> : value: obj -> 'T
     /// <summary>Pipe-friendly member get: <c>x |> Dlr.get "Name"</c>; chains as <c>x |> Dlr.get "A" |> Dlr.get "B"</c>, and applied it invokes, like <c>?</c>: <c>(x |> Dlr.get "Add") (1, 2)</c>. The name may be computed.</summary>
