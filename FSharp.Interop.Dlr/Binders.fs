@@ -1,7 +1,9 @@
 namespace FSharp.Interop.Dlr
 
 open System
+open System.Dynamic
 open System.Linq.Expressions
+open System.Reflection
 open System.Runtime.CompilerServices
 open Microsoft.CSharp.RuntimeBinder
 open FSharp.Quotations
@@ -42,136 +44,171 @@ module DlrRuntime =
             | null -> ()
             | d -> (d :?> IDisposable).Dispose()
 
-/// `x?Name(args)` where the member holds an F# function value rather than a delegate: C#'s
-/// InvokeMember cannot invoke an FSharpFunc ("Cannot invoke a non-delegate type"), so when it
-/// fails with a RuntimeBinderException the member is read and, if it is the `FSharpFunc` the
-/// call's inferred type says it should be, applied; anything else rethrows the original error.
-/// One overload per argument count; the try costs nothing on the successful path.
+/// Applying an F# function value with the arguments of a call site: one overload per shape the
+/// call's inferred type `A -> B -> R` can name, tupled or curried.
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 [<AbstractClass; Sealed>]
-type InvokeOrApply =
-    static member private Rethrow(ex: exn) : 'T =
-        System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex).Throw()
-        Unchecked.defaultof<'T>
+type Apply =
+    static member Unit<'R>(f: FSharpFunc<unit, 'R>) : obj = box (f ())
+    static member One<'A, 'R>(f: FSharpFunc<'A, 'R>, a: 'A) : obj = box (f a)
+    static member Tupled2<'A, 'B, 'R>(f: FSharpFunc<'A * 'B, 'R>, a: 'A, b: 'B) : obj = box (f (a, b))
+    static member Curried2<'A, 'B, 'R>(f: FSharpFunc<'A, FSharpFunc<'B, 'R>>, a: 'A, b: 'B) : obj = box (f a b)
+    static member Tupled3<'A, 'B, 'C, 'R>(f: FSharpFunc<'A * 'B * 'C, 'R>, a: 'A, b: 'B, c: 'C) : obj = box (f (a, b, c))
+    static member Curried3<'A, 'B, 'C, 'R>(f: FSharpFunc<'A, FSharpFunc<'B, FSharpFunc<'C, 'R>>>, a: 'A, b: 'B, c: 'C) : obj = box (f a b c)
+    static member Tupled4<'A, 'B, 'C, 'D, 'R>(f: FSharpFunc<'A * 'B * 'C * 'D, 'R>, a: 'A, b: 'B, c: 'C, d: 'D) : obj = box (f (a, b, c, d))
+    static member Curried4<'A, 'B, 'C, 'D, 'R>(f: FSharpFunc<'A, FSharpFunc<'B, FSharpFunc<'C, FSharpFunc<'D, 'R>>>>, a: 'A, b: 'B, c: 'C, d: 'D) : obj = box (f a b c d)
 
-    static member Invoke<'R>(invoke: CallSite<Func<CallSite, obj, obj>>, get: CallSite<Func<CallSite, obj, obj>>, target: obj) : obj =
-        try invoke.Target.Invoke(invoke, target)
-        with :? Microsoft.CSharp.RuntimeBinder.RuntimeBinderException as ex ->
-            match get.Target.Invoke(get, target) with
-            | :? FSharpFunc<unit, 'R> as f -> box (f ())
-            | _ -> InvokeOrApply.Rethrow ex
+/// The `FSharpFunc` types a call with argument types `args` and result `R` can apply, each with
+/// the Apply method that does it: the tupled shape and, for two or more arguments, the curried one.
+module internal FunctionShapes =
+    let private funcType (d: Type) (r: Type) = typedefof<FSharpFunc<_, _>>.MakeGenericType(d, r)
 
-    static member Invoke<'A, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, obj>>, get: CallSite<Func<CallSite, obj, obj>>, target: obj, a: 'A) : obj =
-        try invoke.Target.Invoke(invoke, target, a)
-        with :? Microsoft.CSharp.RuntimeBinder.RuntimeBinderException as ex ->
-            match get.Target.Invoke(get, target) with
-            | :? FSharpFunc<'A, 'R> as f -> box (f a)
-            | _ -> InvokeOrApply.Rethrow ex
+    let candidates (args: Type list) (result: Type) : (Type * MethodInfo) list =
+        let apply name (types: Type list) = typeof<Apply>.GetMethod(name).MakeGenericMethod(Array.ofList types)
+        match args with
+        | [] -> [ funcType typeof<unit> result, apply "Unit" [ result ] ]
+        | [ a ] -> [ funcType a result, apply "One" [ a; result ] ]
+        | _ ->
+            let n = args.Length
+            [ funcType (FSharp.Reflection.FSharpType.MakeTupleType(Array.ofList args)) result, apply (sprintf "Tupled%d" n) (args @ [ result ])
+              List.foldBack funcType args result, apply (sprintf "Curried%d" n) (args @ [ result ]) ]
 
-    static member Invoke<'A, 'B, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, 'B, obj>>, get: CallSite<Func<CallSite, obj, obj>>, target: obj, a: 'A, b: 'B) : obj =
-        try invoke.Target.Invoke(invoke, target, a, b)
-        with :? Microsoft.CSharp.RuntimeBinder.RuntimeBinderException as ex ->
-            match get.Target.Invoke(get, target) with
-            | :? FSharpFunc<'A * 'B, 'R> as f -> box (f (a, b))
-            | :? FSharpFunc<'A, FSharpFunc<'B, 'R>> as f -> box (f a b)
-            | _ -> InvokeOrApply.Rethrow ex
+    let private typeRestrictions (value: DynamicMetaObject) (valueType: Type) (args: DynamicMetaObject[]) =
+        Array.fold (fun (r: BindingRestrictions) (a: DynamicMetaObject) -> r.Merge(BindingRestrictions.GetTypeRestriction(a.Expression, a.LimitType)))
+            (BindingRestrictions.GetTypeRestriction(value.Expression, valueType)) args
 
-    static member Invoke<'A, 'B, 'C, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, 'B, 'C, obj>>, get: CallSite<Func<CallSite, obj, obj>>, target: obj, a: 'A, b: 'B, c: 'C) : obj =
-        try invoke.Target.Invoke(invoke, target, a, b, c)
-        with :? Microsoft.CSharp.RuntimeBinder.RuntimeBinderException as ex ->
-            match get.Target.Invoke(get, target) with
-            | :? FSharpFunc<'A * 'B * 'C, 'R> as f -> box (f (a, b, c))
-            | :? FSharpFunc<'A, FSharpFunc<'B, FSharpFunc<'C, 'R>>> as f -> box (f a b c)
-            | _ -> InvokeOrApply.Rethrow ex
+    /// A rule applying `read` (an expression whose static type `valueType` is a candidate) with `args`.
+    let applyRule (candidates: (Type * MethodInfo) list) (valueType: Type) (read: Expression) (args: DynamicMetaObject[]) : (MethodInfo * Expression) option =
+        candidates
+        |> List.tryFind (fun (t, _) -> t.IsAssignableFrom valueType)
+        |> Option.map (fun (t, apply) ->
+            let ps = apply.GetParameters()
+            let arguments = (Expression.Convert(read, t) :> Expression) :: [ for i, a in Array.indexed args -> Expression.Convert(a.Expression, ps.[i + 1].ParameterType) :> Expression ]
+            apply, (Expression.Call(apply, arguments) :> Expression))
 
-    static member Invoke<'A, 'B, 'C, 'D, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, 'B, 'C, 'D, obj>>, get: CallSite<Func<CallSite, obj, obj>>, target: obj, a: 'A, b: 'B, c: 'C, d: 'D) : obj =
-        try invoke.Target.Invoke(invoke, target, a, b, c, d)
-        with :? Microsoft.CSharp.RuntimeBinder.RuntimeBinderException as ex ->
-            match get.Target.Invoke(get, target) with
-            | :? FSharpFunc<'A * 'B * 'C * 'D, 'R> as f -> box (f (a, b, c, d))
-            | :? FSharpFunc<'A, FSharpFunc<'B, FSharpFunc<'C, FSharpFunc<'D, 'R>>>> as f -> box (f a b c d)
-            | _ -> InvokeOrApply.Rethrow ex
+    /// A rule applying `value` with `args` if its runtime type is a candidate: the DLR caches it
+    /// under that type restriction, so a site keeps one rule per kind of value it sees.
+    let tryApply (candidates: (Type * MethodInfo) list) (value: DynamicMetaObject) (args: DynamicMetaObject[]) : DynamicMetaObject option =
+        match value.RuntimeType with
+        | null -> None
+        | runtime ->
+            applyRule candidates runtime value.Expression args
+            |> Option.map (fun (_, call) -> DynamicMetaObject(call, typeRestrictions value runtime args))
 
-    // `Dlr.call`: the target itself may be the F# function.
-    static member Call<'R>(invoke: CallSite<Func<CallSite, obj, obj>>, target: obj) : obj =
-        try invoke.Target.Invoke(invoke, target)
-        with :? Microsoft.CSharp.RuntimeBinder.RuntimeBinderException as ex ->
-            match target with
-            | :? FSharpFunc<unit, 'R> as f -> box (f ())
-            | _ -> InvokeOrApply.Rethrow ex
+/// C#'s Invoke binder, aware of F# function targets (`Dlr.call` on a function value).
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+type FSharpInvokeBinder(csharp: InvokeBinder, candidates: (Type * MethodInfo) list) =
+    inherit InvokeBinder(csharp.CallInfo)
 
-    static member Call<'A, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, obj>>, target: obj, a: 'A) : obj =
-        try invoke.Target.Invoke(invoke, target, a)
-        with :? Microsoft.CSharp.RuntimeBinder.RuntimeBinderException as ex ->
-            match target with
-            | :? FSharpFunc<'A, 'R> as f -> box (f a)
-            | _ -> InvokeOrApply.Rethrow ex
+    override this.FallbackInvoke(target, args, errorSuggestion) =
+        // A dynamic object's member value arrives without a value at bind time: defer, so the
+        // nested site binds through this binder once the value is known.
+        if not target.HasValue || args |> Array.exists (fun a -> not a.HasValue) then this.Defer(target, args)
+        else
+            match FunctionShapes.tryApply candidates target args with
+            | Some rule -> rule
+            | None -> csharp.FallbackInvoke(target, args, errorSuggestion)
 
-    static member Call<'A, 'B, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, 'B, obj>>, target: obj, a: 'A, b: 'B) : obj =
-        try invoke.Target.Invoke(invoke, target, a, b)
-        with :? Microsoft.CSharp.RuntimeBinder.RuntimeBinderException as ex ->
-            match target with
-            | :? FSharpFunc<'A * 'B, 'R> as f -> box (f (a, b))
-            | :? FSharpFunc<'A, FSharpFunc<'B, 'R>> as f -> box (f a b)
-            | _ -> InvokeOrApply.Rethrow ex
+/// C#'s InvokeMember binder, aware of F# function values: when C# cannot invoke a member because
+/// it holds an `FSharpFunc` rather than a delegate, the rule applies the function instead. The
+/// decision is a binding rule restricted to the runtime type, so a site that sees several kinds of
+/// target keeps one cached rule per kind, as the DLR intends: no exceptions, no per-site state.
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+type FSharpInvokeMemberBinder(name: string, csharp: InvokeMemberBinder, csharpInvoke: InvokeBinder, candidates: (Type * MethodInfo) list) =
+    inherit InvokeMemberBinder(name, false, csharp.CallInfo)
+    let invoke = FSharpInvokeBinder(csharpInvoke, candidates)
 
-    static member Call<'A, 'B, 'C, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, 'B, 'C, obj>>, target: obj, a: 'A, b: 'B, c: 'C) : obj =
-        try invoke.Target.Invoke(invoke, target, a, b, c)
-        with :? Microsoft.CSharp.RuntimeBinder.RuntimeBinderException as ex ->
-            match target with
-            | :? FSharpFunc<'A * 'B * 'C, 'R> as f -> box (f (a, b, c))
-            | :? FSharpFunc<'A, FSharpFunc<'B, FSharpFunc<'C, 'R>>> as f -> box (f a b c)
-            | _ -> InvokeOrApply.Rethrow ex
+    /// A CLR target: if it has a public property or field of that name whose type is a candidate,
+    /// apply it; otherwise C#'s own binding.
+    override _.FallbackInvokeMember(target, args, errorSuggestion) =
+        let t = target.LimitType
+        let read =
+            match t.GetProperty(name, BindingFlags.Public ||| BindingFlags.Instance) with
+            | null ->
+                match t.GetField(name, BindingFlags.Public ||| BindingFlags.Instance) with
+                | null -> None
+                | f -> Some(f.FieldType, Expression.Field(Expression.Convert(target.Expression, t), f) :> Expression)
+            | p -> Some(p.PropertyType, Expression.Property(Expression.Convert(target.Expression, t), p) :> Expression)
+        match read |> Option.bind (fun (mt, r) -> FunctionShapes.applyRule candidates mt r args) with
+        | Some(_, call) ->
+            let restrictions =
+                Array.fold (fun (r: BindingRestrictions) (a: DynamicMetaObject) -> r.Merge(BindingRestrictions.GetTypeRestriction(a.Expression, a.LimitType)))
+                    (BindingRestrictions.GetTypeRestriction(target.Expression, t)) args
+            DynamicMetaObject(call, restrictions)
+        | None -> csharp.FallbackInvokeMember(target, args, errorSuggestion)
 
-    static member Call<'A, 'B, 'C, 'D, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, 'B, 'C, 'D, obj>>, target: obj, a: 'A, b: 'B, c: 'C, d: 'D) : obj =
-        try invoke.Target.Invoke(invoke, target, a, b, c, d)
-        with :? Microsoft.CSharp.RuntimeBinder.RuntimeBinderException as ex ->
-            match target with
-            | :? FSharpFunc<'A * 'B * 'C * 'D, 'R> as f -> box (f (a, b, c, d))
-            | :? FSharpFunc<'A, FSharpFunc<'B, FSharpFunc<'C, FSharpFunc<'D, 'R>>>> as f -> box (f a b c d)
-            | _ -> InvokeOrApply.Rethrow ex
+    /// A dynamic target (Expando, DynamicObject) produced the member's value and asks for it to be
+    /// invoked: an F# function is applied, anything else is C#'s Invoke (see FSharpInvokeBinder).
+    override _.FallbackInvoke(target, args, errorSuggestion) = invoke.FallbackInvoke(target, args, errorSuggestion)
+
+/// The value of a member read as `unit -> R`: an F# function is applied, a delegate invoked, any
+/// other value is the result itself.
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+type FSharpReadOrInvokeValueBinder(csharpInvoke: InvokeBinder, candidates: (Type * MethodInfo) list) =
+    inherit InvokeBinder(csharpInvoke.CallInfo)
+
+    override this.FallbackInvoke(target, args, errorSuggestion) =
+        if not target.HasValue then this.Defer(target, args)
+        else
+            match FunctionShapes.tryApply candidates target args with
+            | Some rule -> rule
+            | None ->
+                match target.RuntimeType with
+                | rt when not (isNull rt) && typeof<Delegate>.IsAssignableFrom rt -> csharpInvoke.FallbackInvoke(target, args, errorSuggestion)
+                | rt when not (isNull rt) -> DynamicMetaObject(Expression.Convert(target.Expression, typeof<obj>), BindingRestrictions.GetTypeRestriction(target.Expression, rt))
+                | _ -> DynamicMetaObject(Expression.Convert(target.Expression, typeof<obj>), BindingRestrictions.GetInstanceRestriction(target.Expression, null))
+
+/// A member read as `unit -> R`: a parameterless method is invoked, a property or field is read,
+/// an F# function value is applied. Decided per runtime type at bind time, like the binders above.
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+type FSharpReadOrInvokeBinder(name: string, csharp: InvokeMemberBinder, csharpInvoke: InvokeBinder, candidates: (Type * MethodInfo) list) =
+    inherit InvokeMemberBinder(name, false, csharp.CallInfo)
+    let value = FSharpReadOrInvokeValueBinder(csharpInvoke, candidates)
+
+    override _.FallbackInvokeMember(target, args, errorSuggestion) =
+        let t = target.LimitType
+        let read =
+            match t.GetProperty(name, BindingFlags.Public ||| BindingFlags.Instance) with
+            | null ->
+                match t.GetField(name, BindingFlags.Public ||| BindingFlags.Instance) with
+                | null -> None
+                | f -> Some(f.FieldType, Expression.Field(Expression.Convert(target.Expression, t), f) :> Expression)
+            | p when not (isNull (p.GetGetMethod())) && p.GetIndexParameters().Length = 0 -> Some(p.PropertyType, Expression.Property(Expression.Convert(target.Expression, t), p) :> Expression)
+            | _ -> None
+        match read with
+        | None -> csharp.FallbackInvokeMember(target, args, errorSuggestion)
+        | Some(mt, r) ->
+            let value =
+                match FunctionShapes.applyRule candidates mt r args with
+                | Some(_, call) -> call
+                | None -> Expression.Convert(r, typeof<obj>) :> Expression
+            DynamicMetaObject(value, BindingRestrictions.GetTypeRestriction(target.Expression, t))
+
+    override _.FallbackInvoke(target, args, errorSuggestion) = value.FallbackInvoke(target, args, errorSuggestion)
 
 /// A member read as an F# function type: `let f: int -> int -> int = dlr { return x?Add }`. The
 /// value is an F# function (curried, so partial application works) that invokes the member with
-/// the collected arguments when fully applied, whether the member is a method, a delegate or an F#
-/// function (through InvokeOrApply), and converts the result. `unit -> R` reads a property or
-/// invokes a parameterless method. Tupled variants for `A * B -> R`.
+/// the collected arguments when fully applied and converts the result; the site's binder handles
+/// methods, delegates and F# function values. Tupled variants for `A * B -> R`.
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 [<AbstractClass; Sealed>]
 type FunctionMember =
-    static member private Convert<'R>(site: CallSite<Func<CallSite, obj, 'R>>, value: obj) : 'R =
-        site.Target.Invoke(site, value)
-
-    static member Curried0<'R>(invoke: CallSite<Func<CallSite, obj, obj>>, get: CallSite<Func<CallSite, obj, obj>>, convert: CallSite<Func<CallSite, obj, 'R>>, target: obj) : unit -> 'R =
-        fun () ->
-            let value =
-                try invoke.Target.Invoke(invoke, target)
-                with :? Microsoft.CSharp.RuntimeBinder.RuntimeBinderException ->
-                    match get.Target.Invoke(get, target) with
-                    | :? FSharpFunc<unit, 'R> as f -> box (f ())
-                    | v -> v      // a property: `unit -> R` reads it
-            FunctionMember.Convert(convert, value)
-
-    static member Curried1<'A, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, obj>>, get: CallSite<Func<CallSite, obj, obj>>, convert: CallSite<Func<CallSite, obj, 'R>>, target: obj) : 'A -> 'R =
-        fun a -> FunctionMember.Convert(convert, InvokeOrApply.Invoke<'A, 'R>(invoke, get, target, a))
-
-    static member Curried2<'A, 'B, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, 'B, obj>>, get: CallSite<Func<CallSite, obj, obj>>, convert: CallSite<Func<CallSite, obj, 'R>>, target: obj) : 'A -> 'B -> 'R =
-        fun a b -> FunctionMember.Convert(convert, InvokeOrApply.Invoke<'A, 'B, 'R>(invoke, get, target, a, b))
-
-    static member Curried3<'A, 'B, 'C, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, 'B, 'C, obj>>, get: CallSite<Func<CallSite, obj, obj>>, convert: CallSite<Func<CallSite, obj, 'R>>, target: obj) : 'A -> 'B -> 'C -> 'R =
-        fun a b c -> FunctionMember.Convert(convert, InvokeOrApply.Invoke<'A, 'B, 'C, 'R>(invoke, get, target, a, b, c))
-
-    static member Curried4<'A, 'B, 'C, 'D, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, 'B, 'C, 'D, obj>>, get: CallSite<Func<CallSite, obj, obj>>, convert: CallSite<Func<CallSite, obj, 'R>>, target: obj) : 'A -> 'B -> 'C -> 'D -> 'R =
-        fun a b c d -> FunctionMember.Convert(convert, InvokeOrApply.Invoke<'A, 'B, 'C, 'D, 'R>(invoke, get, target, a, b, c, d))
-
-    static member Tupled2<'A, 'B, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, 'B, obj>>, get: CallSite<Func<CallSite, obj, obj>>, convert: CallSite<Func<CallSite, obj, 'R>>, target: obj) : 'A * 'B -> 'R =
-        fun (a, b) -> FunctionMember.Convert(convert, InvokeOrApply.Invoke<'A, 'B, 'R>(invoke, get, target, a, b))
-
-    static member Tupled3<'A, 'B, 'C, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, 'B, 'C, obj>>, get: CallSite<Func<CallSite, obj, obj>>, convert: CallSite<Func<CallSite, obj, 'R>>, target: obj) : 'A * 'B * 'C -> 'R =
-        fun (a, b, c) -> FunctionMember.Convert(convert, InvokeOrApply.Invoke<'A, 'B, 'C, 'R>(invoke, get, target, a, b, c))
-
-    static member Tupled4<'A, 'B, 'C, 'D, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, 'B, 'C, 'D, obj>>, get: CallSite<Func<CallSite, obj, obj>>, convert: CallSite<Func<CallSite, obj, 'R>>, target: obj) : 'A * 'B * 'C * 'D -> 'R =
-        fun (a, b, c, d) -> FunctionMember.Convert(convert, InvokeOrApply.Invoke<'A, 'B, 'C, 'D, 'R>(invoke, get, target, a, b, c, d))
+    static member Curried0<'R>(invoke: CallSite<Func<CallSite, obj, obj>>, convert: CallSite<Func<CallSite, obj, 'R>>, target: obj) : unit -> 'R =
+        fun () -> convert.Target.Invoke(convert, invoke.Target.Invoke(invoke, target))
+    static member Curried1<'A, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, obj>>, convert: CallSite<Func<CallSite, obj, 'R>>, target: obj) : 'A -> 'R =
+        fun a -> convert.Target.Invoke(convert, invoke.Target.Invoke(invoke, target, a))
+    static member Curried2<'A, 'B, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, 'B, obj>>, convert: CallSite<Func<CallSite, obj, 'R>>, target: obj) : 'A -> 'B -> 'R =
+        fun a b -> convert.Target.Invoke(convert, invoke.Target.Invoke(invoke, target, a, b))
+    static member Curried3<'A, 'B, 'C, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, 'B, 'C, obj>>, convert: CallSite<Func<CallSite, obj, 'R>>, target: obj) : 'A -> 'B -> 'C -> 'R =
+        fun a b c -> convert.Target.Invoke(convert, invoke.Target.Invoke(invoke, target, a, b, c))
+    static member Curried4<'A, 'B, 'C, 'D, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, 'B, 'C, 'D, obj>>, convert: CallSite<Func<CallSite, obj, 'R>>, target: obj) : 'A -> 'B -> 'C -> 'D -> 'R =
+        fun a b c d -> convert.Target.Invoke(convert, invoke.Target.Invoke(invoke, target, a, b, c, d))
+    static member Tupled2<'A, 'B, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, 'B, obj>>, convert: CallSite<Func<CallSite, obj, 'R>>, target: obj) : 'A * 'B -> 'R =
+        fun (a, b) -> convert.Target.Invoke(convert, invoke.Target.Invoke(invoke, target, a, b))
+    static member Tupled3<'A, 'B, 'C, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, 'B, 'C, obj>>, convert: CallSite<Func<CallSite, obj, 'R>>, target: obj) : 'A * 'B * 'C -> 'R =
+        fun (a, b, c) -> convert.Target.Invoke(convert, invoke.Target.Invoke(invoke, target, a, b, c))
+    static member Tupled4<'A, 'B, 'C, 'D, 'R>(invoke: CallSite<Func<CallSite, obj, 'A, 'B, 'C, 'D, obj>>, convert: CallSite<Func<CallSite, obj, 'R>>, target: obj) : 'A * 'B * 'C * 'D -> 'R =
+        fun (a, b, c, d) -> convert.Target.Invoke(convert, invoke.Target.Invoke(invoke, target, a, b, c, d))
 
 /// A call site whose member name is only known at run time (`(?) x name` with `name` a variable):
 /// one compiled, typed delegate per distinct name, made on first use from a quotation template
@@ -261,12 +298,41 @@ module internal Binders =
         let binder = Binder.InvokeMember(flags, name, typeArgs, context, [ for a in all -> argInfo a ])
         siteCall binder all (if discard then voidType else typeof<obj>)
 
+    /// C#'s InvokeMember binder wrapped to apply F# function values (see FSharpInvokeMemberBinder)
+    /// for positional, non-generic calls of up to four arguments; otherwise C#'s binder as is.
+    let private smartInvokeMember (context: Type) (name: string) (typeArgs: Type list) (discard: bool) (resultType: Type) (all: Arg list) : CallSiteBinder =
+        let args = List.tail all
+        let flags = if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None
+        let typeArgSeq = match typeArgs with [] -> null | ts -> ts :> seq<Type>
+        let csharp = Binder.InvokeMember(flags, name, typeArgSeq, context, [ for a in all -> argInfo a ])
+        let positional = args |> List.forall (fun a -> isNull a.Name)
+        if not positional || not typeArgs.IsEmpty || args.Length > 4 || discard then csharp
+        else
+            let csharpInvoke = Binder.Invoke(CSharpBinderFlags.None, context, [ for a in all -> argInfo a ]) :?> InvokeBinder
+            FSharpInvokeMemberBinder(name, csharp :?> InvokeMemberBinder, csharpInvoke, FunctionShapes.candidates [ for a in args -> a.Type ] resultType) :> CallSiteBinder
+
+    /// `x?Name(args)` whose inferred type is `A -> R`: InvokeMember, applying an F# function value
+    /// held by the member when C# cannot invoke it.
+    let invokeMemberOrApply (context: Type) (name: string) (typeArgs: Type list) (discard: bool) (resultType: Type) (target: Arg) (args: Arg list) =
+        let all = target :: args
+        siteCall (smartInvokeMember context name typeArgs discard resultType all) all (if discard then voidType else typeof<obj>)
+
+    /// `Dlr.call args target`, applying `target` itself when it is an F# function.
+    let invokeOrApply (context: Type) (discard: bool) (resultType: Type) (target: Arg) (args: Arg list) =
+        let all = target :: args
+        let csharp = Binder.Invoke((if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None), context, [ for a in all -> argInfo a ])
+        let positional = args |> List.forall (fun a -> isNull a.Name)
+        let binder =
+            if not positional || args.Length > 4 || discard then csharp
+            else FSharpInvokeBinder(csharp :?> InvokeBinder, FunctionShapes.candidates [ for a in args -> a.Type ] resultType) :> CallSiteBinder
+        siteCall binder all (if discard then voidType else typeof<obj>)
+
     /// `x?Name` read as an F# function type (see FunctionMember): the argument types come from the
-    /// function type's domains, curried or tupled; `unit -> R` takes none.
+    /// function type's domains, curried or tupled; `unit -> R` reads a property or invokes.
     let functionMember (context: Type) (name: string) (functionType: Type) (target: Arg) : Expr =
         let rec domains (t: Type) =
-            if Reflection.FSharpType.IsFunction t then
-                let d, r = Reflection.FSharpType.GetFunctionElements t
+            if FSharp.Reflection.FSharpType.IsFunction t then
+                let d, r = FSharp.Reflection.FSharpType.GetFunctionElements t
                 let ds, result = domains r
                 d :: ds, result
             else [], t
@@ -274,55 +340,21 @@ module internal Binders =
         let tupled, argTypes =
             match ds with
             | [ d ] when d = typeof<unit> -> false, []
-            | [ d ] when Reflection.FSharpType.IsTuple d -> true, List.ofArray (Reflection.FSharpType.GetTupleElements d)
+            | [ d ] when FSharp.Reflection.FSharpType.IsTuple d -> true, List.ofArray (FSharp.Reflection.FSharpType.GetTupleElements d)
             | ds -> false, ds
-        let argInfos = [ for t in argTypes -> if t = typeof<obj> then CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.None, null) else CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.UseCompileTimeType, null) ]
-        let invokeArgs = [ for t in argTypes -> { Expr = Expr.Value(null, t); Type = t; Flags = CSharpArgumentInfoFlags.None; Name = null } ]
-        let invokeSite = site (Binder.InvokeMember(CSharpBinderFlags.None, name, null, context, argInfo target :: argInfos)) (target :: invokeArgs) typeof<obj>
-        let getSite = site (Binder.GetMember(CSharpBinderFlags.None, name, context, [ argInfo target ])) [ target ] typeof<obj>
+        let invokeArgs = [ for t in argTypes -> typedArg (Expr.Value(null, t)) ]
+        let all = target :: invokeArgs
+        let binder =
+            if argTypes.IsEmpty then
+                let csharp = Binder.InvokeMember(CSharpBinderFlags.None, name, null, context, [ argInfo target ]) :?> InvokeMemberBinder
+                let csharpInvoke = Binder.Invoke(CSharpBinderFlags.None, context, [ argInfo target ]) :?> InvokeBinder
+                FSharpReadOrInvokeBinder(name, csharp, csharpInvoke, FunctionShapes.candidates [] resultType) :> CallSiteBinder
+            else smartInvokeMember context name [] false resultType all
+        let invokeSite = site binder all typeof<obj>
         let convertSite = site (Binder.Convert(CSharpBinderFlags.None, resultType, context)) [ dynamicArg (Expr.Value(null, typeof<obj>)) ] resultType
         let helperName = (if tupled then "Tupled" else "Curried") + string argTypes.Length
-        let helper =
-            typeof<FunctionMember>.GetMethod(helperName)
-            |> fun m -> m.MakeGenericMethod(Array.ofList (argTypes @ [ resultType ]))
-        Expr.Call(helper, [ invokeSite; getSite; convertSite; target.Expr ])
-
-    /// `x?Name(args)` whose inferred type is `A -> R`: InvokeMember, falling back to applying an
-    /// F# function value held by the member (see InvokeOrApply). Positional, non-generic calls with
-    /// up to four arguments; anything else is a plain InvokeMember.
-    let invokeMemberOrApply (context: Type) (name: string) (typeArgs: Type list) (discard: bool) (resultType: Type) (target: Arg) (args: Arg list) =
-        let positional = args |> List.forall (fun a -> isNull a.Name)
-        if not positional || not typeArgs.IsEmpty || args.Length > 4 || discard then
-            invokeMember context name typeArgs discard target args
-        else
-            let all = target :: args
-            let invokeSite = site (Binder.InvokeMember(CSharpBinderFlags.None, name, null, context, [ for a in all -> argInfo a ])) all typeof<obj>
-            let getSite = site (Binder.GetMember(CSharpBinderFlags.None, name, context, [ argInfo target ])) [ target ] typeof<obj>
-            let helper =
-                typeof<InvokeOrApply>.GetMethods()
-                |> Array.find (fun m -> m.Name = "Invoke" && m.GetGenericArguments().Length = args.Length + 1)
-                |> fun m -> m.MakeGenericMethod(Array.ofList ([ for a in args -> a.Type ] @ [ resultType ]))
-            Expr.Call(helper, invokeSite :: getSite :: target.Expr :: [ for a in args -> a.Expr ])
-
-    let invoke (context: Type) (discard: bool) (target: Arg) (args: Arg list) =
-        let flags = if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None
-        let all = target :: args
-        let binder = Binder.Invoke(flags, context, [ for a in all -> argInfo a ])
-        siteCall binder all (if discard then voidType else typeof<obj>)
-
-    /// `Dlr.call args target` with a fallback to applying `target` as an F# function of the
-    /// arguments' types (see InvokeOrApply.Call).
-    let invokeOrApply (context: Type) (discard: bool) (resultType: Type) (target: Arg) (args: Arg list) =
-        let positional = args |> List.forall (fun a -> isNull a.Name)
-        if not positional || args.Length > 4 || discard then invoke context discard target args
-        else
-            let all = target :: args
-            let invokeSite = site (Binder.Invoke(CSharpBinderFlags.None, context, [ for a in all -> argInfo a ])) all typeof<obj>
-            let helper =
-                typeof<InvokeOrApply>.GetMethods()
-                |> Array.find (fun m -> m.Name = "Call" && m.GetGenericArguments().Length = args.Length + 1)
-                |> fun m -> m.MakeGenericMethod(Array.ofList ([ for a in args -> a.Type ] @ [ resultType ]))
-            Expr.Call(helper, invokeSite :: target.Expr :: [ for a in args -> a.Expr ])
+        let helper = typeof<FunctionMember>.GetMethod(helperName).MakeGenericMethod(Array.ofList (argTypes @ [ resultType ]))
+        Expr.Call(helper, [ invokeSite; convertSite; target.Expr ])
 
     let getIndex (context: Type) (target: Arg) (indexes: Arg list) =
         let all = target :: indexes

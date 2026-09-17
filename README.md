@@ -138,7 +138,10 @@ Same binder, same limits — each pinned by a test in `Tests/Restrictions.fs`:
    (decoded once by FSharp.Core) by the baked line number.
 3. `Translate` turns free variables into reads of the closure's fields and each dynamic operation
    into a call on a `CallSite<_>` embedded as a constant, then compiles the tree to a
-   `Func<obj, 'T>` cached by closure type.
+   `Func<obj, 'T>` cached by closure type. Invocation sites use C#'s binder wrapped in one that
+   also knows F# function values (`FSharpInvokeMemberBinder`): the decision is a DLR rule
+   restricted to the runtime type, so a site that sees several kinds of target keeps one cached
+   rule per kind.
 
 Why not `Quote` the block? FSharp.Core rebuilds a quotation literal on every evaluation, ~4–10 µs
 each, with no cache; reflected definitions are decoded once.
