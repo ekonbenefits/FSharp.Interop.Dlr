@@ -120,6 +120,12 @@ type Greeter() =
 
 /// A C#-style extension method on Widget: the binder never sees these, as in C#.
 [<System.Runtime.CompilerServices.Extension>]
+/// Overloads on a base/derived pair, to tell static-type binding from runtime-type binding.
+type Classifier() =
+    member _.Kind(_: Holders) = "holders"
+    member _.Kind(_: Derived) = "derived"
+    member _.Kind(_: obj) = "obj"
+
 type WidgetExtensions =
     [<System.Runtime.CompilerServices.Extension>]
     static member Twice(w: Widget) = w.Count * 2
