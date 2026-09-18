@@ -26,6 +26,7 @@
     <PackageReference Include="Microsoft.CSharp" Condition="'$(TargetFramework)' == 'netstandard2.0'" />
     <!-- DynamicMethod for the function-to-delegate factories; inbox on net10.0. -->
     <PackageReference Include="System.Reflection.Emit.Lightweight" Condition="'$(TargetFramework)' == 'netstandard2.0'" />
+    <PackageReference Include="System.Reflection.Emit" Condition="'$(TargetFramework)' == 'netstandard2.0'" />
   </ItemGroup>
 
   <ItemGroup>

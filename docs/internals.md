@@ -24,6 +24,7 @@ compiled.Invoke(closure)       ~25 ns: field reads + one CallSite per operation
 | Cache | Key | Value | Lifetime | Where |
 | --- | --- | --- | --- | --- |
 | `DlrCache` | closure `Type` (one per block; per instantiation for generic members) | `Compiled { Delegate: Func<obj,'T>; ResultType }` | process; `DlrCache.clear()` drops it | `Cache.fs` |
+| `Sites<'T>` | closure `Type`, per result type | the same delegate, already typed `Func<obj,'T>` — the hot path's lookup, no cast; plus one last-hit slot (an immutable pair swapped atomically) so a block called repeatedly pays a reference compare, not a hash lookup | process; cleared with `DlrCache.clear()` | `Cache.fs` |
 | reflected definitions | declaring `Type` (module or class) | every `(MethodBase, Expr)` with a reflected definition on it and its nested types | process | `Discover.fs` |
 | `SiteCache<'Key>` | `string * Type list` — the member name and the explicit type arguments; whichever is static is a constant in the key | the operation's `CallSite[]` for that key | per site (a constant in the compiled tree); at `Capacity` (256) entries it clears and refills | `Binders.fs`, for `(?) x name` with a variable name |
 | DLR rule cache | runtime types (restrictions) | the bound rule | per `CallSite<_>` | inside each site, owned by the DLR |
@@ -31,7 +32,14 @@ compiled.Invoke(closure)       ~25 ns: field reads + one CallSite per operation
 `DlrCache` and the reflected-definition cache are process-wide, as are the two conversion caches
 in `Binders.fs` (`FunctionAdapters.conversions`, `DelegateFunctions.makers`: one entry per
 (function type, delegate type) pair, bounded by the program's types) and `SiteCache.Capacity`.
-The rest is baked into a block's compiled delegate as constants, so it is collected with it.
+The rest is baked into a block's compiled delegate, so it is collected with it — the call sites
+not as `Expression.Constant`s but as static fields of one holder type emitted per block
+(`SiteHolders` in `Translate.fs`): `LambdaExpression.Compile` hoists a reference-type constant
+into the closure's `Constants` array and re-reads and casts it at each use, two per site call,
+where a static field is one `ldsfld` — the C# compiler's own shape. Where `TypeBuilder` is not
+available the constants stay. Measured, a member call went from ~30 ns to ~18 against C#
+`dynamic`'s ~7.5; what remains is the block's entry: the `Delay` closure F# allocates (3 ns),
+`GetType()` on it (3), the lookup and the delegate invoke.
 First use of a block goes through `ConcurrentDictionary.GetOrAdd`, whose factory may run on more
 than one thread racing to the same key: at worst a duplicate compile whose result is dropped,
 never two entries.
