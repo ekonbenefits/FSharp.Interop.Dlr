@@ -311,6 +311,42 @@ module internal Translate =
         | ShapeLambda(v, body) -> Expr.Lambda(v, normalize body)
         | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map normalize args)
 
+    /// The call sites of a compiled block hoisted into locals of the lambda that uses them.
+    /// `LambdaExpression.Compile` keeps a reference-type constant in its closure's `Constants`
+    /// array and re-reads and casts it at every use — two per site call (`site.Target` and the
+    /// `site` argument). This visitor gives each lambda — the block's own and every nested one
+    /// (loop and try bodies, user lambdas) — a `Block` binding the sites its body uses directly to
+    /// variables assigned once at entry, so a use is a local read. Per lambda, not at the block's
+    /// entry: a variable captured by a nested lambda would be a `StrongBox` read, no better than
+    /// the constant. Done on the LINQ tree rather than as quotation `Let`s, which FSharp.Core
+    /// before 10.1 converts to nested lambda invocations (50× slower, measured).
+    type private SiteHoister() =
+        inherit ExpressionVisitor()
+        let mutable current : System.Collections.Generic.Dictionary<CallSite, ParameterExpression> = null
+
+        override this.VisitLambda<'T>(node: Expression<'T>) : Expression =
+            let saved = current
+            current <- System.Collections.Generic.Dictionary(HashIdentity.Reference)
+            let body = this.Visit node.Body
+            let mine = current
+            current <- saved
+            if mine.Count = 0 then node.Update(body, node.Parameters) :> Expression
+            else
+                let assigns = [ for KeyValue(site, var) in mine -> Expression.Assign(var, Expression.Constant(site, var.Type)) :> Expression ]
+                let block = Expression.Block(body.Type, mine.Values, assigns @ [ body ])
+                node.Update(block, node.Parameters) :> Expression
+
+        override _.VisitConstant(node: ConstantExpression) : Expression =
+            match node.Value with
+            | :? CallSite as site when not (isNull current) ->
+                match current.TryGetValue site with
+                | true, var -> var :> Expression
+                | _ ->
+                    let var = Expression.Variable(node.Type, "site")
+                    current.[site] <- var
+                    var :> Expression
+            | _ -> node :> Expression
+
     let private onWasm =
         string System.Runtime.InteropServices.RuntimeInformation.OSArchitecture = "Wasm"   // no Architecture.Wasm on netstandard2.0
 
@@ -671,7 +707,8 @@ module internal Translate =
             try
                 let rewritten = asUnit (rewrite (normalize body))
                 let lambda = Expr.NewDelegate(delegateType, [ closure ], rewritten)
-                (LeafExpressionConverter.QuotationToExpression lambda :?> LambdaExpression).Compile()
+                let linq = LeafExpressionConverter.QuotationToExpression lambda :?> LambdaExpression
+                (SiteHoister().Visit linq :?> LambdaExpression).Compile()
             with :? DlrTranslationException -> reraise ()
                // A static member resolved here by reflection and missing is the binder's kind of
                // error, as it would be at the call for an instance target.

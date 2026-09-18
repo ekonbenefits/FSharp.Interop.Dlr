@@ -19,8 +19,7 @@ type DlrBuilder() =
     member this.Run(body: unit -> 'T,
                     [<CallerFilePath; Optional; DefaultParameterValue("")>] file: string,
                     [<CallerLineNumber; Optional; DefaultParameterValue(0)>] line: int) : 'T =
-        let compiled = DlrCache.getOrCompile (this.GetType()) (body.GetType()) file line typeof<'T>
-        (compiled.Delegate :?> Func<obj, 'T>).Invoke body
+        Sites<'T>.Get(this, body, file, line).Invoke body
 
 [<AutoOpen>]
 module Builder =

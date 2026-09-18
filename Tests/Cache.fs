@@ -1,6 +1,7 @@
 [<ReflectedDefinition>]
 module Tests.Cache
 
+open System
 open AnyUnit.Style.Xunit
 open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
@@ -74,3 +75,13 @@ let ``values the optimizer inlines instead of capturing still resolve`` () =
     (dlr { return w?Add(five, five) } : int) |> should equal 10
     (dlr { return w?Text(nothing) } : string) |> should equal "string"
     (dlr { return w?Greet(greeting (), "you") } : string) |> should equal "Hi, you"
+
+[<Fact>]
+let ``clear then a call recompiles`` () =
+    let w = box (Widget())
+    let read () : int = dlr { return w?Count }
+    read () |> should equal 3
+    DlrCache.clear ()
+    let before = DlrCache.count ()
+    read () |> should equal 3
+    DlrCache.count () - before |> should equal 1          // recompiled, not served from a stale typed entry

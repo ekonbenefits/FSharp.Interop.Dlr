@@ -13,7 +13,7 @@ DlrCache ──miss──▶ Discover ──▶ Translate ──▶ LeafExpressi
   │                (body from     (quotation → quotation with sites baked in)
   │ hit             ReflectedDefinition)
   ▼
-compiled.Invoke(closure)       ~25 ns: field reads + one CallSite per operation
+compiled.Invoke(closure)       ~18 ns: field reads + one CallSite per operation
 ```
 
 `Delay` returns the closure unevaluated. `Run` never executes it; it is the call site's identity
@@ -24,6 +24,7 @@ compiled.Invoke(closure)       ~25 ns: field reads + one CallSite per operation
 | Cache | Key | Value | Lifetime | Where |
 | --- | --- | --- | --- | --- |
 | `DlrCache` | closure `Type` (one per block; per instantiation for generic members) | `Compiled { Delegate: Func<obj,'T>; ResultType }` | process; `DlrCache.clear()` drops it | `Cache.fs` |
+| `Sites<'T>` | closure `Type`, per result type | the same delegate, already typed `Func<obj,'T>`, stamped with the clear generation it was compiled under — the hot path's lookup, no cast; plus a last-compiled slot (an immutable entry swapped atomically) so a block called repeatedly pays a reference compare, not a hash lookup, and blocks called in turn pay a lookup each and never write | process; `DlrCache.clear()` bumps the generation, so no pre-clear entry is served however it got installed | `Cache.fs` |
 | reflected definitions | declaring `Type` (module or class) | every `(MethodBase, Expr)` with a reflected definition on it and its nested types | process | `Discover.fs` |
 | `SiteCache<'Key>` | `string * Type list` — the member name and the explicit type arguments; whichever is static is a constant in the key | the operation's `CallSite[]` for that key | per site (a constant in the compiled tree); at `Capacity` (256) entries it clears and refills | `Binders.fs`, for `(?) x name` with a variable name |
 | DLR rule cache | runtime types (restrictions) | the bound rule | per `CallSite<_>` | inside each site, owned by the DLR |
@@ -31,10 +32,17 @@ compiled.Invoke(closure)       ~25 ns: field reads + one CallSite per operation
 `DlrCache` and the reflected-definition cache are process-wide, as are the two conversion caches
 in `Binders.fs` (`FunctionAdapters.conversions`, `DelegateFunctions.makers`: one entry per
 (function type, delegate type) pair, bounded by the program's types) and `SiteCache.Capacity`.
-The rest is baked into a block's compiled delegate as constants, so it is collected with it.
-First use of a block goes through `ConcurrentDictionary.GetOrAdd`, whose factory may run on more
-than one thread racing to the same key: at worst a duplicate compile whose result is dropped,
-never two entries.
+The rest is baked into a block's compiled delegate, so it is collected with it. The call sites
+are `Expression.Constant`s, hoisted: `LambdaExpression.Compile` keeps a reference-type constant
+in the closure's `Constants` array and re-reads and casts it at each use, two per site call, so a
+LINQ `ExpressionVisitor` (`SiteHoister` in `Translate.fs`) gives each lambda — the block's own and
+every nested loop/try body — a `Block` binding the sites its body uses to variables assigned once
+at entry; a use is a local read. Per lambda, because a variable captured by a nested lambda would
+be a `StrongBox` read, no better than the constant; on the LINQ tree, because FSharp.Core before
+10.1 converts a quotation `Let` into a nested lambda invocation (measured 50× slower — the floor
+is 6.0.1). Measured, a member call went from ~30 ns to ~18 against C# `dynamic`'s ~7.5; what
+remains is the block's entry: the `Delay` closure F# allocates (3 ns), `GetType()` on it (3), the
+last-hit compare and the delegate invoke.
 
 ## Call sites
 
@@ -196,11 +204,13 @@ binds silently wrong. CI builds with the .NET 8, 9 and 10 SDKs in Debug and Rele
 
 ## Measured
 
-Release, net10.0, Apple Silicon, 5M-call average:
+Release, net10.0, Apple Silicon; the current numbers for every path are in
+[benchmarks.md](benchmarks.md) (`Benchmarks/bench.sh docs`). Older spot measurements, for the
+function-member paths:
 
 | | ns |
 | --- | --- |
-| block, `w?Add(i, 1)` on a method | 29 |
+| block, `w?Add(i, 1)` on a method | 18 (was 29 before the hoisted sites and typed cache) |
 | block, `e?Fn(i)` with `Fn` an F# function property | 33 |
 | one site alternating between the two kinds | 70 |
 | bound `int -> int -> int`, full application | 11 |

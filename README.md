@@ -234,10 +234,10 @@ regenerates this table and the full [docs/benchmarks.md](docs/benchmarks.md) (ev
 | | ns/call |
 | --- | ---: |
 | static w.Add(i, 1) | 1.2 |
-| reflection: cached MethodInfo.Invoke | 36.2 |
-| FSharp.Interop.Dynamic w?Add(i, 1) | 7,591 |
+| reflection: cached MethodInfo.Invoke | 36 |
+| FSharp.Interop.Dynamic w?Add(i, 1) | 7,566 |
 | C# dynamic d.Add(i, 1) | 7.8 |
-| dlr w?Add(i, 1) | 30.6 |
-| dlr w?Count | 29.2 |
-| dlr loop of 100 calls, one site (whole loop; ≈16 ns per call) | 1,625 |
+| dlr w?Add(i, 1) | 19.6 |
+| dlr w?Count | 19.1 |
+| dlr loop of 100 calls, one site (whole loop) | 1,526 |
 <!-- benchmarks:end -->
