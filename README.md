@@ -66,8 +66,9 @@ type Report(data: obj) =
 
 Without it, the first call raises a `DlrTranslationException` that says so. The
 [`FSharp.Interop.Dlr.Analyzers`](FSharp.Interop.Dlr.Analyzers/README.md) package reports it at
-build time instead (`DLR001`, with a fix), and reports a `?` or `Dlr.*` used outside any block
-(`DLR002`), through `FSharp.Analyzers.Build` and in Ionide; it needs the `fsharp-analyzers`
+build time instead (`DLR001`, with a fix), reports a `?` or `Dlr.*` used outside any block
+(`DLR002`) and two blocks starting on one line (`DLR003`), through `FSharp.Analyzers.Build` and
+in Ionide; it needs the `fsharp-analyzers`
 tool and `RunAnalyzers=true` in the project (see its README — builds for .NET SDK 8/9 and 10).
 
 One `dlr { }` per source line. Blocks in generic functions and members work (one site per

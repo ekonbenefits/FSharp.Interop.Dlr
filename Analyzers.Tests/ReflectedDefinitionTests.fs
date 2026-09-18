@@ -152,6 +152,29 @@ module Impl =
     msgs.Length |> should equal 2
 
 let private outside (msgs: Message list) = msgs |> List.filter (fun m -> m.Code = ReflectedDefinitionAnalyzer.OutsideCode)
+let private sharedLine (msgs: Message list) = msgs |> List.filter (fun m -> m.Code = ReflectedDefinitionAnalyzer.SharedLineCode)
+
+[<Fact>]
+let ``two blocks on one line are reported, one per block`` () =
+    let msgs =
+        run """
+module Impl =
+    let w = box 1
+    [<ReflectedDefinition>]
+    let pair () : int * int = (dlr { return 1 }), (dlr { return 2 })
+    [<ReflectedDefinition>]
+    let fine () : int =
+        let a: int = dlr { return 1 }
+        let b: int = dlr { return 2 }
+        a + b
+"""
+        |> sharedLine
+    msgs.Length |> should equal 2
+    msgs |> List.forall (fun m -> m.Severity = Severity.Error) |> should equal true
+    msgs.[0].Message |> should haveSubstring "2 dlr { } blocks start on line"
+    msgs.[0].Range.StartLine |> should equal msgs.[1].Range.StartLine
+    msgs.[0].Range.StartColumn |> should not' (equal msgs.[1].Range.StartColumn)
+
 
 [<Fact>]
 let ``markers used outside a block are reported`` () =

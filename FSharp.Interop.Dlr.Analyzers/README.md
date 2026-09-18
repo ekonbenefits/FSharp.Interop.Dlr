@@ -12,6 +12,7 @@ code is reported without a fix: move it into a function.
 | --- | --- | --- |
 | `DLR001` | Error | a `dlr { }` with no `[<ReflectedDefinition>]` on its enclosing function/member, module or type |
 | `DLR002` | Error | a `?` operator or `Dlr.*` marker used outside any `dlr { }` (it is only ever quoted; executed, it throws `InvalidOperationException`) |
+| `DLR003` | Error | two or more `dlr { }` blocks starting on one source line (a block is found by the line of its `Run` call; the first call raises `DlrTranslationException`) |
 
 ## Setup
 
