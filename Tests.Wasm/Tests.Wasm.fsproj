@@ -25,6 +25,7 @@
     <PackageReference Include="AnyUnit.TestingPlatform" />
     <PackageReference Include="AnyUnit.Style.Xunit" />
     <PackageReference Include="AnyUnit.Style.FsUnit" />
+    <PackageReference Include="Newtonsoft.Json" />
     <!-- Satisfies Sdk.BlazorWebAssembly's build; Main never builds a WebAssemblyHostBuilder. -->
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" />
   </ItemGroup>
@@ -55,6 +56,7 @@
     <Compile Include="..\Tests\Mutables.fs" />
     <Compile Include="..\Tests\Delegates.fs" />
     <Compile Include="..\Tests\StaticOverloads.fs" />
+    <Compile Include="..\Tests\JsonNet.fs" Link="JsonNet.fs" />
     <Compile Include="..\Tests\Unreflected.fs" Link="Unreflected.fs" />
   </ItemGroup>
 

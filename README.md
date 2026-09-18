@@ -159,6 +159,15 @@ or got wrong, so nothing C# binds correctly changes:
   `Dlr.typeArgsOf ts` create the call sites per distinct name or type list, cached per site. C#'s
   are fixed at compile time.
 
+## Real targets in the tests
+
+Besides `ExpandoObject`, `DynamicObject`s and plain CLR objects, the suite runs against two
+real-world dynamic providers: Newtonsoft.Json's `JObject` (`json?owner?name`, `Dlr.item` on
+arrays, sets that write back, `TryConvert` to the inferred type; on wasm too) and Python.NET
+(`m?greet("jay", Dlr.named {| greeting = "hi" |})`, Python classes and attributes, `Dlr.call` on
+callables, dicts and lists through `Dlr.item`; skipped where no Python 3.10+ is found —
+`PYTHONNET_PYDLL` names one explicitly).
+
 ## How it works
 
 `dlr { … }` desugars to `dlr.Run(dlr.Delay(fun () -> …), file, line)`; `Delay` returns the
