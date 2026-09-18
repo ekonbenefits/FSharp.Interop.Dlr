@@ -199,20 +199,13 @@ regenerates this table and the full [docs/benchmarks.md](docs/benchmarks.md) (ev
 `dynamic` and other targets alongside). Release, net10.0, Apple Silicon, steady state:
 
 <!-- benchmarks:start -->
-| | ns/call | allocated |
-| --- | ---: | ---: |
-| static w.Add(i, 1) | 1.2 | — |
-| reflection: cached PropertyInfo.GetValue | 12.4 | 24 B |
-| reflection: cached MethodInfo.Invoke | 36.8 | 112 B |
-| FSharp.Interop.Dynamic w?Count | 3,995 | 1552 B |
-| FSharp.Interop.Dynamic w?Add(i, 1) | 7,567 | 3809 B |
-| C# dynamic d.Count | 6.8 | 24 B |
-| C# dynamic d.Add(i, 1) | 7.5 | 24 B |
-| dlr w?Count | 28.9 | 48 B |
-| dlr w?Add(i, 1) | 30.2 | 48 B |
-| dlr for over 100 items, one site | 1,618 | 2632 B |
-| dlr (?) o name, name alternating (SiteCache hit) | 86.4 | 76 B |
-| dlr F# function member call w?Fn(1, 2) | 36.8 | 72 B |
-| dlr structural record ?=? | 49.5 | 104 B |
-| dlr JObject j?count | 79.2 | 48 B |
+| | ns/call |
+| --- | ---: |
+| static w.Add(i, 1) | 1.2 |
+| reflection: cached MethodInfo.Invoke | 36.8 |
+| FSharp.Interop.Dynamic w?Add(i, 1) | 7,514 |
+| C# dynamic d.Add(i, 1) | 7.5 |
+| dlr w?Add(i, 1) | 30.4 |
+| dlr w?Count | 29.2 |
+| dlr for over 100 items, one site | 1,626 |
 <!-- benchmarks:end -->

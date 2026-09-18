@@ -9,9 +9,10 @@ BenchmarkDotNet over the library's hot paths, next to what they replace.
 ./bench.sh docs         # run everything and write docs/benchmarks.md + the README's "Measured" table
 ```
 
-`docs` (add `short` for a quick pass) writes two things: `docs/benchmarks.md`, every suite in full
-with the machine and runtime, and the README's table between its `<!-- benchmarks:start/end -->`
-markers, from the rows listed in `Program.fs` (`readmeRows`). Raw BenchmarkDotNet output is in
+`docs` (add `short` for a quick pass) writes two things: `docs/benchmarks.md` — comparison tables,
+the same operation done each way (static, cached reflection, FSharp.Interop.Dynamic, C# `dynamic`,
+`dlr { }`), laid out in `Program.fs`'s `writeDocs` — and the README's short table between its
+`<!-- benchmarks:start/end -->` markers, from `readmeRows`. Raw BenchmarkDotNet output is in
 `BenchmarkDotNet.Artifacts/results/`. Numbers are steady state: every block is bound and compiled during warm-up, so a
 row is the per-call cost of the compiled block, its sites' cached rules and the operation itself.
 `MemoryDiagnoser` shows the per-call allocation (the block's closure, plus a box for a value
