@@ -17,21 +17,21 @@ Apple M1 Pro, 1 CPU, 10 logical and 10 physical cores
 
 | | static | reflection (cached) | FSharp.Interop.Dynamic | C# `dynamic` | `dlr { }` |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| property get `w.Count` | 0 ns | 13.1 ns / 24 B | 3,992 ns / 1552 B | 7 ns / 24 B | 19 ns / 48 B |
-| method call `w.Add(i, 1)` | 1.2 ns | 36.4 ns / 112 B | 7,717 ns / 3809 B | 7.8 ns / 24 B | 19.7 ns / 48 B |
-| property set `w.Name <- v` | — | — | 74.6 ns / 168 B | 3.6 ns | 17.5 ns / 24 B |
-| 100 method calls in one loop — the whole loop, so ÷100 per call | — | — | 758,432 ns / 380852 B | 786.7 ns / 2400 B | 1,829 ns / 2808 B |
+| property get `w.Count` | 0 ns | 12.9 ns / 24 B | 4,004 ns / 1552 B | 7.1 ns / 24 B | 19.1 ns / 48 B |
+| method call `w.Add(i, 1)` | 1.2 ns | 36 ns / 112 B | 7,566 ns / 3809 B | 7.8 ns / 24 B | 19.6 ns / 48 B |
+| property set `w.Name <- v` | — | — | 75.2 ns / 168 B | 3.6 ns | 17.6 ns / 24 B |
+| 100 method calls in one loop — the whole loop, so ÷100 per call | — | — | 780,230 ns / 380852 B | 799.6 ns / 2400 B | 1,526 ns / 2632 B |
 
 ### Operators, indexers, delegates, conversions
 
 | | FSharp.Interop.Dynamic | C# `dynamic` | `dlr { }` |
 | --- | ---: | ---: | ---: |
-| `a + b` on boxed ints | 7.1 ns / 24 B | 7.9 ns / 24 B | 19.1 ns / 48 B |
-| indexer `d["a"]` on a dictionary | 4,168 ns / 1992 B | 13.4 ns / 24 B | 32.2 ns / 48 B |
-| invoke a delegate value with 20 | 7,194 ns / 3440 B | 7.8 ns / 24 B | 20.7 ns / 48 B |
-| implicit conversion of a boxed int to int64 | 346.9 ns / 432 B | 3.2 ns | 14.1 ns / 24 B |
-| static method chosen by an argument's runtime type | 7,181 ns / 3488 B | 7.1 ns / 24 B | 19.6 ns / 48 B |
-| a lambda for a `Func` parameter (C#: a `Func` literal; dlr: an F# lambda in the block) | — | 9.2 ns / 24 B | 318.1 ns / 224 B |
+| `a + b` on boxed ints | 6.9 ns / 24 B | 8 ns / 24 B | 19.5 ns / 48 B |
+| indexer `d["a"]` on a dictionary | 4,107 ns / 1992 B | 13.3 ns / 24 B | 32.7 ns / 48 B |
+| invoke a delegate value with 20 | 7,224 ns / 3440 B | 7.8 ns / 24 B | 20.4 ns / 48 B |
+| implicit conversion of a boxed int to int64 | 342.2 ns / 432 B | 3.2 ns | 14.1 ns / 24 B |
+| static method chosen by an argument's runtime type | 7,319 ns / 3488 B | 7.2 ns / 24 B | 19.6 ns / 48 B |
+| a lambda for a `Func` parameter (C#: a `Func` literal; dlr: an F# lambda in the block) | — | 9.3 ns / 24 B | 310.1 ns / 224 B |
 
 ### Where the forms differ
 
@@ -39,11 +39,11 @@ Each column does what its language offers here: C# `dynamic` has no spelling for
 
 | | C# `dynamic` | `dlr { }` |
 | --- | ---: | ---: |
-| F# function member `w?Fn(1, 2)` | — | 27.4 ns / 72 B |
+| F# function member `w?Fn(1, 2)` | — | 27.7 ns / 72 B |
 | optional parameter omitted `w?Bump(1)` | — | 19.1 ns / 48 B |
-| record `==` (C#: reference; dlr: structural) | 14.6 ns / 72 B | 39.4 ns / 104 B |
-| constructor chosen by an argument's runtime type | — | 16.6 ns / 32 B |
-| member name from a variable, alternating between two | — | 79.5 ns / 76 B |
+| record `==` (C#: reference; dlr: structural) | 14.6 ns / 72 B | 39.8 ns / 104 B |
+| constructor chosen by an argument's runtime type | — | 16.4 ns / 32 B |
+| member name from a variable, alternating between two | — | 78.5 ns / 76 B |
 
 ## Real targets
 
@@ -51,9 +51,9 @@ Each column does what its language offers here: C# `dynamic` has no spelling for
 
 | | typed API | FSharp.Interop.Dynamic | C# `dynamic` | `dlr { }` |
 | --- | ---: | ---: | ---: | ---: |
-| `JObject` `j.count` | 12.8 ns | — | 44 ns / 24 B | 58.2 ns / 48 B |
-| `JObject` `j.owner.name` | — | — | 46.6 ns | 65.4 ns / 24 B |
-| `ExpandoObject` `e.count` | — | 3,974 ns / 1528 B | 5.7 ns | 18.9 ns / 24 B |
+| `JObject` `j.count` | 12.3 ns | — | 44.2 ns / 24 B | 57.6 ns / 48 B |
+| `JObject` `j.owner.name` | — | — | 46.6 ns | 66.4 ns / 24 B |
+| `ExpandoObject` `e.count` | — | 3,976 ns / 1528 B | 5.7 ns | 18.9 ns / 24 B |
 
 Allocation per call is the block's closure (24 B) plus a box for a value-typed result — the same
 box C# `dynamic` pays — see `Tests/HotPath.fs`. `Benchmarks/README.md` explains the suites.

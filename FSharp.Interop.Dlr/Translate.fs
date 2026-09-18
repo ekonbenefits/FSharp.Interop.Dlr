@@ -311,29 +311,41 @@ module internal Translate =
         | ShapeLambda(v, body) -> Expr.Lambda(v, normalize body)
         | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map normalize args)
 
-    /// The call sites of a finished block hoisted into locals at the delegate's entry.
+    /// The call sites of a compiled block hoisted into locals of the lambda that uses them.
     /// `LambdaExpression.Compile` keeps a reference-type constant in its closure's `Constants`
     /// array and re-reads and casts it at every use — two per site call (`site.Target` and the
-    /// `site` argument). Bound once each at the top of the body, a use is a local read; the
-    /// sites stay in the delegate's closure, so they are collected with it, and nothing is emitted.
-    module private SiteHoisting =
-        open System.Runtime.CompilerServices
+    /// `site` argument). This visitor gives each lambda — the block's own and every nested one
+    /// (loop and try bodies, user lambdas) — a `Block` binding the sites its body uses directly to
+    /// variables assigned once at entry, so a use is a local read. Per lambda, not at the block's
+    /// entry: a variable captured by a nested lambda would be a `StrongBox` read, no better than
+    /// the constant. Done on the LINQ tree rather than as quotation `Let`s, which FSharp.Core
+    /// before 10.1 converts to nested lambda invocations (50× slower, measured).
+    type private SiteHoister() =
+        inherit ExpressionVisitor()
+        let mutable current : System.Collections.Generic.Dictionary<CallSite, ParameterExpression> = null
 
-        let hoist (e: Expr) : Expr =
-            let sites = SiteCache<string>.Sites e
-            if sites.IsEmpty then e
+        override this.VisitLambda<'T>(node: Expression<'T>) : Expression =
+            let saved = current
+            current <- System.Collections.Generic.Dictionary(HashIdentity.Reference)
+            let body = this.Visit node.Body
+            let mine = current
+            current <- saved
+            if mine.Count = 0 then node.Update(body, node.Parameters) :> Expression
             else
-                let vars = sites |> List.mapi (fun i s -> s, Var(sprintf "site%d" i, s.GetType()))
-                let rec replace (e: Expr) =
-                    match e with
-                    | Value(v, _) when (v :? CallSite) ->
-                        match vars |> List.tryFind (fun (s, _) -> obj.ReferenceEquals(s, v)) with
-                        | Some(_, var) -> Expr.Var var
-                        | None -> e
-                    | ShapeVar _ -> e
-                    | ShapeLambda(v, body) -> Expr.Lambda(v, replace body)
-                    | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map replace args)
-                List.foldBack (fun (s: CallSite, var: Var) body -> Expr.Let(var, Expr.Value(s, var.Type), body)) vars (replace e)
+                let assigns = [ for KeyValue(site, var) in mine -> Expression.Assign(var, Expression.Constant(site, var.Type)) :> Expression ]
+                let block = Expression.Block(body.Type, mine.Values, assigns @ [ body ])
+                node.Update(block, node.Parameters) :> Expression
+
+        override _.VisitConstant(node: ConstantExpression) : Expression =
+            match node.Value with
+            | :? CallSite as site when not (isNull current) ->
+                match current.TryGetValue site with
+                | true, var -> var :> Expression
+                | _ ->
+                    let var = Expression.Variable(node.Type, "site")
+                    current.[site] <- var
+                    var :> Expression
+            | _ -> node :> Expression
 
     let private onWasm =
         string System.Runtime.InteropServices.RuntimeInformation.OSArchitecture = "Wasm"   // no Architecture.Wasm on netstandard2.0
@@ -693,9 +705,10 @@ module internal Translate =
         let delegateType = typedefof<Func<_, _>>.MakeGenericType(typeof<obj>, resultType)
         let compiled =
             try
-                let rewritten = SiteHoisting.hoist (asUnit (rewrite (normalize body)))
+                let rewritten = asUnit (rewrite (normalize body))
                 let lambda = Expr.NewDelegate(delegateType, [ closure ], rewritten)
-                (LeafExpressionConverter.QuotationToExpression lambda :?> LambdaExpression).Compile()
+                let linq = LeafExpressionConverter.QuotationToExpression lambda :?> LambdaExpression
+                (SiteHoister().Visit linq :?> LambdaExpression).Compile()
             with :? DlrTranslationException -> reraise ()
                // A static member resolved here by reflection and missing is the binder's kind of
                // error, as it would be at the call for an instance target.

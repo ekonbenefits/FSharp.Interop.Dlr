@@ -77,7 +77,7 @@ let ``values the optimizer inlines instead of capturing still resolve`` () =
     (dlr { return w?Greet(greeting (), "you") } : string) |> should equal "Hi, you"
 
 [<Fact>]
-let ``clear then a call recompiles, and old sites are collectible`` () =
+let ``clear then a call recompiles`` () =
     let w = box (Widget())
     let read () : int = dlr { return w?Count }
     read () |> should equal 3
