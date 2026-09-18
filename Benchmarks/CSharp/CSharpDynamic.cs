@@ -32,6 +32,14 @@ public static class CSharpDynamic
 
     public static object Construct() { dynamic w = new Widget(); return w; }
 
+    public static int Add(object a, object b) { dynamic x = a; dynamic y = b; return x + y; }
+
+    public static int Index(object d, string key) { dynamic x = d; return x[key]; }
+
+    public static int InvokeDelegate(object f, int arg) { dynamic d = f; return d(arg); }
+
+    public static long Convert(object o) { dynamic d = o; return d; }
+
     public static bool AreEqual(object a, object b) { dynamic x = a; dynamic y = b; return x == y; }
 
     public static int JObjectGet(object j) { dynamic d = j; return d.count; }

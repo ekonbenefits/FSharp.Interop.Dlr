@@ -32,6 +32,9 @@ type Core() =
     let countProperty = typeof<Widget>.GetProperty("Count")
     let addMethod = typeof<Widget>.GetMethod("Add")
     let names = [| "Count"; "Name" |]
+    let one, two, three = box 1, box 2, box 3
+    let dictionary = box (Collections.Generic.Dictionary<string, int>(dict [ "a", 1 ]))
+    let adder = box (Func<int, int>(fun x -> x + 1))
     let mutable i = 0
 
     // --- baselines -----------------------------------------------------------------------
@@ -54,6 +57,30 @@ type Core() =
     [<Benchmark(Description = "FSharp.Interop.Dynamic w?Add(i, 1)")>]
     member _.DynamicCall() = i <- i + 1; (FSharp.Interop.Dynamic.TopLevelOperators.op_Dynamic o "Add" (i, 1) : int)
 
+    [<Benchmark(Description = "FSharp.Interop.Dynamic w?Name <- v")>]
+    member _.DynamicSet() = FSharp.Interop.Dynamic.TopLevelOperators.op_DynamicAssignment o "Name" "n"
+
+    [<Benchmark(Description = "FSharp.Interop.Dynamic loop over 100 items")>]
+    member _.DynamicLoop() =
+        let mutable s = 0
+        for x in items do s <- s + (FSharp.Interop.Dynamic.TopLevelOperators.op_Dynamic o "Add" (x, 1) : int)
+        s
+
+    [<Benchmark(Description = "FSharp.Interop.Dynamic a ?+? b")>]
+    member _.DynamicAdd() = (FSharp.Interop.Dynamic.Operators.op_QmarkPlusQmark one two : int)
+
+    [<Benchmark(Description = "FSharp.Interop.Dynamic Dyn.getIndex")>]
+    member _.DynamicIndex() = (FSharp.Interop.Dynamic.Dyn.getIndexer [ box "a" ] dictionary : int)
+
+    [<Benchmark(Description = "FSharp.Interop.Dynamic !?delegate")>]
+    member _.DynamicInvokeDelegate() = (FSharp.Interop.Dynamic.TopLevelOperators.op_BangQmark adder 20 : int)
+
+    [<Benchmark(Description = "FSharp.Interop.Dynamic Dyn.implicitConvert")>]
+    member _.DynamicConvert() = (FSharp.Interop.Dynamic.Dyn.implicitConvert three : int64)
+
+    [<Benchmark(Description = "FSharp.Interop.Dynamic staticTarget Draw(o)")>]
+    member _.DynamicStatic() = (FSharp.Interop.Dynamic.TopLevelOperators.op_Dynamic (FSharp.Interop.Dynamic.Dyn.staticContext typeof<Widget>) "Draw" o : int)
+
     // --- C# dynamic (same binders, the C# compiler's own sites) --------------------------
     [<Benchmark(Description = "C# dynamic d.Count")>]
     member _.CSharpGet() = CSharpDynamic.Get o
@@ -73,10 +100,22 @@ type Core() =
     [<Benchmark(Description = "C# dynamic Widget.Draw((dynamic)o)")>]
     member _.CSharpStaticOverloads() = CSharpDynamic.StaticOverloads o
 
+    [<Benchmark(Description = "C# dynamic a + b")>]
+    member _.CSharpAdd() = CSharpDynamic.Add(one, two)
+
+    [<Benchmark(Description = "C# dynamic d[\"a\"]")>]
+    member _.CSharpIndex() = CSharpDynamic.Index(dictionary, "a")
+
+    [<Benchmark(Description = "C# dynamic d(20) on a delegate")>]
+    member _.CSharpInvokeDelegate() = CSharpDynamic.InvokeDelegate(adder, 20)
+
+    [<Benchmark(Description = "C# dynamic implicit conversion (long)d")>]
+    member _.CSharpConvert() = CSharpDynamic.Convert three
+
     [<Benchmark(Description = "C# dynamic record == record")>]
     member _.CSharpEquals() =
         let a, b = box { X = 1; Y = 2 }, box { X = 1; Y = 2 }
-        CSharpDynamic.AreEqual(a, b)   // reference equality: false, and wrong — the structural rule's reason
+        CSharpDynamic.AreEqual(a, b)   // C#'s reference equality on records (false here); dlr's is structural
 
     // --- dlr { } -------------------------------------------------------------------------
     [<Benchmark(Description = "dlr w?Count")>]
@@ -114,6 +153,18 @@ type Core() =
     [<Benchmark(Description = "dlr Dlr.new'<Widget>()")>]
     member _.Construct() : Widget = dlr { return Dlr.new'<Widget>() }
 
+    [<Benchmark(Description = "dlr a ?+? b")>]
+    member _.Add() : int = dlr { return one ?+? two }
+
+    [<Benchmark(Description = "dlr d |> Dlr.item \"a\"")>]
+    member _.Index() : int = dlr { return dictionary |> Dlr.item "a" }
+
+    [<Benchmark(Description = "dlr delegate |> Dlr.call 20")>]
+    member _.InvokeDelegate() : int = dlr { return adder |> Dlr.call 20 }
+
+    [<Benchmark(Description = "dlr Dlr.implicit to int64")>]
+    member _.Convert() : int64 = dlr { return Dlr.implicit three }
+
     [<Benchmark(Description = "dlr structural record ?=?")>]
     member _.StructuralEquals() : bool =
         let a, b = box { X = 1; Y = 2 }, box { X = 1; Y = 2 }
@@ -146,6 +197,9 @@ type Targets() =
 
     [<Benchmark(Description = "dlr JObject j?owner?name")>]
     member _.JObjectChain() : string = dlr { return json?owner?name }
+
+    [<Benchmark(Description = "FSharp.Interop.Dynamic e?count")>]
+    member _.DynamicExpandoGet() = (FSharp.Interop.Dynamic.TopLevelOperators.op_Dynamic expando "count" : int)
 
     [<Benchmark(Description = "dlr Expando e?count")>]
     member _.ExpandoGet() : int = dlr { return expando?count }
