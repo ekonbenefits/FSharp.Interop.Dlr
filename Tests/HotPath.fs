@@ -1,0 +1,74 @@
+/// What the README's numbers imply and nothing else pinned: a bound call allocates nothing per
+/// call on the hot path, and first use of a site is safe under concurrency.
+[<ReflectedDefinition>]
+module Tests.HotPath
+
+open System
+open System.Threading
+open System.Threading.Tasks
+open AnyUnit.Style.Xunit
+open AnyUnit.Style.FsUnit
+open FSharp.Interop.Dlr
+
+let private allocatedBy (n: int) (run: unit -> unit) =
+    run ()                                               // bind, compile, convert: not counted
+    GC.Collect()
+    let before = GC.GetAllocatedBytesForCurrentThread()
+    for _ in 1 .. n do run ()
+    (GC.GetAllocatedBytesForCurrentThread() - before) / int64 n
+
+[<Fact>]
+let ``a bound call allocates only the block's closure and, for a value result, its box`` () : unit =
+#if DEBUG
+    raise (AnyUnit.IgnoreException "allocation counts are for the Release build (Debug keeps extra closures alive)")
+#else
+    if string System.Runtime.InteropServices.RuntimeInformation.OSArchitecture = "Wasm" then
+        raise (AnyUnit.IgnoreException "allocation counts are for the JIT runtimes")
+    let w = box (Widget())
+    // Per call: the closure F# allocates for the block (`fun () -> …` capturing `w`, 24 bytes on
+    // 64-bit) — inherent to a computation expression — plus one box when the operation's result
+    // is a value type, because a DLR site returns `obj` (C# `dynamic` boxes the same way). The
+    // compiled delegate, the sites and their rules allocate nothing once bound; anything past
+    // these numbers is a regression (a boxing conversion, a per-call closure in a rule).
+    let closure = 24L
+    let box' = 24L
+    let get () = (dlr { return w?Count } : int) |> ignore
+    let call () = (dlr { return w?Add(1, 2) } : int) |> ignore
+    let unitCall () = dlr { w?Touch() }                             // void site: nothing to box
+    let set () = dlr { w?Count <- 3 }                               // SetMember returns the value: boxed
+    let stringGet () = (dlr { return w?Name } : string) |> ignore   // a reference result: no box
+    let bytes = allocatedBy 1000
+    bytes unitCall |> should lessThanOrEqualTo closure
+    bytes stringGet |> should lessThanOrEqualTo closure
+    bytes get |> should lessThanOrEqualTo (closure + box')
+    bytes call |> should lessThanOrEqualTo (closure + box')
+    bytes set |> should lessThanOrEqualTo (closure + box')
+#endif
+
+[<Fact>]
+let ``first use of one site under concurrency compiles once and binds correctly`` () =
+    if Environment.ProcessorCount < 2 then raise (AnyUnit.IgnoreException "needs more than one thread")
+    let w = box (Widget())
+    let before = DlrCache.count ()
+    let results = Array.zeroCreate<int> 64
+    let gate = new ManualResetEventSlim(false)
+    let workers =
+        [| for i in 0 .. 63 ->
+            Task.Run(fun () ->
+                gate.Wait()
+                results.[i] <- (dlr { return w?Add(i, 1) } : int)) |]
+    gate.Set()
+    Task.WaitAll workers
+    results |> should equal [| for i in 0 .. 63 -> i + 1 |]
+    DlrCache.count () - before |> should equal 1              // one block, compiled once
+
+[<Fact>]
+let ``computed names under concurrency: distinct names, one site, right answers`` () =
+    if Environment.ProcessorCount < 2 then raise (AnyUnit.IgnoreException "needs more than one thread")
+    let w = box (Widget())
+    let names = [| "Count"; "Name"; "Touched" |]
+    let read (name: string) : obj = dlr { return (?) w name }
+    let results = Array.zeroCreate<string> 300
+    Parallel.For(0, 300, fun i -> results.[i] <- string (read names.[i % 3])) |> ignore
+    results |> Array.forall (fun r -> r = "3" || r = "widget" || r = "0") |> should equal true
+    results |> Array.distinct |> Array.length |> should equal 3

@@ -14,6 +14,11 @@ let Code = "DLR001"
 [<Literal>]
 let OutsideCode = "DLR002"
 
+/// Two or more `dlr { }` blocks starting on one source line: a block's body is found by the file
+/// and line of its `Run` call, so the first call raises DlrTranslationException.
+[<Literal>]
+let SharedLineCode = "DLR003"
+
 let private isReflectedDefinition (attributes: seq<FSharpAttribute>) =
     attributes
     |> Seq.exists (fun a ->
@@ -129,8 +134,44 @@ let private analyzeOutside (typedTree: FSharpImplementationFileContents option) 
               Range = m
               Fixes = [] })
 
+/// The outermost `dlr.Run(...)` calls in an expression: a block nested in another is compiled as
+/// part of it and has no site of its own, so it does not count.
+let rec private outermostRuns (e: FSharpExpr) : range list =
+    match e with
+    | FSharpExprPatterns.Call(_, mfv, _, _, _) when isDlrRun mfv -> [ e.Range ]
+    | _ -> e.ImmediateSubExpressions |> List.collect outermostRuns
+
+/// Every outermost `dlr.Run(...)` call in the file, from all declarations.
+let rec private allRuns (decls: FSharpImplementationFileDeclaration list) : range list =
+    decls
+    |> List.collect (fun decl ->
+        match decl with
+        | FSharpImplementationFileDeclaration.Entity(_, subDecls) -> allRuns subDecls
+        | FSharpImplementationFileDeclaration.MemberOrFunctionOrValue(_, _, body) -> outermostRuns body
+        | FSharpImplementationFileDeclaration.InitAction expr -> outermostRuns expr)
+
+let private analyzeSharedLines (typedTree: FSharpImplementationFileContents option) : Message list =
+    match typedTree with
+    | None -> []
+    | Some contents ->
+        allRuns contents.Declarations
+        |> List.distinct
+        |> List.groupBy (fun r -> r.FileName, r.StartLine)
+        |> List.collect (fun ((_, line), ranges) ->
+            if ranges.Length < 2 then []
+            else
+                ranges
+                |> List.map (fun r ->
+                    { Type = "dlr { } blocks on one line"
+                      Message = sprintf "%d dlr { } blocks start on line %d. A block is found by the line of its Run call, so the first call raises DlrTranslationException; put each dlr { } on its own line." ranges.Length line
+                      Code = SharedLineCode
+                      Severity = Severity.Error
+                      Range = r
+                      Fixes = [] }))
+
 let private analyze (tree: ParsedInput) (typedTree: FSharpImplementationFileContents option) : Message list =
     analyzeOutside typedTree
+    @ analyzeSharedLines typedTree
     @ match typedTree with
       | None -> []
       | Some contents ->

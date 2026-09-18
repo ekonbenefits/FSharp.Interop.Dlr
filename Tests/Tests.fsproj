@@ -20,6 +20,12 @@
     <PackageReference Include="AnyUnit.TestingPlatform" />
     <PackageReference Include="AnyUnit.Style.Xunit" />
     <PackageReference Include="AnyUnit.Style.FsUnit" />
+    <!-- Real-world dynamic targets: JObject (also on wasm), Python.NET (JIT legs only; the test
+         skips itself when no Python runtime is found). -->
+    <PackageReference Include="Newtonsoft.Json" />
+    <PackageReference Include="pythonnet" Condition="'$(TargetFramework)' != 'net48'" />
+    <PackageReference Include="Dapper" Condition="'$(TargetFramework)' != 'net48'" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Condition="'$(TargetFramework)' != 'net48'" />
     <PackageReference Include="coverlet.MTP" />
     <!-- Dogfood: FSharp.Analyzers.Build runs the repo's own analyzer over this project after it
          compiles (the fsharp-analyzers tool comes from .config/dotnet-tools.json). Unreflected.fs
@@ -73,6 +79,10 @@
     <Compile Include="Mutables.fs" />
     <Compile Include="Delegates.fs" />
     <Compile Include="StaticOverloads.fs" />
+    <Compile Include="JsonNet.fs" />
+    <Compile Include="PythonNet.fs" Condition="'$(TargetFramework)' != 'net48'" />
+    <Compile Include="DapperRows.fs" Condition="'$(TargetFramework)' != 'net48'" />
+    <Compile Include="HotPath.fs" />
     <Compile Include="FSharpInBlocks.fs" />
     <Compile Include="Unreflected.fs" />
   </ItemGroup>

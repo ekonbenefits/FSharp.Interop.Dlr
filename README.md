@@ -66,8 +66,9 @@ type Report(data: obj) =
 
 Without it, the first call raises a `DlrTranslationException` that says so. The
 [`FSharp.Interop.Dlr.Analyzers`](FSharp.Interop.Dlr.Analyzers/README.md) package reports it at
-build time instead (`DLR001`, with a fix), and reports a `?` or `Dlr.*` used outside any block
-(`DLR002`), through `FSharp.Analyzers.Build` and in Ionide; it needs the `fsharp-analyzers`
+build time instead (`DLR001`, with a fix), reports a `?` or `Dlr.*` used outside any block
+(`DLR002`) and two blocks starting on one line (`DLR003`), through `FSharp.Analyzers.Build` and
+in Ionide; it needs the `fsharp-analyzers`
 tool and `RunAnalyzers=true` in the project (see its README — builds for .NET SDK 8/9 and 10).
 
 One `dlr { }` per source line. Blocks in generic functions and members work (one site per
@@ -163,6 +164,19 @@ or got wrong, so nothing C# binds correctly changes:
 - **Member names and generic type arguments may be run-time values**: `(?) x name` and
   `Dlr.typeArgsOf ts` create the call sites per distinct name or type list, cached per site. C#'s
   are fixed at compile time.
+
+## Real targets in the tests
+
+Besides `ExpandoObject`, `DynamicObject`s and plain CLR objects, the suite runs against two
+real-world dynamic providers: Newtonsoft.Json's `JObject` (`json?owner?name`, `Dlr.item` on
+arrays, sets that write back, `TryConvert` to the inferred type; on wasm too) and Python.NET
+(`m?greet("jay", Dlr.named {| greeting = "hi" |})`, Python classes and attributes, `Dlr.call` on
+callables, dicts and lists through `Dlr.item`; skipped where no Python 3.10+ is found —
+`PYTHONNET_PYDLL` names one explicitly), and Dapper's rows over an in-memory SQLite database
+(SQLite's `int64` columns, `null`, a column name with a space as a computed name, an unknown
+column answered as null by Dapper itself). `Tests/HotPath.fs` pins what a bound call allocates —
+the block's closure, plus one box for a value-typed result, as C# `dynamic` — and that first use
+of a site under concurrency compiles once.
 
 ## How it works
 
