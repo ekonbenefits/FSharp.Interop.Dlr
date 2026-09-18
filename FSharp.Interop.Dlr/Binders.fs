@@ -1170,6 +1170,7 @@ module internal Binders =
 
     /// `Dlr.call args target`, applying `target` itself when it is an F# function.
     let invokeOrApply (context: Type) (discard: bool) (target: Arg) (args: Arg list) =
+        callsOnly "Dlr.call" target
         let all = target :: args
         let csharp = Binder.Invoke((if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None), context, [ for a in all -> argInfo a ])
         let positional = args |> List.forall (fun a -> isNull a.Name)

@@ -21,7 +21,6 @@ type Named<'T> private () =
 type TypeArgs private () =
     class end
 
-
 [<AutoOpen>]
 module Operators =
 

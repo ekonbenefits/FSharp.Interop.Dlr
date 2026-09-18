@@ -45,3 +45,7 @@ let ``a miss is the binder's error; anything but a call is a translation error``
     (fun () -> dlr { Dlr.Static<Renderer>.Overloads |> Dlr.addAssign "Scale" 1.0 }) |> should throw typeof<DlrTranslationException>
     (fun () -> (dlr { return Dlr.Static<Renderer>.Overloads |> Dlr.item 0 } : int) |> ignore) |> should throw typeof<DlrTranslationException>
     (fun () -> (dlr { return Dlr.Static<Renderer>.Overloads?Draw } : obj -> string) |> ignore) |> should throw typeof<DlrTranslationException>
+    (fun () -> (dlr { return Dlr.Static<Renderer>.Overloads |> Dlr.call (box 1) } : string) |> ignore) |> should throw typeof<DlrTranslationException>
+    // Anywhere but in target position: a translation error, not the outside-a-block one at run time.
+    (fun () -> (dlr { let s = Dlr.Static<Renderer>.Overloads in return s?Draw(box 3) } : string) |> ignore) |> should throw typeof<DlrTranslationException>
+    (fun () -> (dlr { return (box 1)?Equals(Dlr.Static<Renderer>.Overloads) } : bool) |> ignore) |> should throw typeof<DlrTranslationException>

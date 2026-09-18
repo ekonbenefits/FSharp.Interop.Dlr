@@ -10,7 +10,6 @@ type Named<'T> =
 type TypeArgs =
     class end
 
-
 /// <summary>
 /// Operators recognised inside <c>dlr { }</c>. They are never executed: the builder inspects the
 /// quotation and compiles each one to a DLR call site. Calling any of them outside <c>dlr { }</c> throws.

@@ -453,6 +453,9 @@ module internal Translate =
                 convert e.Type (if v.Type = typeof<obj> then v else Expr.Coerce(v, typeof<obj>))
 
             // Everything else: captured variables become field reads, structure is rebuilt as-is.
+            // The marker anywhere but as a target would run its getter at run time and throw the
+            // outside-a-block error from inside one; say what is wrong instead.
+            | StaticTarget _ -> unsupported "Dlr.Static<T>.Overloads anywhere but as the target of a call" e
             | Var v when isCaptured bound v -> captured (rewriteIn bound) v
             | VarSet(v, value) when isCaptured bound v -> assignCaptured v (rewrite value)
             | ShapeVar _ -> e
