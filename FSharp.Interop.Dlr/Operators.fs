@@ -21,6 +21,11 @@ type Named<'T> private () =
 type TypeArgs private () =
     class end
 
+[<Sealed; AbstractClass>]
+type Static<'T> =
+    static member Overloads
+        with [<MethodImpl(MethodImplOptions.NoInlining)>] get () : obj = outside "Static<T>.Overloads"
+
 [<AutoOpen>]
 module Operators =
 
