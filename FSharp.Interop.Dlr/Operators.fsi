@@ -60,7 +60,7 @@ module Operators =
 type Dlr =
     /// <summary>Marks an anonymous record as named arguments: <c>x?Method(a, Dlr.named {| count = 3 |})</c>. A bare anonymous record is a positional argument.</summary>
     static member named: record: 'T -> Named<'T>
-    /// <summary>Dynamic indexer get, target last: <c>x |&gt; Dlr.item i</c>, <c>x |&gt; Dlr.item (i, j)</c> (a tuple is several indexes, as for <c>Dlr.call</c>); the element type is inferred from use.</summary>
+    /// <summary>Dynamic indexer get, target last: <c>x |&gt; Dlr.item i</c>, <c>x |&gt; Dlr.item (i, j)</c> (a tuple, literal or in a variable, is several indexes, as for <c>Dlr.call</c>; a struct tuple is one); the element type is inferred from use.</summary>
     static member item: indexes: 'TIndexes -> target: obj -> 'T
     /// <summary>Dynamic indexer set, target last: <c>x |&gt; Dlr.setItem i v</c>, <c>x |&gt; Dlr.setItem (i, j) v</c>.</summary>
     static member setItem: indexes: 'TIndexes -> value: 'TValue -> target: obj -> unit

@@ -175,3 +175,41 @@ let ``the literal 0 converts to an enum parameter`` () =
 let ``a null literal picks the reference overload`` () =
     let w = box (Widget())
     (dlr { return w?Text(null) } : string) |> should equal "string"
+
+[<Fact>]
+let ``a tuple in a variable is several arguments, as in F#'s own method calls`` () =
+    let w = box (Widget())
+    let args = (40, 2)
+    (dlr { return w?Add args } : int) |> should equal 42
+    (dlr { return w |> Dlr.invoke "Add" args } : int) |> should equal 42
+    let f = box (fun (a: int) (b: int) -> a + b)
+    (dlr { return f |> Dlr.call args } : int) |> should equal 42
+    // Elements keep their static types: `Greet(string, string)` binds, not the obj overload.
+    let pair = ("hello", "world")
+    (dlr { return w?Greet pair } : string) |> should equal "hello, world"
+    // Evaluated once.
+    let mutable made = 0
+    let make () = made <- made + 1; (1, 2)
+    (dlr { return w?Add(make ()) } : int) |> should equal 3
+    made |> should equal 1
+    // A struct tuple is one value (as in F#), and `box t` passes a tuple as one dynamic argument.
+    let st = struct (1, 2)
+    (fun () -> (dlr { return w?Add st } : int) |> ignore) |> should throw typeof<RuntimeBinderException>
+    (fun () -> (dlr { return w?Add(box args) } : int) |> ignore) |> should throw typeof<RuntimeBinderException>
+
+[<Fact>]
+let ``an argument upcast with :> obj dispatches on its runtime type, like box`` () =
+    let w = box (Widget())
+    let d = DayOfWeek.Monday
+    (dlr { return w?Kind(box d) } : string) |> should equal "enum"
+    (dlr { return w?Kind(d :> obj) } : string) |> should equal "enum"
+    // Where static and runtime types differ: `Holders`-typed holding a `Derived`.
+    let c = box (Classifier())
+    let b: Holders = Derived()
+    (dlr { return c?Kind(b) } : string) |> should equal "holders"         // typed: bound by the static type
+    (dlr { return c?Kind(box b) } : string) |> should equal "derived"     // obj: bound by the runtime type
+    (dlr { return c?Kind(b :> obj) } : string) |> should equal "derived"  // the same as box (was "holders": the upcast was stripped)
+    let s: obj = "text"
+    (dlr { return w?Kind(s) } : string) |> should equal "obj"
+    (dlr { return w?Kind(box 1) } : string) |> should equal "obj"
+    (dlr { return w |> Dlr.invoke "Kind" (d :> obj) } : string) |> should equal "enum"

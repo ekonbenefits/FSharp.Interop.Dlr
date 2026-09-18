@@ -190,19 +190,26 @@ module internal Translate =
         match e with
         | Application(EtaReduced(Op opDynamic [ Unboxed target; name ]), args) -> Some(InvokeMember(target, name, args))
         | Op opDynamic [ Unboxed target; name ] -> Some(GetMember(target, name))
-        | Op opDynamicAssign [ Unboxed target; name; Unboxed value ] -> Some(SetMember(target, name, value))
+        | Op opDynamicAssign [ Unboxed target; name; value ] -> Some(SetMember(target, name, value))
         | Application(EtaReduced(Op opGet [ name; Unboxed target ]), args) -> Some(InvokeMember(target, name, args))
         | Op opGet [ name; Unboxed target ] -> Some(GetMember(target, name))
         | Op opInvoke [ name; args; Unboxed target ] -> Some(InvokeMember(target, name, args))
-        | Op opSet [ name; Unboxed value; Unboxed target ] -> Some(SetMember(target, name, value))
+        | Op opSet [ name; value; Unboxed target ] -> Some(SetMember(target, name, value))
         | _ -> None
 
-    /// `x?Foo()` applies unit; `x?Foo(a, b)` applies a tuple; `x?Foo(a)` applies one value.
-    let private splitArgs (e: Expr) =
+    /// `x?Foo()` applies unit; `x?Foo(a, b)` applies a tuple; `x?Foo(a)` applies one value. As in
+    /// F#'s own method calls (`w.Add args` with `args: int * int`), an expression whose static
+    /// type is a reference tuple is several arguments too: it is bound once and split with
+    /// `TupleGet`, each element keeping its static type. A struct tuple is one value, as in F#;
+    /// `box t` passes a tuple as one dynamic argument. Returns the binding, if any, and the items.
+    let private splitArgs (e: Expr) : (Var * Expr) list * Expr list =
         match e with
-        | Value(_, t) when t = typeof<unit> -> []
-        | NewTuple items -> items
-        | single -> [ single ]
+        | Value(_, t) when t = typeof<unit> -> [], []
+        | NewTuple items -> [], items
+        | _ when FSharpType.IsTuple e.Type && not e.Type.IsValueType ->
+            let v = Var("args", e.Type)
+            [ v, e ], [ for i in 0 .. FSharpType.GetTupleElements(e.Type).Length - 1 -> Expr.TupleGet(Expr.Var v, i) ]
+        | single -> [], [ single ]
 
     /// The definition of a let-bound variable somewhere in `e` (quotation Vars are identity-based,
     /// so shadowing is not a concern).
@@ -414,19 +421,22 @@ module internal Translate =
 
             // Member operations: a literal name is a baked site; a computed name binds per name.
             | MemberOp(InvokeMember(target, nameExpr, argExpr)) ->
+                let tupleBindings, argExprs = splitArgs argExpr
+                let bound' = tupleBindings |> List.fold (fun (b: Set<Var>) (v, _) -> b.Add v) bound
                 let typeArgs, argExprs =
-                    match splitArgs argExpr with
+                    match argExprs with
                     | TypeArgs spec :: rest -> spec, rest
                     | args -> StaticTypes [], args
                 match nameExpr, typeArgs with
                 | Literal name, StaticTypes ts ->
                     let discard = e.Type = typeof<unit>
-                    let bindings, args = argList bound argExprs
-                    Binders.invokeMemberOrApply context (string name) ts discard (targetArg bound target) args |> finish discard e.Type |> bind bound bindings
+                    let bindings, args = argList bound' argExprs
+                    Binders.invokeMemberOrApply context (string name) ts discard (targetArg bound target) args |> finish discard e.Type |> bind bound' bindings |> bind bound tupleBindings
                 | _ ->
                     let discard = e.Type = typeof<unit>
-                    keyedSite bound nameExpr typeArgs target argExprs e.Type (fun name ts targetArg args ->
+                    keyedSite bound' nameExpr typeArgs target argExprs e.Type (fun name ts targetArg args ->
                         Binders.invokeMemberOrApply context name ts discard targetArg args)
+                    |> bind bound tupleBindings
             | MemberOp(GetMember(target, nameExpr)) when FSharpType.IsFunction e.Type ->
                 // Read as an F# function: a curried invoker of the member (method, delegate or F#
                 // function), so `let f: int -> int -> int = dlr { return x?Add }` then `f 1 2`.
@@ -452,12 +462,18 @@ module internal Translate =
                 Binders.invokeConstructor context t args |> bind bound bindings
             | Op opCall [ argExpr; Unboxed target ] ->
                 let discard = e.Type = typeof<unit>
-                let bindings, args = argList bound (splitArgs argExpr)
-                Binders.invokeOrApply context discard (targetArg bound target) args |> finish discard e.Type |> bind bound bindings
-            | Op opItem [ Unboxed indexes; Unboxed target ] ->
-                Binders.getIndex context (targetArg bound target) (indexList bound (splitArgs indexes)) |> convert e.Type
-            | Op opSetItem [ Unboxed indexes; Unboxed value; Unboxed target ] ->
-                Binders.setIndex context (targetArg bound target) (indexList bound (splitArgs indexes)) (valueArg bound value) |> convert typeof<unit>
+                let tupleBindings, argExprs = splitArgs argExpr
+                let bound' = tupleBindings |> List.fold (fun (b: Set<Var>) (v, _) -> b.Add v) bound
+                let bindings, args = argList bound' argExprs
+                Binders.invokeOrApply context discard (targetArg bound target) args |> finish discard e.Type |> bind bound' bindings |> bind bound tupleBindings
+            | Op opItem [ indexes; Unboxed target ] ->
+                let tupleBindings, indexExprs = splitArgs indexes
+                let bound' = tupleBindings |> List.fold (fun (b: Set<Var>) (v, _) -> b.Add v) bound
+                Binders.getIndex context (targetArg bound target) (indexList bound' indexExprs) |> convert e.Type |> bind bound tupleBindings
+            | Op opSetItem [ indexes; value; Unboxed target ] ->
+                let tupleBindings, indexExprs = splitArgs indexes
+                let bound' = tupleBindings |> List.fold (fun (b: Set<Var>) (v, _) -> b.Add v) bound
+                Binders.setIndex context (targetArg bound target) (indexList bound' indexExprs) (valueArg bound' value) |> convert typeof<unit> |> bind bound tupleBindings
             | BinaryOp(op, Unboxed left, Unboxed right) ->
                 Binders.binaryOperation context op (valueArg bound left) (valueArg bound right) |> convert e.Type
             | UnaryOp(op, Unboxed operand) ->
@@ -635,13 +651,15 @@ module internal Translate =
                         bindings.AddRange lets
                         let inner = bindings |> Seq.fold (fun (b: Set<Var>) (v, _) -> b.Add v) bound
                         for (name, v) in fields -> Binders.named name (valueArg inner v)
-                    | Unboxed v -> yield valueArg bound v ]
+                    // Argument positions are generic-typed, so a `Coerce(_, obj)` here is the user's
+                    // `x :> obj` and means what `box x` means: an obj argument, runtime dispatch.
+                    | v -> yield valueArg bound v ]
             List.ofSeq bindings, args
 
         and bind bound (bindings: (Var * Expr) list) (call: Expr) =
             List.foldBack (fun (v, value) body -> Expr.Let(v, rewriteIn bound value, body)) bindings call
 
-        and indexList bound (indexes: Expr list) = [ for Unboxed i in indexes -> valueArg bound i ]
+        and indexList bound (indexes: Expr list) = [ for i in indexes -> valueArg bound i ]
 
         and finish discard (resultType: Type) (call: Expr) =
             if discard then call else convert resultType call
