@@ -194,20 +194,25 @@ argument flags, the F#-aware binders, and what the translator assumes about the 
 
 ## Measured
 
-`Benchmarks/` is a BenchmarkDotNet project over these paths and their alternatives
-(`./bench.sh Core short` for a quick look; see its README). Release, net10.0, Apple Silicon:
+`Benchmarks/` is a BenchmarkDotNet project over these paths and their alternatives; `./bench.sh docs`
+regenerates this table and the full [docs/benchmarks.md](docs/benchmarks.md) (every suite, C#
+`dynamic` and other targets alongside). Release, net10.0, Apple Silicon, steady state:
 
-| | ns/call |
-| --- | --- |
-| `dlr { return w?Count }` | 24 |
-| `dlr { return w?Add(i, 1) }` | 29 |
-| `dlr { for x in items do … w?Add(x, i) … }`, 100 items | 1 690 per block, ≈17 per iteration |
-| FSharp.Interop.Dynamic `w?Count` / `w?Add(i, 1)` | ~4 100 / ~7 800 |
-| reflection, cached `PropertyInfo.GetValue` / `MethodInfo.Invoke` | 17 / 63 |
-| C# `dynamic` `d.Count` / `d.Add(i, 1)` / `d.Name = v` (same binders; the compiler's sites are static fields) | 7 / 7.5 / 3.6 |
-| static `w.Count` | 4 |
-| `dlr` computed name, alternating (`SiteCache` hit) | 88 |
-| `dlr` F# function member `w?Fn(1, 2)` / optional omitted `w?Bump(1)` | 37 / 30 |
-| `dlr` lambda written in the block for a `Func` parameter | 323 |
-| `dlr` static overloads by runtime type / `Dlr.new'` / structural `?=?` | 30 / 21 / 49 |
-| `dlr` `JObject` `j?count` (vs `j.["count"].Value<int>()` 12) | 73 |
+<!-- benchmarks:start -->
+| | ns/call | allocated |
+| --- | ---: | ---: |
+| static w.Add(i, 1) | 1.2 | — |
+| reflection: cached PropertyInfo.GetValue | 12.4 | 24 B |
+| reflection: cached MethodInfo.Invoke | 36.8 | 112 B |
+| FSharp.Interop.Dynamic w?Count | 3,995 | 1552 B |
+| FSharp.Interop.Dynamic w?Add(i, 1) | 7,567 | 3809 B |
+| C# dynamic d.Count | 6.8 | 24 B |
+| C# dynamic d.Add(i, 1) | 7.5 | 24 B |
+| dlr w?Count | 28.9 | 48 B |
+| dlr w?Add(i, 1) | 30.2 | 48 B |
+| dlr for over 100 items, one site | 1,618 | 2632 B |
+| dlr (?) o name, name alternating (SiteCache hit) | 86.4 | 76 B |
+| dlr F# function member call w?Fn(1, 2) | 36.8 | 72 B |
+| dlr structural record ?=? | 49.5 | 104 B |
+| dlr JObject j?count | 79.2 | 48 B |
+<!-- benchmarks:end -->
