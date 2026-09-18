@@ -1166,7 +1166,9 @@ module internal Binders =
     /// exactly as the C# compiler emits it.
     let invokeConstructor (context: Type) (t: Type) (args: Arg list) =
         let all = staticTarget t :: args
-        siteCall (Binder.InvokeConstructor(CSharpBinderFlags.None, context, [ for a in all -> argInfo a ])) all typeof<obj>
+        // Result typed `t`, as the C# compiler's own site for `new T(…)` is: the binder types a
+        // constructor's result as `T`, and an obj-typed site would reject that for a value type.
+        siteCall (Binder.InvokeConstructor(CSharpBinderFlags.None, context, [ for a in all -> argInfo a ])) all t
 
     /// `Dlr.call args target`, applying `target` itself when it is an F# function.
     let invokeOrApply (context: Type) (discard: bool) (target: Arg) (args: Arg list) =

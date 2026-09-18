@@ -71,3 +71,25 @@ let ``a let mutable is not inlined as its initial value`` () =
             return x
         }
     r |> should equal 6
+
+[<Fact>]
+let ``a let snapshot of a mutable keeps the value at that point`` () =
+    // normalize inlines `let y = x` for a variable x — but not when x is mutable: a snapshot
+    // must not read the current value later.
+    let w = box (Widget())
+    let mutable n = 1
+    let r: string =
+        dlr {
+            let y = n
+            n <- n + 1
+            return w?Greet(string y, string n)
+        }
+    r |> should equal "1, 2"
+    let inner: string =
+        dlr {
+            let mutable m = 1
+            let snapshot = m
+            m <- m + 1
+            return w?Greet(string snapshot, string m)
+        }
+    inner |> should equal "1, 2"
