@@ -196,13 +196,18 @@ argument flags, the F#-aware binders, and what the translator assumes about the 
 
 ## Measured
 
-Release, net10.0, Apple Silicon, 5M-call average after warm-up:
+`Benchmarks/` is a BenchmarkDotNet project over these paths and their alternatives; `./bench.sh docs`
+regenerates this table and the full [docs/benchmarks.md](docs/benchmarks.md) (every suite, C#
+`dynamic` and other targets alongside). Release, net10.0, Apple Silicon, steady state:
 
+<!-- benchmarks:start -->
 | | ns/call |
-| --- | --- |
-| `dlr { return w?Count }` | 24 |
-| `dlr { return w?Add(i, 1) }` | 29 |
-| `dlr { for x in items do … w?Add(x, i) … }`, 100 items | 1 690 per block, ≈17 per iteration |
-| FSharp.Interop.Dynamic `w?Count` / `w?Add(i, 1)` | ~4 100 / ~7 800 |
-| reflection, cached `PropertyInfo.GetValue` / `MethodInfo.Invoke` | 17 / 63 |
-| static `w.Count` | 4 |
+| --- | ---: |
+| static w.Add(i, 1) | 1.2 |
+| reflection: cached MethodInfo.Invoke | 36.2 |
+| FSharp.Interop.Dynamic w?Add(i, 1) | 7,591 |
+| C# dynamic d.Add(i, 1) | 7.8 |
+| dlr w?Add(i, 1) | 30.6 |
+| dlr w?Count | 29.2 |
+| dlr loop of 100 calls, one site (whole loop; ≈16 ns per call) | 1,625 |
+<!-- benchmarks:end -->

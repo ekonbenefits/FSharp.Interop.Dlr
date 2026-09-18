@@ -485,3 +485,6 @@ TestResults/
 # Claude Code session state
 .claude/scheduled_tasks.lock
 .claude/settings.local.json
+
+# BenchmarkDotNet output
+Benchmarks/BenchmarkDotNet.Artifacts/

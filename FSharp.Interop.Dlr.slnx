@@ -1,5 +1,7 @@
 <Solution>
   <Project Path="Analyzers.Tests/Analyzers.Tests.fsproj" />
+  <Project Path="Benchmarks/Benchmarks.fsproj" />
+  <Project Path="Benchmarks/CSharp/Benchmarks.CSharp.csproj" />
   <Project Path="FSharp.Interop.Dlr.Analyzers/FSharp.Interop.Dlr.Analyzers.fsproj" />
   <Project Path="FSharp.Interop.Dlr/FSharp.Interop.Dlr.fsproj" />
   <Project Path="Tests/Tests.fsproj" />
