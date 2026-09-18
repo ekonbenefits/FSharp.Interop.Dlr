@@ -26,6 +26,13 @@
     <PackageReference Include="pythonnet" Condition="'$(TargetFramework)' != 'net48'" />
     <PackageReference Include="Dapper" Condition="'$(TargetFramework)' != 'net48'" />
     <PackageReference Include="Microsoft.Data.Sqlite" Condition="'$(TargetFramework)' != 'net48'" />
+    <!-- ClearScript V8: JS objects as dynamic. Native V8 per platform; the test skips itself if
+         V8 cannot load. -->
+    <PackageReference Include="Microsoft.ClearScript.V8" Condition="'$(TargetFramework)' != 'net48'" />
+    <PackageReference Include="Microsoft.ClearScript.V8.Native.osx-arm64" Condition="'$(TargetFramework)' != 'net48'" />
+    <PackageReference Include="Microsoft.ClearScript.V8.Native.osx-x64" Condition="'$(TargetFramework)' != 'net48'" />
+    <PackageReference Include="Microsoft.ClearScript.V8.Native.linux-x64" Condition="'$(TargetFramework)' != 'net48'" />
+    <PackageReference Include="Microsoft.ClearScript.V8.Native.win-x64" Condition="'$(TargetFramework)' != 'net48'" />
     <PackageReference Include="coverlet.MTP" />
     <!-- Dogfood: FSharp.Analyzers.Build runs the repo's own analyzer over this project after it
          compiles (the fsharp-analyzers tool comes from .config/dotnet-tools.json). Unreflected.fs
@@ -83,6 +90,7 @@
     <Compile Include="PythonNet.fs" Condition="'$(TargetFramework)' != 'net48'" />
     <Compile Include="DapperRows.fs" Condition="'$(TargetFramework)' != 'net48'" />
     <Compile Include="HotPath.fs" />
+    <Compile Include="ClearScriptV8.fs" Condition="'$(TargetFramework)' != 'net48'" />
     <Compile Include="FSharpInBlocks.fs" />
     <Compile Include="Unreflected.fs" />
   </ItemGroup>
