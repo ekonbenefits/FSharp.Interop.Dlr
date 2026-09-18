@@ -127,7 +127,7 @@ type Core() =
     [<Benchmark(Description = "dlr w?Name <- v")>]
     member _.Set() = dlr { o?Name <- "n" }
 
-    [<Benchmark(Description = "dlr loop of 100 calls, one site (whole loop; ≈16 ns per call)")>]
+    [<Benchmark(Description = "dlr loop of 100 calls, one site (whole loop; ≈14 ns per call)")>]
     member _.Loop() : int =
         dlr {
             let mutable s = 0

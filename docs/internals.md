@@ -13,7 +13,7 @@ DlrCache ──miss──▶ Discover ──▶ Translate ──▶ LeafExpressi
   │                (body from     (quotation → quotation with sites baked in)
   │ hit             ReflectedDefinition)
   ▼
-compiled.Invoke(closure)       ~25 ns: field reads + one CallSite per operation
+compiled.Invoke(closure)       ~18 ns: field reads + one CallSite per operation
 ```
 
 `Delay` returns the closure unevaluated. `Run` never executes it; it is the call site's identity
@@ -33,11 +33,16 @@ compiled.Invoke(closure)       ~25 ns: field reads + one CallSite per operation
 in `Binders.fs` (`FunctionAdapters.conversions`, `DelegateFunctions.makers`: one entry per
 (function type, delegate type) pair, bounded by the program's types) and `SiteCache.Capacity`.
 The rest is baked into a block's compiled delegate, so it is collected with it — the call sites
-not as `Expression.Constant`s but as static fields of one holder type emitted per block
-(`SiteHolders` in `Translate.fs`): `LambdaExpression.Compile` hoists a reference-type constant
-into the closure's `Constants` array and re-reads and casts it at each use, two per site call,
-where a static field is one `ldsfld` — the C# compiler's own shape. Where `TypeBuilder` is not
-available the constants stay. Measured, a member call went from ~30 ns to ~18 against C#
+not as `Expression.Constant`s but as static fields of a holder type emitted per block into its
+own *collectible* dynamic assembly (`SiteHolders` in `Translate.fs`): `LambdaExpression.Compile`
+hoists a reference-type constant into the closure's `Constants` array and re-reads and casts it
+at each use, two per site call, where a static field is one `ldsfld` — the C# compiler's own
+shape. Collectible because the field types mention the block's argument types, which may come
+from a collectible `AssemblyLoadContext`, and so that the holder and its sites can be collected
+with the delegate (after `DlrCache.clear()`, for instance) rather than living for the process —
+verified in a standalone process (a `WeakReference` to the holder and its site both die on the
+first GC after `clear()`); inside the parallel test host something not yet identified keeps them
+alive, so that is not pinned by a test. Where emitting fails the constants stay. Measured, a member call went from ~30 ns to ~18 against C#
 `dynamic`'s ~7.5; what remains is the block's entry: the `Delay` closure F# allocates (3 ns),
 `GetType()` on it (3), the lookup and the delegate invoke.
 First use of a block goes through `ConcurrentDictionary.GetOrAdd`, whose factory may run on more
@@ -204,11 +209,13 @@ binds silently wrong. CI builds with the .NET 8, 9 and 10 SDKs in Debug and Rele
 
 ## Measured
 
-Release, net10.0, Apple Silicon, 5M-call average:
+Release, net10.0, Apple Silicon; the current numbers for every path are in
+[benchmarks.md](benchmarks.md) (`Benchmarks/bench.sh docs`). Older spot measurements, for the
+function-member paths:
 
 | | ns |
 | --- | --- |
-| block, `w?Add(i, 1)` on a method | 29 |
+| block, `w?Add(i, 1)` on a method | 18 (was 29 before the static-field sites and typed cache) |
 | block, `e?Fn(i)` with `Fn` an F# function property | 33 |
 | one site alternating between the two kinds | 70 |
 | bound `int -> int -> int`, full application | 11 |

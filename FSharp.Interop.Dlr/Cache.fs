@@ -45,20 +45,24 @@ type internal Sites<'T> private () =
     /// The last site hit, as one immutable pair (an atomic reference): a block called repeatedly
     /// pays a reference compare instead of a hash lookup; alternating blocks fall through.
     static let mutable last : SiteHit<'T> = null
-    static do lock DlrCache.onClear (fun () -> DlrCache.onClear.Add(fun () -> sites.Clear(); last <- null))
+    /// Bumped by `clear()`: a miss that was compiling across a clear does not reinstall the
+    /// pre-clear delegate, so "the next call recompiles" holds even then.
+    static let mutable generation = 0
+    static do lock DlrCache.onClear (fun () -> DlrCache.onClear.Add(fun () -> sites.Clear(); last <- null; System.Threading.Interlocked.Increment &generation |> ignore))
 
     static member Get(builder: obj, body: obj, file: string, line: int) : Func<obj, 'T> =
         let closureType = body.GetType()
         let hit = last
         if not (isNull hit) && obj.ReferenceEquals(hit.ClosureType, closureType) then hit.Func
         else
+            let started = generation
             let f =
                 match sites.TryGetValue closureType with
                 | true, f -> f
                 | _ ->
                     let compiled = DlrCache.getOrCompile (fun () -> builder.GetType()) closureType file line typeof<'T>
-                    let f = compiled.Delegate :?> Func<obj, 'T>
-                    sites.[closureType] <- f
-                    f
-            last <- SiteHit<'T>(closureType, f)
+                    compiled.Delegate :?> Func<obj, 'T>
+            if generation = started then
+                sites.[closureType] <- f
+                last <- SiteHit<'T>(closureType, f)
             f

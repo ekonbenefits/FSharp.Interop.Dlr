@@ -315,29 +315,27 @@ module internal Translate =
     /// emitted holder type per block. `LambdaExpression.Compile` hoists a reference-type constant
     /// into its closure's `Constants` array and re-reads and casts it at every use — two per site
     /// call — where a static field is one `ldsfld`, which is how the C# compiler's own sites are
-    /// stored. Where the runtime cannot emit a type, the constants stay.
+    /// stored. Each block gets its own collectible dynamic assembly: the field types mention the
+    /// block's argument types, which may live in a collectible AssemblyLoadContext (a plugin), and
+    /// a non-collectible assembly may not reference those; and collectible means the holder and
+    /// its sites go when the compiled delegate does (after `DlrCache.clear()`, say) instead of
+    /// living for the process. ~40 µs per block, next to `Compile()`. Where any of this fails —
+    /// a runtime without `TypeBuilder` — the constants stay.
     module private SiteHolders =
         open System.Reflection
         open System.Reflection.Emit
         open System.Runtime.CompilerServices
 
-        let private moduleBuilder =
-            lazy
-                (try
-                    let asm = AssemblyBuilder.DefineDynamicAssembly(AssemblyName "FSharp.Interop.Dlr.Sites", AssemblyBuilderAccess.Run)
-                    Some(asm.DefineDynamicModule "Sites")
-                 with _ -> None)
         let mutable private blocks = 0
 
         let bake (e: Expr) : Expr =
-            match moduleBuilder.Value with
-            | None -> e
-            | Some mb ->
-                let sites = SiteCache<string>.Sites e
-                if sites.IsEmpty then e
-                else
+            let sites = SiteCache<string>.Sites e
+            if sites.IsEmpty then e
+            else
+                try
                     let n = System.Threading.Interlocked.Increment &blocks
-                    let tb = mb.DefineType(sprintf "Block%d" n, TypeAttributes.Public ||| TypeAttributes.Sealed ||| TypeAttributes.Abstract ||| TypeAttributes.Class)
+                    let asm = AssemblyBuilder.DefineDynamicAssembly(AssemblyName(sprintf "FSharp.Interop.Dlr.Sites.Block%d" n), AssemblyBuilderAccess.RunAndCollect)
+                    let tb = asm.DefineDynamicModule("Sites").DefineType("Sites", TypeAttributes.Public ||| TypeAttributes.Sealed ||| TypeAttributes.Abstract ||| TypeAttributes.Class)
                     let fields = sites |> List.mapi (fun i s -> s, tb.DefineField(sprintf "site%d" i, s.GetType(), FieldAttributes.Public ||| FieldAttributes.Static))
                     let holder = tb.CreateTypeInfo().AsType()   // CreateType is not in netstandard2.0's TypeBuilder
                     let fieldOf =
@@ -355,6 +353,7 @@ module internal Translate =
                         | ShapeLambda(v, body) -> Expr.Lambda(v, replace body)
                         | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map replace args)
                     replace e
+                with _ -> e
 
     let private onWasm =
         string System.Runtime.InteropServices.RuntimeInformation.OSArchitecture = "Wasm"   // no Architecture.Wasm on netstandard2.0
