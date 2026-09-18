@@ -174,7 +174,9 @@ arrays, sets that write back, `TryConvert` to the inferred type; on wasm too) an
 callables, dicts and lists through `Dlr.item`; skipped where no Python 3.10+ is found —
 `PYTHONNET_PYDLL` names one explicitly), and Dapper's rows over an in-memory SQLite database
 (SQLite's `int64` columns, `null`, a column name with a space as a computed name, an unknown
-column answered as null by Dapper itself). `Tests/HotPath.fs` pins what a bound call allocates —
+column answered as null by Dapper itself), and ClearScript's V8 (JS objects, arrays indexed by
+number, functions as members with `this` and as values through `Dlr.call`, `undefined` vs
+`null`; a JS class needs `new` on the JS side). `Tests/HotPath.fs` pins what a bound call allocates —
 the block's closure, plus one box for a value-typed result, as C# `dynamic` — and that first use
 of a site under concurrency compiles once.
 
