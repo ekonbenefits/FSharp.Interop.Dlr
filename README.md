@@ -194,7 +194,8 @@ argument flags, the F#-aware binders, and what the translator assumes about the 
 
 ## Measured
 
-Release, net10.0, Apple Silicon, 5M-call average after warm-up:
+`Benchmarks/` is a BenchmarkDotNet project over these paths and their alternatives
+(`./bench.sh Core short` for a quick look; see its README). Release, net10.0, Apple Silicon:
 
 | | ns/call |
 | --- | --- |
@@ -204,3 +205,8 @@ Release, net10.0, Apple Silicon, 5M-call average after warm-up:
 | FSharp.Interop.Dynamic `w?Count` / `w?Add(i, 1)` | ~4 100 / ~7 800 |
 | reflection, cached `PropertyInfo.GetValue` / `MethodInfo.Invoke` | 17 / 63 |
 | static `w.Count` | 4 |
+| `dlr` computed name, alternating (`SiteCache` hit) | 88 |
+| `dlr` F# function member `w?Fn(1, 2)` / optional omitted `w?Bump(1)` | 37 / 30 |
+| `dlr` lambda written in the block for a `Func` parameter | 323 |
+| `dlr` static overloads by runtime type / `Dlr.new'` / structural `?=?` | 30 / 21 / 49 |
+| `dlr` `JObject` `j?count` (vs `j.["count"].Value<int>()` 12) | 73 |

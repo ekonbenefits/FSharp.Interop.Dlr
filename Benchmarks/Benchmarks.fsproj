@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- BenchmarkDotNet over the library's hot paths, with FSharp.Interop.Dynamic (the library
+       this replaces), cached reflection and static calls as baselines. `./bench.sh` runs it. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+    <RunAnalyzers>false</RunAnalyzers>
+    <Optimize>true</Optimize>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <TieredPGO>true</TieredPGO>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" VersionOverride="10.1.401" />
+    <PackageReference Include="BenchmarkDotNet" />
+    <PackageReference Include="FSharp.Interop.Dynamic" />
+    <PackageReference Include="Newtonsoft.Json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FSharp.Interop.Dlr\FSharp.Interop.Dlr.fsproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="Benchmarks.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+</Project>
