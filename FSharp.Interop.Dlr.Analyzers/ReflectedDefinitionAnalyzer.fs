@@ -134,14 +134,21 @@ let private analyzeOutside (typedTree: FSharpImplementationFileContents option) 
               Range = m
               Fixes = [] })
 
-/// Every `dlr.Run(...)` call in the file, from all declarations.
+/// The outermost `dlr.Run(...)` calls in an expression: a block nested in another is compiled as
+/// part of it and has no site of its own, so it does not count.
+let rec private outermostRuns (e: FSharpExpr) : range list =
+    match e with
+    | FSharpExprPatterns.Call(_, mfv, _, _, _) when isDlrRun mfv -> [ e.Range ]
+    | _ -> e.ImmediateSubExpressions |> List.collect outermostRuns
+
+/// Every outermost `dlr.Run(...)` call in the file, from all declarations.
 let rec private allRuns (decls: FSharpImplementationFileDeclaration list) : range list =
     decls
     |> List.collect (fun decl ->
         match decl with
         | FSharpImplementationFileDeclaration.Entity(_, subDecls) -> allRuns subDecls
-        | FSharpImplementationFileDeclaration.MemberOrFunctionOrValue(_, _, body) -> runCalls body
-        | FSharpImplementationFileDeclaration.InitAction expr -> runCalls expr)
+        | FSharpImplementationFileDeclaration.MemberOrFunctionOrValue(_, _, body) -> outermostRuns body
+        | FSharpImplementationFileDeclaration.InitAction expr -> outermostRuns expr)
 
 let private analyzeSharedLines (typedTree: FSharpImplementationFileContents option) : Message list =
     match typedTree with

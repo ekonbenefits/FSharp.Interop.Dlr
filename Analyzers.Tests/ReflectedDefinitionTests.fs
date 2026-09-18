@@ -167,6 +167,8 @@ module Impl =
         let a: int = dlr { return 1 }
         let b: int = dlr { return 2 }
         a + b
+    [<ReflectedDefinition>]
+    let nested () : int = dlr { return (dlr { return 1 } : int) + 1 }   // one site: not reported
 """
         |> sharedLine
     msgs.Length |> should equal 2
