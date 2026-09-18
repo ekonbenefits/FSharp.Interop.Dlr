@@ -35,6 +35,36 @@ let demo (w: obj) (root: obj) =
 Targets `netstandard2.0` and `net10.0`; needs FSharp.Core ≥ 6.0.1 (and Microsoft.CSharp on
 netstandard2.0). Experimental.
 
+## Scope
+
+`dlr { }` is C# `dynamic` for F#, and the scope follows from that in three steps:
+
+1. **Parity with C# `dynamic`.** Everything C# can write with a `dynamic` operand has a spelling
+   here — member get/set/invoke, indexers, operators, conversions, named and generic arguments,
+   `+=`/`-=`, constructors and static overloads chosen by an argument's runtime type — through
+   the same Microsoft.CSharp binders, so it binds what C# binds and fails where C# fails. C#'s
+   restrictions are ours (extension methods, explicit interface members, accessibility, no AOT).
+
+2. **F# values C#'s binder does not understand.** F# code passes things C# never produces:
+   function values (`FSharpFunc`) where C# has delegates, optional parameters compiled as
+   `FSharpOption` with no `[Optional]`, records and unions with structural equality but no
+   `op_Equality`. For those, the library adds binding rules of its own — only where C#'s binder
+   would fail or bind against F#'s expectation, never changing what C# binds correctly.
+
+3. **What F#'s spelling exposes.** The F# forms are more general than C#'s syntax in a few
+   places, and the library follows through rather than restricting them: `?` takes a string, so
+   a member name can be a variable; `Dlr.typeArgsOf` takes a list, so type arguments can be
+   run-time values; a tuple applies as several arguments, as in F#'s own method calls. Each is
+   cached per call site so it costs a lookup, not a bind.
+
+4. **Mindful of speed.** It uses the same call sites C# does, bound once, and tries to stay in
+   that neighbourhood; [docs/benchmarks.md](docs/benchmarks.md) has the numbers.
+
+Outside the scope: reaching members the binder would not (a static-member-access API, private
+members beyond the accessibility rules), reflection conveniences, and language features
+`dynamic` has no counterpart for. If something is awkward in F# but C# `dynamic` cannot do it
+either, the answer is usually a static call.
+
 ## Installing
 
 Every push to `master` publishes `FSharp.Interop.Dlr` and `FSharp.Interop.Dlr.Analyzers` to the
