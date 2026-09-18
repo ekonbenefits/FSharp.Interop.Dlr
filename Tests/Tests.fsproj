@@ -83,6 +83,7 @@
     <Compile Include="PythonNet.fs" Condition="'$(TargetFramework)' != 'net48'" />
     <Compile Include="DapperRows.fs" Condition="'$(TargetFramework)' != 'net48'" />
     <Compile Include="HotPath.fs" />
+    <Compile Include="FSharpInBlocks.fs" />
     <Compile Include="Unreflected.fs" />
   </ItemGroup>
 
