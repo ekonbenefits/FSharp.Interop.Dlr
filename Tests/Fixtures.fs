@@ -27,21 +27,6 @@ type Widget() =
     member val Touched = 0 with get, set
     member this.Touch() = this.Touched <- this.Touched + 1
     member _.Item with get (i: int) = i * 10
-    /// F# private: IL internal, reachable from this assembly's context, as the binder allows.
-    member private _.Hidden = fun (x: int) -> x - 1
-    member private _.BumpHidden(count: int, ?step: int) = count + defaultArg step 100
-    member _.Reveal(o: obj) : int = dlr { return o?Hidden(10) }
-    /// Protected: reachable from a derived type's context.
-    abstract Family: int -> int
-    default _.Family(x) = x * 2
-    member _.Overloaded(s: string, ?tag: string) = "string:" + s + defaultArg tag ""
-    member _.Overloaded(o: obj, ?tag: string) = "obj:" + string o + defaultArg tag ""
-    member _.Wide = fun (x: int64) -> x + 1L
-    member _.Five = fun (a: int) (b: int) (c: int) (d: int) (e: int) -> a + b + c + d + e
-    member _.Six = fun (a: int) (b: int) (c: int) (d: int) (e: int) (f: int) -> a * b * c * d * e * f
-    member _.SixTupled = fun (a: int, b: int, c: int, d: int, e: int, f: int) -> a + b + c + d + e + f
-    member _.Eight = fun (a: int) (b: int) (c: int) (d: int) (e: int) (f: int) (g: int) (h: int) -> a + b + c + d + e + f + g + h
-    member _.RevealOptional(o: obj) : int = dlr { return o?BumpHidden(1) }
     member _.Run(f: Func<int, int>) = f.Invoke 21
     static member Make() = Widget()
     member val Total = 10 with get, set
