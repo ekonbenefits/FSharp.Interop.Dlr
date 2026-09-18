@@ -120,3 +120,10 @@ type Dlr =
     static member not (value: obj) : 'TResult = ignore value; outside "Dlr.not"
     [<MethodImpl(MethodImplOptions.NoInlining)>]
     static member complement (value: obj) : 'TResult = ignore value; outside "Dlr.complement"
+
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+module Dlr =
+    [<Sealed; AbstractClass>]
+    type Static<'T> =
+        static member Overloads
+            with [<MethodImpl(MethodImplOptions.NoInlining)>] get () : obj = outside "Dlr.Static<T>.Overloads"

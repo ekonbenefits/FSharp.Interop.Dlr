@@ -279,3 +279,12 @@ type Callbacks() =
     member _.Six'(f: int -> int -> int -> int -> int -> int -> int) = f 1 2 3 4 5 6
     member _.Raw(d: Delegate) = d.GetType().Name                 // WinForms' Control.Invoke(Delegate) shape
     member _.Marshal(d: Delegate) = d.DynamicInvoke() |> string   // and how it uses it
+
+// A static overload set (Static<T>.Overloads): overloads picked by the runtime type of an obj argument.
+type Renderer private () =
+    static member Draw(p: Point) = "point " + string p.X
+    static member Draw(s: Shape) = "shape " + (match s with Circle r -> string r | Rect _ -> "rect")
+    static member Draw(o: obj) = "obj " + string o
+    static member val Scale = 1.0 with get, set
+    static member Parse<'T>(s: string) : 'T = System.Convert.ChangeType(s, typeof<'T>) :?> 'T
+    static member private Secret() = "secret"

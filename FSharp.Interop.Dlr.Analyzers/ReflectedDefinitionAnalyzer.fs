@@ -51,10 +51,11 @@ let private entityFullName (mfv: FSharpMemberOrFunctionOrValue) =
     | Some e -> (try e.FullName with _ -> "")
     | None -> ""
 
-/// The operators (`?`, `?<-`, `?+?`, …) and the `Dlr.*` markers.
+/// The operators (`?`, `?<-`, `?+?`, …), the `Dlr.*` markers and `Static<'T>.Overloads`.
 let private isMarker (mfv: FSharpMemberOrFunctionOrValue) =
     match entityFullName mfv with
     | "FSharp.Interop.Dlr.Operators" | "FSharp.Interop.Dlr.Dlr" -> true
+    | name when name.StartsWith "FSharp.Interop.Dlr.DlrModule." -> true   // the Dlr module's types: Dlr.Static<'T> (not DlrCache, DlrRuntime…)
     | _ -> false
 
 /// Marker uses that are not inside a `dlr.Run(...)` subtree: range and display name. Structural

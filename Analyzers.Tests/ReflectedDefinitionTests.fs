@@ -28,6 +28,14 @@ type Dlr =
     static member get (name: string) (target: obj) : 'T = failwith "marker"
     static member named (record: 'T) : Named<'T> = failwith "marker"
     static member item (indexes: 'TIndexes) (target: obj) : 'T = failwith "marker"
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+module Dlr =
+    [<Sealed; AbstractClass>]
+    type Static<'T> =
+        static member Overloads : obj = failwith "marker"
+module DlrCache =
+    let count () = 0
+    let clear () = ()
 
 namespace Demo
 open FSharp.Interop.Dlr
@@ -156,11 +164,22 @@ module Impl =
     let c : int = w ?+? (box 2)
     let d : int = w |> Dlr.get "Count"
     let e : int = w |> Dlr.item 0
+    let f : int = Dlr.Static<int>.Overloads?Parse("1")
 """
         |> outside
-    msgs.Length |> should equal 5
+    msgs.Length |> should equal 6
     msgs |> List.forall (fun m -> m.Severity = Severity.Error) |> should equal true
     msgs.[0].Message |> should haveSubstring "only meaningful inside dlr { }"
+
+[<Fact>]
+let ``other Dlr-prefixed modules are not markers`` () =
+    run """
+module Impl =
+    let n = DlrCache.count ()
+    do DlrCache.clear ()
+"""
+    |> outside
+    |> should be Empty
 
 [<Fact>]
 let ``markers inside a block, including inside a lambda in the block, are fine`` () =

@@ -1078,6 +1078,19 @@ module internal Binders =
     let dynamicArg (e: Expr) =
         { Expr = e; Type = typeof<obj>; Flags = CSharpArgumentInfoFlags.None; Name = null }
 
+    /// A type as the target (`Dlr.Static<T>.Overloads`, `Dlr.new'<T>`): argument 0 of the site is
+    /// `typeof<T>` flagged as a static type, the C# compiler's shape for `T.Member(…)`.
+    let staticTarget (t: Type) =
+        { Expr = Expr.Value(t, typeof<Type>); Type = typeof<Type>; Flags = CSharpArgumentInfoFlags.UseCompileTimeType ||| CSharpArgumentInfoFlags.IsStaticType; Name = null }
+
+    let isStatic (a: Arg) = a.Flags.HasFlag CSharpArgumentInfoFlags.IsStaticType
+
+    /// `Dlr.Static<T>.Overloads` is for calls; C#'s binder has no static form of the other operations
+    /// (GetMember, SetMember, IsEvent, indexers) and plain F# already has them: `T.P`.
+    let private callsOnly (what: string) (target: Arg) =
+        if isStatic target then
+            raise (DlrTranslationException(sprintf "dlr { } does not support %s on Dlr.Static<T>.Overloads, which is for calls only: a static property or field is `T.P` in plain F#." what))
+
     /// A statically typed argument: the binder uses the quotation's type, as C# would.
     /// An `obj`-typed expression stays dynamic so F# callers get FSharp.Interop.Dynamic-like
     /// overload resolution on boxed values.
@@ -1113,9 +1126,11 @@ module internal Binders =
         Expr.Call(target, delegateType.GetMethod("Invoke"), siteExpr :: [ for a in args -> a.Expr ])
 
     let getMember (context: Type) (name: string) (target: Arg) =
+        callsOnly "reading a member" target
         siteCall (Binder.GetMember(CSharpBinderFlags.None, name, context, [ argInfo target ])) [ target ] typeof<obj>
 
     let setMember (context: Type) (name: string) (target: Arg) (value: Arg) =
+        callsOnly "setting a member" target
         siteCall (Binder.SetMember(CSharpBinderFlags.None, name, context, [ argInfo target; argInfo value ])) [ target; value ] typeof<obj>
 
     /// A `CallSite<_>` for `binder` over `args`, as a `Value` node and its type.
@@ -1133,7 +1148,8 @@ module internal Binders =
         let typeArgSeq = match typeArgs with [] -> null | ts -> ts :> seq<Type>
         let csharp = Binder.InvokeMember(flags, name, typeArgSeq, context, [ for a in all -> argInfo a ])
         let positional = args |> List.forall (fun a -> isNull a.Name)
-        if not positional || not typeArgs.IsEmpty then csharp
+        // A static target is C#'s alone: our function-member rules look at the instance.
+        if not positional || not typeArgs.IsEmpty || isStatic (List.head all) then csharp
         else
             // Discarded results too: the site is void-returning and the DLR drops the rule's value.
             let csharpInvoke = Binder.Invoke(flags, context, [ for a in all -> argInfo a ]) :?> InvokeBinder
@@ -1149,12 +1165,12 @@ module internal Binders =
     /// runtime types. The type goes in as argument 0 of the site, flagged as a static type,
     /// exactly as the C# compiler emits it.
     let invokeConstructor (context: Type) (t: Type) (args: Arg list) =
-        let typeArg = { Expr = Expr.Value(t, typeof<Type>); Type = typeof<Type>; Flags = CSharpArgumentInfoFlags.UseCompileTimeType ||| CSharpArgumentInfoFlags.IsStaticType; Name = null }
-        let all = typeArg :: args
+        let all = staticTarget t :: args
         siteCall (Binder.InvokeConstructor(CSharpBinderFlags.None, context, [ for a in all -> argInfo a ])) all typeof<obj>
 
     /// `Dlr.call args target`, applying `target` itself when it is an F# function.
     let invokeOrApply (context: Type) (discard: bool) (target: Arg) (args: Arg list) =
+        callsOnly "Dlr.call" target
         let all = target :: args
         let csharp = Binder.Invoke((if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None), context, [ for a in all -> argInfo a ])
         let positional = args |> List.forall (fun a -> isNull a.Name)
@@ -1166,6 +1182,7 @@ module internal Binders =
     /// `x?Name` read as an F# function type (see FunctionMember): the argument types come from the
     /// function type's domains, curried or tupled; `unit -> R` reads a property or invokes.
     let functionMember (context: Type) (name: string) (functionType: Type) (target: Arg) : Expr =
+        callsOnly "reading a member as a function" target
         let rec domains (t: Type) =
             if FSharp.Reflection.FSharpType.IsFunction t then
                 let d, r = FSharp.Reflection.FSharpType.GetFunctionElements t
@@ -1214,10 +1231,12 @@ module internal Binders =
             Expr.Call(helper, [ invokeSite; convertSite; target.Expr ])
 
     let getIndex (context: Type) (target: Arg) (indexes: Arg list) =
+        callsOnly "indexing" target
         let all = target :: indexes
         siteCall (Binder.GetIndex(CSharpBinderFlags.None, context, [ for a in all -> argInfo a ])) all typeof<obj>
 
     let setIndex (context: Type) (target: Arg) (indexes: Arg list) (value: Arg) =
+        callsOnly "indexing" target
         let all = target :: indexes @ [ value ]
         siteCall (Binder.SetIndex(CSharpBinderFlags.None, context, [ for a in all -> argInfo a ])) all typeof<obj>
 
@@ -1226,6 +1245,7 @@ module internal Binders =
     /// (GetMember, AddAssign/SubtractAssign, SetMember flagged as a compound assignment).
     /// `target` and `value` must be variables, since both branches mention them.
     let compoundAssign (context: Type) (name: string) (subtract: bool) (target: Arg) (value: Arg) : Expr =
+        callsOnly "addAssign/subtractAssign" target
         let isEvent =
             siteCall (Binder.IsEvent(CSharpBinderFlags.None, name, context)) [ target ] typeof<bool>
         let accessor =
