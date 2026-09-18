@@ -57,9 +57,8 @@ netstandard2.0). Experimental.
    run-time values; a tuple applies as several arguments, as in F#'s own method calls. Each is
    cached per call site so it costs a lookup, not a bind.
 
-4. **Without giving up the speed.** A block should cost about what C# `dynamic` costs — the
-   same sites, bound once — and the additions above are only in because they keep it that way.
-   The numbers live in [docs/benchmarks.md](docs/benchmarks.md).
+4. **Mindful of speed.** It uses the same call sites C# does, bound once, and tries to stay in
+   that neighbourhood; [docs/benchmarks.md](docs/benchmarks.md) has the numbers.
 
 Outside the scope: reaching members the binder would not (a static-member-access API, private
 members beyond the accessibility rules), reflection conveniences, and language features
