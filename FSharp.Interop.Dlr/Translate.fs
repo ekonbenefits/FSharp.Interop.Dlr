@@ -204,9 +204,6 @@ module internal Translate =
         | NewTuple items -> items
         | single -> [ single ]
 
-    /// Compiles the reflected body of one `dlr { }` block. `closureType` is the compiler-generated
-    /// class of the `Delay` closure: its fields, named after the captured variables, are where
-    /// the body's free variables are read from at call time.
     /// The definition of a let-bound variable somewhere in `e` (quotation Vars are identity-based,
     /// so shadowing is not a concern).
     let rec private letDefinition (v: Var) (e: Expr) : Expr option =
@@ -310,6 +307,9 @@ module internal Translate =
     let private onWasm =
         string System.Runtime.InteropServices.RuntimeInformation.OSArchitecture = "Wasm"   // no Architecture.Wasm on netstandard2.0
 
+    /// Compiles the reflected body of one `dlr { }` block. `closureType` is the compiler-generated
+    /// class of the `Delay` closure: its fields, named after the captured variables, are where
+    /// the body's free variables are read from at call time.
     let translate (builderType: Type) (context: Type) (memberBody: Expr) (closureType: Type) (resultType: Type) (body: Expr) : Compiled =
         let convert = Binders.convert context
         let closure = Var("closure", typeof<obj>)
@@ -649,12 +649,15 @@ module internal Translate =
         let rewrite = rewriteIn Set.empty
 
         let delegateType = typedefof<Func<_, _>>.MakeGenericType(typeof<obj>, resultType)
-        let linq =
+        let compiled =
             try
                 let rewritten = asUnit (rewrite (normalize body))
                 let lambda = Expr.NewDelegate(delegateType, [ closure ], rewritten)
-                LeafExpressionConverter.QuotationToExpression lambda :?> LambdaExpression
+                (LeafExpressionConverter.QuotationToExpression lambda :?> LambdaExpression).Compile()
             with :? DlrTranslationException -> reraise ()
+               // A static member resolved here by reflection and missing is the binder's kind of
+               // error, as it would be at the call for an instance target.
+               | :? Microsoft.CSharp.RuntimeBinder.RuntimeBinderException -> reraise ()
                | ex -> raise (DlrTranslationException(sprintf "dlr { } could not compile this body: %s\n%A" ex.Message body))
-        { Delegate = linq.Compile()
+        { Delegate = compiled
           ResultType = resultType }

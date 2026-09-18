@@ -238,11 +238,8 @@ type CurryStep<'A, 'R>(collected: obj list, next: obj list -> obj) =
 
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 module CurriedInvoker =
-    /// A curried F# function of the given domain types (nested `FSharpFunc`s) whose final result,
-    /// converted, comes from invoking `site` (a `Func<CallSite, obj, args…, obj>`) with all the
-    /// arguments; `unitResult` sites are `Action`s.
-    /// A curried F# function of the given domain types whose final result is `finish` applied to
-    /// all the collected arguments.
+    /// A curried F# function of the given domain types (nested `FSharpFunc`s) whose final result
+    /// is `finish` applied to all the collected arguments.
     let buildWith (domains: Type list) (resultType: Type) (finish: obj list -> obj) : obj =
         // The function type of the step taking domains.[i]: FSharpFunc<d_i, type of the rest>.
         let rec stepType (ds: Type list) =
@@ -893,6 +890,7 @@ type FSharpInvokeMemberBinder(context: Type, name: string, csharp: InvokeMemberB
         | Some rule when not hasMethod -> rule
         | _ when allValues && OptionalArguments.hasAbstractDelegateSlot context t name args
                  && (OptionalArguments.tryCall context t name target args).IsSome ->
+            // Bound once per rule, so the second lookup is bind-time only; kept for the guard's shape.
             (OptionalArguments.tryCall context t name target args).Value
         | _ ->
             // A method of that name exists: C# binds it; our rules (a function-valued member of
@@ -1116,12 +1114,17 @@ module internal Binders =
 
     /// Emits the call-site invocation for `binder` over `args`, returning `resultType`
     /// (`Void` for a discarded result, which yields an Action-shaped site).
-    let siteCall (binder: CallSiteBinder) (args: Arg list) (resultType: Type) : Expr =
+    /// A `CallSite<_>` for `binder` over `args`, as a `Value` node (a constant in the compiled tree).
+    let private site (binder: CallSiteBinder) (args: Arg list) (resultType: Type) =
         let delegateType =
             Expression.GetDelegateType(Array.ofList (typeof<CallSite> :: [ for a in args -> a.Type ] @ [ resultType ]))
         let siteType = typedefof<CallSite<_>>.MakeGenericType delegateType
-        let site = siteType.GetMethod("Create").Invoke(null, [| box binder |])
-        let siteExpr = Expr.Value(site, siteType)
+        Expr.Value(siteType.GetMethod("Create").Invoke(null, [| box binder |]), siteType)
+
+    let siteCall (binder: CallSiteBinder) (args: Arg list) (resultType: Type) : Expr =
+        let siteExpr = site binder args resultType
+        let siteType = siteExpr.Type
+        let delegateType = siteType.GetGenericArguments().[0]
         let target = Expr.FieldGet(siteExpr, siteType.GetField("Target"))
         Expr.Call(target, delegateType.GetMethod("Invoke"), siteExpr :: [ for a in args -> a.Expr ])
 
@@ -1132,13 +1135,6 @@ module internal Binders =
     let setMember (context: Type) (name: string) (target: Arg) (value: Arg) =
         callsOnly "setting a member" target
         siteCall (Binder.SetMember(CSharpBinderFlags.None, name, context, [ argInfo target; argInfo value ])) [ target; value ] typeof<obj>
-
-    /// A `CallSite<_>` for `binder` over `args`, as a `Value` node and its type.
-    let private site (binder: CallSiteBinder) (args: Arg list) (resultType: Type) =
-        let delegateType =
-            Expression.GetDelegateType(Array.ofList (typeof<CallSite> :: [ for a in args -> a.Type ] @ [ resultType ]))
-        let siteType = typedefof<CallSite<_>>.MakeGenericType delegateType
-        Expr.Value(siteType.GetMethod("Create").Invoke(null, [| box binder |]), siteType)
 
     /// C#'s InvokeMember binder wrapped to apply F# function values (see FSharpInvokeMemberBinder)
     /// for positional, non-generic calls of any arity; otherwise C#'s binder as is.

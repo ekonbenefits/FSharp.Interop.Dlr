@@ -60,7 +60,7 @@ let ``first use of one site under concurrency compiles once and binds correctly`
     gate.Set()
     Task.WaitAll workers
     results |> should equal [| for i in 0 .. 63 -> i + 1 |]
-    DlrCache.count () - before |> should equal 1              // one block, compiled once
+    DlrCache.count () - before |> should equal 1              // one block, one entry (a racing duplicate compile is dropped)
 
 [<Fact>]
 let ``computed names under concurrency: distinct names, one site, right answers`` () =

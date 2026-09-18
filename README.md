@@ -178,7 +178,7 @@ column answered as null by Dapper itself), and ClearScript's V8 (JS objects, arr
 number, functions as members with `this` and as values through `Dlr.call`, `undefined` vs
 `null`; a JS class needs `new` on the JS side). `Tests/HotPath.fs` pins what a bound call allocates —
 the block's closure, plus one box for a value-typed result, as C# `dynamic` — and that first use
-of a site under concurrency compiles once.
+of a site under concurrency yields one cache entry and correct results on every thread.
 
 ## How it works
 

@@ -28,8 +28,13 @@ compiled.Invoke(closure)       ~25 ns: field reads + one CallSite per operation
 | `SiteCache<'Key>` | `string * Type list` — the member name and the explicit type arguments; whichever is static is a constant in the key | the operation's `CallSite[]` for that key | per site (a constant in the compiled tree); at `Capacity` (256) entries it clears and refills | `Binders.fs`, for `(?) x name` with a variable name |
 | DLR rule cache | runtime types (restrictions) | the bound rule | per `CallSite<_>` | inside each site, owned by the DLR |
 
-`DlrCache` and the reflected-definition cache are the only process-wide state. The rest is baked
-into a block's compiled delegate as constants, so it is collected with it.
+`DlrCache` and the reflected-definition cache are process-wide, as are the two conversion caches
+in `Binders.fs` (`FunctionAdapters.conversions`, `DelegateFunctions.makers`: one entry per
+(function type, delegate type) pair, bounded by the program's types) and `SiteCache.Capacity`.
+The rest is baked into a block's compiled delegate as constants, so it is collected with it.
+First use of a block goes through `ConcurrentDictionary.GetOrAdd`, whose factory may run on more
+than one thread racing to the same key: at worst a duplicate compile whose result is dropped,
+never two entries.
 
 ## Call sites
 
@@ -52,7 +57,8 @@ Argument typing, decided once per site (`Binders.Arg`):
 
 The binder context (accessibility) is the type declaring the member that contains the block —
 what C# passes as the calling class. Results come back as `obj` and go through a second,
-`Convert` site to the inferred type (skipped for `obj`; `unit` uses `ResultDiscarded` instead).
+`Convert` site to the inferred type (skipped for `obj`; a `unit` invocation uses a `ResultDiscarded`
+void site, a `unit` read or operator just drops the value).
 
 ### Sites per operation
 
