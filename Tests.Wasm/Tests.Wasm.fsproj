@@ -55,6 +55,7 @@
     <Compile Include="..\Tests\Mutables.fs" />
     <Compile Include="..\Tests\Delegates.fs" />
     <Compile Include="..\Tests\StaticOverloads.fs" />
+    <Compile Include="..\Tests\FSharpInBlocks.fs" Link="FSharpInBlocks.fs" />
     <Compile Include="..\Tests\Unreflected.fs" Link="Unreflected.fs" />
   </ItemGroup>
 
