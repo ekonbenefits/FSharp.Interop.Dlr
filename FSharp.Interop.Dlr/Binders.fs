@@ -106,6 +106,14 @@ module internal FunctionShapes =
 
     let private fits (paramType: Type) (argType: Type) = Conversions.fits paramType argType
 
+    /// A conversion for an argument that does not fit a domain by assignment or widening — an
+    /// F# function for a delegate domain, a delegate for a function domain — supplied by
+    /// `OptionalArguments` once it exists (it is defined later in this file and uses `applyCall`
+    /// itself, for the largest delegates). None until then, and None when nothing applies.
+    let mutable convertArgument : Type -> DynamicMetaObject -> Expression option = fun _ _ -> None
+
+    let private fitsArg (domain: Type) (a: DynamicMetaObject) = fits domain a.LimitType || (convertArgument domain a).IsSome
+
     /// The `FSharpFunc<_, _>` a type is or derives from: a function value's runtime type is a
     /// compiler-generated subclass (`f@12`), a member's declared type usually the base itself.
     let rec private funcBase (t: Type) : Type option =
@@ -119,8 +127,10 @@ module internal FunctionShapes =
     /// Through the LimitType first: an `obj`-typed argument is unboxed as its runtime type, then
     /// widened; converting `obj` straight to `int64` would unbox a boxed `int` as `int64` and throw.
     let private convertTo (t: Type) (a: DynamicMetaObject) =
-        let unboxed = if a.Expression.Type = a.LimitType then a.Expression else Expression.Convert(a.Expression, a.LimitType) :> Expression
-        if a.LimitType = t then unboxed else Expression.Convert(unboxed, t) :> Expression
+        if fits t a.LimitType then
+            let unboxed = if a.Expression.Type = a.LimitType then a.Expression else Expression.Convert(a.Expression, a.LimitType) :> Expression
+            if a.LimitType = t then unboxed else Expression.Convert(unboxed, t) :> Expression
+        else (convertArgument t a).Value
 
     /// A function type's parameter list and result: `(A * B) -> R` is `[A; B]` tupled, `A -> B -> R`
     /// is `[A; B]` curried (the chain followed as far as it is `FSharpFunc`), `A -> R` is `[A]`.
@@ -153,14 +163,14 @@ module internal FunctionShapes =
             let boxed (e: Expression) = Expression.Convert(e, typeof<obj>) :> Expression
             match List.ofArray args with
             | [] when domain = typeof<unit> -> Some(boxed (invoke f ft (Expression.Constant(null, typeof<unit>))))
-            | [ a ] when fits domain a.LimitType -> Some(boxed (invoke f ft (convertTo domain a)))
+            | [ a ] when fitsArg domain a -> Some(boxed (invoke f ft (convertTo domain a)))
             | [] | [ _ ] -> None
             | args ->
                 let n = args.Length
                 let tupled =
                     if FSharp.Reflection.FSharpType.IsTuple domain then
                         let es = List.ofArray (FSharp.Reflection.FSharpType.GetTupleElements domain)
-                        if es.Length = n && List.forall2 fits es (List.map (fun (a: DynamicMetaObject) -> a.LimitType) args) then
+                        if es.Length = n && List.forall2 fitsArg es args then
                             let tuple = Expression.New(domain.GetConstructor(Array.ofList es), List.map2 convertTo es args)
                             Some(boxed (invoke f ft tuple))
                         else None
@@ -172,7 +182,7 @@ module internal FunctionShapes =
                     // them in one call (no intermediate closures, as F# compiles `f a b`); past that
                     // each step's result is the next function.
                     match domains funcType with
-                    | Some(ds, false, result) when ds.Length = n && n <= 5 && List.forall2 fits ds (List.map (fun (a: DynamicMetaObject) -> a.LimitType) args) ->
+                    | Some(ds, false, result) when ds.Length = n && n <= 5 && List.forall2 fitsArg ds args ->
                         // `FSharpFunc<T, U>.InvokeFast<V, …>(func, t, u, v, …)`: the declaring type takes the
                         // first two domains, the method's own type parameters the rest and the result.
                         let declaring = typedefof<FSharpFunc<_, _>>.MakeGenericType(ds.[0], ds.[1])
@@ -188,7 +198,7 @@ module internal FunctionShapes =
                             | [] -> Some fe
                             | a :: rest ->
                                 match funcBase t with
-                                | Some ft when fits (ft.GetGenericArguments().[0]) a.LimitType ->
+                                | Some ft when fitsArg (ft.GetGenericArguments().[0]) a ->
                                     let ga = ft.GetGenericArguments()
                                     chain (invoke (Expression.Convert(fe, ft)) ft (convertTo ga.[0] a)) ga.[1] rest
                                 | _ -> None
@@ -736,13 +746,22 @@ module internal OptionalArguments =
                 ps.Length >= args.Length
                 && Array.exists2 (fun (p: ParameterInfo) (a: DynamicMetaObject) -> isAbstractDelegate p.ParameterType && (FunctionShapes.domains a.LimitType).IsSome) (Array.sub ps 0 args.Length) args))
 
-    /// Not C#'s overload resolution, but deterministic: among the methods the arguments fit, the
-    /// one with the most exactly-typed argument slots wins, then the one with the fewest omitted
-    /// parameters; a tie is ambiguous and left to C#'s error.
-    let tryCall (context: Type) (t: Type) (name: string) (target: DynamicMetaObject) (args: DynamicMetaObject[]) : DynamicMetaObject option =
+    /// The conversions above, for `FunctionShapes.applyCall`'s domains (no optional wrapping there).
+    let convertArgument (domain: Type) (a: DynamicMetaObject) : Expression option =
+        if isDelegate domain && (FunctionShapes.domains a.LimitType).IsSome then functionToDelegate domain a
+        elif isDelegate a.LimitType && (FunctionShapes.domains domain).IsSome then delegateToFunction domain a
+        else None
+
+    do FunctionShapes.convertArgument <- convertArgument
+
+    /// Not C#'s overload resolution, but deterministic: among the candidates the arguments fit,
+    /// the one with the most exactly-typed argument slots wins, then the one with the fewest
+    /// omitted parameters; a tie is ambiguous and left to C#'s error. `instance` is the receiver
+    /// for instance methods, None for static methods and constructors; `call` builds the
+    /// invocation of the chosen candidate.
+    let private tryInvoke (candidates: MethodBase[]) (call: MethodBase -> Expression list -> Expression) (target: DynamicMetaObject) (targetRestriction: BindingRestrictions) (args: DynamicMetaObject[]) : DynamicMetaObject option =
         let fitting =
-            t.GetMethods(Accessibility.all)
-            |> Array.filter (fun m -> m.Name = name && not m.IsGenericMethodDefinition && Accessibility.method' context m)
+            candidates
             |> Array.choose (fun m ->
                 let ps = m.GetParameters()
                 let required = ps |> Array.filter (fun p -> not (isOptional p)) |> Array.length
@@ -758,17 +777,52 @@ module internal OptionalArguments =
         | (_, ps1, _, e1) :: (_, ps2, _, e2) :: _ when e1 = e2 && ps1.Length = ps2.Length -> None   // ambiguous
         | (m, ps, supplied, _) :: _ ->
             let omitted = [ for i in args.Length .. ps.Length - 1 -> Expression.Constant(null, ps.[i].ParameterType) :> Expression ]
-            let call = Expression.Call(Expression.Convert(target.Expression, t), m, supplied @ omitted)
+            let invocation = call m (supplied @ omitted)
             let value =
-                if m.ReturnType = typeof<Void> then Expression.Block(call, Expression.Constant(null, typeof<obj>)) :> Expression
-                else Expression.Convert(call, typeof<obj>) :> Expression
+                if invocation.Type = typeof<Void> then Expression.Block(invocation, Expression.Constant(null, typeof<obj>)) :> Expression
+                else Expression.Convert(invocation, typeof<obj>) :> Expression
             let restrict (a: DynamicMetaObject) =
                 if isNullValue a then BindingRestrictions.GetInstanceRestriction(a.Expression, null)
                 else BindingRestrictions.GetTypeRestriction(a.Expression, a.LimitType)
-            let restrictions =
-                Array.fold (fun (r: BindingRestrictions) a -> r.Merge(restrict a)) (BindingRestrictions.GetTypeRestriction(target.Expression, t)) args
+            let restrictions = Array.fold (fun (r: BindingRestrictions) a -> r.Merge(restrict a)) targetRestriction args
+            ignore target
             Some(DynamicMetaObject(value, restrictions))
         | [] -> None
+
+    /// An instance method of `t` named `name` the arguments fit.
+    let tryCall (context: Type) (t: Type) (name: string) (target: DynamicMetaObject) (args: DynamicMetaObject[]) : DynamicMetaObject option =
+        let candidates =
+            t.GetMethods(Accessibility.all)
+            |> Array.filter (fun m -> m.Name = name && not m.IsGenericMethodDefinition && Accessibility.method' context m)
+            |> Array.map (fun m -> m :> MethodBase)
+        let self = Expression.Convert(target.Expression, t)
+        tryInvoke candidates (fun m ps -> Expression.Call(self, m :?> MethodInfo, ps) :> Expression) target (BindingRestrictions.GetTypeRestriction(target.Expression, t)) args
+
+    /// A static method of `t` named `name` the arguments fit (`Dlr.Static<T>.Overloads`).
+    let tryStaticCall (context: Type) (t: Type) (name: string) (target: DynamicMetaObject) (args: DynamicMetaObject[]) : DynamicMetaObject option =
+        let candidates =
+            t.GetMethods(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Static ||| BindingFlags.FlattenHierarchy)
+            |> Array.filter (fun m -> m.Name = name && not m.IsGenericMethodDefinition && Accessibility.method' context m)
+            |> Array.map (fun m -> m :> MethodBase)
+        tryInvoke candidates (fun m ps -> Expression.Call(m :?> MethodInfo, ps) :> Expression) target (BindingRestrictions.GetInstanceRestriction(target.Expression, target.Value)) args
+
+    /// A constructor of `t` the arguments fit (`Dlr.new'<T>`).
+    let tryConstruct (context: Type) (t: Type) (target: DynamicMetaObject) (args: DynamicMetaObject[]) : DynamicMetaObject option =
+        let candidates =
+            t.GetConstructors(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance)
+            |> Array.filter (fun c -> Accessibility.method' context c)
+            |> Array.map (fun c -> c :> MethodBase)
+        tryInvoke candidates (fun c ps -> Expression.New(c :?> ConstructorInfo, ps) :> Expression) target (BindingRestrictions.GetInstanceRestriction(target.Expression, target.Value)) args
+
+    /// A delegate target's `Invoke` the arguments fit (`Dlr.call` on a delegate, a delegate-typed
+    /// member, an Expando's delegate member): the conversions above apply to its parameters.
+    let tryInvokeDelegate (target: DynamicMetaObject) (args: DynamicMetaObject[]) : DynamicMetaObject option =
+        let dt = target.LimitType
+        if not (typeof<Delegate>.IsAssignableFrom dt) || isNull (dt.GetMethod "Invoke") then None
+        else
+            let invoke = dt.GetMethod "Invoke"
+            let self = Expression.Convert(target.Expression, dt)
+            tryInvoke [| invoke |] (fun m ps -> Expression.Call(self, m :?> MethodInfo, ps) :> Expression) target (BindingRestrictions.GetTypeRestriction(target.Expression, dt)) args
 
 /// Equality and ordering with F# semantics where C# has none: records, unions, tuples, lists,
 /// options, sets and any other type without the CLR operator get `=`/`compare` (structural,
@@ -854,7 +908,14 @@ type FSharpInvokeBinder(csharp: InvokeBinder) =
         else
             match FunctionShapes.tryApply target args with
             | Some rule -> rule
-            | None -> csharp.FallbackInvoke(target, args, errorSuggestion)
+            | None ->
+                // A delegate target: C# invokes it, and our rule for F# function / delegate /
+                // optional-parameter arguments is its error suggestion.
+                let suggestion =
+                    match OptionalArguments.tryInvokeDelegate target args with
+                    | Some rule -> rule
+                    | None -> errorSuggestion
+                csharp.FallbackInvoke(target, args, suggestion)
 
 /// C#'s InvokeMember binder, aware of F# function values: when C# cannot invoke a member because
 /// it holds an `FSharpFunc` rather than a delegate, the rule applies the function instead. The
@@ -879,7 +940,9 @@ type FSharpInvokeMemberBinder(context: Type, name: string, csharp: InvokeMemberB
             |> Option.bind (fun (mt, read) ->
                 match FunctionShapes.applyCall mt read args with
                 | Some call -> Some(DynamicMetaObject(call, restrictions))
-                | None when FunctionShapes.opaque mt ->
+                | None when FunctionShapes.opaque mt || typeof<Delegate>.IsAssignableFrom mt ->
+                    // Opaque (`obj`, an interface): decide by the value's runtime type. A delegate
+                    // member: invoke it through a site whose binder converts F# function arguments.
                     let nested = Expression.Dynamic(invoke, typeof<obj>, (read :: [ for a in args -> a.Expression ]))
                     Some(DynamicMetaObject(nested, restrictions))
                 | None -> None)
@@ -909,6 +972,48 @@ type FSharpInvokeMemberBinder(context: Type, name: string, csharp: InvokeMemberB
     /// A dynamic target (Expando, DynamicObject) produced the member's value and asks for it to be
     /// invoked: an F# function is applied, anything else is C#'s Invoke (see FSharpInvokeBinder).
     override _.FallbackInvoke(target, args, errorSuggestion) = invoke.FallbackInvoke(target, args, errorSuggestion)
+
+/// C#'s InvokeMember binder for a static target (`Dlr.Static<T>.Overloads?M(…)`): C# binds, and
+/// our rule for F# optional parameters and function/delegate arguments on the static methods of
+/// `T` is its error suggestion — the same rules an instance call gets.
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+type FSharpStaticInvokeMemberBinder(context: Type, name: string, csharp: InvokeMemberBinder) =
+    inherit InvokeMemberBinder(name, false, csharp.CallInfo)
+
+    override _.FallbackInvokeMember(target, args, errorSuggestion) =
+        let suggestion =
+            if target.HasValue && (args |> Array.forall (fun a -> a.HasValue)) then
+                match OptionalArguments.tryStaticCall context (target.Value :?> Type) name target args with
+                | Some rule -> rule
+                | None -> errorSuggestion
+            else errorSuggestion
+        csharp.FallbackInvokeMember(target, args, suggestion)
+
+    override _.FallbackInvoke(target, args, errorSuggestion) = csharp.FallbackInvoke(target, args, errorSuggestion)
+
+/// C#'s InvokeConstructor binder (`Dlr.new'<T>`) with our rule for F# optional parameters and
+/// function/delegate arguments. C#'s constructor binder takes no error suggestion — its failure
+/// is a rule that throws — so ours applies when C#'s bind is that throw, and only then.
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+type FSharpInvokeConstructorBinder(context: Type, t: Type, csharp: DynamicMetaObjectBinder) =
+    inherit DynamicMetaObjectBinder()
+
+    static let rec isThrow (e: Expression) =
+        match e.NodeType with
+        | ExpressionType.Throw -> true
+        | ExpressionType.Convert | ExpressionType.ConvertChecked -> isThrow (e :?> UnaryExpression).Operand
+        | ExpressionType.Block -> isThrow (e :?> BlockExpression).Result
+        | _ -> false
+
+    override _.ReturnType = t
+
+    override _.Bind(target, args) =
+        let csharpRule = csharp.Bind(target, args)
+        if isThrow csharpRule.Expression && target.HasValue && (args |> Array.forall (fun a -> a.HasValue)) then
+            match OptionalArguments.tryConstruct context t target args with
+            | Some rule -> DynamicMetaObject(Expression.Convert(rule.Expression, t), rule.Restrictions)
+            | None -> csharpRule
+        else csharpRule
 
 /// The value of a member read as `unit -> R`: an F# function is applied, a delegate invoked, any
 /// other value is the result itself.
@@ -1144,8 +1249,10 @@ module internal Binders =
         let typeArgSeq = match typeArgs with [] -> null | ts -> ts :> seq<Type>
         let csharp = Binder.InvokeMember(flags, name, typeArgSeq, context, [ for a in all -> argInfo a ])
         let positional = args |> List.forall (fun a -> isNull a.Name)
-        // A static target is C#'s alone: our function-member rules look at the instance.
-        if not positional || not typeArgs.IsEmpty || isStatic (List.head all) then csharp
+        if not positional || not typeArgs.IsEmpty then csharp
+        // A static target has no instance for the function-member rules, but the argument rules
+        // (optional parameters, function/delegate conversions) apply to its static methods.
+        elif isStatic (List.head all) then FSharpStaticInvokeMemberBinder(context, name, csharp :?> InvokeMemberBinder) :> CallSiteBinder
         else
             // Discarded results too: the site is void-returning and the DLR drops the rule's value.
             let csharpInvoke = Binder.Invoke(flags, context, [ for a in all -> argInfo a ]) :?> InvokeBinder
@@ -1164,7 +1271,10 @@ module internal Binders =
         let all = staticTarget t :: args
         // Result typed `t`, as the C# compiler's own site for `new T(…)` is: the binder types a
         // constructor's result as `T`, and an obj-typed site would reject that for a value type.
-        siteCall (Binder.InvokeConstructor(CSharpBinderFlags.None, context, [ for a in all -> argInfo a ])) all t
+        let csharp = Binder.InvokeConstructor(CSharpBinderFlags.None, context, [ for a in all -> argInfo a ]) :?> DynamicMetaObjectBinder
+        let positional = args |> List.forall (fun a -> isNull a.Name)
+        let binder = if positional then FSharpInvokeConstructorBinder(context, t, csharp) :> CallSiteBinder else csharp :> CallSiteBinder
+        siteCall binder all t
 
     /// `Dlr.call args target`, applying `target` itself when it is an F# function.
     let invokeOrApply (context: Type) (discard: bool) (target: Arg) (args: Arg list) =

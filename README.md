@@ -143,7 +143,9 @@ Same binder, same limits — each pinned by a test in `Tests/Restrictions.fs`:
   runs it, just not at JIT speed.
 
 Five places it goes beyond C# — the first four as binder rules for what C# would have failed
-or got wrong, so nothing C# binds correctly changes:
+or got wrong, so nothing C# binds correctly changes. The argument rules (optional parameters,
+function/delegate conversion) apply to every kind of call: instance and static methods,
+constructors, delegate-typed members and delegate values.
 
 - **A member holding an F# function value can be called** (`e?Fn(21)`, a record field
   `h?OnPair(3, 4)`, `f |> Dlr.call 21`), curried or tupled, any arity; and any member can be read

@@ -59,6 +59,7 @@
     <Compile Include="..\Tests\JsonNet.fs" Link="JsonNet.fs" />
     <Compile Include="..\Tests\HotPath.fs" Link="HotPath.fs" />
     <Compile Include="..\Tests\FSharpInBlocks.fs" Link="FSharpInBlocks.fs" />
+    <Compile Include="..\Tests\RulesEverywhere.fs" Link="RulesEverywhere.fs" />
     <Compile Include="..\Tests\Unreflected.fs" Link="Unreflected.fs" />
   </ItemGroup>
 

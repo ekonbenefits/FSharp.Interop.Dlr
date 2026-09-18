@@ -92,6 +92,7 @@
     <Compile Include="HotPath.fs" />
     <Compile Include="ClearScriptV8.fs" Condition="'$(TargetFramework)' != 'net48'" />
     <Compile Include="FSharpInBlocks.fs" />
+    <Compile Include="RulesEverywhere.fs" />
     <Compile Include="Unreflected.fs" />
   </ItemGroup>
 
