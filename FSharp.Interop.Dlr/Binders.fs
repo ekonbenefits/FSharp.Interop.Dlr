@@ -1078,18 +1078,18 @@ module internal Binders =
     let dynamicArg (e: Expr) =
         { Expr = e; Type = typeof<obj>; Flags = CSharpArgumentInfoFlags.None; Name = null }
 
-    /// A type as the target (`Static<T>.Overloads`, `Dlr.new'<T>`): argument 0 of the site is
+    /// A type as the target (`Dlr.Static<T>.Overloads`, `Dlr.new'<T>`): argument 0 of the site is
     /// `typeof<T>` flagged as a static type, the C# compiler's shape for `T.Member(…)`.
     let staticTarget (t: Type) =
         { Expr = Expr.Value(t, typeof<Type>); Type = typeof<Type>; Flags = CSharpArgumentInfoFlags.UseCompileTimeType ||| CSharpArgumentInfoFlags.IsStaticType; Name = null }
 
     let isStatic (a: Arg) = a.Flags.HasFlag CSharpArgumentInfoFlags.IsStaticType
 
-    /// `Static<T>.Overloads` is for calls; C#'s binder has no static form of the other operations
+    /// `Dlr.Static<T>.Overloads` is for calls; C#'s binder has no static form of the other operations
     /// (GetMember, SetMember, IsEvent, indexers) and plain F# already has them: `T.P`.
     let private callsOnly (what: string) (target: Arg) =
         if isStatic target then
-            raise (DlrTranslationException(sprintf "dlr { } does not support %s on Static<T>.Overloads, which is for calls only: a static property or field is `T.P` in plain F#." what))
+            raise (DlrTranslationException(sprintf "dlr { } does not support %s on Dlr.Static<T>.Overloads, which is for calls only: a static property or field is `T.P` in plain F#." what))
 
     /// A statically typed argument: the binder uses the quotation's type, as C# would.
     /// An `obj`-typed expression stays dynamic so F# callers get FSharp.Interop.Dynamic-like

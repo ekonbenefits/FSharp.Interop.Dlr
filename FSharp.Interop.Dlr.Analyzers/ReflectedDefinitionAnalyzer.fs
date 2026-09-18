@@ -55,7 +55,7 @@ let private entityFullName (mfv: FSharpMemberOrFunctionOrValue) =
 let private isMarker (mfv: FSharpMemberOrFunctionOrValue) =
     match entityFullName mfv with
     | "FSharp.Interop.Dlr.Operators" | "FSharp.Interop.Dlr.Dlr" -> true
-    | name when name.StartsWith "FSharp.Interop.Dlr.Static" -> true
+    | name when name.StartsWith "FSharp.Interop.Dlr.Dlr" -> true   // the Dlr module's types: Dlr.Static<'T>
     | _ -> false
 
 /// Marker uses that are not inside a `dlr.Run(...)` subtree: range and display name. Structural

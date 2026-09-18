@@ -9,7 +9,7 @@ open Microsoft.CSharp.RuntimeBinder
 
 [<Fact>]
 let ``a static overload is picked by the argument's runtime type`` () =
-    let draw (o: obj) : string = dlr { return Static<Renderer>.Overloads?Draw(o) }
+    let draw (o: obj) : string = dlr { return Dlr.Static<Renderer>.Overloads?Draw(o) }
     draw (box { X = 1; Y = 2 }) |> should equal "point 1"
     draw (box (Circle 3)) |> should equal "shape 3"
     draw (box 42) |> should equal "obj 42"
@@ -18,30 +18,30 @@ let ``a static overload is picked by the argument's runtime type`` () =
 [<Fact>]
 let ``typed arguments bind by their static type`` () =
     let p = { X = 7; Y = 0 }
-    (dlr { return Static<Renderer>.Overloads?Draw(p) } : string) |> should equal "point 7"
-    (dlr { return Static<Renderer>.Overloads?Draw("s") } : string) |> should equal "obj s"
+    (dlr { return Dlr.Static<Renderer>.Overloads?Draw(p) } : string) |> should equal "point 7"
+    (dlr { return Dlr.Static<Renderer>.Overloads?Draw("s") } : string) |> should equal "obj s"
 
 [<Fact>]
 let ``pipe form, computed name, type arguments`` () =
-    (dlr { return Static<Renderer>.Overloads |> Dlr.invoke "Draw" (box 1) } : string) |> should equal "obj 1"
-    let call (m: string) : string = dlr { return (?) Static<Renderer>.Overloads m (box 9) }
+    (dlr { return Dlr.Static<Renderer>.Overloads |> Dlr.invoke "Draw" (box 1) } : string) |> should equal "obj 1"
+    let call (m: string) : string = dlr { return (?) Dlr.Static<Renderer>.Overloads m (box 9) }
     call "Draw" |> should equal "obj 9"
-    (dlr { return Static<Renderer>.Overloads?Parse(Dlr.typeArgs<int>(), "42") } : int) |> should equal 42
+    (dlr { return Dlr.Static<Renderer>.Overloads?Parse(Dlr.typeArgs<int>(), "42") } : int) |> should equal 42
     let t = typeof<float>
-    (dlr { return Static<Renderer>.Overloads?Parse(Dlr.typeArgsOf [ t ], "2.5") } : float) |> should equal 2.5
+    (dlr { return Dlr.Static<Renderer>.Overloads?Parse(Dlr.typeArgsOf [ t ], "2.5") } : float) |> should equal 2.5
 
 [<Fact>]
 let ``BCL statics, and F# private statics from the same assembly`` () =
-    (dlr { return Static<Math>.Overloads?Max(box 3, box 7) } : int) |> should equal 7
-    (dlr { return Static<Math>.Overloads?Max(box 2.5, box 1.0) } : float) |> should equal 2.5
-    (dlr { return Static<String>.Overloads?Join(", ", [| "a"; "b" |]) } : string) |> should equal "a, b"
-    (dlr { return Static<Renderer>.Overloads?Secret() } : string) |> should equal "secret"   // F# private is IL internal
+    (dlr { return Dlr.Static<Math>.Overloads?Max(box 3, box 7) } : int) |> should equal 7
+    (dlr { return Dlr.Static<Math>.Overloads?Max(box 2.5, box 1.0) } : float) |> should equal 2.5
+    (dlr { return Dlr.Static<String>.Overloads?Join(", ", [| "a"; "b" |]) } : string) |> should equal "a, b"
+    (dlr { return Dlr.Static<Renderer>.Overloads?Secret() } : string) |> should equal "secret"   // F# private is IL internal
 
 [<Fact>]
 let ``a miss is the binder's error; anything but a call is a translation error`` () =
-    (fun () -> (dlr { return Static<Renderer>.Overloads?Nope() } : string) |> ignore) |> should throw typeof<RuntimeBinderException>
-    (fun () -> (dlr { return Static<Renderer>.Overloads?Scale } : float) |> ignore) |> should throw typeof<DlrTranslationException>
-    (fun () -> dlr { Static<Renderer>.Overloads?Scale <- 2.0 }) |> should throw typeof<DlrTranslationException>
-    (fun () -> dlr { Static<Renderer>.Overloads |> Dlr.addAssign "Scale" 1.0 }) |> should throw typeof<DlrTranslationException>
-    (fun () -> (dlr { return Static<Renderer>.Overloads |> Dlr.item 0 } : int) |> ignore) |> should throw typeof<DlrTranslationException>
-    (fun () -> (dlr { return Static<Renderer>.Overloads?Draw } : obj -> string) |> ignore) |> should throw typeof<DlrTranslationException>
+    (fun () -> (dlr { return Dlr.Static<Renderer>.Overloads?Nope() } : string) |> ignore) |> should throw typeof<RuntimeBinderException>
+    (fun () -> (dlr { return Dlr.Static<Renderer>.Overloads?Scale } : float) |> ignore) |> should throw typeof<DlrTranslationException>
+    (fun () -> dlr { Dlr.Static<Renderer>.Overloads?Scale <- 2.0 }) |> should throw typeof<DlrTranslationException>
+    (fun () -> dlr { Dlr.Static<Renderer>.Overloads |> Dlr.addAssign "Scale" 1.0 }) |> should throw typeof<DlrTranslationException>
+    (fun () -> (dlr { return Dlr.Static<Renderer>.Overloads |> Dlr.item 0 } : int) |> ignore) |> should throw typeof<DlrTranslationException>
+    (fun () -> (dlr { return Dlr.Static<Renderer>.Overloads?Draw } : obj -> string) |> ignore) |> should throw typeof<DlrTranslationException>

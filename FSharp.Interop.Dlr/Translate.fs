@@ -115,7 +115,7 @@ module internal Translate =
     /// `Static<T>.Overloads` as a target: the type.
     let private (|StaticTarget|_|) (e: Expr) =
         match e with
-        | PropertyGet(None, pi, []) when pi.Name = "Overloads" && pi.DeclaringType.IsGenericType && pi.DeclaringType.GetGenericTypeDefinition() = typedefof<Static<_>> ->
+        | PropertyGet(None, pi, []) when pi.Name = "Overloads" && pi.DeclaringType.IsGenericType && pi.DeclaringType.GetGenericTypeDefinition() = typedefof<Dlr.Static<_>> ->
             Some(pi.DeclaringType.GetGenericArguments().[0])
         | _ -> None
 

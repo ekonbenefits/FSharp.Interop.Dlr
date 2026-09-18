@@ -10,10 +10,6 @@ type Named<'T> =
 type TypeArgs =
     class end
 
-/// <summary>The static overload set of <c>'T</c> as a call target, C#'s <c>T.Method(dynamicArg)</c>: <c>Static&lt;Renderer&gt;.Overloads?Draw(shape)</c> picks the overload by <c>shape</c>'s runtime type (multiple dispatch); also <c>|&gt; Dlr.invoke</c>, computed names and <c>Dlr.typeArgs</c>. For calls only — a static property is <c>T.P</c> in plain F#. Only meaningful inside <c>dlr { }</c>.</summary>
-[<Sealed; AbstractClass>]
-type Static<'T> =
-    static member Overloads: obj
 
 /// <summary>
 /// Operators recognised inside <c>dlr { }</c>. They are never executed: the builder inspects the
@@ -119,3 +115,11 @@ type Dlr =
     static member not: value: obj -> 'TResult
     /// <summary>Dynamic bitwise complement.</summary>
     static member complement: value: obj -> 'TResult
+
+/// <summary>Types under the <c>Dlr</c> name (a module beside the <c>Dlr</c> class).</summary>
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+module Dlr =
+    /// <summary>The static overload set of <c>'T</c> as a call target, C#'s <c>T.Method(dynamicArg)</c>: <c>Dlr.Static&lt;Renderer&gt;.Overloads?Draw(shape)</c> picks the overload by <c>shape</c>'s runtime type (multiple dispatch); also <c>|&gt; Dlr.invoke</c>, computed names and <c>Dlr.typeArgs</c>. For calls only — a static property is <c>T.P</c> in plain F#. Only meaningful inside <c>dlr { }</c>.</summary>
+    [<Sealed; AbstractClass>]
+    type Static<'T> =
+        static member Overloads: obj

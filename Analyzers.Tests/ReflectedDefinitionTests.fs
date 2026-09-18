@@ -24,13 +24,15 @@ module Operators =
     let ( ?+? ) (left: obj) (right: obj) : 'T = failwith "marker"
 type Named<'T> private () = class end
 [<Sealed; AbstractClass>]
-type Static<'T> =
-    static member Overloads : obj = failwith "marker"
-[<Sealed; AbstractClass>]
 type Dlr =
     static member get (name: string) (target: obj) : 'T = failwith "marker"
     static member named (record: 'T) : Named<'T> = failwith "marker"
     static member item (indexes: 'TIndexes) (target: obj) : 'T = failwith "marker"
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+module Dlr =
+    [<Sealed; AbstractClass>]
+    type Static<'T> =
+        static member Overloads : obj = failwith "marker"
 
 namespace Demo
 open FSharp.Interop.Dlr
@@ -159,7 +161,7 @@ module Impl =
     let c : int = w ?+? (box 2)
     let d : int = w |> Dlr.get "Count"
     let e : int = w |> Dlr.item 0
-    let f : int = Static<int>.Overloads?Parse("1")
+    let f : int = Dlr.Static<int>.Overloads?Parse("1")
 """
         |> outside
     msgs.Length |> should equal 6
