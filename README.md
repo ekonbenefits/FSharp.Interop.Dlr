@@ -167,7 +167,11 @@ real-world dynamic providers: Newtonsoft.Json's `JObject` (`json?owner?name`, `D
 arrays, sets that write back, `TryConvert` to the inferred type; on wasm too) and Python.NET
 (`m?greet("jay", Dlr.named {| greeting = "hi" |})`, Python classes and attributes, `Dlr.call` on
 callables, dicts and lists through `Dlr.item`; skipped where no Python 3.10+ is found —
-`PYTHONNET_PYDLL` names one explicitly).
+`PYTHONNET_PYDLL` names one explicitly), and Dapper's rows over an in-memory SQLite database
+(SQLite's `int64` columns, `null`, a column name with a space as a computed name, an unknown
+column answered as null by Dapper itself). `Tests/HotPath.fs` pins what a bound call allocates —
+the block's closure, plus one box for a value-typed result, as C# `dynamic` — and that first use
+of a site under concurrency compiles once.
 
 ## How it works
 
