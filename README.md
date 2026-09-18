@@ -72,6 +72,11 @@ tool and `RunAnalyzers=true` in the project (see its README — builds for .NET 
 
 One `dlr { }` per source line. Blocks in generic functions and members work (one site per
 instantiation); so do nested blocks, blocks inside `task { }` / `async { }`, and F# Interactive.
+Inside a block, ordinary F# is ordinary: `sprintf` and `$"…"`, `match` (literals, type tests),
+records, unions, options, tuples, lists and arrays built from dynamic results, comprehensions
+and `seq { }`, `List.map` with a lambda, `failwith`/`raise` (propagating as themselves, or
+caught by the block's `try`), even an `async { }` or `task { }` — `Tests/FSharpInBlocks.fs`
+pins each.
 
 ## Syntax
 

@@ -73,6 +73,7 @@
     <Compile Include="Mutables.fs" />
     <Compile Include="Delegates.fs" />
     <Compile Include="StaticOverloads.fs" />
+    <Compile Include="FSharpInBlocks.fs" />
     <Compile Include="Unreflected.fs" />
   </ItemGroup>
 
