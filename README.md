@@ -57,6 +57,14 @@ netstandard2.0). Experimental.
    run-time values; a tuple applies as several arguments, as in F#'s own method calls. Each is
    cached per call site so it costs a lookup, not a bind.
 
+4. **At C# `dynamic`'s cost.** The point of the design — a call site per operation, bound once,
+   rules cached by the DLR — is that a block costs what the C# compiler's own sites cost, plus
+   the block's entry, not a reflection call or a per-call cache walk. Every feature has to keep
+   the hot path that way: the additions above bind through the same sites, and a variable name or
+   type list costs one dictionary lookup after its first use. The numbers are measured, kept
+   next to C#'s and the alternatives' in [docs/benchmarks.md](docs/benchmarks.md), and a change
+   that moves them is a change to discuss.
+
 Outside the scope: reaching members the binder would not (a static-member-access API, private
 members beyond the accessibility rules), reflection conveniences, and language features
 `dynamic` has no counterpart for. If something is awkward in F# but C# `dynamic` cannot do it
