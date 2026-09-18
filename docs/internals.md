@@ -32,17 +32,14 @@ compiled.Invoke(closure)       ~18 ns: field reads + one CallSite per operation
 `DlrCache` and the reflected-definition cache are process-wide, as are the two conversion caches
 in `Binders.fs` (`FunctionAdapters.conversions`, `DelegateFunctions.makers`: one entry per
 (function type, delegate type) pair, bounded by the program's types) and `SiteCache.Capacity`.
-The rest is baked into a block's compiled delegate, so it is collected with it — the call sites
-not as `Expression.Constant`s but as static fields of a holder type emitted per block into its
-own *collectible* dynamic assembly (`SiteHolders` in `Translate.fs`): `LambdaExpression.Compile`
-hoists a reference-type constant into the closure's `Constants` array and re-reads and casts it
-at each use, two per site call, where a static field is one `ldsfld` — the C# compiler's own
-shape. Collectible because the field types mention the block's argument types, which may come
-from a collectible `AssemblyLoadContext`, and so that the holder and its sites can be collected
-with the delegate (after `DlrCache.clear()`, for instance) rather than living for the process —
-verified in a standalone process (a `WeakReference` to the holder and its site both die on the
-first GC after `clear()`); inside the parallel test host something not yet identified keeps them
-alive, so that is not pinned by a test. Where emitting fails the constants stay. Measured, a member call went from ~30 ns to ~18 against C#
+The rest is baked into a block's compiled delegate, so it is collected with it. The call sites
+are `Expression.Constant`s, but hoisted: `LambdaExpression.Compile` keeps a reference-type
+constant in the closure's `Constants` array and re-reads and casts it at each use, two per site
+call, so the translator binds each site to a local at the delegate's entry (`SiteHoisting` in
+`Translate.fs`) and a use is a local read — within a nanosecond of the C# compiler's static
+fields, with nothing emitted. Measured, a member call went from ~30 ns to ~18 against C#
+`dynamic`'s ~7.5; what remains is the block's entry: the `Delay` closure F# allocates (3 ns),
+`GetType()` on it (3), the lookup and the delegate invoke. Measured, a member call went from ~30 ns to ~18 against C#
 `dynamic`'s ~7.5; what remains is the block's entry: the `Delay` closure F# allocates (3 ns),
 `GetType()` on it (3), the lookup and the delegate invoke.
 First use of a block goes through `ConcurrentDictionary.GetOrAdd`, whose factory may run on more
