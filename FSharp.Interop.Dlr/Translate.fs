@@ -259,22 +259,35 @@ module internal Translate =
 
     /// `x |> f` in a reflected body is `op_PipeRight(x, let name = "A" in fun target -> …)`, and a
     /// curried marker applied to its arguments is `Application(Lambda(name, Lambda(target, …)), …)`.
-    /// Apply such functions to their arguments (a parameter used at most once is substituted;
-    /// otherwise it is let-bound, so nothing is evaluated twice) and inline `let`s of literals and
-    /// variables, so `w |> Dlr.get "A"` becomes the plain `Dlr.get "A" w` call the member-op
-    /// patterns recognise, with the name a literal and a tuple argument still a tuple.
+    /// Apply such functions to their arguments and inline `let`s of literals and variables, so
+    /// `w |> Dlr.get "A"` becomes the plain `Dlr.get "A" w` call the member-op patterns recognise,
+    /// with the name a literal and a tuple argument still a tuple. An argument is substituted for
+    /// its parameter only when that cannot change what runs: it is a variable or a literal, or it
+    /// is used exactly once and not under a lambda (where it would run per invocation). Otherwise
+    /// it is let-bound, so it is evaluated once — including when the parameter is never used.
     let rec private normalize (e: Expr) : Expr =
+        /// Occurrences of `v`, with any occurrence under a lambda counted as many.
         let rec occurrences (v: Var) (e: Expr) =
             match e with
             | Var v' when v' = v -> 1
             | ShapeVar _ -> 0
-            | ShapeLambda(_, body) -> occurrences v body
+            | ShapeLambda(_, body) -> occurrences v body * 2
             | ShapeCombination(_, args) -> args |> List.sumBy (occurrences v)
+        /// The same, but lambdas on the spine of a curried function (`fun a -> fun b -> …`, each
+        /// applied exactly once by the next argument) do not count as "under a lambda".
+        let rec spineOccurrences (v: Var) (e: Expr) =
+            match e with
+            | Lambda(_, body) -> spineOccurrences v body
+            | _ -> occurrences v e
+        let pure' (x: Expr) = match x with Var v -> not v.IsMutable | Value _ -> true | _ -> false
         let rec apply (f: Expr) (x: Expr) : Expr =
             match f with
             | Let(v, value, body) -> Expr.Let(v, value, apply body x)
             | Lambda(p, body) ->
-                if occurrences p body <= 1 then body.Substitute(fun v -> if v = p then Some x else None)
+                if pure' x || spineOccurrences p body = 1 then body.Substitute(fun v -> if v = p then Some x else None)
+                // A `unit` argument may compile to a void site call, which cannot be let-bound:
+                // run it, then the body with `()` for the parameter.
+                elif x.Type = typeof<unit> then Expr.Sequential(x, body.Substitute(fun v -> if v = p then Some(Expr.Value(())) else None))
                 else Expr.Let(p, x, body)
             | _ -> Expr.Application(f, x)
         let applied (f: Expr) (x: Expr) =
@@ -285,7 +298,9 @@ module internal Translate =
         | Op pipeRight [ x; f ] -> applied f x
         | Op pipeLeft [ f; x ] -> applied f x
         | Application(f, x) -> applied f x
-        | Let(v, (Value _ | Var _ as value), body) when not v.IsMutable -> normalize (body.Substitute(fun v' -> if v' = v then Some value else None))
+        // A `let` of a literal or an immutable variable is inlined; a snapshot of a mutable
+        // (`let y = n` with `n` mutable) is not, since `n` may change before `y` is used.
+        | Let(v, (Value _ | Var _ as value), body) when not v.IsMutable && pure' value -> normalize (body.Substitute(fun v' -> if v' = v then Some value else None))
         // The eta-expanded statement form `let clo = x?Foo in clo ()` once its lambda is applied.
         | Let(v, value, Application(Var v', arg)) when v = v' -> applied value arg
         | ShapeVar _ -> e
@@ -431,8 +446,10 @@ module internal Translate =
                     computedName bound nameExpr target [ value ] typeof<unit> (fun name targetArg args ->
                         Binders.setMember context name targetArg (List.head args))
             | New(t, argExprs) ->
+                // The site is typed `T` itself (the binder types a constructor's result as `T`,
+                // which an obj-typed site rejects for a struct), so no Convert.
                 let bindings, args = argList bound argExprs
-                Binders.invokeConstructor context t args |> convert e.Type |> bind bound bindings
+                Binders.invokeConstructor context t args |> bind bound bindings
             | Op opCall [ argExpr; Unboxed target ] ->
                 let discard = e.Type = typeof<unit>
                 let bindings, args = argList bound (splitArgs argExpr)

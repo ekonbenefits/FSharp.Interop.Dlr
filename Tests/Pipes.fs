@@ -75,3 +75,18 @@ let ``call the object itself through a pipe, with unit and named args`` () =
     let r = Recorder()
     let o = box r
     (dlr { return (o |> Dlr.get "Self") |> Dlr.call (1, Dlr.named {| second = 2 |}) } : string) |> should equal "1|2"
+
+[<Fact>]
+let ``a piped call is evaluated once, even under a lambda or when unused`` () =
+    let w = Widget()
+    let o = box w
+    // Once, then the value is used per iteration: not the call per iteration.
+    let seen: int list = dlr { return (o?Bump(w.Touched, 1) : int) |> fun t -> List.map (fun i -> t + i) [ 0; 0; 0 ] }
+    seen |> should equal [ 1; 1; 1 ]
+    // Once, even when the parameter is never used: the side effect still happens.
+    let five: int = dlr { return (o?Touch() : unit) |> fun () -> 5 }
+    five |> should equal 5
+    w.Touched |> should equal 1
+    let five2: int = dlr { return (o?Touch() : unit) |> fun _ -> 5 }
+    five2 |> should equal 5
+    w.Touched |> should equal 2
