@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\FSharp.Interop.Dlr\FSharp.Interop.Dlr.fsproj" />
+    <ProjectReference Include="CSharp\Benchmarks.CSharp.csproj" />
   </ItemGroup>
 
   <ItemGroup>

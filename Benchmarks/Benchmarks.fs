@@ -8,6 +8,7 @@ open System.Reflection
 open BenchmarkDotNet.Attributes
 open FSharp.Interop.Dlr
 open Newtonsoft.Json.Linq
+open FSharp.Interop.Dlr.Benchmarks.CSharp
 
 type Widget() =
     member val Count = 3 with get, set
@@ -27,6 +28,7 @@ type Core() =
     let w = Widget()
     let o = box w
     let items = [ 1 .. 100 ]
+    let itemList = Collections.Generic.List<int>(items)
     let countProperty = typeof<Widget>.GetProperty("Count")
     let addMethod = typeof<Widget>.GetMethod("Add")
     let names = [| "Count"; "Name" |]
@@ -51,6 +53,30 @@ type Core() =
 
     [<Benchmark(Description = "FSharp.Interop.Dynamic w?Add(i, 1)")>]
     member _.DynamicCall() = i <- i + 1; (FSharp.Interop.Dynamic.TopLevelOperators.op_Dynamic o "Add" (i, 1) : int)
+
+    // --- C# dynamic (same binders, the C# compiler's own sites) --------------------------
+    [<Benchmark(Description = "C# dynamic d.Count")>]
+    member _.CSharpGet() = CSharpDynamic.Get o
+
+    [<Benchmark(Description = "C# dynamic d.Add(i, 1)")>]
+    member _.CSharpCall() = i <- i + 1; CSharpDynamic.Call(o, i)
+
+    [<Benchmark(Description = "C# dynamic d.Name = v")>]
+    member _.CSharpSet() = CSharpDynamic.Set o
+
+    [<Benchmark(Description = "C# dynamic foreach over 100 items")>]
+    member _.CSharpLoop() = CSharpDynamic.Loop(o, itemList)
+
+    [<Benchmark(Description = "C# dynamic d.Run(new Func<int,int>(x => x + 1))")>]
+    member _.CSharpRunFunc() = CSharpDynamic.RunFunc o
+
+    [<Benchmark(Description = "C# dynamic Widget.Draw((dynamic)o)")>]
+    member _.CSharpStaticOverloads() = CSharpDynamic.StaticOverloads o
+
+    [<Benchmark(Description = "C# dynamic record == record")>]
+    member _.CSharpEquals() =
+        let a, b = box { X = 1; Y = 2 }, box { X = 1; Y = 2 }
+        CSharpDynamic.AreEqual(a, b)   // reference equality: false, and wrong — the structural rule's reason
 
     // --- dlr { } -------------------------------------------------------------------------
     [<Benchmark(Description = "dlr w?Count")>]
@@ -105,6 +131,15 @@ type Targets() =
 
     [<Benchmark(Baseline = true, Description = "JObject j.[\"count\"].Value<int>()")>]
     member _.JObjectStatic() = jobject.["count"].Value<int>()
+
+    [<Benchmark(Description = "C# dynamic j.count")>]
+    member _.CSharpJObjectGet() = CSharpDynamic.JObjectGet json
+
+    [<Benchmark(Description = "C# dynamic j.owner.name")>]
+    member _.CSharpJObjectChain() = CSharpDynamic.JObjectChain json
+
+    [<Benchmark(Description = "C# dynamic e.count")>]
+    member _.CSharpExpandoGet() = CSharpDynamic.ExpandoGet expando
 
     [<Benchmark(Description = "dlr JObject j?count")>]
     member _.JObjectGet() : int = dlr { return json?count }

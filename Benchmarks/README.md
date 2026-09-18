@@ -14,7 +14,11 @@ row is the per-call cost of the compiled block, its sites' cached rules and the 
 `MemoryDiagnoser` shows the per-call allocation (the block's closure, plus a box for a value
 result — see `Tests/HotPath.fs`).
 
-Suites: `Core` — baselines (static, cached reflection, FSharp.Interop.Dynamic) against `dlr`
+`Benchmarks/CSharp` holds the C# `dynamic` equivalents (`dynamic d = o; d.Count`, …) as static
+methods the F# suites call, so they appear in the same tables: the same binders and site rules,
+minus the block's fixed cost (closure, cache lookup, delegate invoke), which is the gap to close.
+
+Suites: `Core` — baselines (static, cached reflection, FSharp.Interop.Dynamic, C# `dynamic`) against `dlr`
 get/call/set, a loop, a computed name, an F# function member, an omitted optional parameter, a
 lambda for a `Func` parameter, static overloads, a constructor, structural `?=?`. `Targets` —
 `JObject` and `ExpandoObject` reads against `JObject`'s own typed access.

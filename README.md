@@ -204,6 +204,7 @@ argument flags, the F#-aware binders, and what the translator assumes about the 
 | `dlr { for x in items do … w?Add(x, i) … }`, 100 items | 1 690 per block, ≈17 per iteration |
 | FSharp.Interop.Dynamic `w?Count` / `w?Add(i, 1)` | ~4 100 / ~7 800 |
 | reflection, cached `PropertyInfo.GetValue` / `MethodInfo.Invoke` | 17 / 63 |
+| C# `dynamic` `d.Count` / `d.Add(i, 1)` / `d.Name = v` (same binders; the compiler's sites are static fields) | 7 / 7.5 / 3.6 |
 | static `w.Count` | 4 |
 | `dlr` computed name, alternating (`SiteCache` hit) | 88 |
 | `dlr` F# function member `w?Fn(1, 2)` / optional omitted `w?Bump(1)` | 37 / 30 |
