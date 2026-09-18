@@ -77,7 +77,7 @@ let private writeDocs (short: bool) =
                    [ "property get `w.Count`", [ "StaticGet"; "ReflectionGet"; "DynamicGet"; "CSharpGet"; "Get" ]
                      "method call `w.Add(i, 1)`", [ "StaticCall"; "ReflectionCall"; "DynamicCall"; "CSharpCall"; "Call" ]
                      "property set `w.Name <- v`", [ ""; ""; "DynamicSet"; "CSharpSet"; "Set" ]
-                     "100 method calls in a loop", [ ""; ""; "DynamicLoop"; "CSharpLoop"; "Loop" ] ]
+                     "100 method calls in one loop — the whole loop, so ÷100 per call", [ ""; ""; "DynamicLoop"; "CSharpLoop"; "Loop" ] ]
           yield! comparison r "Operators, indexers, delegates, conversions" "" [ "FSharp.Interop.Dynamic"; "C# `dynamic`"; "`dlr { }`" ]
                    [ "`a + b` on boxed ints", [ "DynamicAdd"; "CSharpAdd"; "Add" ]
                      "indexer `d[\"a\"]` on a dictionary", [ "DynamicIndex"; "CSharpIndex"; "Index" ]

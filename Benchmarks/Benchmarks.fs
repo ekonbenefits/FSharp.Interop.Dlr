@@ -60,7 +60,7 @@ type Core() =
     [<Benchmark(Description = "FSharp.Interop.Dynamic w?Name <- v")>]
     member _.DynamicSet() = FSharp.Interop.Dynamic.TopLevelOperators.op_DynamicAssignment o "Name" "n"
 
-    [<Benchmark(Description = "FSharp.Interop.Dynamic loop over 100 items")>]
+    [<Benchmark(Description = "FSharp.Interop.Dynamic loop of 100 calls (whole loop)")>]
     member _.DynamicLoop() =
         let mutable s = 0
         for x in items do s <- s + (FSharp.Interop.Dynamic.TopLevelOperators.op_Dynamic o "Add" (x, 1) : int)
@@ -91,7 +91,7 @@ type Core() =
     [<Benchmark(Description = "C# dynamic d.Name = v")>]
     member _.CSharpSet() = CSharpDynamic.Set o
 
-    [<Benchmark(Description = "C# dynamic foreach over 100 items")>]
+    [<Benchmark(Description = "C# dynamic loop of 100 calls (whole loop)")>]
     member _.CSharpLoop() = CSharpDynamic.Loop(o, itemList)
 
     [<Benchmark(Description = "C# dynamic d.Run(new Func<int,int>(x => x + 1))")>]
@@ -127,7 +127,7 @@ type Core() =
     [<Benchmark(Description = "dlr w?Name <- v")>]
     member _.Set() = dlr { o?Name <- "n" }
 
-    [<Benchmark(Description = "dlr for over 100 items, one site")>]
+    [<Benchmark(Description = "dlr loop of 100 calls, one site (whole loop; ≈16 ns per call)")>]
     member _.Loop() : int =
         dlr {
             let mutable s = 0

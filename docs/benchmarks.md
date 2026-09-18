@@ -17,21 +17,21 @@ Apple M1 Pro, 1 CPU, 10 logical and 10 physical cores
 
 | | static | reflection (cached) | FSharp.Interop.Dynamic | C# `dynamic` | `dlr { }` |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| property get `w.Count` | 0 ns | 13.2 ns / 24 B | 4,022 ns / 1552 B | 7 ns / 24 B | 28.9 ns / 48 B |
-| method call `w.Add(i, 1)` | 1.2 ns | 36.2 ns / 112 B | 7,631 ns / 3809 B | 7.7 ns / 24 B | 30.3 ns / 48 B |
-| property set `w.Name <- v` | — | — | 76.7 ns / 168 B | 3.6 ns | 23.1 ns / 24 B |
-| 100 method calls in a loop | — | — | 760,327 ns / 380852 B | 797.6 ns / 2400 B | 1,614 ns / 2632 B |
+| property get `w.Count` | 0 ns | 13.1 ns / 24 B | 3,960 ns / 1552 B | 7.1 ns / 24 B | 29.2 ns / 48 B |
+| method call `w.Add(i, 1)` | 1.2 ns | 36.2 ns / 112 B | 7,591 ns / 3809 B | 7.8 ns / 24 B | 30.6 ns / 48 B |
+| property set `w.Name <- v` | — | — | 75.7 ns / 168 B | 3.6 ns | 22.9 ns / 24 B |
+| 100 method calls in one loop — the whole loop, so ÷100 per call | — | — | 749,972 ns / 380852 B | 797.3 ns / 2400 B | 1,625 ns / 2632 B |
 
 ### Operators, indexers, delegates, conversions
 
 | | FSharp.Interop.Dynamic | C# `dynamic` | `dlr { }` |
 | --- | ---: | ---: | ---: |
-| `a + b` on boxed ints | 6.9 ns / 24 B | 7.9 ns / 24 B | 29.9 ns / 48 B |
-| indexer `d["a"]` on a dictionary | 4,089 ns / 1992 B | 13 ns / 24 B | 38.3 ns / 48 B |
-| invoke a delegate value with 20 | 7,136 ns / 3440 B | 7.7 ns / 24 B | 31.2 ns / 48 B |
-| implicit conversion of a boxed int to int64 | 342.8 ns / 432 B | 3.2 ns | 21.1 ns / 24 B |
-| static method chosen by an argument's runtime type | 7,172 ns / 3488 B | 7.1 ns / 24 B | 29.4 ns / 48 B |
-| a lambda for a `Func` parameter (C#: a `Func` literal; dlr: an F# lambda in the block) | — | 9.2 ns / 24 B | 320.8 ns / 224 B |
+| `a + b` on boxed ints | 6.9 ns / 24 B | 8 ns / 24 B | 30.5 ns / 48 B |
+| indexer `d["a"]` on a dictionary | 4,125 ns / 1992 B | 13.3 ns / 24 B | 37.7 ns / 48 B |
+| invoke a delegate value with 20 | 7,274 ns / 3440 B | 7.8 ns / 24 B | 30.8 ns / 48 B |
+| implicit conversion of a boxed int to int64 | 347.1 ns / 432 B | 3.2 ns | 21.3 ns / 24 B |
+| static method chosen by an argument's runtime type | 7,255 ns / 3488 B | 7.2 ns / 24 B | 29.8 ns / 48 B |
+| a lambda for a `Func` parameter (C#: a `Func` literal; dlr: an F# lambda in the block) | — | 9.2 ns / 24 B | 323.9 ns / 224 B |
 
 ### Where the forms differ
 
@@ -39,11 +39,11 @@ Each column does what its language offers here: C# `dynamic` has no spelling for
 
 | | C# `dynamic` | `dlr { }` |
 | --- | ---: | ---: |
-| F# function member `w?Fn(1, 2)` | — | 36.6 ns / 72 B |
-| optional parameter omitted `w?Bump(1)` | — | 29.6 ns / 48 B |
-| record `==` (C#: reference; dlr: structural) | 14.3 ns / 72 B | 50.2 ns / 104 B |
-| constructor chosen by an argument's runtime type | — | 21.1 ns / 32 B |
-| member name from a variable, alternating between two | — | 87.1 ns / 76 B |
+| F# function member `w?Fn(1, 2)` | — | 37.2 ns / 72 B |
+| optional parameter omitted `w?Bump(1)` | — | 29.7 ns / 48 B |
+| record `==` (C#: reference; dlr: structural) | 14.6 ns / 72 B | 50.6 ns / 104 B |
+| constructor chosen by an argument's runtime type | — | 21.2 ns / 32 B |
+| member name from a variable, alternating between two | — | 90.2 ns / 76 B |
 
 ## Real targets
 
@@ -51,9 +51,9 @@ Each column does what its language offers here: C# `dynamic` has no spelling for
 
 | | typed API | FSharp.Interop.Dynamic | C# `dynamic` | `dlr { }` |
 | --- | ---: | ---: | ---: | ---: |
-| `JObject` `j.count` | 12.4 ns | — | 42.6 ns / 24 B | 73.3 ns / 48 B |
-| `JObject` `j.owner.name` | — | — | 46.6 ns | 79.7 ns / 24 B |
-| `ExpandoObject` `e.count` | — | 4,023 ns / 1528 B | 5.8 ns | 27.5 ns / 24 B |
+| `JObject` `j.count` | 12.4 ns | — | 44.7 ns / 24 B | 73 ns / 48 B |
+| `JObject` `j.owner.name` | — | — | 46.8 ns | 79.4 ns / 24 B |
+| `ExpandoObject` `e.count` | — | 3,979 ns / 1528 B | 5.8 ns | 27.7 ns / 24 B |
 
 Allocation per call is the block's closure (24 B) plus a box for a value-typed result — the same
 box C# `dynamic` pays — see `Tests/HotPath.fs`. `Benchmarks/README.md` explains the suites.

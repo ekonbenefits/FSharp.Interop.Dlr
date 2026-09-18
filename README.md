@@ -203,9 +203,9 @@ regenerates this table and the full [docs/benchmarks.md](docs/benchmarks.md) (ev
 | --- | ---: |
 | static w.Add(i, 1) | 1.2 |
 | reflection: cached MethodInfo.Invoke | 36.2 |
-| FSharp.Interop.Dynamic w?Add(i, 1) | 7,631 |
-| C# dynamic d.Add(i, 1) | 7.7 |
-| dlr w?Add(i, 1) | 30.3 |
-| dlr w?Count | 28.9 |
-| dlr for over 100 items, one site | 1,614 |
+| FSharp.Interop.Dynamic w?Add(i, 1) | 7,591 |
+| C# dynamic d.Add(i, 1) | 7.8 |
+| dlr w?Add(i, 1) | 30.6 |
+| dlr w?Count | 29.2 |
+| dlr loop of 100 calls, one site (whole loop; ≈16 ns per call) | 1,625 |
 <!-- benchmarks:end -->
