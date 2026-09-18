@@ -120,8 +120,6 @@ Same binder, same limits — each pinned by a test in `Tests/Restrictions.fs`:
   call it there.
 - **Accessibility is the calling type's**: `private` binds only inside the declaring type,
   `internal` anywhere in the assembly. F# `private` compiles to IL `internal`.
-- **Lambdas passed as arguments need a delegate type** (`Func<int, int>(fun x -> …)`); an F#
-  function value is an `FSharpFunc`, not a `Func`.
 - **No compile-time checking**: a misspelt member or wrong arity is a `RuntimeBinderException`
   at the call.
 - **Target and result are `obj`**, so value types box there; arguments do not. `byref` and
@@ -136,13 +134,17 @@ Same binder, same limits — each pinned by a test in `Tests/Restrictions.fs`:
   `IsAotCompatible=false` / `IsTrimmable=false`. Interpreted (non-AOT) browser-wasm works, and CI
   runs it, just not at JIT speed.
 
-Four places it goes beyond C# — the first three as binder rules for what C# would have failed
+Five places it goes beyond C# — the first four as binder rules for what C# would have failed
 or got wrong, so nothing C# binds correctly changes:
 
 - **A member holding an F# function value can be called** (`e?Fn(21)`, a record field
   `h?OnPair(3, 4)`, `f |> Dlr.call 21`), curried or tupled, any arity; and any member can be read
   as an F# function type (`let add: int -> int -> int = dlr { return w?Add }`; curried any
   arity, tupled up to five), which C# has no form for.
+- **An F# function fits a delegate parameter, and a delegate fits a function parameter**:
+  `x?Each(items, fun i -> …)` against an `Action<int>`, `x?Apply(3, Func<int, int>(…))` against
+  an `int -> int` — the conversions F# does at a static call. C#'s binder sees an `FSharpFunc`
+  and a `Func` as unrelated types.
 - **F# optional parameters (`?arg`) can be omitted**: omitted ones are `None`, bare values become
   `Some`. C#'s binder cannot omit them (they are `FSharpOption<'T>` parameters with no `[Optional]`
   metadata).

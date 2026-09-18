@@ -285,6 +285,9 @@ module internal Translate =
         | ShapeLambda(v, body) -> Expr.Lambda(v, normalize body)
         | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map normalize args)
 
+    let private onWasm =
+        string System.Runtime.InteropServices.RuntimeInformation.OSArchitecture = "Wasm"   // no Architecture.Wasm on netstandard2.0
+
     let translate (builderType: Type) (context: Type) (memberBody: Expr) (closureType: Type) (resultType: Type) (body: Expr) : Compiled =
         let convert = Binders.convert context
         let closure = Var("closure", typeof<obj>)
@@ -337,6 +340,12 @@ module internal Translate =
         let asUnit (e: Expr) =
             if e.Type = typeof<unit> then Expr.Sequential(e, Expr.Value(())) else e
 
+        /// On Mono's browser-wasm runtime a nested lambda that captures nothing loses its arguments
+        /// when invoked (see DlrRuntime); one that captures is fine. So there, a nested delegate
+        /// body is made to capture the block's closure parameter, which costs nothing elsewhere.
+        let capturing (body: Expr) =
+            if onWasm then Expr.Let(Var("captured", typeof<obj>), Expr.Var closure, body) else body
+
         /// Variables bound inside the expression being rewritten are left alone; anything else
         /// that is not the builder comes from the closure or the enclosing member.
         let isCaptured (bound: Set<Var>) (v: Var) = not (bound.Contains v) && v.Type <> builderType
@@ -351,7 +360,7 @@ module internal Translate =
         /// (which may compile to a void call) becomes a `Func<.., unit>`, not an `Action`.
         let rec func (bound: Set<Var>) (vars: Var list) (body: Expr) : Expr =
             let bound = vars |> List.fold (fun b v -> Set.add v b) bound
-            let body = asUnit (rewriteIn bound body)
+            let body = capturing (asUnit (rewriteIn bound body))
             let delegateType = Expression.GetFuncType(Array.append (vars |> List.map (fun v -> v.Type) |> Array.ofList) [| body.Type |])
             Expr.NewDelegate(delegateType, vars, body)
 
@@ -473,7 +482,20 @@ module internal Translate =
                     (fun (v: Var, cell: Var) rest ->
                         Expr.Let(cell, Expr.NewObject(cell.Type.GetConstructor [| v.Type |], [ Expr.Value(null, v.Type) ]), rest))
                     cells inner
-            | ShapeLambda(v, lambdaBody) -> Expr.Lambda(v, asUnit (rewriteIn (bound.Add v) lambdaBody))
+            | NewDelegate(t, vars, delegateBody) ->
+                // A delegate literal's lambda is the delegate itself, not an F# function: keep it
+                // whole (on wasm, made capturing: see `capturing`). The quotation may give the
+                // parameters as nested lambdas in the body rather than in `vars`.
+                let n = t.GetMethod("Invoke").GetParameters().Length
+                let rec peel k (e: Expr) acc =
+                    match e with
+                    | Lambda(v, b) when k > 0 -> peel (k - 1) b (v :: acc)
+                    | _ -> List.rev acc, e
+                let peeled, body = peel (n - vars.Length) delegateBody []
+                let allVars = vars @ peeled
+                let inner = allVars |> List.fold (fun b v -> Set.add v b) bound
+                Expr.NewDelegate(t, allVars, capturing (asUnit (rewriteIn inner body)))
+            | ShapeLambda(v, lambdaBody) -> Expr.Lambda(v, capturing (asUnit (rewriteIn (bound.Add v) lambdaBody)))
             | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map rewrite args)
 
         /// `(?) x name` with a computed name (no type arguments): see keyedSite.

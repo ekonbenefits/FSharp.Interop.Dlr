@@ -53,6 +53,7 @@
     <Compile Include="..\Tests\Polymorphic.fs" Link="Polymorphic.fs" />
     <Compile Include="..\Tests\Constructors.fs" />
     <Compile Include="..\Tests\Mutables.fs" />
+    <Compile Include="..\Tests\Delegates.fs" />
     <Compile Include="..\Tests\Unreflected.fs" Link="Unreflected.fs" />
   </ItemGroup>
 

@@ -77,11 +77,6 @@ module internal Accessibility =
 
     let all = BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance
 
-/// F# optional parameters (`?arg`) compile to `FSharpOption<'T>` parameters carrying
-/// `[<OptionalArgument>]` and nothing the C# binder recognises, so it can neither omit them nor,
-/// on its own, tell that a bare value should become `Some`. This finds a method the supplied
-/// arguments fit once omitted optionals are `None` and bare values are wrapped, as a rule the
-/// binder offers C# as its error suggestion: used only where C# itself could not bind.
 /// The implicit conversions C# applies to an argument, so our own rules accept what its binder would.
 module internal Conversions =
     /// C#'s implicit numeric conversions, so an `int` argument fits an `int64` or `float` domain.
@@ -101,6 +96,573 @@ module internal Conversions =
     /// Assignable, or a C# implicit numeric widening (`Expression.Convert` does the widening in the rule).
     let fits (paramType: Type) (argType: Type) = paramType.IsAssignableFrom argType || widens argType paramType
 
+/// Whether a function type (the runtime type of a value, or a member's declared type) is an
+/// `FSharpFunc` that the call site's arguments fit, and the expression applying it. The shape
+/// comes from the function itself, not from the call's declared result: a discarded result or a
+/// widened one still applies the function that is there. Any arity: a curried function is a
+/// chain of `Invoke` calls, a tupled one a tuple construction and one `Invoke`.
+module internal FunctionShapes =
+    let private isFunc (t: Type) = t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<FSharpFunc<_, _>>
+
+    let private fits (paramType: Type) (argType: Type) = Conversions.fits paramType argType
+
+    /// The `FSharpFunc<_, _>` a type is or derives from: a function value's runtime type is a
+    /// compiler-generated subclass (`f@12`), a member's declared type usually the base itself.
+    let rec private funcBase (t: Type) : Type option =
+        if isNull t then None
+        elif isFunc t then Some t
+        else funcBase t.BaseType
+
+    let private invoke (f: Expression) (funcType: Type) (arg: Expression) : Expression =
+        Expression.Call(f, funcType.GetMethod("Invoke"), arg) :> Expression
+
+    /// Through the LimitType first: an `obj`-typed argument is unboxed as its runtime type, then
+    /// widened; converting `obj` straight to `int64` would unbox a boxed `int` as `int64` and throw.
+    let private convertTo (t: Type) (a: DynamicMetaObject) =
+        let unboxed = if a.Expression.Type = a.LimitType then a.Expression else Expression.Convert(a.Expression, a.LimitType) :> Expression
+        if a.LimitType = t then unboxed else Expression.Convert(unboxed, t) :> Expression
+
+    /// A function type's parameter list and result: `(A * B) -> R` is `[A; B]` tupled, `A -> B -> R`
+    /// is `[A; B]` curried (the chain followed as far as it is `FSharpFunc`), `A -> R` is `[A]`.
+    let domains (funcType: Type) : (Type list * bool * Type) option =
+        match funcBase funcType with
+        | None -> None
+        | Some ft ->
+            let ga = ft.GetGenericArguments()
+            if FSharp.Reflection.FSharpType.IsTuple ga.[0] then
+                Some(List.ofArray (FSharp.Reflection.FSharpType.GetTupleElements ga.[0]), true, ga.[1])
+            else
+                let rec chain (t: Type) (acc: Type list) =
+                    if isFunc t then
+                        let ga = t.GetGenericArguments()
+                        chain ga.[1] (ga.[0] :: acc)
+                    else List.rev acc, t
+                let ds, r = chain ga.[1] [ ga.[0] ]
+                Some(ds, false, r)
+
+    /// The call applying `read` (an expression whose value is of `funcType`) with `args`, boxed,
+    /// if the shape fits: `unit -> R` for no arguments, `A -> R` for one, and for more either a
+    /// tuple domain of that size or a curried chain of that depth.
+    let applyCall (funcType: Type) (read: Expression) (args: DynamicMetaObject[]) : Expression option =
+        match funcBase funcType with
+        | None -> None
+        | Some ft ->
+            let ga = ft.GetGenericArguments()
+            let domain = ga.[0]
+            let f = Expression.Convert(read, ft) :> Expression
+            let boxed (e: Expression) = Expression.Convert(e, typeof<obj>) :> Expression
+            match List.ofArray args with
+            | [] when domain = typeof<unit> -> Some(boxed (invoke f ft (Expression.Constant(null, typeof<unit>))))
+            | [ a ] when fits domain a.LimitType -> Some(boxed (invoke f ft (convertTo domain a)))
+            | [] | [ _ ] -> None
+            | args ->
+                let n = args.Length
+                let tupled =
+                    if FSharp.Reflection.FSharpType.IsTuple domain then
+                        let es = List.ofArray (FSharp.Reflection.FSharpType.GetTupleElements domain)
+                        if es.Length = n && List.forall2 fits es (List.map (fun (a: DynamicMetaObject) -> a.LimitType) args) then
+                            let tuple = Expression.New(domain.GetConstructor(Array.ofList es), List.map2 convertTo es args)
+                            Some(boxed (invoke f ft tuple))
+                        else None
+                    else None
+                match tupled with
+                | Some call -> Some call
+                | None ->
+                    // Curried: each domain in turn must fit. Up to five arguments `InvokeFast` applies
+                    // them in one call (no intermediate closures, as F# compiles `f a b`); past that
+                    // each step's result is the next function.
+                    match domains funcType with
+                    | Some(ds, false, result) when ds.Length = n && n <= 5 && List.forall2 fits ds (List.map (fun (a: DynamicMetaObject) -> a.LimitType) args) ->
+                        // `FSharpFunc<T, U>.InvokeFast<V, …>(func, t, u, v, …)`: the declaring type takes the
+                        // first two domains, the method's own type parameters the rest and the result.
+                        let declaring = typedefof<FSharpFunc<_, _>>.MakeGenericType(ds.[0], ds.[1])
+                        let fast =
+                            declaring.GetMethods()
+                            |> Array.find (fun m -> m.Name = "InvokeFast" && m.GetParameters().Length = n + 1)
+                            |> fun m -> m.MakeGenericMethod(Array.ofList (List.skip 2 ds @ [ result ]))
+                        let funcArg = Expression.Convert(read, fast.GetParameters().[0].ParameterType) :> Expression
+                        Some(boxed (Expression.Call(fast, funcArg :: List.map2 convertTo ds args)))
+                    | _ ->
+                        let rec chain (fe: Expression) (t: Type) (remaining: DynamicMetaObject list) =
+                            match remaining with
+                            | [] -> Some fe
+                            | a :: rest ->
+                                match funcBase t with
+                                | Some ft when fits (ft.GetGenericArguments().[0]) a.LimitType ->
+                                    let ga = ft.GetGenericArguments()
+                                    chain (invoke (Expression.Convert(fe, ft)) ft (convertTo ga.[0] a)) ga.[1] rest
+                                | _ -> None
+                        chain read funcType args |> Option.map boxed
+
+    let private restrictions (target: DynamicMetaObject) (targetType: Type) (args: DynamicMetaObject[]) =
+        Array.fold (fun (r: BindingRestrictions) (a: DynamicMetaObject) -> r.Merge(BindingRestrictions.GetTypeRestriction(a.Expression, a.LimitType)))
+            (BindingRestrictions.GetTypeRestriction(target.Expression, targetType)) args
+
+    /// A rule applying `value` with `args` if its runtime type is a fitting FSharpFunc: the DLR
+    /// caches it under that type restriction, so a site keeps one rule per kind of value it sees.
+    let tryApply (value: DynamicMetaObject) (args: DynamicMetaObject[]) : DynamicMetaObject option =
+        match value.RuntimeType with
+        | null -> None
+        | runtime ->
+            applyCall runtime value.Expression args
+            |> Option.map (fun call -> DynamicMetaObject(call, restrictions value runtime args))
+
+    /// An instance property (non-indexed) or field of `t` named `name` that `context` may access:
+    /// its type and a read.
+    let clrMember (context: Type) (t: Type) (name: string) (target: DynamicMetaObject) : (Type * Expression) option =
+        let self = Expression.Convert(target.Expression, t)
+        let property =
+            t.GetProperties(Accessibility.all)
+            |> Array.tryFind (fun p ->
+                p.Name = name && p.GetIndexParameters().Length = 0
+                && (let g = p.GetGetMethod(true) in not (isNull g) && Accessibility.method' context g))
+        match property with
+        | Some p -> Some(p.PropertyType, Expression.Property(self, p) :> Expression)
+        | None ->
+            match t.GetFields(Accessibility.all) |> Array.tryFind (fun f -> f.Name = name && Accessibility.field context f) with
+            | None -> None
+            | Some f -> Some(f.FieldType, Expression.Field(self, f) :> Expression)
+
+    /// Whether a member's declared type says nothing useful about whether it holds a function:
+    /// `obj`, an interface, an abstract class. Its value then goes through a nested site.
+    let opaque (t: Type) = t = typeof<obj> || t.IsInterface || (t.IsAbstract && not t.IsSealed)
+
+/// One step of a curried F# function built at run time for a member read as a function of more
+/// arguments than the FunctionMember helpers cover: each step collects one argument and returns
+/// the next step, and the last invokes the site's delegate with all of them. This is exactly what
+/// F# emits for a curried function beyond OptimizedClosures' reach, minus InvokeFast.
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+type CurryStep<'A, 'R>(collected: obj list, next: obj list -> obj) =
+    inherit FSharpFunc<'A, 'R>()
+    override _.Invoke(a: 'A) : 'R = unbox<'R> (next (collected @ [ box a ]))
+
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+module CurriedInvoker =
+    /// A curried F# function of the given domain types (nested `FSharpFunc`s) whose final result,
+    /// converted, comes from invoking `site` (a `Func<CallSite, obj, args…, obj>`) with all the
+    /// arguments; `unitResult` sites are `Action`s.
+    /// A curried F# function of the given domain types whose final result is `finish` applied to
+    /// all the collected arguments.
+    let buildWith (domains: Type list) (resultType: Type) (finish: obj list -> obj) : obj =
+        // The function type of the step taking domains.[i]: FSharpFunc<d_i, type of the rest>.
+        let rec stepType (ds: Type list) =
+            match ds with
+            | [] -> resultType
+            | d :: rest -> typedefof<FSharpFunc<_, _>>.MakeGenericType(d, stepType rest)
+        let rec step (collected: obj list) (ds: Type list) : obj =
+            match ds with
+            | [] -> finish collected
+            | d :: rest ->
+                let next (args: obj list) = step args rest
+                Activator.CreateInstance(typedefof<CurryStep<_, _>>.MakeGenericType(d, stepType rest), [| box collected; box next |])
+        step [] domains
+
+    let build (domains: Type list) (resultType: Type) (site: CallSite) (convert: CallSite) (target: obj) : obj =
+        let siteDelegate = site.GetType().GetField("Target").GetValue(site) :?> Delegate
+        let convertDelegate = if isNull convert then null else convert.GetType().GetField("Target").GetValue(convert) :?> Delegate
+        buildWith domains resultType (fun args ->
+            let raw = siteDelegate.DynamicInvoke(Array.ofList (box site :: box target :: args))
+            if isNull convertDelegate then null else convertDelegate.DynamicInvoke([| box convert; raw |]))
+
+/// Reference-equality comparer for a pair of types: the default struct-tuple comparer boxes and
+/// costs ~100 ns per lookup, which the per-call conversion caches pay each time.
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+type TypePairComparer() =
+    static member val Instance = TypePairComparer()
+    interface System.Collections.Generic.IEqualityComparer<struct (Type * Type)> with
+        member _.Equals(struct (a1, a2), struct (b1, b2)) = obj.ReferenceEquals(a1, b1) && obj.ReferenceEquals(a2, b2)
+        member _.GetHashCode(struct (a, b)) = RuntimeHelpers.GetHashCode a * 31 + RuntimeHelpers.GetHashCode b
+
+/// Typed F# functions over delegates, for a delegate argument passed to a function-typed
+/// parameter: the delegate is rebound once to the `Func`/`Action` of its signature (any delegate
+/// type with that signature works) and each wrapper calls `Invoke` directly — curried ones
+/// through `OptimizedClosures`, so `f a b` is one call. Up to five parameters; past that, or for
+/// a shape these do not cover, `DelegateFunction` falls back to `DynamicInvoke`. The `Action`
+/// wrappers take a result type parameter (instantiated to `unit`) because an `FSharpFunc<_, unit>`
+/// must return the `Unit` object, which a method declared `: unit` (void) cannot.
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+module DelegateFunctions =
+    type Func0<'R>(d: Func<'R>) =
+        inherit FSharpFunc<unit, 'R>()
+        override _.Invoke(_: unit) = d.Invoke()
+    type Action0<'R>(d: Action) =
+        inherit FSharpFunc<unit, 'R>()
+        override _.Invoke(_: unit) : 'R = d.Invoke(); Unchecked.defaultof<'R>
+    type Func1<'T1, 'R>(d: Func<'T1, 'R>) =
+        inherit FSharpFunc<'T1, 'R>()
+        override _.Invoke(t1: 'T1) = d.Invoke(t1)
+    type Action1<'T1, 'R>(d: Action<'T1>) =
+        inherit FSharpFunc<'T1, 'R>()
+        override _.Invoke(t1: 'T1) : 'R = d.Invoke(t1); Unchecked.defaultof<'R>
+    type Func2<'T1, 'T2, 'R>(d: Func<'T1, 'T2, 'R>) =
+        inherit OptimizedClosures.FSharpFunc<'T1, 'T2, 'R>()
+        override this.Invoke(t1: 'T1) : ('T2 -> 'R) = fun t2 -> this.Invoke(t1, t2)
+        override _.Invoke(t1: 'T1, t2: 'T2) = d.Invoke(t1, t2)
+    type Action2<'T1, 'T2, 'R>(d: Action<'T1, 'T2>) =
+        inherit OptimizedClosures.FSharpFunc<'T1, 'T2, 'R>()
+        override this.Invoke(t1: 'T1) : ('T2 -> 'R) = fun t2 -> this.Invoke(t1, t2)
+        override _.Invoke(t1: 'T1, t2: 'T2) : 'R = d.Invoke(t1, t2); Unchecked.defaultof<'R>
+    type TupledFunc2<'T1, 'T2, 'R>(d: Func<'T1, 'T2, 'R>) =
+        inherit FSharpFunc<'T1 * 'T2, 'R>()
+        override _.Invoke((t1, t2)) = d.Invoke(t1, t2)
+    type TupledAction2<'T1, 'T2, 'R>(d: Action<'T1, 'T2>) =
+        inherit FSharpFunc<'T1 * 'T2, 'R>()
+        override _.Invoke((t1, t2)) : 'R = d.Invoke(t1, t2); Unchecked.defaultof<'R>
+    type Func3<'T1, 'T2, 'T3, 'R>(d: Func<'T1, 'T2, 'T3, 'R>) =
+        inherit OptimizedClosures.FSharpFunc<'T1, 'T2, 'T3, 'R>()
+        override this.Invoke(t1: 'T1) : ('T2 -> 'T3 -> 'R) = fun t2 t3 -> this.Invoke(t1, t2, t3)
+        override _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3) = d.Invoke(t1, t2, t3)
+    type Action3<'T1, 'T2, 'T3, 'R>(d: Action<'T1, 'T2, 'T3>) =
+        inherit OptimizedClosures.FSharpFunc<'T1, 'T2, 'T3, 'R>()
+        override this.Invoke(t1: 'T1) : ('T2 -> 'T3 -> 'R) = fun t2 t3 -> this.Invoke(t1, t2, t3)
+        override _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3) : 'R = d.Invoke(t1, t2, t3); Unchecked.defaultof<'R>
+    type TupledFunc3<'T1, 'T2, 'T3, 'R>(d: Func<'T1, 'T2, 'T3, 'R>) =
+        inherit FSharpFunc<'T1 * 'T2 * 'T3, 'R>()
+        override _.Invoke((t1, t2, t3)) = d.Invoke(t1, t2, t3)
+    type TupledAction3<'T1, 'T2, 'T3, 'R>(d: Action<'T1, 'T2, 'T3>) =
+        inherit FSharpFunc<'T1 * 'T2 * 'T3, 'R>()
+        override _.Invoke((t1, t2, t3)) : 'R = d.Invoke(t1, t2, t3); Unchecked.defaultof<'R>
+    type Func4<'T1, 'T2, 'T3, 'T4, 'R>(d: Func<'T1, 'T2, 'T3, 'T4, 'R>) =
+        inherit OptimizedClosures.FSharpFunc<'T1, 'T2, 'T3, 'T4, 'R>()
+        override this.Invoke(t1: 'T1) : ('T2 -> 'T3 -> 'T4 -> 'R) = fun t2 t3 t4 -> this.Invoke(t1, t2, t3, t4)
+        override _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4) = d.Invoke(t1, t2, t3, t4)
+    type Action4<'T1, 'T2, 'T3, 'T4, 'R>(d: Action<'T1, 'T2, 'T3, 'T4>) =
+        inherit OptimizedClosures.FSharpFunc<'T1, 'T2, 'T3, 'T4, 'R>()
+        override this.Invoke(t1: 'T1) : ('T2 -> 'T3 -> 'T4 -> 'R) = fun t2 t3 t4 -> this.Invoke(t1, t2, t3, t4)
+        override _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4) : 'R = d.Invoke(t1, t2, t3, t4); Unchecked.defaultof<'R>
+    type TupledFunc4<'T1, 'T2, 'T3, 'T4, 'R>(d: Func<'T1, 'T2, 'T3, 'T4, 'R>) =
+        inherit FSharpFunc<'T1 * 'T2 * 'T3 * 'T4, 'R>()
+        override _.Invoke((t1, t2, t3, t4)) = d.Invoke(t1, t2, t3, t4)
+    type TupledAction4<'T1, 'T2, 'T3, 'T4, 'R>(d: Action<'T1, 'T2, 'T3, 'T4>) =
+        inherit FSharpFunc<'T1 * 'T2 * 'T3 * 'T4, 'R>()
+        override _.Invoke((t1, t2, t3, t4)) : 'R = d.Invoke(t1, t2, t3, t4); Unchecked.defaultof<'R>
+    type Func5<'T1, 'T2, 'T3, 'T4, 'T5, 'R>(d: Func<'T1, 'T2, 'T3, 'T4, 'T5, 'R>) =
+        inherit OptimizedClosures.FSharpFunc<'T1, 'T2, 'T3, 'T4, 'T5, 'R>()
+        override this.Invoke(t1: 'T1) : ('T2 -> 'T3 -> 'T4 -> 'T5 -> 'R) = fun t2 t3 t4 t5 -> this.Invoke(t1, t2, t3, t4, t5)
+        override _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5) = d.Invoke(t1, t2, t3, t4, t5)
+    type Action5<'T1, 'T2, 'T3, 'T4, 'T5, 'R>(d: Action<'T1, 'T2, 'T3, 'T4, 'T5>) =
+        inherit OptimizedClosures.FSharpFunc<'T1, 'T2, 'T3, 'T4, 'T5, 'R>()
+        override this.Invoke(t1: 'T1) : ('T2 -> 'T3 -> 'T4 -> 'T5 -> 'R) = fun t2 t3 t4 t5 -> this.Invoke(t1, t2, t3, t4, t5)
+        override _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5) : 'R = d.Invoke(t1, t2, t3, t4, t5); Unchecked.defaultof<'R>
+    type TupledFunc5<'T1, 'T2, 'T3, 'T4, 'T5, 'R>(d: Func<'T1, 'T2, 'T3, 'T4, 'T5, 'R>) =
+        inherit FSharpFunc<'T1 * 'T2 * 'T3 * 'T4 * 'T5, 'R>()
+        override _.Invoke((t1, t2, t3, t4, t5)) = d.Invoke(t1, t2, t3, t4, t5)
+    type TupledAction5<'T1, 'T2, 'T3, 'T4, 'T5, 'R>(d: Action<'T1, 'T2, 'T3, 'T4, 'T5>) =
+        inherit FSharpFunc<'T1 * 'T2 * 'T3 * 'T4 * 'T5, 'R>()
+        override _.Invoke((t1, t2, t3, t4, t5)) : 'R = d.Invoke(t1, t2, t3, t4, t5); Unchecked.defaultof<'R>
+
+    let private makers = System.Collections.Concurrent.ConcurrentDictionary<struct (Type * Type), (Delegate -> obj) option>(TypePairComparer.Instance)
+
+    /// A maker of the typed wrapper for a function type from a delegate type, or None when no
+    /// typed wrapper fits (then `DynamicInvoke`). The delegate is rebound to the `Func`/`Action`
+    /// of its signature, which any delegate with that signature allows.
+    let tryTyped (funcType: Type) (delegateType: Type) : (Delegate -> obj) option =
+        match makers.TryGetValue(struct (funcType, delegateType)) with
+        | true, m -> m
+        | _ ->
+            let invoke = delegateType.GetMethod("Invoke")
+            let ps = [ for p in invoke.GetParameters() -> p.ParameterType ]
+            let isVoid = invoke.ReturnType = typeof<Void>
+            let maker =
+                match FunctionShapes.domains funcType with
+                | Some(ds, tupled, result) ->
+                    let ds = if ds = [ typeof<unit> ] then [] else ds
+                    let n = ds.Length
+                    let unitResult = result = typeof<unit>
+                    if ds <> ps || n > 5 || (tupled && n < 2) || (isVoid <> unitResult) || (not isVoid && invoke.ReturnType <> result) then None
+                    else
+                        let standard = if isVoid then Expression.GetActionType(Array.ofList ds) else Expression.GetFuncType(Array.ofList (ds @ [ result ]))
+                        let name = (if tupled then "Tupled" else "") + (if isVoid then "Action" else "Func") + string n
+                        let def = typeof<Action0<unit>>.DeclaringType.GetNestedType(name + "`" + string (n + 1))
+                        let closed = def.MakeGenericType(Array.ofList (ds @ [ result ]))
+                        let ctor = closed.GetConstructors().[0]
+                        // `new Wrapper(d)` as IL where the runtime allows it: ConstructorInfo.Invoke is ~150 ns.
+                        let construct =
+                            try
+                                let dm = System.Reflection.Emit.DynamicMethod("wrap", typeof<obj>, [| typeof<Delegate> |], closed.Module, true)
+                                let il = dm.GetILGenerator()
+                                il.Emit(System.Reflection.Emit.OpCodes.Ldarg_0)
+                                il.Emit(System.Reflection.Emit.OpCodes.Castclass, standard)
+                                il.Emit(System.Reflection.Emit.OpCodes.Newobj, ctor)
+                                il.Emit(System.Reflection.Emit.OpCodes.Ret)
+                                dm.CreateDelegate(typeof<Func<Delegate, obj>>) :?> Func<Delegate, obj>
+                            with :? PlatformNotSupportedException | :? NotSupportedException ->
+                                Func<Delegate, obj>(fun d -> ctor.Invoke [| box d |])
+                        Some(fun (d: Delegate) ->
+                            let standardDelegate = if d.GetType() = standard then d else Delegate.CreateDelegate(standard, d.Target, d.Method)
+                            construct.Invoke standardDelegate)
+                | None -> None
+            makers.[struct (funcType, delegateType)] <- maker
+            maker
+
+
+/// An F# function over a delegate, for a delegate argument passed to a function-typed parameter
+/// when `FuncConvert` has no matching shape: tupled (or one parameter) as one closure, curried
+/// as a `CurryStep` chain, the delegate invoked with `DynamicInvoke` when all arguments are in.
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+type TupledDelegateFunction<'T, 'R>(d: Delegate) =
+    inherit FSharpFunc<'T, 'R>()
+    override _.Invoke(t: 'T) : 'R =
+        let n = d.GetType().GetMethod("Invoke").GetParameters().Length   // not d.Method: an interpreted delegate's is synthetic
+        let args =
+            if n = 0 then [||]
+            elif n > 1 && FSharp.Reflection.FSharpType.IsTuple typeof<'T> then FSharp.Reflection.FSharpValue.GetTupleFields(box t)
+            else [| box t |]
+        unbox<'R> (d.DynamicInvoke args)
+
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+module DelegateFunction =
+    let Make (funcType: Type) (d: Delegate) : obj =
+        match DelegateFunctions.tryTyped funcType (d.GetType()) with
+        | Some make -> make d
+        | None ->
+        match FunctionShapes.domains funcType with
+        | Some(domains, false, result) when domains.Length > 1 -> CurriedInvoker.buildWith domains result (fun args -> d.DynamicInvoke(Array.ofList args))
+        | _ ->
+            let ga = funcType.GetGenericArguments()
+            Activator.CreateInstance(typedefof<TupledDelegateFunction<_, _>>.MakeGenericType(ga.[0], ga.[1]), [| box d |])
+
+/// Delegates over F# functions, for an F# function argument passed to a delegate-typed parameter:
+/// one adapter per shape (curried/tupled × result/void, 0–16 parameters) whose `Invoke` method
+/// has the delegate's exact signature, and per (function type, delegate type) a factory emitted
+/// once as IL — `new Adapter(f)` and the delegate constructor over its `Invoke` — so a conversion
+/// costs an allocation, not `Delegate.CreateDelegate`'s per-call validation (~300 ns) or a LINQ
+/// closure (about the same). Where dynamic code is not supported, `CreateDelegate` it is. Past
+/// sixteen parameters (a custom delegate type), a compiled lambda applying the function.
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+module FunctionAdapters =
+    type Curried0<'R>(f: unit -> 'R) =
+        member _.Invoke() : 'R = f ()
+    type Curried0Unit(f: unit -> unit) =
+        member _.Invoke() : unit = f ()
+    type Curried1<'T1, 'R>(f: 'T1 -> 'R) =
+        let f = f
+        member _.Invoke(t1: 'T1) : 'R = f t1
+    type Curried1Unit<'T1>(f: 'T1 -> unit) =
+        let f = f
+        member _.Invoke(t1: 'T1) : unit = f t1
+    type Curried2<'T1, 'T2, 'R>(f: 'T1 -> 'T2 -> 'R) =
+        let f = OptimizedClosures.FSharpFunc<'T1, 'T2, 'R>.Adapt f
+        member _.Invoke(t1: 'T1, t2: 'T2) : 'R = f.Invoke(t1, t2)
+    type Curried2Unit<'T1, 'T2>(f: 'T1 -> 'T2 -> unit) =
+        let f = OptimizedClosures.FSharpFunc<'T1, 'T2, unit>.Adapt f
+        member _.Invoke(t1: 'T1, t2: 'T2) : unit = f.Invoke(t1, t2)
+    type Tupled2<'T1, 'T2, 'R>(f: 'T1 * 'T2 -> 'R) =
+        member _.Invoke(t1: 'T1, t2: 'T2) : 'R = f (t1, t2)
+    type Tupled2Unit<'T1, 'T2>(f: 'T1 * 'T2 -> unit) =
+        member _.Invoke(t1: 'T1, t2: 'T2) : unit = f (t1, t2)
+    type Curried3<'T1, 'T2, 'T3, 'R>(f: 'T1 -> 'T2 -> 'T3 -> 'R) =
+        let f = OptimizedClosures.FSharpFunc<'T1, 'T2, 'T3, 'R>.Adapt f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3) : 'R = f.Invoke(t1, t2, t3)
+    type Curried3Unit<'T1, 'T2, 'T3>(f: 'T1 -> 'T2 -> 'T3 -> unit) =
+        let f = OptimizedClosures.FSharpFunc<'T1, 'T2, 'T3, unit>.Adapt f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3) : unit = f.Invoke(t1, t2, t3)
+    type Tupled3<'T1, 'T2, 'T3, 'R>(f: 'T1 * 'T2 * 'T3 -> 'R) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3) : 'R = f (t1, t2, t3)
+    type Tupled3Unit<'T1, 'T2, 'T3>(f: 'T1 * 'T2 * 'T3 -> unit) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3) : unit = f (t1, t2, t3)
+    type Curried4<'T1, 'T2, 'T3, 'T4, 'R>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'R) =
+        let f = OptimizedClosures.FSharpFunc<'T1, 'T2, 'T3, 'T4, 'R>.Adapt f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4) : 'R = f.Invoke(t1, t2, t3, t4)
+    type Curried4Unit<'T1, 'T2, 'T3, 'T4>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> unit) =
+        let f = OptimizedClosures.FSharpFunc<'T1, 'T2, 'T3, 'T4, unit>.Adapt f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4) : unit = f.Invoke(t1, t2, t3, t4)
+    type Tupled4<'T1, 'T2, 'T3, 'T4, 'R>(f: 'T1 * 'T2 * 'T3 * 'T4 -> 'R) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4) : 'R = f (t1, t2, t3, t4)
+    type Tupled4Unit<'T1, 'T2, 'T3, 'T4>(f: 'T1 * 'T2 * 'T3 * 'T4 -> unit) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4) : unit = f (t1, t2, t3, t4)
+    type Curried5<'T1, 'T2, 'T3, 'T4, 'T5, 'R>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'R) =
+        let f = OptimizedClosures.FSharpFunc<'T1, 'T2, 'T3, 'T4, 'T5, 'R>.Adapt f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5) : 'R = f.Invoke(t1, t2, t3, t4, t5)
+    type Curried5Unit<'T1, 'T2, 'T3, 'T4, 'T5>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> unit) =
+        let f = OptimizedClosures.FSharpFunc<'T1, 'T2, 'T3, 'T4, 'T5, unit>.Adapt f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5) : unit = f.Invoke(t1, t2, t3, t4, t5)
+    type Tupled5<'T1, 'T2, 'T3, 'T4, 'T5, 'R>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 -> 'R) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5) : 'R = f (t1, t2, t3, t4, t5)
+    type Tupled5Unit<'T1, 'T2, 'T3, 'T4, 'T5>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 -> unit) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5) : unit = f (t1, t2, t3, t4, t5)
+    type Curried6<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'R>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'R) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6) : 'R = f t1 t2 t3 t4 t5 t6
+    type Curried6Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> unit) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6) : unit = f t1 t2 t3 t4 t5 t6
+    type Tupled6<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'R>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 -> 'R) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6) : 'R = f (t1, t2, t3, t4, t5, t6)
+    type Tupled6Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 -> unit) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6) : unit = f (t1, t2, t3, t4, t5, t6)
+    type Curried7<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'R>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'R) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7) : 'R = f t1 t2 t3 t4 t5 t6 t7
+    type Curried7Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> unit) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7) : unit = f t1 t2 t3 t4 t5 t6 t7
+    type Tupled7<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'R>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 -> 'R) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7) : 'R = f (t1, t2, t3, t4, t5, t6, t7)
+    type Tupled7Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 -> unit) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7) : unit = f (t1, t2, t3, t4, t5, t6, t7)
+    type Curried8<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'R>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'R) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8) : 'R = f t1 t2 t3 t4 t5 t6 t7 t8
+    type Curried8Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> unit) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8) : unit = f t1 t2 t3 t4 t5 t6 t7 t8
+    type Tupled8<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'R>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 -> 'R) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8) : 'R = f (t1, t2, t3, t4, t5, t6, t7, t8)
+    type Tupled8Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 -> unit) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8) : unit = f (t1, t2, t3, t4, t5, t6, t7, t8)
+    type Curried9<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'R>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'T9 -> 'R) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9) : 'R = f t1 t2 t3 t4 t5 t6 t7 t8 t9
+    type Curried9Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'T9 -> unit) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9) : unit = f t1 t2 t3 t4 t5 t6 t7 t8 t9
+    type Tupled9<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'R>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 * 'T9 -> 'R) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9) : 'R = f (t1, t2, t3, t4, t5, t6, t7, t8, t9)
+    type Tupled9Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 * 'T9 -> unit) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9) : unit = f (t1, t2, t3, t4, t5, t6, t7, t8, t9)
+    type Curried10<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'R>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'T9 -> 'T10 -> 'R) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10) : 'R = f t1 t2 t3 t4 t5 t6 t7 t8 t9 t10
+    type Curried10Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'T9 -> 'T10 -> unit) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10) : unit = f t1 t2 t3 t4 t5 t6 t7 t8 t9 t10
+    type Tupled10<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'R>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 * 'T9 * 'T10 -> 'R) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10) : 'R = f (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10)
+    type Tupled10Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 * 'T9 * 'T10 -> unit) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10) : unit = f (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10)
+    type Curried11<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'R>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'T9 -> 'T10 -> 'T11 -> 'R) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11) : 'R = f t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11
+    type Curried11Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'T9 -> 'T10 -> 'T11 -> unit) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11) : unit = f t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11
+    type Tupled11<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'R>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 * 'T9 * 'T10 * 'T11 -> 'R) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11) : 'R = f (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11)
+    type Tupled11Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 * 'T9 * 'T10 * 'T11 -> unit) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11) : unit = f (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11)
+    type Curried12<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'R>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'T9 -> 'T10 -> 'T11 -> 'T12 -> 'R) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12) : 'R = f t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12
+    type Curried12Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'T9 -> 'T10 -> 'T11 -> 'T12 -> unit) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12) : unit = f t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12
+    type Tupled12<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'R>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 * 'T9 * 'T10 * 'T11 * 'T12 -> 'R) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12) : 'R = f (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12)
+    type Tupled12Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 * 'T9 * 'T10 * 'T11 * 'T12 -> unit) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12) : unit = f (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12)
+    type Curried13<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'T13, 'R>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'T9 -> 'T10 -> 'T11 -> 'T12 -> 'T13 -> 'R) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12, t13: 'T13) : 'R = f t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12 t13
+    type Curried13Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'T13>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'T9 -> 'T10 -> 'T11 -> 'T12 -> 'T13 -> unit) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12, t13: 'T13) : unit = f t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12 t13
+    type Tupled13<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'T13, 'R>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 * 'T9 * 'T10 * 'T11 * 'T12 * 'T13 -> 'R) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12, t13: 'T13) : 'R = f (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13)
+    type Tupled13Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'T13>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 * 'T9 * 'T10 * 'T11 * 'T12 * 'T13 -> unit) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12, t13: 'T13) : unit = f (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13)
+    type Curried14<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'T13, 'T14, 'R>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'T9 -> 'T10 -> 'T11 -> 'T12 -> 'T13 -> 'T14 -> 'R) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12, t13: 'T13, t14: 'T14) : 'R = f t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12 t13 t14
+    type Curried14Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'T13, 'T14>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'T9 -> 'T10 -> 'T11 -> 'T12 -> 'T13 -> 'T14 -> unit) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12, t13: 'T13, t14: 'T14) : unit = f t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12 t13 t14
+    type Tupled14<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'T13, 'T14, 'R>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 * 'T9 * 'T10 * 'T11 * 'T12 * 'T13 * 'T14 -> 'R) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12, t13: 'T13, t14: 'T14) : 'R = f (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14)
+    type Tupled14Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'T13, 'T14>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 * 'T9 * 'T10 * 'T11 * 'T12 * 'T13 * 'T14 -> unit) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12, t13: 'T13, t14: 'T14) : unit = f (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14)
+    type Curried15<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'T13, 'T14, 'T15, 'R>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'T9 -> 'T10 -> 'T11 -> 'T12 -> 'T13 -> 'T14 -> 'T15 -> 'R) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12, t13: 'T13, t14: 'T14, t15: 'T15) : 'R = f t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12 t13 t14 t15
+    type Curried15Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'T13, 'T14, 'T15>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'T9 -> 'T10 -> 'T11 -> 'T12 -> 'T13 -> 'T14 -> 'T15 -> unit) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12, t13: 'T13, t14: 'T14, t15: 'T15) : unit = f t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12 t13 t14 t15
+    type Tupled15<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'T13, 'T14, 'T15, 'R>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 * 'T9 * 'T10 * 'T11 * 'T12 * 'T13 * 'T14 * 'T15 -> 'R) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12, t13: 'T13, t14: 'T14, t15: 'T15) : 'R = f (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15)
+    type Tupled15Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'T13, 'T14, 'T15>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 * 'T9 * 'T10 * 'T11 * 'T12 * 'T13 * 'T14 * 'T15 -> unit) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12, t13: 'T13, t14: 'T14, t15: 'T15) : unit = f (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15)
+    type Curried16<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'T13, 'T14, 'T15, 'T16, 'R>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'T9 -> 'T10 -> 'T11 -> 'T12 -> 'T13 -> 'T14 -> 'T15 -> 'T16 -> 'R) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12, t13: 'T13, t14: 'T14, t15: 'T15, t16: 'T16) : 'R = f t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12 t13 t14 t15 t16
+    type Curried16Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'T13, 'T14, 'T15, 'T16>(f: 'T1 -> 'T2 -> 'T3 -> 'T4 -> 'T5 -> 'T6 -> 'T7 -> 'T8 -> 'T9 -> 'T10 -> 'T11 -> 'T12 -> 'T13 -> 'T14 -> 'T15 -> 'T16 -> unit) =
+        let f = f
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12, t13: 'T13, t14: 'T14, t15: 'T15, t16: 'T16) : unit = f t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12 t13 t14 t15 t16
+    type Tupled16<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'T13, 'T14, 'T15, 'T16, 'R>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 * 'T9 * 'T10 * 'T11 * 'T12 * 'T13 * 'T14 * 'T15 * 'T16 -> 'R) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12, t13: 'T13, t14: 'T14, t15: 'T15, t16: 'T16) : 'R = f (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15, t16)
+    type Tupled16Unit<'T1, 'T2, 'T3, 'T4, 'T5, 'T6, 'T7, 'T8, 'T9, 'T10, 'T11, 'T12, 'T13, 'T14, 'T15, 'T16>(f: 'T1 * 'T2 * 'T3 * 'T4 * 'T5 * 'T6 * 'T7 * 'T8 * 'T9 * 'T10 * 'T11 * 'T12 * 'T13 * 'T14 * 'T15 * 'T16 -> unit) =
+        member _.Invoke(t1: 'T1, t2: 'T2, t3: 'T3, t4: 'T4, t5: 'T5, t6: 'T6, t7: 'T7, t8: 'T8, t9: 'T9, t10: 'T10, t11: 'T11, t12: 'T12, t13: 'T13, t14: 'T14, t15: 'T15, t16: 'T16) : unit = f (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15, t16)
+
+    let private conversions = System.Collections.Concurrent.ConcurrentDictionary<struct (Type * Type), Func<obj, Delegate> option>(TypePairComparer.Instance)
+
+    /// `fun f -> new Adapter(f) |> delegate ctor over Invoke`, as IL when the runtime allows it.
+    let private emitFactory (delegateType: Type) (adapter: Type) : Func<obj, Delegate> =
+        let ctor = adapter.GetConstructors().[0]
+        let invoke = adapter.GetMethod("Invoke")
+        try
+            let dm = System.Reflection.Emit.DynamicMethod("make", typeof<Delegate>, [| typeof<obj> |], adapter.Module, true)
+            let il = dm.GetILGenerator()
+            il.Emit(System.Reflection.Emit.OpCodes.Ldarg_0)
+            il.Emit(System.Reflection.Emit.OpCodes.Castclass, ctor.GetParameters().[0].ParameterType)
+            il.Emit(System.Reflection.Emit.OpCodes.Newobj, ctor)
+            il.Emit(System.Reflection.Emit.OpCodes.Ldftn, invoke)
+            il.Emit(System.Reflection.Emit.OpCodes.Newobj, delegateType.GetConstructor([| typeof<obj>; typeof<nativeint> |]))
+            il.Emit(System.Reflection.Emit.OpCodes.Ret)
+            dm.CreateDelegate(typeof<Func<obj, Delegate>>) :?> Func<obj, Delegate>
+        with :? PlatformNotSupportedException | :? NotSupportedException ->
+            Func<obj, Delegate>(fun f -> Delegate.CreateDelegate(delegateType, ctor.Invoke [| f |], invoke))
+
+    /// The factory for `delegateType` from a function value of `funcType`, or None when the shapes
+    /// do not match (arity, the function's domains reference-assignable to the delegate's
+    /// parameters, a `unit` result only for a void delegate).
+    let tryConversion (funcType: Type) (delegateType: Type) : Func<obj, Delegate> option =
+        match conversions.TryGetValue(struct (funcType, delegateType)) with
+        | true, c -> c
+        | _ ->
+            let invoke = delegateType.GetMethod("Invoke")
+            let ps = [ for p in invoke.GetParameters() -> p.ParameterType ]
+            let isVoid = invoke.ReturnType = typeof<Void>
+            let conversion =
+                match FunctionShapes.domains funcType with
+                | Some(ds, tupled, result) ->
+                    let ds = if ds = [ typeof<unit> ] then [] else ds
+                    let n = ds.Length
+                    let unitResult = result = typeof<unit>
+                    let fitsParams = n = ps.Length && List.forall2 (fun (d: Type) (p: Type) -> d = p || (not d.IsValueType && d.IsAssignableFrom p)) ds ps
+                    let fitsResult = if isVoid then unitResult else not unitResult && (invoke.ReturnType = result || (not result.IsValueType && invoke.ReturnType.IsAssignableFrom result))
+                    if not (fitsParams && fitsResult) || (tupled && n < 2) then None
+                    elif n <= 16 then
+                        let name = (if tupled then "Tupled" else "Curried") + string n + (if isVoid then "Unit" else "")
+                        let arity = n + (if isVoid then 0 else 1)
+                        let def = typeof<Curried0Unit>.DeclaringType.GetNestedType(name + (if arity > 0 then "`" + string arity else ""))
+                        let closed = if def.IsGenericTypeDefinition then def.MakeGenericType(Array.ofList (ds @ (if isVoid then [] else [ result ]))) else def
+                        Some(emitFactory delegateType closed)
+                    else
+                        let fParam = Expression.Parameter(typeof<obj>, "f")
+                        let parameters = [| for p in invoke.GetParameters() -> Expression.Parameter(p.ParameterType, p.Name) |]
+                        let args = [| for p in parameters -> DynamicMetaObject(p, BindingRestrictions.Empty) |]
+                        FunctionShapes.applyCall funcType (Expression.Convert(fParam, funcType)) args
+                        |> Option.map (fun call ->
+                            let body =
+                                if isVoid then Expression.Block(typeof<Void>, [| call |]) :> Expression
+                                else Expression.Convert(call, invoke.ReturnType) :> Expression
+                            let inner = Expression.Lambda(delegateType, body, parameters)
+                            Expression.Lambda<Func<obj, Delegate>>(Expression.Convert(inner, typeof<Delegate>), fParam).Compile())
+                | None -> None
+            conversions.[struct (funcType, delegateType)] <- conversion
+            conversion
+
+    /// The delegate over `f`.
+    let Make (delegateType: Type) (f: obj) : Delegate =
+        match tryConversion (f.GetType()) delegateType with
+        | Some factory -> factory.Invoke f
+        | None -> raise (RuntimeBinderException(sprintf "Cannot convert an F# function of type '%s' to '%s'" (f.GetType().Name) delegateType.Name))
+
+
+/// F# optional parameters (`?arg`) compile to `FSharpOption<'T>` parameters carrying
+/// `[<OptionalArgument>]` and nothing the C# binder recognises, so it can neither omit them nor,
+/// on its own, tell that a bare value should become `Some`. This finds a method the supplied
+/// arguments fit once omitted optionals are `None` and bare values are wrapped, as a rule the
+/// binder offers C# as its error suggestion: used only where C# itself could not bind.
 module internal OptionalArguments =
     let private isOptional (p: ParameterInfo) =
         p.GetCustomAttributes(typeof<OptionalArgumentAttribute>, false).Length > 0
@@ -109,8 +671,38 @@ module internal OptionalArguments =
 
     let private isNullValue (a: DynamicMetaObject) = a.HasValue && isNull a.Value
 
+    /// A concrete delegate type: `Delegate` and `MulticastDelegate` themselves have no `Invoke`.
+    let private isDelegate (t: Type) = typeof<Delegate>.IsAssignableFrom t && not (isNull (t.GetMethod "Invoke"))
+    let private isAbstractDelegate (t: Type) = t = typeof<Delegate> || t = typeof<MulticastDelegate>
+
+    /// An F# function value for a delegate-typed parameter: a delegate over the function
+    /// (`FunctionAdapters`), as F# itself converts a lambda argument to a `Func`/`Action`
+    /// parameter at a static call.
+    let private functionToDelegate (delegateType: Type) (a: DynamicMetaObject) : Expression option =
+        match FunctionAdapters.tryConversion a.LimitType delegateType with
+        | None -> None
+        | Some _ ->
+            let make = typeof<FunctionAdapters.Curried0Unit>.DeclaringType.GetMethod("Make")
+            Some(Expression.Convert(Expression.Call(make, Expression.Constant delegateType, Expression.Convert(a.Expression, typeof<obj>)), delegateType) :> Expression)
+
+    /// A delegate for an F# function-typed parameter: `DelegateFunction` (`DynamicInvoke`, any
+    /// shape; not `FuncConvert`, whose wrapper loses arguments on Mono's browser-wasm runtime).
+    let private delegateToFunction (funcType: Type) (a: DynamicMetaObject) : Expression option =
+        let dt = a.LimitType
+        let invoke = dt.GetMethod("Invoke")
+        let paramTypes = [ for p in invoke.GetParameters() -> p.ParameterType ]
+        // `unit -> R` takes a parameterless delegate.
+        let domainsOf = FunctionShapes.domains funcType |> Option.map (fun (ds, tupled, r) -> (if ds = [ typeof<unit> ] then [] else ds), tupled, r)
+        match domainsOf with
+        | Some(domains, _, result) when domains.Length = paramTypes.Length && List.forall2 (fun (d: Type) (p: Type) -> d = p) domains paramTypes
+                                          && (invoke.ReturnType = result || (invoke.ReturnType = typeof<Void> && result = typeof<unit>)) ->
+            let make = typeof<TupledDelegateFunction<obj, obj>>.Assembly.GetType("FSharp.Interop.Dlr.DelegateFunction").GetMethod("Make")
+            Some(Expression.Convert(Expression.Call(make, Expression.Constant funcType, Expression.Convert(a.Expression, typeof<Delegate>)), funcType) :> Expression)
+        | _ -> None
+
     /// The argument converted to the parameter type, or None if it does not fit: assignable or
-    /// C#-widened, a null for a reference slot, a bare value for an optional as `Some`.
+    /// C#-widened, a null for a reference slot, a bare value for an optional as `Some`, an F#
+    /// function for a delegate parameter or a delegate for a function parameter.
     let private fit (p: ParameterInfo) (a: DynamicMetaObject) : Expression option =
         let pt = p.ParameterType
         let at = a.LimitType
@@ -122,7 +714,30 @@ module internal OptionalArguments =
         elif isOptional p && Conversions.fits (pt.GetGenericArguments().[0]) at then
             let inner = pt.GetGenericArguments().[0]
             Some(Expression.Call(pt.GetMethod("Some"), converted inner) :> Expression)
+        elif isDelegate pt && (FunctionShapes.domains at).IsSome then functionToDelegate pt a
+        elif isDelegate at && (FunctionShapes.domains pt).IsSome then delegateToFunction pt a
+        elif isAbstractDelegate pt && (FunctionShapes.domains at).IsSome then
+            // `Delegate` itself (Control.Invoke): the Func/Action F# would build for the function.
+            // Left to C#, FSharpFunc's own op_Implicit makes a Converter<Unit, R> of a `unit -> R`
+            // — a one-parameter delegate, wrong for a `DynamicInvoke()` — so this goes first.
+            match FunctionShapes.domains at with
+            | Some(ds, _, _) when ds.Length > 16 -> None     // no Func/Action of that many parameters
+            | Some(ds, _, result) ->
+                let ds = if ds = [ typeof<unit> ] then [] else ds
+                let delegateType = if result = typeof<unit> then Expression.GetActionType(Array.ofList ds) else Expression.GetFuncType(Array.ofList (ds @ [ result ]))
+                functionToDelegate delegateType a
+            | None -> None
         else None
+
+    /// A call has an argument that is an F# function in a slot typed `Delegate` in some candidate
+    /// method: C# would bind it through op_Implicit to a `Converter`, wrongly, so our rule goes first.
+    let hasAbstractDelegateSlot (context: Type) (t: Type) (name: string) (args: DynamicMetaObject[]) =
+        t.GetMethods(Accessibility.all)
+        |> Array.exists (fun m ->
+            m.Name = name && Accessibility.method' context m
+            && (let ps = m.GetParameters()
+                ps.Length >= args.Length
+                && Array.exists2 (fun (p: ParameterInfo) (a: DynamicMetaObject) -> isAbstractDelegate p.ParameterType && (FunctionShapes.domains a.LimitType).IsSome) (Array.sub ps 0 args.Length) args))
 
     /// Not C#'s overload resolution, but deterministic: among the methods the arguments fit, the
     /// one with the most exactly-typed argument slots wins, then the one with the fewest omitted
@@ -157,105 +772,6 @@ module internal OptionalArguments =
                 Array.fold (fun (r: BindingRestrictions) a -> r.Merge(restrict a)) (BindingRestrictions.GetTypeRestriction(target.Expression, t)) args
             Some(DynamicMetaObject(value, restrictions))
         | [] -> None
-
-/// Whether a function type (the runtime type of a value, or a member's declared type) is an
-/// `FSharpFunc` that the call site's arguments fit, and the expression applying it. The shape
-/// comes from the function itself, not from the call's declared result: a discarded result or a
-/// widened one still applies the function that is there. Any arity: a curried function is a
-/// chain of `Invoke` calls, a tupled one a tuple construction and one `Invoke`.
-module internal FunctionShapes =
-    let private isFunc (t: Type) = t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<FSharpFunc<_, _>>
-
-    let private fits (paramType: Type) (argType: Type) = Conversions.fits paramType argType
-
-    /// The `FSharpFunc<_, _>` a type is or derives from: a function value's runtime type is a
-    /// compiler-generated subclass (`f@12`), a member's declared type usually the base itself.
-    let rec private funcBase (t: Type) : Type option =
-        if isNull t then None
-        elif isFunc t then Some t
-        else funcBase t.BaseType
-
-    let private invoke (f: Expression) (funcType: Type) (arg: Expression) : Expression =
-        Expression.Call(f, funcType.GetMethod("Invoke"), arg) :> Expression
-
-    /// Through the LimitType first: an `obj`-typed argument is unboxed as its runtime type, then
-    /// widened; converting `obj` straight to `int64` would unbox a boxed `int` as `int64` and throw.
-    let private convertTo (t: Type) (a: DynamicMetaObject) =
-        let unboxed = if a.Expression.Type = a.LimitType then a.Expression else Expression.Convert(a.Expression, a.LimitType) :> Expression
-        if a.LimitType = t then unboxed else Expression.Convert(unboxed, t) :> Expression
-
-    /// The call applying `read` (an expression whose value is of `funcType`) with `args`, boxed,
-    /// if the shape fits: `unit -> R` for no arguments, `A -> R` for one, and for more either a
-    /// tuple domain of that size or a curried chain of that depth.
-    let applyCall (funcType: Type) (read: Expression) (args: DynamicMetaObject[]) : Expression option =
-        match funcBase funcType with
-        | None -> None
-        | Some ft ->
-            let ga = ft.GetGenericArguments()
-            let domain = ga.[0]
-            let f = Expression.Convert(read, ft) :> Expression
-            let boxed (e: Expression) = Expression.Convert(e, typeof<obj>) :> Expression
-            match List.ofArray args with
-            | [] when domain = typeof<unit> -> Some(boxed (invoke f ft (Expression.Constant(null, typeof<unit>))))
-            | [ a ] when fits domain a.LimitType -> Some(boxed (invoke f ft (convertTo domain a)))
-            | [] | [ _ ] -> None
-            | args ->
-                let n = args.Length
-                let tupled =
-                    if FSharp.Reflection.FSharpType.IsTuple domain then
-                        let es = List.ofArray (FSharp.Reflection.FSharpType.GetTupleElements domain)
-                        if es.Length = n && List.forall2 fits es (List.map (fun (a: DynamicMetaObject) -> a.LimitType) args) then
-                            let tuple = Expression.New(domain.GetConstructor(Array.ofList es), List.map2 convertTo es args)
-                            Some(boxed (invoke f ft tuple))
-                        else None
-                    else None
-                match tupled with
-                | Some call -> Some call
-                | None ->
-                    // Curried: each domain in turn must fit, and each step's result is the next function.
-                    let rec chain (fe: Expression) (t: Type) (remaining: DynamicMetaObject list) =
-                        match remaining with
-                        | [] -> Some fe
-                        | a :: rest ->
-                            match funcBase t with
-                            | Some ft when fits (ft.GetGenericArguments().[0]) a.LimitType ->
-                                let ga = ft.GetGenericArguments()
-                                chain (invoke (Expression.Convert(fe, ft)) ft (convertTo ga.[0] a)) ga.[1] rest
-                            | _ -> None
-                    chain read funcType args |> Option.map boxed
-
-    let private restrictions (target: DynamicMetaObject) (targetType: Type) (args: DynamicMetaObject[]) =
-        Array.fold (fun (r: BindingRestrictions) (a: DynamicMetaObject) -> r.Merge(BindingRestrictions.GetTypeRestriction(a.Expression, a.LimitType)))
-            (BindingRestrictions.GetTypeRestriction(target.Expression, targetType)) args
-
-    /// A rule applying `value` with `args` if its runtime type is a fitting FSharpFunc: the DLR
-    /// caches it under that type restriction, so a site keeps one rule per kind of value it sees.
-    let tryApply (value: DynamicMetaObject) (args: DynamicMetaObject[]) : DynamicMetaObject option =
-        match value.RuntimeType with
-        | null -> None
-        | runtime ->
-            applyCall runtime value.Expression args
-            |> Option.map (fun call -> DynamicMetaObject(call, restrictions value runtime args))
-
-    /// An instance property (non-indexed) or field of `t` named `name` that `context` may access:
-    /// its type and a read.
-    let clrMember (context: Type) (t: Type) (name: string) (target: DynamicMetaObject) : (Type * Expression) option =
-        let self = Expression.Convert(target.Expression, t)
-        let property =
-            t.GetProperties(Accessibility.all)
-            |> Array.tryFind (fun p ->
-                p.Name = name && p.GetIndexParameters().Length = 0
-                && (let g = p.GetGetMethod(true) in not (isNull g) && Accessibility.method' context g))
-        match property with
-        | Some p -> Some(p.PropertyType, Expression.Property(self, p) :> Expression)
-        | None ->
-            match t.GetFields(Accessibility.all) |> Array.tryFind (fun f -> f.Name = name && Accessibility.field context f) with
-            | None -> None
-            | Some f -> Some(f.FieldType, Expression.Field(self, f) :> Expression)
-
-    /// Whether a member's declared type says nothing useful about whether it holds a function:
-    /// `obj`, an interface, an abstract class. Its value then goes through a nested site.
-    let opaque (t: Type) = t = typeof<obj> || t.IsInterface || (t.IsAbstract && not t.IsSealed)
 
 /// Equality and ordering with F# semantics where C# has none: records, unions, tuples, lists,
 /// options, sets and any other type without the CLR operator get `=`/`compare` (structural,
@@ -372,8 +888,12 @@ type FSharpInvokeMemberBinder(context: Type, name: string, csharp: InvokeMemberB
                 | None -> None)
         let hasMethod =
             t.GetMethods(Accessibility.all) |> Array.exists (fun m -> m.Name = name && Accessibility.method' context m)
+        let allValues = target.HasValue && (args |> Array.forall (fun a -> a.HasValue))
         match direct with
         | Some rule when not hasMethod -> rule
+        | _ when allValues && OptionalArguments.hasAbstractDelegateSlot context t name args
+                 && (OptionalArguments.tryCall context t name target args).IsSome ->
+            (OptionalArguments.tryCall context t name target args).Value
         | _ ->
             // A method of that name exists: C# binds it; our rules (a function-valued member of
             // the same name, or F# optional parameters) are only its error suggestion.
@@ -381,7 +901,7 @@ type FSharpInvokeMemberBinder(context: Type, name: string, csharp: InvokeMemberB
                 match direct with
                 | Some rule -> rule
                 | None ->
-                    if target.HasValue && (args |> Array.forall (fun a -> a.HasValue)) then
+                    if allValues then
                         match OptionalArguments.tryCall context t name target args with
                         | Some rule -> rule
                         | None -> errorSuggestion
@@ -437,39 +957,6 @@ type FSharpReadOrInvokeBinder(context: Type, name: string, csharp: InvokeMemberB
             | None -> DynamicMetaObject(Expression.Dynamic(value, typeof<obj>, read), restriction)
 
     override _.FallbackInvoke(target, args, errorSuggestion) = value.FallbackInvoke(target, args, errorSuggestion)
-
-/// One step of a curried F# function built at run time for a member read as a function of more
-/// arguments than the FunctionMember helpers cover: each step collects one argument and returns
-/// the next step, and the last invokes the site's delegate with all of them. This is exactly what
-/// F# emits for a curried function beyond OptimizedClosures' reach, minus InvokeFast.
-[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
-type CurryStep<'A, 'R>(collected: obj list, next: obj list -> obj) =
-    inherit FSharpFunc<'A, 'R>()
-    override _.Invoke(a: 'A) : 'R = unbox<'R> (next (collected @ [ box a ]))
-
-[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
-module CurriedInvoker =
-    /// A curried F# function of the given domain types (nested `FSharpFunc`s) whose final result,
-    /// converted, comes from invoking `site` (a `Func<CallSite, obj, args…, obj>`) with all the
-    /// arguments; `unitResult` sites are `Action`s.
-    let build (domains: Type list) (resultType: Type) (site: CallSite) (convert: CallSite) (target: obj) : obj =
-        let siteDelegate = site.GetType().GetField("Target").GetValue(site) :?> Delegate
-        let convertDelegate = if isNull convert then null else convert.GetType().GetField("Target").GetValue(convert) :?> Delegate
-        let finish (args: obj list) : obj =
-            let raw = siteDelegate.DynamicInvoke(Array.ofList (box site :: box target :: args))
-            if isNull convertDelegate then null else convertDelegate.DynamicInvoke([| box convert; raw |])
-        // The function type of the step taking domains.[i]: FSharpFunc<d_i, type of the rest>.
-        let rec stepType (ds: Type list) =
-            match ds with
-            | [] -> resultType
-            | d :: rest -> typedefof<FSharpFunc<_, _>>.MakeGenericType(d, stepType rest)
-        let rec step (collected: obj list) (ds: Type list) : obj =
-            match ds with
-            | [] -> finish collected
-            | d :: rest ->
-                let next (args: obj list) = step args rest
-                Activator.CreateInstance(typedefof<CurryStep<_, _>>.MakeGenericType(d, stepType rest), [| box collected; box next |])
-        step [] domains
 
 /// A member read as an F# function type: `let f: int -> int -> int = dlr { return x?Add }`. The
 /// value is an F# function (curried, so partial application works) that invokes the member with

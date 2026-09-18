@@ -38,10 +38,11 @@ let ``accessibility is the calling type's`` () =
     (fun () -> (dlr { return s?_firstChar } : char) |> ignore) |> should throw typeof<RuntimeBinderException>
 
 [<Fact>]
-let ``lambdas passed as arguments need a delegate type`` () =
+let ``lambdas passed as arguments no longer need a delegate type`` () =
+    // C# fails here (an FSharpFunc is not a Func<int,int>); the library converts, see Delegates.fs.
     let o = box (Widget())
-    let asFunction = fun (x: int) -> x * 2          // an FSharpFunc object: not a Func<int,int>
-    (fun () -> (dlr { return o?Run(asFunction) } : int) |> ignore) |> should throw typeof<RuntimeBinderException>
+    let asFunction = fun (x: int) -> x * 2
+    (dlr { return o?Run(asFunction) } : int) |> should equal 42
     let asDelegate = Func<int, int>(fun x -> x * 2)
     (dlr { return o?Run(asDelegate) } : int) |> should equal 42
 
