@@ -294,3 +294,19 @@ type Renderer private () =
     static member val Scale = 1.0 with get, set
     static member Parse<'T>(s: string) : 'T = System.Convert.ChangeType(s, typeof<'T>) :?> 'T
     static member private Secret() = "secret"
+
+// The F#-aware argument rules on every kind of target (#49): static methods, constructors,
+// delegate members and delegate values.
+type Statics private () =
+    static member BumpF(count: int, ?step: int) = count + defaultArg step 1
+    static member Run(f: Func<int, int>) = f.Invoke 21
+    static member Apply(x: int, f: int -> int) = f x
+type Ctor(count: int, ?step: int) =
+    member _.Value = count + defaultArg step 1
+type CtorF(f: Func<int, int>) =
+    member _.Value = f.Invoke 21
+type CtorFn(f: int -> int) =
+    member _.Value = f 21
+type DelegateMembers() =
+    member val Run: Func<Func<int, int>, int> = Func<Func<int, int>, int>(fun f -> f.Invoke 21) with get
+    member val Apply: (int -> int) -> int = (fun f -> f 21) with get

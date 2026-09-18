@@ -118,7 +118,15 @@ members, optional-parameter methods) apply the C# binder's accessibility rule fr
 context type: public always, internal from the same assembly (F# `private` is IL internal),
 private from inside the declaring type. Named or generic calls use C#'s binder unchanged. A member read as `… -> unit` is invoked through a void, result-discarded site.
 
-The same reflection fallback (`OptionalArguments.tryCall`, C#'s error suggestion) converts an F#
+The reflection fallback is one `tryInvoke` over candidates — instance methods (`tryCall`), the
+static methods of `Dlr.Static<T>.Overloads` (`tryStaticCall`, through
+`FSharpStaticInvokeMemberBinder`), constructors (`tryConstruct`, through
+`FSharpInvokeConstructorBinder`: C#'s constructor binder takes no error suggestion, its failure
+is a rule that throws, so ours applies exactly when C#'s bind is that throw) and a delegate
+target's `Invoke` (`tryInvokeDelegate`, from `FSharpInvokeBinder`; a delegate-typed member is
+routed to that nested site). `FunctionShapes.applyCall` takes the same conversions through a hook
+(`convertArgument`, set once `OptionalArguments` exists), so an F# function member whose domain is
+a delegate or a function accepts the other kind too. The fallback (`OptionalArguments.tryCall`, C#'s error suggestion) converts an F#
 function argument for a delegate parameter and a delegate argument for a function parameter.
 Function to delegate: a `FunctionAdapters` instance whose `Invoke` has the delegate's exact
 signature (curried/tupled × result/void, 0–16 parameters; `OptimizedClosures` for curried up to
