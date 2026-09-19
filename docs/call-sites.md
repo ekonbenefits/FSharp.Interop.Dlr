@@ -64,12 +64,16 @@ let sites = cache.Get((name, types)) in delegate.Invoke(sites.[0], …, target, 
 A new key creates binders and sites (microseconds) — no `Compile()` — and then pays the DLR's
 own first bind like any site. Argument names in `Dlr.named` stay static.
 
-## Run-time argument names
+## Run-time argument names and counts
 
-`Dlr.namedOf pairs` changes the site's *arity* with the names, so per distinct name list the
-whole operation is compiled, not only its sites: a `NamedOfCache` constant holds one compiled
-delegate per name list (target, the fixed arguments, the named values as `obj[]`), all of one
-delegate type, so the call is a typed `Invoke`. A lookup compares the pairs' names against the
+`Dlr.namedOf pairs` and `Dlr.argsOf values` change the site's *arity*, so per distinct argument
+shape the whole operation is compiled, not only its sites: a `NamedOfCache` constant holds one
+compiled delegate per shape — the ordered names, an empty name standing for a positional value
+(`argsOf`'s first, then `namedOf`'s names) — taking the target, the fixed arguments and the
+splatted values as one `obj[]`, all of one delegate type, so the call is a typed `Invoke`. The
+compiled call keeps the source order of fixed arguments and the positional splat; named
+arguments are the trailing ones (the binder's `CallInfo` names the last arguments), so a
+positional after `namedOf` is a translation error. A lookup compares the pairs' names against the
 entries in place (a site sees few name lists) and allocates nothing but the values array; a
 miss is a `Compile()` (once). At `Capacity` (64) entries it clears. Measured ~32 ns a call
 against ~12 for `Dlr.named` and ~8 for C#'s named arguments (`docs/benchmarks.md`). With a

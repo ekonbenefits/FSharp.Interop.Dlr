@@ -57,5 +57,5 @@ constructors, delegate-typed members and delegate values.
   `op_Equality` and dynamic objects keep C#'s rules.
 - **Member names, generic type arguments and argument names may be run-time values**: `(?) x name`
   and `Dlr.typeArgsOf ts` create the call sites per distinct name or type list, and
-  `Dlr.namedOf kw` compiles the call per distinct list of argument names (keyword arguments from
-  data), cached per site. C#'s are fixed at compile time.
+  `Dlr.namedOf kw` / `Dlr.argsOf xs` compile the call per distinct argument shape (keyword
+  arguments and positional arguments from data, `f(*args, **kwargs)`), cached per site. C#'s are fixed at compile time.

@@ -62,6 +62,8 @@ type Dlr =
     static member named: record: 'T -> Named<'T>
     /// <summary>Named arguments whose names are run-time values — keyword arguments from data: <c>plt?plot(xs, ys, Dlr.namedOf kwargs)</c> with <c>kwargs: (string * obj) list</c>. Values dispatch on their runtime types. The call is compiled once per distinct name list at the site (bounded), then cached; combines with positional arguments, <c>Dlr.named</c>, a computed member name and <c>Dlr.typeArgsOf</c>.</summary>
     static member namedOf: args: (string * obj) list -> Named<(string * obj) list>
+    /// <summary>Positional arguments whose count is a run-time value — Python's <c>*args</c>: <c>m?f(Dlr.argsOf args, Dlr.namedOf kwargs)</c> is <c>f(*args, **kwargs)</c>. Values dispatch on their runtime types; compiled once per distinct count (and name list) at the site, like <c>Dlr.namedOf</c>; combines with fixed arguments before or after it and with <c>Dlr.named</c> / <c>Dlr.namedOf</c> after it.</summary>
+    static member argsOf: args: obj list -> Named<obj list>
     /// <summary>Dynamic indexer get, target last: <c>x |&gt; Dlr.item i</c>, <c>x |&gt; Dlr.item (i, j)</c> (a tuple, literal or in a variable, is several indexes, as for <c>Dlr.call</c>; a struct tuple is one); the element type is inferred from use.</summary>
     static member item: indexes: 'TIndexes -> target: obj -> 'T
     /// <summary>Dynamic indexer set, target last: <c>x |&gt; Dlr.setItem i v</c>, <c>x |&gt; Dlr.setItem (i, j) v</c>.</summary>
