@@ -73,7 +73,9 @@ lambda, because a variable captured by a nested lambda would be a `StrongBox` re
 the constant; on the LINQ tree, because FSharp.Core before 10.1 converted a quotation `Let` into a
 nested lambda invocation (measured 50× slower; the floor is now 10.1, for the same converter's
 `Sequential`/`PropertySet` support). Measured, a member call went from ~30 ns to ~18 against C#
-`dynamic`'s ~7.5; what remains is the block's entry ([pipeline](pipeline.md)).
+`dynamic`'s ~7.5; what remained was the block's entry, since cut to ~11 by the struct state
+machine ([pipeline](pipeline.md)), whose by-reference reader is wrapped around the hoisted lambda
+after this pass, so the site locals sit inside the copy of the machine.
 
 An earlier design emitted a holder type with static fields per block (the C# compiler's shape,
 ~1 ns faster) and was dropped: a non-collectible holder cannot reference argument types from a
