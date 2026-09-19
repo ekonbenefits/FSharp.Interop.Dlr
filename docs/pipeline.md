@@ -48,7 +48,8 @@ variables off its fields ([translation](translation.md)). No closure is allocate
 **Fallback.** Where the compiler does not build the machine — Debug builds (`__useResumableCode`
 is false without optimization) — `Run`'s `else` branch receives the `ResumableCode`
 delegate. `DlrRun.Closure` reads the block's `Delay` closure back out of that delegate's
-target (the builder's own `Delay` lambda captures it in a field named `delayed`; when the
+target (the builder's own `Delay` lambda captures it in a field named `delayed`, read by a
+reader compiled once per result type — `Delayed<'T>` — not by reflection per call; when the
 optimizer has inlined it, the target itself is the closure) and continues on the closure path:
 the closure's type is the key, its fields the captured values, and [`Sites<'T>`](caches.md) the
 typed cache (last-hit compare, then a dictionary). Same contract, same `Discover` and `Translate`; the cost
