@@ -9,7 +9,7 @@ open AnyUnit.Style.FsUnit
 
 [<Fact>]
 let ``nested dlr blocks`` () =
-    let w = box (Widget())
+    let w: obj = Widget()
     let n: int = dlr { return (dlr { return w?Count } : int) + w?Count }
     n |> should equal 6
 
@@ -18,7 +18,7 @@ let ``nested dlr blocks`` () =
 // the thread), and the engine reports the declared requirement as Ignored there instead.
 [<Fact; RequiresCapability(TestCapabilities.AsyncYield)>]
 let ``dlr inside task`` () : System.Threading.Tasks.Task =
-    let w = box (Widget())
+    let w: obj = Widget()
     task {
         do! System.Threading.Tasks.Task.Yield()
         let n: int = dlr { return w?Count }
@@ -27,7 +27,7 @@ let ``dlr inside task`` () : System.Threading.Tasks.Task =
 
 [<Fact; RequiresCapability(TestCapabilities.AsyncYield)>]
 let ``dlr inside async`` () : System.Threading.Tasks.Task =
-    let w = box (Widget())
+    let w: obj = Widget()
     async {
         do! Async.Sleep 1
         let n: int = dlr { return w?Count }
@@ -37,7 +37,7 @@ let ``dlr inside async`` () : System.Threading.Tasks.Task =
 
 [<Fact>]
 let ``dlr inside task and async that complete synchronously`` () =
-    let w = box (Widget())
+    let w: obj = Widget()
     let t = task { return (dlr { return w?Count } : int) }
     t.Result |> should equal 3
     // StartImmediate runs on the current thread up to the first real suspension, so a
@@ -48,7 +48,7 @@ let ``dlr inside task and async that complete synchronously`` () =
 
 [<Fact>]
 let ``nested dlr blocks on separate lines share the outer site`` () =
-    let w = box (Widget())
+    let w: obj = Widget()
     let before = DlrCache.count ()
     let f () : string =
         dlr {

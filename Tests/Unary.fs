@@ -8,27 +8,34 @@ open Microsoft.CSharp.RuntimeBinder
 
 [<Fact>]
 let ``explicit cast truncates where the implicit conversion refuses`` () =
-    let w = box (Widget())
-    (dlr { return Dlr.cast<int> w?Ratio } : int) |> should equal 2
+    let w: obj = Widget()
+    let truncated: int = dlr { return Dlr.cast<int> w?Ratio }
+    truncated |> should equal 2
     (fun () -> (dlr { return w?Ratio } : int) |> ignore) |> should throw typeof<RuntimeBinderException>
 
 [<Fact>]
 let ``explicit cast on a typed value and on an enum`` () =
     let d = 3.9
-    (dlr { return Dlr.cast<int> d }) |> should equal 3
-    (dlr { return Dlr.cast<System.DayOfWeek> 2 }) |> should equal System.DayOfWeek.Tuesday
+    let truncated = dlr { return Dlr.cast<int> d }
+    let day = dlr { return Dlr.cast<System.DayOfWeek> 2 }
+    truncated |> should equal 3
+    day |> should equal System.DayOfWeek.Tuesday
 
 [<Fact>]
 let ``unary operators`` () =
     let n, b = box 5, box true
-    (dlr { return Dlr.neg n } : int) |> should equal -5
-    (dlr { return Dlr.not b } : bool) |> should equal false
-    (dlr { return Dlr.complement n } : int) |> should equal -6
+    let negated: int = dlr { return Dlr.neg n }
+    let inverted: bool = dlr { return Dlr.not b }
+    let complemented: int = dlr { return Dlr.complement n }
+    negated |> should equal -5
+    inverted |> should equal false
+    complemented |> should equal -6
 
 [<Fact>]
 let ``unary operators reach TryUnaryOperation`` () =
-    let a = box (Arith(4))
-    (dlr { return Dlr.neg a } : Arith).Value |> should equal -4
+    let a: obj = Arith(4)
+    let negated: Arith = dlr { return Dlr.neg a }
+    negated.Value |> should equal -4
 
 [<Fact>]
 let ``unary on an unsupported operand raises RuntimeBinderException`` () =
@@ -50,12 +57,13 @@ let ``implicit conversion uses op_Implicit and TryConvert`` () =
     let n = box 7
     let m: Meters = dlr { return Dlr.implicit n }
     m.Value |> should equal 7
-    let a = box (Arith(9))
-    let s: string = dlr { return Dlr.implicit a }
-    s |> should equal "9"
+    let a: obj = Arith(9)
+    let text: string = dlr { return Dlr.implicit a }
+    text |> should equal "9"
 
 [<Fact>]
 let ``implicit conversion refuses what a cast would allow`` () =
     let d = box 3.9
     (fun () -> (dlr { return Dlr.implicit d } : int) |> ignore) |> should throw typeof<RuntimeBinderException>
-    (dlr { return Dlr.cast<int> d }) |> should equal 3
+    let truncated: int = dlr { return Dlr.cast<int> d }
+    truncated |> should equal 3

@@ -25,25 +25,35 @@ let private bag () =
 
 [<Fact>]
 let ``an F# function in a dynamic member is invoked like a delegate would be`` () =
-    let e = box (bag ())
-    (dlr { return e?Del(21) } : int) |> should equal 42        // delegate: the binder's own path
-    (dlr { return e?Fn(21) } : int) |> should equal 42         // FSharpFunc: the fallback
-    (dlr { return e?Thunk() } : string) |> should equal "ran"
+    let e: obj = bag ()
+    let viaDelegate: int = dlr { return e?Del(21) }            // delegate: the binder's own path
+    let viaFunction: int = dlr { return e?Fn(21) }             // FSharpFunc: the fallback
+    let viaThunk: string = dlr { return e?Thunk() }
+    viaDelegate |> should equal 42
+    viaFunction |> should equal 42
+    viaThunk |> should equal "ran"
 
 [<Fact>]
 let ``curried and tupled functions both take a tuple call`` () =
-    let e = box (bag ())
-    (dlr { return e?Curried(1, 2) } : int) |> should equal 3
-    (dlr { return e?Tupled(3, 4) } : int) |> should equal 12
-    (dlr { return e?Three(1, 2, 3) } : int) |> should equal 6
+    let e: obj = bag ()
+    let curried: int = dlr { return e?Curried(1, 2) }
+    let tupled: int = dlr { return e?Tupled(3, 4) }
+    let three: int = dlr { return e?Three(1, 2, 3) }
+    curried |> should equal 3
+    tupled |> should equal 12
+    three |> should equal 6
 
 [<Fact>]
 let ``four arguments, curried and tupled, as a member call and through Dlr.apply`` () =
-    let e = box (bag ())
-    (dlr { return e?Four(1, 2, 3, 4) } : int) |> should equal 1234
-    (dlr { return e?FourTupled(1, 2, 3, 4) } : int) |> should equal 10
-    (dlr { return (e |> Dlr.get "Four") |> Dlr.apply (4, 3, 2, 1) } : int) |> should equal 4321
-    (dlr { return (e |> Dlr.get "FourTupled") |> Dlr.apply (1, 1, 1, 1) } : int) |> should equal 4
+    let e: obj = bag ()
+    let curried: int = dlr { return e?Four(1, 2, 3, 4) }
+    let tupled: int = dlr { return e?FourTupled(1, 2, 3, 4) }
+    curried |> should equal 1234
+    tupled |> should equal 10
+    let applied: int = dlr { return (e |> Dlr.get "Four") |> Dlr.apply (4, 3, 2, 1) }
+    let appliedTupled: int = dlr { return (e |> Dlr.get "FourTupled") |> Dlr.apply (1, 1, 1, 1) }
+    applied |> should equal 4321
+    appliedTupled |> should equal 4
     let f: int -> int -> int -> int -> int = dlr { return e?Four }
     f 5 6 7 8 |> should equal 5678
 
@@ -56,28 +66,28 @@ let ``a unit-returning F# function member called as a statement`` () =
     let tick = box (fun () -> hits.Add "called")
     dlr { tick |> Dlr.apply () }
     let w = Widget()
-    let o = box w
+    let o: obj = w
     dlr { o?Touch() }                        // a void method still binds with the result discarded
     List.ofSeq hits |> should equal [ "a"; "tick"; "called" ]
     w.Touched |> should equal 1
 
 [<Fact>]
 let ``a curried function applied F# style goes through the optimized closure`` () =
-    let e = box (bag ())
+    let e: obj = bag ()
     let r: int = dlr { return (e?Curried : int -> int -> int) 10 5 }
     r |> should equal 15
 
 [<Fact>]
 let ``a member read as a function type is a curried invoker of it`` () =
     // Whatever the member is: an F# function, a delegate, a method. Applied when fully applied.
-    let e = box (bag ())
+    let e: obj = bag ()
     let f: int -> int = dlr { return e?Fn }
     f 4 |> should equal 8
     let g: int -> int -> int = dlr { return e |> Dlr.get "Curried" }
     g 2 3 |> should equal 5
     let d: int -> int = dlr { return e?Del }
     d 21 |> should equal 42
-    let w = box (Widget())
+    let w: obj = Widget()
     let add: int -> int -> int = dlr { return w?Add }
     add 40 2 |> should equal 42
     let addTupled: int * int -> int = dlr { return w?Add }
@@ -85,7 +95,7 @@ let ``a member read as a function type is a curried invoker of it`` () =
 
 [<Fact>]
 let ``a curried invoker supports partial application and converts its result`` () =
-    let w = box (Widget())
+    let w: obj = Widget()
     let add: int -> int -> int64 = dlr { return w?Add }
     let add40 = add 40
     add40 2 |> should equal 42L
@@ -95,7 +105,7 @@ let ``a curried invoker supports partial application and converts its result`` (
 [<Fact>]
 let ``unit -> R reads a property or invokes a parameterless method`` () =
     let w = Widget()
-    let o = box w
+    let o: obj = w
     let count: unit -> int = dlr { return o?Count }
     count () |> should equal 3
     w.Count <- 5
@@ -105,17 +115,20 @@ let ``unit -> R reads a property or invokes a parameterless method`` () =
 
 [<Fact>]
 let ``a computed name read as a function type`` () =
-    let w = box (Widget())
+    let w: obj = Widget()
     let bind (name: string) : int -> int -> int = dlr { return (?) w name }
     (bind "Add") 1 2 |> should equal 3
 
 [<Fact>]
 let ``Dlr.apply applies an F# function target`` () =
-    let e = box (bag ())
-    (dlr { return (e |> Dlr.get "Fn") |> Dlr.apply 21 } : int) |> should equal 42
-    (dlr { return (e |> Dlr.get "Curried") |> Dlr.apply (4, 5) } : int) |> should equal 9
+    let e: obj = bag ()
+    let one: int = dlr { return (e |> Dlr.get "Fn") |> Dlr.apply 21 }
+    let two: int = dlr { return (e |> Dlr.get "Curried") |> Dlr.apply (4, 5) }
+    one |> should equal 42
+    two |> should equal 9
     let thunk = box (fun () -> 7)
-    (dlr { return thunk |> Dlr.apply () } : int) |> should equal 7
+    let none: int = dlr { return thunk |> Dlr.apply () }
+    none |> should equal 7
 
 [<Fact>]
 let ``record fields holding functions on a CLR type`` () =
@@ -125,14 +138,14 @@ let ``record fields holding functions on a CLR type`` () =
 
 [<Fact>]
 let ``a wrong argument type still reports the binder's own error`` () =
-    let e = box (bag ())
+    let e: obj = bag ()
     let s = "not an int"
     (fun () -> (dlr { return e?Fn(s) } : int) |> ignore) |> should throw typeof<RuntimeBinderException>
     (fun () -> (dlr { return e?Missing(1) } : int) |> ignore) |> should throw typeof<RuntimeBinderException>
 
 [<Fact>]
 let ``computed names take the same fallback`` () =
-    let e = box (bag ())
+    let e: obj = bag ()
     let call (name: string) : int = dlr { return ((?) e name) (21) }
     call "Del" |> should equal 42
     call "Fn" |> should equal 42
@@ -263,7 +276,7 @@ let ``reading a member as a curried function has no arity limit`` () =
 
 [<Fact>]
 let ``a method of only optional parameters can be read as unit -> R`` () =
-    let o = box (Widget())
+    let o: obj = Widget()
     let wrap: unit -> string = dlr { return o?Wrap }
     wrap () |> should equal "<x>"
 
@@ -299,7 +312,7 @@ let ``a null argument to an F# function member binds, and does not re-bind forev
 
 [<Fact>]
 let ``a unit-typed variable as the argument means no arguments`` () =
-    let w = box (Widget())
+    let w: obj = Widget()
     let args = ()
     (dlr { return w?Describe(args) } : string) |> should equal "described"
     let f = box (fun () -> 42)
@@ -337,8 +350,10 @@ let ``Dlr.call read at exactly the function's type returns the function itself``
 [<Fact>]
 let ``Dlr.call applied is a call, and piped it reads`` () =
     let d = box (Func<int, int, int>(fun a b -> a + b))
-    (dlr { return Dlr.call d (1, 2) } : int) |> should equal 3
-    (dlr { return (d |> Dlr.call) (4, 5) } : int) |> should equal 9
+    let called: int = dlr { return Dlr.call d (1, 2) }
+    let pipedThenApplied: int = dlr { return (d |> Dlr.call) (4, 5) }
+    called |> should equal 3
+    pipedThenApplied |> should equal 9
     let f: int * int -> int = dlr { return d |> Dlr.call }
     f (6, 7) |> should equal 13
 

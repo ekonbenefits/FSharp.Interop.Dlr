@@ -18,24 +18,32 @@ let ``a static overload is picked by the argument's runtime type`` () =
 [<Fact>]
 let ``typed arguments bind by their static type`` () =
     let p = { X = 7; Y = 0 }
-    (dlr { return Dlr.Static<Renderer>.Overloads?Draw(p) } : string) |> should equal "point 7"
-    (dlr { return Dlr.Static<Renderer>.Overloads?Draw("s") } : string) |> should equal "obj s"
+    let point: string = dlr { return Dlr.Static<Renderer>.Overloads?Draw(p) }
+    let text: string = dlr { return Dlr.Static<Renderer>.Overloads?Draw("s") }
+    point |> should equal "point 7"
+    text |> should equal "obj s"
 
 [<Fact>]
 let ``pipe form, computed name, type arguments`` () =
-    (dlr { return Dlr.Static<Renderer>.Overloads |> Dlr.invoke "Draw" (box 1) } : string) |> should equal "obj 1"
+    let piped: string = dlr { return Dlr.Static<Renderer>.Overloads |> Dlr.invoke "Draw" (box 1) }
+    piped |> should equal "obj 1"
     let call (m: string) : string = dlr { return (?) Dlr.Static<Renderer>.Overloads m (box 9) }
     call "Draw" |> should equal "obj 9"
-    (dlr { return Dlr.Static<Renderer>.Overloads?Parse(Dlr.typeArgs<int>(), "42") } : int) |> should equal 42
+    let parsed: int = dlr { return Dlr.Static<Renderer>.Overloads?Parse(Dlr.typeArgs<int>(), "42") }
+    parsed |> should equal 42
     let t = typeof<float>
-    (dlr { return Dlr.Static<Renderer>.Overloads?Parse(Dlr.typeArgsOf [ t ], "2.5") } : float) |> should equal 2.5
+    let parsedAs: float = dlr { return Dlr.Static<Renderer>.Overloads?Parse(Dlr.typeArgsOf [ t ], "2.5") }
+    parsedAs |> should equal 2.5
 
 [<Fact>]
 let ``BCL statics, and F# private statics from the same assembly`` () =
-    (dlr { return Dlr.Static<Math>.Overloads?Max(box 3, box 7) } : int) |> should equal 7
-    (dlr { return Dlr.Static<Math>.Overloads?Max(box 2.5, box 1.0) } : float) |> should equal 2.5
-    (dlr { return Dlr.Static<String>.Overloads?Join(", ", [| "a"; "b" |]) } : string) |> should equal "a, b"
-    (dlr { return Dlr.Static<Renderer>.Overloads?Secret() } : string) |> should equal "secret"   // F# private is IL internal
+    let max (a: obj) (b: obj) : obj = dlr { return Dlr.Static<Math>.Overloads?Max(a, b) }
+    max 3 7 |> should equal (box 7)
+    max 2.5 1.0 |> should equal (box 2.5)
+    let joined: string = dlr { return Dlr.Static<String>.Overloads?Join(", ", [| "a"; "b" |]) }
+    joined |> should equal "a, b"
+    let secret: string = dlr { return Dlr.Static<Renderer>.Overloads?Secret() }        // F# private is IL internal
+    secret |> should equal "secret"
 
 [<Fact>]
 let ``a miss is the binder's error; anything but a call is a translation error`` () =

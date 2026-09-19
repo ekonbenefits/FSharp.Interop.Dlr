@@ -7,7 +7,7 @@ open FSharp.Interop.Dlr
 
 [<Fact>]
 let ``let and if in the body`` () =
-    let w = box (Widget())
+    let w: obj = Widget()
     let f (flag: bool) : string =
         dlr {
             let n: int = w?Count
@@ -20,7 +20,7 @@ let ``let and if in the body`` () =
 [<Fact>]
 let ``sequential statements`` () =
     let w = Widget()
-    let o = box w
+    let o: obj = w
     let n: int =
         dlr {
             o?Count <- 10
@@ -32,7 +32,7 @@ let ``sequential statements`` () =
 
 [<Fact>]
 let ``closure values of several types`` () =
-    let w = box (Widget())
+    let w: obj = Widget()
     let a = 1
     let b = 2L
     let s = "x"
@@ -41,27 +41,27 @@ let ``closure values of several types`` () =
 
 [<Fact>]
 let ``ordinary F# code mixes with dynamic calls`` () =
-    let w = box (Widget())
+    let w: obj = Widget()
     let items = [ 1; 2; 3 ]
     let total: int = dlr { return List.sum items + w?Count }
     total |> should equal 9
 
 [<Fact>]
 let ``nested dynamic call as obj dispatches on the runtime type`` () =
-    let w = box (Widget())
+    let w: obj = Widget()
     let r: string = dlr { return w?Pick(w?Count) }
     r |> should equal "int"
 
 [<Fact>]
 let ``nested dynamic call with typed intermediate`` () =
-    let w = box (Widget())
+    let w: obj = Widget()
     let r: string = dlr { return w?Pick(w?Count : int) }
     r |> should equal "int"
 
 [<Fact>]
 let ``if without else uses Zero`` () =
     let w = Widget()
-    let o = box w
+    let o: obj = w
     let f (flag: bool) = dlr { if flag then o?Touch() }
     f false
     f true
@@ -69,13 +69,13 @@ let ``if without else uses Zero`` () =
 
 [<Fact>]
 let ``dlr inside a lambda`` () =
-    let w = box (Widget())
-    let results = [ 1; 2; 3 ] |> List.map (fun i -> (dlr { return w?Add(i, i) } : int))
-    results |> should equal [ 2; 4; 6 ]
+    let w: obj = Widget()
+    let doubled = [ 1; 2; 3 ] |> List.map (fun i -> dlr { return w?Add(i, i) } : int)
+    doubled |> should equal [ 2; 4; 6 ]
 
 [<Fact>]
 let ``several blocks in one function are separate sites`` () =
-    let w = box (Widget())
+    let w: obj = Widget()
     let a: int = dlr { return w?Count }
     let b: string = dlr { return w?Name }
     (a, b) |> should equal (3, "widget")
@@ -85,7 +85,7 @@ let ``let rec walks a dynamic structure`` () =
     // The recursive step is itself dynamic: each level's Child is only known at run time.
     let leaf = Fixtures.expando [ "Child", null ]
     let mid = Fixtures.expando [ "Child", box leaf ]
-    let root = box (Fixtures.expando [ "Child", box mid ])
+    let root: obj = Fixtures.expando [ "Child", box mid ]
     let n: int =
         dlr {
             let rec depth (node: obj) : int =
@@ -96,7 +96,7 @@ let ``let rec walks a dynamic structure`` () =
 
 [<Fact>]
 let ``mutually recursive let rec inside the block`` () =
-    let w = box (Widget())
+    let w: obj = Widget()
     let r: string =
         dlr {
             let rec isEven n = if n = 0 then true else isOdd (n - 1)
@@ -107,7 +107,7 @@ let ``mutually recursive let rec inside the block`` () =
 
 [<Fact>]
 let ``let rec can call dynamic members`` () =
-    let w = box (Widget())
+    let w: obj = Widget()
     let acc = ResizeArray<int>()
     dlr {
         let rec countDown (n: int) =

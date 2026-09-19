@@ -7,54 +7,61 @@ open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
 open Microsoft.CSharp.RuntimeBinder
 
+// The target is an `obj` from somewhere: a parameter, a plugin, a parsed document. The tests
+// take it as a parameter so the blocks read as they would in a function that receives one.
+
 [<Fact>]
 let ``invoke with no args`` () =
-    let w = box (Widget())
-    let s: string = dlr { return w?Describe() }
-    s |> should equal "described"
+    let describe (w: obj) : string = dlr { return w?Describe() }
+    describe (Widget()) |> should equal "described"
 
 [<Fact>]
 let ``invoke with one arg uses the static type for overload resolution`` () =
-    let w = box (Widget())
+    let w: obj = Widget()
     let n = 5
     let s = "five"
-    (dlr { return w?Pick(n) } : string) |> should equal "int"
-    (dlr { return w?Pick(s) } : string) |> should equal "string"
+    let byInt: string = dlr { return w?Pick(n) }
+    let byString: string = dlr { return w?Pick(s) }
+    byInt |> should equal "int"
+    byString |> should equal "string"
 
 [<Fact>]
 let ``invoke with an obj arg dispatches on the runtime type`` () =
-    let w = box (Widget())
+    let w: obj = Widget()
     let o = box 5
-    (dlr { return w?Pick(o) } : string) |> should equal "int"
+    let picked: string = dlr { return w?Pick(o) }
+    picked |> should equal "int"
 
 [<Fact>]
 let ``invoke with tuple args`` () =
-    let w = box (Widget())
-    let a, b = 2, 40
-    (dlr { return w?Add(a, b) } : int) |> should equal 42
+    let add (w: obj) (a: int) (b: int) : int = dlr { return w?Add(a, b) }
+    add (Widget()) 2 40 |> should equal 42
 
 [<Fact>]
 let ``invoke with literal args`` () =
-    let w = box (Widget())
-    (dlr { return w?Add(1, 2) } : int) |> should equal 3
+    let w: obj = Widget()
+    let sum: int = dlr { return w?Add(1, 2) }
+    sum |> should equal 3
 
 [<Fact>]
 let ``named args reorder`` () =
-    let w = box (Widget())
-    let s: string = dlr { return w?Greet(Dlr.named {| name = "Jay"; greeting = "Hi" |}) }
-    s |> should equal "Hi, Jay"
+    let w: obj = Widget()
+    let greeting: string = dlr { return w?Greet(Dlr.named {| name = "Jay"; greeting = "Hi" |}) }
+    greeting |> should equal "Hi, Jay"
 
 [<Fact>]
 let ``named args mix with positional`` () =
-    let w = box (Widget())
+    let w: obj = Widget()
     let n = 10
-    (dlr { return w?Bump(n, Dlr.named {| step = 5 |}) } : int) |> should equal 15
-    (dlr { return w?Bump(n) } : int) |> should equal 11
+    let stepped: int = dlr { return w?Bump(n, Dlr.named {| step = 5 |}) }
+    let defaulted: int = dlr { return w?Bump(n) }
+    stepped |> should equal 15
+    defaulted |> should equal 11
 
 [<Fact>]
 let ``named args reach a DynamicObject by name`` () =
     let r = Recorder()
-    let o = box r
+    let o: obj = r
     let s: string = dlr { return o?Call(1, Dlr.named {| second = 2 |}) }
     s |> should equal "1|2"
     List.ofSeq r.Log |> should equal [ "invoke Call(2 args; named second)" ]
@@ -62,13 +69,13 @@ let ``named args reach a DynamicObject by name`` () =
 [<Fact>]
 let ``bare anonymous record is one positional arg`` () =
     let r = Recorder()
-    let o = box r
+    let o: obj = r
     let _: string = dlr { return o?Call({| a = 1; b = 2 |}) }
     List.ofSeq r.Log |> should equal [ "invoke Call(1 args; named )" ]
 
 [<Fact>]
 let ``Dlr.named around a non-record is rejected`` () =
-    let r = box (Recorder())
+    let r: obj = Recorder()
     let x = 1
     (fun () -> (dlr { return r?Call(Dlr.named x) } : string) |> ignore)
     |> should throw typeof<DlrTranslationException>
@@ -76,7 +83,7 @@ let ``Dlr.named around a non-record is rejected`` () =
 [<Fact>]
 let ``unit result discards`` () =
     let w = Widget()
-    let o = box w
+    let o: obj = w
     dlr { w?Touch() }
     dlr { do o?Touch() }
     w.Touched |> should equal 2
@@ -84,13 +91,15 @@ let ``unit result discards`` () =
 [<Fact>]
 let ``invoke the target itself`` () =
     let f = box (Func<int, int>(fun x -> x * 2))
-    (dlr { return f |> Dlr.apply 21 } : int) |> should equal 42
+    let doubled: int = dlr { return f |> Dlr.apply 21 }
+    doubled |> should equal 42
 
 [<Fact>]
 let ``delegate arg passes through`` () =
-    let w = box (Widget())
+    let w: obj = Widget()
     let f = Func<int, int>(fun x -> x * 2)
-    (dlr { return w?Run(f) } : int) |> should equal 42
+    let ran: int = dlr { return w?Run(f) }
+    ran |> should equal 42
 
 [<Fact>]
 let ``invoke the target with a unit result`` () =
@@ -101,39 +110,46 @@ let ``invoke the target with a unit result`` () =
 
 [<Fact>]
 let ``explicit type argument when it cannot be inferred`` () =
-    let w = box (Widget())
-    (dlr { return w?TypeName(Dlr.typeArgs<int>()) } : string) |> should equal "Int32"
-    (dlr { return w?Default(Dlr.typeArgs<int>()) } : int) |> should equal 0
+    let w: obj = Widget()
+    let name: string = dlr { return w?TypeName(Dlr.typeArgs<int>()) }
+    let zero: int = dlr { return w?Default(Dlr.typeArgs<int>()) }
+    name |> should equal "Int32"
+    zero |> should equal 0
 
 [<Fact>]
 let ``two explicit type arguments with positional args`` () =
-    let w = box (Widget())
-    (dlr { return w?Pair(Dlr.typeArgs<obj, string>(), 1, "x") } : string) |> should equal "Object/String"
+    let w: obj = Widget()
+    let pair: string = dlr { return w?Pair(Dlr.typeArgs<obj, string>(), 1, "x") }
+    pair |> should equal "Object/String"
 
 [<Fact>]
 let ``type argument inference still works without the marker`` () =
-    let w = box (Widget())
-    (dlr { return w?Echo(41) } : int) |> should equal 41
+    let w: obj = Widget()
+    let echoed: int = dlr { return w?Echo(41) }
+    echoed |> should equal 41
 
 [<Fact>]
 let ``wrong type argument arity raises RuntimeBinderException`` () =
-    let w = box (Widget())
+    let w: obj = Widget()
     (fun () -> (dlr { return w?TypeName(Dlr.typeArgs<int, int>()) } : string) |> ignore)
     |> should throw typeof<RuntimeBinderException>
 
 [<Fact>]
 let ``typeArgsOf takes a literal list of any length`` () =
-    let w = box (Widget())
-    (dlr { return w?TypeName(Dlr.typeArgsOf [ typeof<int> ]) } : string) |> should equal "Int32"
-    (dlr { return w?Pair(Dlr.typeArgsOf [ typeof<obj>; typeof<string> ], 1, "x") } : string) |> should equal "Object/String"
-    (dlr { return w?FiveNames(Dlr.typeArgsOf [ typeof<int>; typeof<string>; typeof<float>; typeof<bool>; typeof<char> ]) } : string)
-    |> should equal "Int32/String/Double/Boolean/Char"
+    let w: obj = Widget()
+    let one: string = dlr { return w?TypeName(Dlr.typeArgsOf [ typeof<int> ]) }
+    let two: string = dlr { return w?Pair(Dlr.typeArgsOf [ typeof<obj>; typeof<string> ], 1, "x") }
+    let five: string = dlr { return w?FiveNames(Dlr.typeArgsOf [ typeof<int>; typeof<string>; typeof<float>; typeof<bool>; typeof<char> ]) }
+    one |> should equal "Int32"
+    two |> should equal "Object/String"
+    five |> should equal "Int32/String/Double/Boolean/Char"
     // An empty list is no type arguments: inference as without the marker.
-    (dlr { return w?Echo(Dlr.typeArgsOf [], 41) } : int) |> should equal 41
+    let inferred: int = dlr { return w?Echo(Dlr.typeArgsOf [], 41) }
+    inferred |> should equal 41
 
 [<Fact>]
 let ``typeArgsOf with a list only known at run time`` () =
-    let w = box (Widget())
+    let w: obj = Widget()
     let name (t: Type) : string = dlr { return w?TypeName(Dlr.typeArgsOf [ t ]) }
     name typeof<int> |> should equal "Int32"
     name typeof<string> |> should equal "String"
@@ -148,39 +164,41 @@ let ``typeArgsOf with a list only known at run time`` () =
     // An empty runtime list is inference; the wrong count is the binder's error.
     let echo (ts: Type list) : int = dlr { return w?Echo(Dlr.typeArgsOf ts, 41) }
     echo [] |> should equal 41
-    let two = [ typeof<int>; typeof<int> ]
-    (fun () -> (dlr { return w?TypeName(Dlr.typeArgsOf two) } : string) |> ignore) |> should throw typeof<RuntimeBinderException>
+    let names (ts: Type list) : string = dlr { return w?TypeName(Dlr.typeArgsOf ts) }
+    (fun () -> names [ typeof<int>; typeof<int> ] |> ignore) |> should throw typeof<RuntimeBinderException>
 
 [<Fact>]
 let ``typeArgs must come first`` () =
-    let w = box (Widget())
+    let w: obj = Widget()
     // The analyzer reports this at build time (DLR005); this pins the run-time error behind it.
     // fsharpanalyzer: ignore-line-next DLR005
     (fun () -> (dlr { return w?Pair(1, Dlr.typeArgs<int, int>()) } : string) |> ignore)
     |> should throw typeof<DlrTranslationException>
 
+// Argument conversions C# applies to constants: boundary tables, one case per line.
+
 [<Fact>]
 let ``an int literal converts to a narrower parameter like a C# constant`` () =
-    let w = box (Widget())
+    let w: obj = Widget()
     let n = 5
     (dlr { return w?Narrow(5) } : string) |> should equal "byte"
     (dlr { return w?Narrow(n) } : string) |> should equal "int64"
 
 [<Fact>]
 let ``the literal 0 converts to an enum parameter`` () =
-    let w = box (Widget())
+    let w: obj = Widget()
     let z = 0
     (dlr { return w?Kind(0) } : string) |> should equal "enum"
     (dlr { return w?Kind(z) } : string) |> should equal "obj"
 
 [<Fact>]
 let ``a null literal picks the reference overload`` () =
-    let w = box (Widget())
+    let w: obj = Widget()
     (dlr { return w?Text(null) } : string) |> should equal "string"
 
 [<Fact>]
 let ``a tuple in a variable is several arguments, as in F#'s own method calls`` () =
-    let w = box (Widget())
+    let w: obj = Widget()
     let args = (40, 2)
     (dlr { return w?Add args } : int) |> should equal 42
     (dlr { return w |> Dlr.invoke "Add" args } : int) |> should equal 42
@@ -201,12 +219,12 @@ let ``a tuple in a variable is several arguments, as in F#'s own method calls`` 
 
 [<Fact>]
 let ``an argument upcast with :> obj dispatches on its runtime type, like box`` () =
-    let w = box (Widget())
+    let w: obj = Widget()
     let d = DayOfWeek.Monday
     (dlr { return w?Kind(box d) } : string) |> should equal "enum"
     (dlr { return w?Kind(d :> obj) } : string) |> should equal "enum"
     // Where static and runtime types differ: `Holders`-typed holding a `Derived`.
-    let c = box (Classifier())
+    let c: obj = Classifier()
     let b: Holders = Derived()
     (dlr { return c?Kind(b) } : string) |> should equal "holders"         // typed: bound by the static type
     (dlr { return c?Kind(box b) } : string) |> should equal "derived"     // obj: bound by the runtime type
