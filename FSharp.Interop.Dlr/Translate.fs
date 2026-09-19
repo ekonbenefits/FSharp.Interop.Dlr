@@ -585,12 +585,6 @@ module internal Translate =
         let private withTuple (bound: Set<Var>) (tupleBindings: (Var * Expr) list) =
             tupleBindings |> List.fold (fun (b: Set<Var>) (v, _) -> b.Add v) bound
 
-        /// An invocation whose arguments include `Dlr.namedOf pairs`: the operation is compiled
-        /// per distinct name list — the names decide the site's arity, so the whole delegate is
-        /// per key — through a bounded `NamedOfCache` constant, taking the target, the fixed
-        /// arguments and the named values (`obj`, dispatched on runtime type). `operation` builds
-        /// the site expression for a target and its full argument list. `None` when there is no
-        /// `namedOf` in `argExprs`.
         /// The name and the type arguments of a keyed site, each either static (a constant in the
         /// key) or an expression evaluated per call in the scope the site is emitted in.
         type KeySpec = Choice<string, Expr> * Choice<Type list, Expr>
@@ -664,9 +658,14 @@ module internal Translate =
             keyedSiteCore block (keySpec rewriteIn bound nameExpr typeArgs) (targetArg rewriteIn bound target) argInfos resultType site
             |> bind rewriteIn bound bindings
 
-        /// `namedOfCall` with, optionally, a computed member name / run-time type arguments: their
-        /// expressions are evaluated in the block's scope and passed into the per-name-list
-        /// delegate as parameters, where `operation` gets them as a key for a `keyedSiteCore`.
+        /// An invocation whose arguments include `Dlr.namedOf pairs`: the operation is compiled
+        /// per distinct name list — the names decide the site's arity, so the whole delegate is
+        /// per key — through a bounded `NamedOfCache` constant, taking the target, the fixed
+        /// arguments and the named values (`obj`, dispatched on runtime type). `operation` builds
+        /// the site expression for a target and its full argument list. `None` when there is no
+        /// `namedOf` in `argExprs`. With a computed member name / run-time type arguments
+        /// (`key`), their expressions are evaluated in the block's scope and passed into the
+        /// per-name-list delegate as parameters, where `operation` gets them for a `keyedSiteCore`.
         let private namedOfCallKeyed (block: Block) (rewriteIn: Rewrite) bound (target: Expr) (argExprs: Expr list) (resultType: Type) (discard: bool) (key: KeySpec option) (operation: KeySpec -> Binders.Arg -> Binders.Arg list -> Expr) : Expr option =
             match argExprs |> List.tryPick (function NamedOf pairs -> Some pairs | _ -> None) with
             | None -> None
@@ -850,8 +849,12 @@ module internal Translate =
                 let v = rewrite value
                 convert e.Type (if v.Type = typeof<obj> then v else Expr.Coerce(v, typeof<obj>)) |> Some
             // The marker anywhere but as a target would run its getter at run time and throw the
-            // outside-a-block error from inside one; say what is wrong instead.
+            // outside-a-block error from inside one; say what is wrong instead. Likewise an
+            // argument marker anywhere but in a call's argument list (those were consumed above).
             | StaticTarget _ -> unsupported "Dlr.Static<T>.Overloads anywhere but as the target of a call" e
+            | Op opNamed _ -> unsupported "Dlr.named anywhere but as an argument of a call (a member call, Dlr.invoke, Dlr.call / Dlr.apply, Dlr.new')" e
+            | Op opNamedOf _ -> unsupported "Dlr.namedOf anywhere but as an argument of a call (a member call, Dlr.invoke, Dlr.call / Dlr.apply, Dlr.new')" e
+            | TypeArgs _ -> unsupported "Dlr.typeArgs anywhere but as the first argument of a member call" e
             | _ -> None
 
     /// Compiles the reflected body of one `dlr { }` block. `closureType` is the block's

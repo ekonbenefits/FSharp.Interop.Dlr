@@ -279,3 +279,16 @@ let ``namedOf: with a computed member name, and with run-time type arguments`` (
         add "Add" [ "a", box i; "b", box i ] |> should equal (i + i)
     let ts = [ typeof<int64> ]
     (dlr { return w?Echo(Dlr.typeArgsOf ts, Dlr.namedOf [ "x", box 42L ]) } : int64) |> should equal 42L
+
+[<Fact>]
+let ``an argument marker anywhere but in a call's arguments is a translation error, not an executed marker`` () =
+    let w = box (Widget())
+    let kw = [ "a", box 1 ]
+    // fsharpanalyzer: ignore-region-start DLR005
+    let ex = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> (dlr { return box (Dlr.namedOf kw) } : obj) |> ignore)
+    ex.Message |> should haveSubstring "Dlr.namedOf anywhere but as an argument"
+    let ex = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> (dlr { return w |> Dlr.item (Dlr.named {| p = 2 |}) } : int) |> ignore)
+    ex.Message |> should haveSubstring "Dlr.named anywhere but as an argument"
+    let ex = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> (dlr { let args = (1, Dlr.named {| p = 2 |}) in return w?Add args } : int) |> ignore)
+    ex.Message |> should haveSubstring "Dlr.named anywhere but as an argument"
+    // fsharpanalyzer: ignore-region-end DLR005

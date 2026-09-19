@@ -968,6 +968,7 @@ type NamedOfCache(compile: string list -> Delegate) =
 
     /// The delegate for the pairs' names, in order.
     member this.Get(pairs: (string * obj) list) : Delegate =
+        if isNull (box pairs) then nullArg "Dlr.namedOf: the list is null"
         let snapshot = entries
         let mutable found = null
         let mutable i = 0

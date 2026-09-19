@@ -165,22 +165,28 @@ let rec private head (f: FSharpExpr) (lambdas: int) : (FSharpMemberOrFunctionOrV
 /// applied to arguments, and `Dlr.invoke name args target`, `Dlr.apply args target`,
 /// `Dlr.new'(args…)`, written directly or partially applied through a pipe. The argument
 /// expressions of such a call, if `e` is one.
-let private callArgumentExprs (e: FSharpExpr) : FSharpExpr list option =
+/// The argument expressions of a call form, if `e` is one, and whether it is a *member* call
+/// (`?` / `Dlr.get` / `Dlr.invoke`): only those take type arguments; `Dlr.call` / `apply` /
+/// `new'` invoke a value or a constructor and reject them.
+let private callArgumentExprs (e: FSharpExpr) : (FSharpExpr list * bool) option =
     match e with
     | FSharpExprPatterns.Application(f, _, args) ->
+        // A direct `Dlr.get "M" w (a, b)` comes as one flattened list, `[name; target; (a, b)]`:
+        // the call's arguments are the last applied expression.
         match head f 0 with
-        | Some(mfv, _) when (match mfv.CompiledName with "op_Dynamic" | "get" | "call" -> true | _ -> false) -> Some args
+        | Some(mfv, _) when (match mfv.CompiledName with "op_Dynamic" | "get" -> true | _ -> false) -> Some([ List.last args ], true)
+        | Some(mfv, _) when mfv.CompiledName = "call" -> Some([ List.last args ], false)
         | Some(mfv, lambdas) when lambdas > 0 && (mfv.DisplayName = "invoke" || mfv.DisplayName = "apply") ->
             // The eta-expanded partial application: the applied arguments fill the lambda
             // parameters in order; the `args` parameter is the second of invoke, the first of apply.
             let index = if mfv.DisplayName = "invoke" then 1 else 0
-            if args.Length > index then Some [ args.[index] ] else None
+            if args.Length > index then Some([ args.[index] ], mfv.DisplayName = "invoke") else None
         | _ -> None
     | FSharpExprPatterns.Call(_, mfv, _, _, args) when isMarker mfv ->
         match mfv.DisplayName, args with
-        | "invoke", [ _; arg; _ ] -> Some [ arg ]
-        | "apply", [ arg; _ ] -> Some [ arg ]
-        | "new'", args -> Some args
+        | "invoke", [ _; arg; _ ] -> Some([ arg ], true)
+        | "apply", [ arg; _ ] -> Some([ arg ], false)
+        | "new'", args -> Some(args, false)
         | _ -> None
     | _ -> None
 
@@ -196,21 +202,25 @@ let private letDefinitions (e: FSharpExpr) =
 let private misplacedMarkers (block: FSharpExpr) : (range * string) list =
     let exprs = allExprs block
     let lets = letDefinitions block
-    /// An argument expression with a `let`-bound variable followed to its definition.
+    /// An argument expression with a compiler-generated `let`-bound variable followed to its
+    /// definition (F# lowers a call's tuple that way), and the coercion to `obj` of a `Dlr.new'`
+    /// argument stripped. A `let` the user wrote is not followed: the translator does not
+    /// either, and a marker in it executes.
     let rec resolve (a: FSharpExpr) =
         match a with
-        | FSharpExprPatterns.Value v ->
+        | FSharpExprPatterns.Value v when v.IsCompilerGenerated ->
             match lets |> List.tryFind (fun (lv, _) -> lv.IsEffectivelySameAs v) with
             | Some(_, def) -> resolve def
             | None -> a
+        | FSharpExprPatterns.Coerce(_, inner) -> resolve inner
         | _ -> a
     /// The items of one call's argument list: a tuple's elements, else the one expression.
     let items (a: FSharpExpr) =
         match resolve a with
         | FSharpExprPatterns.NewTuple(_, items) -> items |> List.map resolve
         | single -> [ single ]
-    let argumentLists = exprs |> List.choose callArgumentExprs |> List.map (List.collect items)
-    let argumentRoots = argumentLists |> List.concat
+    let argumentLists = exprs |> List.choose callArgumentExprs |> List.map (fun (args, isMember) -> List.collect items args, isMember)
+    let argumentRoots = argumentLists |> List.collect fst
     let markers = exprs |> List.choose (function FSharpExprPatterns.Call(_, mfv, _, _, _) as m when isArgumentMarker mfv -> Some(m, mfv) | _ -> None)
     /// A marker is placed if it *is* an argument root (its range equal), not merely inside one
     /// (a marker inside another marker's list is not an argument).
@@ -221,21 +231,23 @@ let private misplacedMarkers (block: FSharpExpr) : (range * string) list =
         |> List.map (fun (m, mfv) -> m.Range, sprintf "Dlr.%s is only meaningful as an argument of a call (a member call, Dlr.invoke, Dlr.call / Dlr.apply, Dlr.new'); here it would raise DlrTranslationException at the block's first call." mfv.DisplayName)
     let perList =
         argumentLists
-        |> List.collect (fun args ->
+        |> List.collect (fun (args, isMember) ->
             let named = args |> List.filter (function FSharpExprPatterns.Call(_, mfv, _, _, _) when isArgumentMarker mfv && mfv.DisplayName = "namedOf" -> true | _ -> false)
             let twice =
                 match named with
                 | _ :: second :: _ -> [ second.Range, "Dlr.namedOf twice in one call: concatenate the lists into one Dlr.namedOf." ]
                 | _ -> []
-            let typeArgsLate =
+            let typeArgs =
                 args
                 |> List.mapi (fun i a -> i, a)
                 |> List.choose (fun (i, a) ->
                     match a with
-                    | FSharpExprPatterns.Call(_, mfv, _, _, _) when i > 0 && isArgumentMarker mfv && mfv.DisplayName.StartsWith "typeArgs" ->
-                        Some(a.Range, sprintf "Dlr.%s must be the first argument." mfv.DisplayName)
+                    | FSharpExprPatterns.Call(_, mfv, _, _, _) when isArgumentMarker mfv && mfv.DisplayName.StartsWith "typeArgs" ->
+                        if not isMember then Some(a.Range, sprintf "Dlr.%s only applies to a member call (x?Name(…), Dlr.get, Dlr.invoke); a value invoked with Dlr.call / Dlr.apply or a constructor takes no type arguments." mfv.DisplayName)
+                        elif i > 0 then Some(a.Range, sprintf "Dlr.%s must be the first argument." mfv.DisplayName)
+                        else None
                     | _ -> None)
-            twice @ typeArgsLate)
+            twice @ typeArgs)
     outOfPlace @ perList
 
 /// The outermost `dlr.Run(...)` subtrees of `e`.

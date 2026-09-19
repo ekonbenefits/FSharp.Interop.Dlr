@@ -295,24 +295,30 @@ module Impl =
         let b: int = dlr { return w?M(Dlr.typeArgs<int>(), Dlr.namedOf kw) }
         let c: int = dlr { return w |> Dlr.invoke "M" (1, Dlr.namedOf kw) }
         let d: int = dlr { return w |> Dlr.apply (Dlr.namedOf kw) }
-        let e: int = dlr { return Dlr.call w (Dlr.typeArgsOf ts, 1) }
+        let e: int = dlr { return Dlr.call w (1, Dlr.namedOf kw) }
         let f: int = dlr { return Dlr.new'<int>(Dlr.namedOf kw) }
         let g: int = dlr { return (w |> Dlr.get "M") (Dlr.named {| p = 2 |}) }
-        a + b + c + d + e + f + g
+        let h: int = dlr { return Dlr.get "M" w (Dlr.typeArgsOf ts, Dlr.named {| p = 2 |}) }
+        a + b + c + d + e + f + g + h
     [<ReflectedDefinition>]
     let wrong () : int =
         let a: int = dlr { return w?M(Dlr.namedOf kw, Dlr.namedOf kw) }          // twice
         let b: int = dlr { return w?M(1, Dlr.typeArgs<int>()) }                 // not first
         let c: obj = dlr { return box (Dlr.namedOf kw) }                        // not an argument
         let d: int = dlr { return w |> Dlr.item (Dlr.named {| p = 2 |}) }       // an indexer is not a call
-        a + b + c.GetHashCode() + d
+        let e: int = dlr { return Dlr.call w (Dlr.typeArgsOf ts, 1) }           // type arguments on a value call
+        let f: int = dlr { return Dlr.new'<int>(Dlr.namedOf kw, Dlr.namedOf kw) } // twice, through new''s obj coercions
+        let g: int = dlr { let args = (1, Dlr.named {| p = 2 |}) in return w?M args }   // a let the user wrote: not followed
+        a + b + c.GetHashCode() + d + e + f + g
 """
     let out = msgs |> List.filter (fun m -> m.Code = ReflectedDefinitionAnalyzer.ArgumentMarkerCode)
     let lines = out |> List.map (fun m -> m.Range.StartLine) |> List.sort
     let first = List.head lines
-    lines |> should equal [ first; first + 1; first + 2; first + 3 ]
-    (out |> List.map (fun m -> m.Message)) |> List.exists (fun m -> m.Contains "twice") |> should equal true
-    (out |> List.map (fun m -> m.Message)) |> List.exists (fun m -> m.Contains "first argument") |> should equal true
-    (out |> List.map (fun m -> m.Message)) |> List.filter (fun m -> m.Contains "only meaningful as an argument") |> List.length |> should equal 2
+    lines |> should equal [ for i in 0 .. 6 -> first + i ]
+    let messages = out |> List.map (fun m -> m.Message)
+    messages |> List.filter (fun m -> m.Contains "twice") |> List.length |> should equal 2
+    messages |> List.exists (fun m -> m.Contains "first argument") |> should equal true
+    messages |> List.exists (fun m -> m.Contains "only applies to a member call") |> should equal true
+    messages |> List.filter (fun m -> m.Contains "only meaningful as an argument") |> List.length |> should equal 3
     (msgs |> List.filter (fun m -> m.Code <> ReflectedDefinitionAnalyzer.ArgumentMarkerCode)) |> should equal []
 
