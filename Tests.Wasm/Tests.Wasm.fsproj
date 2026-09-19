@@ -21,7 +21,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="FSharp.Core" VersionOverride="10.1.401" />
+    <PackageReference Include="FSharp.Core" />
     <PackageReference Include="AnyUnit.TestingPlatform" />
     <PackageReference Include="AnyUnit.Style.Xunit" />
     <PackageReference Include="AnyUnit.Style.FsUnit" />

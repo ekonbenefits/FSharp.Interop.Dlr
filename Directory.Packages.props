@@ -3,10 +3,13 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
   <ItemGroup>
-    <!-- Published dependency floor for the library; Tests override to a current version.
-         6.0 is the lowest that works: against older FSharp.Core the current compiler does not
-         inline enum operators (|||, int), which then hit FSharp.Core's throwing dynamic path. -->
-    <PackageVersion Include="FSharp.Core" Version="6.0.1" />
+    <!-- Published dependency floor for the library, and what the test projects run against, so
+         the floor is what the suite proves. 10.1 is the lowest that works: its
+         LeafExpressionConverter is the first to convert Sequential, PropertySet, VarSet and
+         FieldSet (every unit block, let mutable and let rec needs one) and to convert a Let
+         without a nested lambda. Older compilers can reference it: the package is
+         netstandard2.0, verified with the SDK 7 and 8 compilers. -->
+    <PackageVersion Include="FSharp.Core" Version="10.1.201" />
     <PackageVersion Include="Microsoft.CSharp" Version="4.7.0" />
     <PackageVersion Include="System.Reflection.Emit.Lightweight" Version="4.7.0" />
     <PackageVersion Include="AnyUnit.TestingPlatform" Version="1.2.2" />
