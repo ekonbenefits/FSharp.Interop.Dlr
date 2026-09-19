@@ -19,9 +19,10 @@ let OutsideCode = "DLR002"
 [<Literal>]
 let SharedLineCode = "DLR003"
 
-/// A `dlr { }` inside an `inline` function or member: the function is expanded into each caller,
-/// so the block's container is built there with the caller's values (a constant has no field at
-/// all) and its body is not where the reflected definition says. It cannot work.
+/// A `dlr { }` inside an `inline` function or member: in Release the function is expanded into
+/// each caller, so the block's container is built there with the caller's values (a constant has
+/// no field at all) and its body is not where the reflected definition says. A Debug build does
+/// not expand inline functions and calls it as a method, so it only appears to work there.
 [<Literal>]
 let InlineCode = "DLR004"
 
@@ -84,18 +85,29 @@ type private Finding =
       /// The function or member the compiler stores a definition for, for the message; None for module-level code.
       Binding: FSharpMemberOrFunctionOrValue option }
 
-/// Every `dlr.Run(...)` in an `inline` function or member, with the binding.
+let private isInline (mfv: FSharpMemberOrFunctionOrValue) =
+    try mfv.InlineAnnotation = FSharpInlineAnnotation.AlwaysInline || mfv.InlineAnnotation = FSharpInlineAnnotation.AggressiveInline
+    with _ -> false
+
+/// Every `dlr.Run(...)` in a local `let inline` function inside `e`, with the binding. (A local
+/// applied exactly once happens to resolve at run time through the once-called-function path;
+/// applied twice it fails in Release. `inline` on it buys nothing either way.)
+let rec private inLocalInline (e: FSharpExpr) : (range * FSharpMemberOrFunctionOrValue) list =
+    let here =
+        match e with
+        | FSharpExprPatterns.Let((mfv, def, _), _) when isInline mfv -> runCalls def |> List.map (fun r -> r, mfv)
+        | _ -> []
+    here @ (e.ImmediateSubExpressions |> List.collect inLocalInline)
+
+/// Every `dlr.Run(...)` in an `inline` function or member, declaration-level or local, with the binding.
 let rec private inInline (decls: FSharpImplementationFileDeclaration list) : (range * FSharpMemberOrFunctionOrValue) list =
     decls
     |> List.collect (fun decl ->
         match decl with
         | FSharpImplementationFileDeclaration.Entity(_, subDecls) -> inInline subDecls
         | FSharpImplementationFileDeclaration.MemberOrFunctionOrValue(mfv, _, body) ->
-            let isInline =
-                try mfv.InlineAnnotation = FSharpInlineAnnotation.AlwaysInline || mfv.InlineAnnotation = FSharpInlineAnnotation.AggressiveInline
-                with _ -> false
-            if isInline then runCalls body |> List.map (fun r -> r, mfv) else []
-        | FSharpImplementationFileDeclaration.InitAction _ -> [])
+            if isInline mfv then runCalls body |> List.map (fun r -> r, mfv) else inLocalInline body
+        | FSharpImplementationFileDeclaration.InitAction expr -> inLocalInline expr)
 
 let private analyzeInline (typedTree: FSharpImplementationFileContents option) : Message list =
     match typedTree with
@@ -104,7 +116,7 @@ let private analyzeInline (typedTree: FSharpImplementationFileContents option) :
         inInline contents.Declarations
         |> List.map (fun (m, mfv) ->
             { Type = "dlr { } in an inline function"
-              Message = sprintf "dlr { } inside the inline function or member '%s' cannot work: the function is expanded into every caller, where the block's captured values are inlined away and its body is not where the reflected definition says. Remove 'inline', or move the block into a function that is not inline." mfv.DisplayName
+              Message = sprintf "dlr { } inside the inline function or member '%s' fails in Release: the function is expanded into every caller, where the block's captured values are inlined away and its body is not where the reflected definition says (a Debug build calls it as a method, so it only appears to work). Remove 'inline', or move the block into a function that is not inline." mfv.DisplayName
               Code = InlineCode
               Severity = Severity.Error
               Range = m
@@ -202,13 +214,17 @@ let private analyzeSharedLines (typedTree: FSharpImplementationFileContents opti
                       Fixes = [] }))
 
 let private analyze (tree: ParsedInput) (typedTree: FSharpImplementationFileContents option) : Message list =
+    let inline' = analyzeInline typedTree
+    // A block DLR004 refuses gets no DLR001 as well: the add-the-attribute fix would not help it.
+    let refused = inline' |> List.map (fun m -> m.Range)
     analyzeOutside typedTree
     @ analyzeSharedLines typedTree
-    @ analyzeInline typedTree
+    @ inline'
     @ match typedTree with
       | None -> []
       | Some contents ->
         findInDeclarations false contents.Declarations
+        |> List.filter (fun finding -> not (refused |> List.exists (fun r -> Range.equals r finding.Block)))
         |> List.map (fun finding ->
             let fixes =
                 match finding.Binding, bindingKeyword tree finding.Block with

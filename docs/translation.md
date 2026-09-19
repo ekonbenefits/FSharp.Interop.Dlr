@@ -46,8 +46,8 @@ nested delegates (loop and try bodies), and the copy costs nothing measurable, w
   `FSharpRef` field, read through `.Value`. When the Release optimizer inlined a value instead of
   capturing it, its definition is taken from the enclosing member's reflected body: a `let`,
   the single application of a once-called local function, or a lambda applied on the spot.
-  (A block in an `inline` function is beyond recovery — it is expanded into each caller — and
-  the analyzer's `DLR004` refuses it.)
+  (A block in an `inline` function is beyond recovery in Release — it is expanded into each
+  caller — and the analyzer's `DLR004` refuses it.)
 - **Control flow** the expression converter has no node for (`for`, `while`, `try`, `use`) is
   emitted as calls to `DlrRuntime.*` helpers with the bodies as `Func` delegates (not F#
   lambdas: on browser-wasm the `FuncConvert` wrapper the converter would add lost arguments,

@@ -200,6 +200,22 @@ module Impl =
     (msgs |> List.filter (fun m -> m.Code = ReflectedDefinitionAnalyzer.Code)).Length |> should equal 0
 
 [<Fact>]
+let ``a block in a local inline function is reported; an inline function without the attribute gets DLR004 only`` () =
+    let msgs =
+        run """
+module Impl =
+    let w = box 1
+    [<ReflectedDefinition>]
+    let outer () : int =
+        let inline local () : int = dlr { return w?Count }
+        local () + local ()
+    let inline unattributed () : int = dlr { return w?Count }
+"""
+    let codes = msgs |> List.map (fun m -> m.Code) |> List.sort
+    codes |> should equal [ ReflectedDefinitionAnalyzer.InlineCode; ReflectedDefinitionAnalyzer.InlineCode ]
+    Assert.messageContains "'local'" (msgs |> List.find (fun m -> m.Message.Contains "'local'")) |> should equal true
+
+[<Fact>]
 let ``markers used outside a block are reported`` () =
     let msgs =
         run """
