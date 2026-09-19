@@ -67,14 +67,14 @@ let ``backward pipe and plain application work too`` () =
 [<Fact>]
 let ``call the object itself through a pipe, with unit and named args`` () =
     let f = box (Func<int, int>(fun x -> x * 2))
-    (dlr { return f |> Dlr.call 21 } : int) |> should equal 42
+    (dlr { return f |> Dlr.apply 21 } : int) |> should equal 42
     let hits = ref 0
     let g = box (Action(fun () -> hits.Value <- hits.Value + 1))
-    dlr { g |> Dlr.call () }
+    dlr { g |> Dlr.apply () }
     hits.Value |> should equal 1
     let r = Recorder()
     let o = box r
-    (dlr { return (o |> Dlr.get "Self") |> Dlr.call (1, Dlr.named {| second = 2 |}) } : string) |> should equal "1|2"
+    (dlr { return (o |> Dlr.get "Self") |> Dlr.apply (1, Dlr.named {| second = 2 |}) } : string) |> should equal "1|2"
 
 [<Fact>]
 let ``a piped call is evaluated once, even under a lambda or when unused`` () =

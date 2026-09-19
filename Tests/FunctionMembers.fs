@@ -38,12 +38,12 @@ let ``curried and tupled functions both take a tuple call`` () =
     (dlr { return e?Three(1, 2, 3) } : int) |> should equal 6
 
 [<Fact>]
-let ``four arguments, curried and tupled, as a member call and through Dlr.call`` () =
+let ``four arguments, curried and tupled, as a member call and through Dlr.apply`` () =
     let e = box (bag ())
     (dlr { return e?Four(1, 2, 3, 4) } : int) |> should equal 1234
     (dlr { return e?FourTupled(1, 2, 3, 4) } : int) |> should equal 10
-    (dlr { return (e |> Dlr.get "Four") |> Dlr.call (4, 3, 2, 1) } : int) |> should equal 4321
-    (dlr { return (e |> Dlr.get "FourTupled") |> Dlr.call (1, 1, 1, 1) } : int) |> should equal 4
+    (dlr { return (e |> Dlr.get "Four") |> Dlr.apply (4, 3, 2, 1) } : int) |> should equal 4321
+    (dlr { return (e |> Dlr.get "FourTupled") |> Dlr.apply (1, 1, 1, 1) } : int) |> should equal 4
     let f: int -> int -> int -> int -> int = dlr { return e?Four }
     f 5 6 7 8 |> should equal 5678
 
@@ -54,7 +54,7 @@ let ``a unit-returning F# function member called as a statement`` () =
     dlr { e?Log("a") }
     dlr { e?Tick() }
     let tick = box (fun () -> hits.Add "called")
-    dlr { tick |> Dlr.call () }
+    dlr { tick |> Dlr.apply () }
     let w = Widget()
     let o = box w
     dlr { o?Touch() }                        // a void method still binds with the result discarded
@@ -110,12 +110,12 @@ let ``a computed name read as a function type`` () =
     (bind "Add") 1 2 |> should equal 3
 
 [<Fact>]
-let ``Dlr.call applies an F# function target`` () =
+let ``Dlr.apply applies an F# function target`` () =
     let e = box (bag ())
-    (dlr { return (e |> Dlr.get "Fn") |> Dlr.call 21 } : int) |> should equal 42
-    (dlr { return (e |> Dlr.get "Curried") |> Dlr.call (4, 5) } : int) |> should equal 9
+    (dlr { return (e |> Dlr.get "Fn") |> Dlr.apply 21 } : int) |> should equal 42
+    (dlr { return (e |> Dlr.get "Curried") |> Dlr.apply (4, 5) } : int) |> should equal 9
     let thunk = box (fun () -> 7)
-    (dlr { return thunk |> Dlr.call () } : int) |> should equal 7
+    (dlr { return thunk |> Dlr.apply () } : int) |> should equal 7
 
 [<Fact>]
 let ``record fields holding functions on a CLR type`` () =
@@ -145,7 +145,7 @@ let ``a discarded result still applies the function that is actually there`` () 
     let e = box (Fixtures.expando [ "Fn", box (fun (x: int) -> calls.Add x; x * 2) ])
     dlr { e?Fn(21) }
     let f = box (fun (x: int) -> calls.Add x; x)
-    dlr { f |> Dlr.call 7 }
+    dlr { f |> Dlr.apply 7 }
     List.ofSeq calls |> should equal [ 21; 7 ]
 
 [<Fact>]
@@ -186,7 +186,7 @@ let ``an obj-typed argument matches a function shape by its runtime type`` () =
     (dlr { return e?Fn(n) } : int) |> should equal 42
     (dlr { return e?Two(a, b) } : string) |> should equal "4x"
     let f = box (fun (x: int) -> x + 1)
-    (dlr { return f |> Dlr.call n } : int) |> should equal 22
+    (dlr { return f |> Dlr.apply n } : int) |> should equal 22
 
 [<Fact>]
 let ``unit -> unit binds a void method, an Action and a unit function`` () =
@@ -237,7 +237,7 @@ let ``calling an F# function member has no arity limit`` () =
     (dlr { return h?SixTupled(1, 2, 3, 4, 5, 6) } : int) |> should equal 21
     (dlr { return h?Eight(1, 2, 3, 4, 5, 6, 7, 8) } : int) |> should equal 36
     let six = box (fun (a: int) (b: int) (c: int) (d: int) (e: int) (f: int) -> a + b + c + d + e + f)
-    (dlr { return six |> Dlr.call (1, 1, 1, 1, 1, 1) } : int) |> should equal 6
+    (dlr { return six |> Dlr.apply (1, 1, 1, 1, 1, 1) } : int) |> should equal 6
 
 [<Fact>]
 let ``reading a member as a curried function has no arity limit`` () =
@@ -267,7 +267,7 @@ let ``a method of only optional parameters can be read as unit -> R`` () =
     let wrap: unit -> string = dlr { return o?Wrap }
     wrap () |> should equal "<x>"
 
-/// A null argument to an F# function member, or to `Dlr.call` on a function: the rule's
+/// A null argument to an F# function member, or to `Dlr.apply` on a function: the rule's
 /// restriction on that argument must be an instance restriction (a type restriction can never
 /// hold for null), or the DLR re-binds forever. Run with a timeout so a regression fails rather
 /// than hangs the suite.
@@ -289,12 +289,12 @@ let ``a null argument to an F# function member binds, and does not re-bind forev
     within 5000 (fun () -> (dlr { return h?Label(null: string) } : string)) |> should equal "null"
     within 5000 (fun () -> (dlr { return h?Label("y") } : string)) |> should equal "y"                // the site keeps both rules
     let label = box (fun (s: string) -> if isNull s then "null" else s)
-    within 5000 (fun () -> (dlr { return label |> Dlr.call (null: string) } : string)) |> should equal "null"
-    within 5000 (fun () -> (dlr { return label |> Dlr.call null } : string)) |> should equal "null"
+    within 5000 (fun () -> (dlr { return label |> Dlr.apply (null: string) } : string)) |> should equal "null"
+    within 5000 (fun () -> (dlr { return label |> Dlr.apply null } : string)) |> should equal "null"
     // A null does not fit a `unit -> R` function: a one-argument call must not bind a
     // zero-argument function because the argument happened to be null.
     let thunk = box (fun () -> "thunk")
-    (fun () -> within 5000 (fun () -> (dlr { return thunk |> Dlr.call null } : string)) |> ignore)
+    (fun () -> within 5000 (fun () -> (dlr { return thunk |> Dlr.apply null } : string)) |> ignore)
     |> should throw typeof<RuntimeBinderException>
 
 [<Fact>]
@@ -303,4 +303,53 @@ let ``a unit-typed variable as the argument means no arguments`` () =
     let args = ()
     (dlr { return w?Describe(args) } : string) |> should equal "described"
     let f = box (fun () -> 42)
-    within 5000 (fun () -> (dlr { return f |> Dlr.call args } : int)) |> should equal 42
+    within 5000 (fun () -> (dlr { return f |> Dlr.apply args } : int)) |> should equal 42
+
+/// `Dlr.call x` read at a function type is the target itself as that function — the value's
+/// counterpart of `x?Name` read as a function — and applied it is a call, like `(x?Name)(a)`.
+[<Fact>]
+let ``Dlr.call read as a function type invokes the target: delegate, F# function, TryInvoke object`` () =
+    let d = box (Func<int, int, int>(fun a b -> a + b))
+    let add: int -> int -> int = dlr { return Dlr.call d }
+    add 1 2 |> should equal 3
+    let addOne = add 1                                        // partial application
+    addOne 41 |> should equal 42
+    let tupled: int * int -> int = dlr { return Dlr.call d }
+    tupled (2, 3) |> should equal 5
+    let thunk = box (Func<string>(fun () -> "thunk"))
+    let t: unit -> string = dlr { return Dlr.call thunk }
+    t () |> should equal "thunk"
+    let r = Recorder()
+    let o = box r
+    let viaTryInvoke: int -> string = dlr { return Dlr.call o }
+    viaTryInvoke 5 |> should equal "5"
+    List.ofSeq r.Log |> should equal [ "invoke self(1 args)" ]
+
+[<Fact>]
+let ``Dlr.call read at exactly the function's type returns the function itself`` () =
+    let f = fun (x: int) -> x * 2
+    let g: int -> int = dlr { return Dlr.call (box f) }
+    obj.ReferenceEquals(f, g) |> should equal true
+    // Another type: an invoker over it, still correct.
+    let h: int -> int64 = dlr { return Dlr.call (box f) }
+    h 21 |> should equal 42L
+
+[<Fact>]
+let ``Dlr.call applied is a call, and piped it reads`` () =
+    let d = box (Func<int, int, int>(fun a b -> a + b))
+    (dlr { return Dlr.call d (1, 2) } : int) |> should equal 3
+    (dlr { return (d |> Dlr.call) (4, 5) } : int) |> should equal 9
+    let f: int * int -> int = dlr { return d |> Dlr.call }
+    f (6, 7) |> should equal 13
+
+[<Fact>]
+let ``Dlr.call read as a function is lazy: a non-callable fails at the first application`` () =
+    let s = box "text"
+    let f: int -> int = dlr { return Dlr.call s }
+    (fun () -> f 1 |> ignore) |> should throw typeof<RuntimeBinderException>
+
+[<Fact>]
+let ``Dlr.call read at a non-function type is a translation error naming Dlr.implicit`` () =
+    let d = box 1
+    let ex = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> (dlr { return Dlr.call d } : int) |> ignore)
+    ex.Message |> should haveSubstring "Dlr.implicit"

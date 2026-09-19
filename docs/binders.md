@@ -45,7 +45,7 @@ subclass the DLR's binder types, wrap C#'s, and add the F# case in the fallbacks
   offered as the *error suggestion*, which C# uses only where its own binding fails
   (`OptionalArguments.tryCall`). `FallbackInvoke` (a dynamic target has produced the member's
   value): delegates to `FSharpInvokeBinder`.
-- **`FSharpInvokeBinder`** (`Dlr.call`, and the value step above). `FallbackInvoke`: if the value's
+- **`FSharpInvokeBinder`** (`Dlr.call` / `Dlr.apply`, and the value step above). `FallbackInvoke`: if the value's
   runtime type is a candidate, a rule applying it restricted to that type; otherwise C#'s `Invoke`.
   A value-less meta-object (Expando's `BindInvokeMember` hands over the member before evaluating
   it) is `Defer`red, so the nested site binds through this binder with the value.

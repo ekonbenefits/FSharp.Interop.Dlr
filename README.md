@@ -131,6 +131,7 @@ The common forms; [docs/syntax.md](docs/syntax.md) has every one, with what each
 | `Dlr.cast<T> x` · `Dlr.implicit x` | explicit / implicit conversion |
 | `Dlr.Static<T>.Overloads?Name(a)` · `Dlr.new'<T>(a)` | static overload / constructor chosen by the arguments' runtime types |
 | `let f: int -> int -> int = dlr { return x?Add }` | a member read as an F# function |
+| `Dlr.call f (a, b)` · `f \|> Dlr.apply (a, b)` · `Dlr.call f` typed `A -> R` | invoke the value itself; read as a function, it is one |
 
 A member name may be a variable (`(?) x name`), and so may the type-argument list
 (`Dlr.typeArgsOf ts`); each distinct value gets its own call sites, cached per site. Around the
