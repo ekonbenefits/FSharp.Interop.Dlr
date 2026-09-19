@@ -24,8 +24,8 @@ flowchart TD
     sites -- miss --> cache
     cache -- miss --> discover --> translate
     translate <--> binders
-    translate --> conv --> hoist --> compile --> cache
-    cache --> sites
+    translate --> conv --> hoist --> compile -- adds --> cache
+    cache -- hit --> sites
 
     classDef entry fill:#e8f1ff,stroke:#4a78c2
     classDef compileOnce fill:#fff4e0,stroke:#c98a1b
