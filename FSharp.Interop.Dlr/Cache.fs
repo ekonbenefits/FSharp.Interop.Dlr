@@ -75,6 +75,47 @@ type internal Machines<'SM, 'T> private () =
         Machines<'SM, 'T>.hit <- entry
         entry.Reader
 
+/// The Delay closure out of the resumable-code delegate's target. The target is the builder's
+/// own `Delay` lambda — one compiler-generated class per result type, holding the closure in a
+/// field named `delayed` — so its reader is compiled once per `'T` (a LINQ field read; the
+/// optimizer may instead inline the lambda away, and then the target is the closure itself and
+/// the reader is the identity) and a call pays a type compare and a delegate invoke, not
+/// reflection. The last reader is one immutable object swapped atomically; a target of another
+/// type (not expected) goes to a dictionary, so alternating types cannot rebuild per call.
+type private DelayedReader(targetType: Type, read: Func<obj, obj>) =
+    member _.TargetType = targetType
+    member _.Read = read
+
+type internal Delayed<'T> private () =
+    static let mutable last : DelayedReader = Unchecked.defaultof<_>
+    static let readers = ConcurrentDictionary<Type, DelayedReader>()
+
+    static let build (targetType: Type) =
+        let read =
+            match targetType.GetField("delayed", BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic) with
+            | f when not (isNull f) && f.FieldType = typeof<unit -> ResumableCode<DlrData<'T>, 'T>> ->
+                let target = System.Linq.Expressions.Expression.Parameter(typeof<obj>, "target")
+                System.Linq.Expressions.Expression.Lambda<Func<obj, obj>>(
+                    System.Linq.Expressions.Expression.Field(System.Linq.Expressions.Expression.Convert(target, targetType), f), target).Compile()
+            | _ when targetType.Assembly = typeof<Delayed<'T>>.Assembly ->
+                // Our wrapper, but not the field we expect: the compiler's shape changed. Say so,
+                // rather than treat the wrapper as the closure and key every block of this result
+                // type on the one shared class.
+                raise (DlrTranslationException(sprintf "dlr { } fallback path: the builder's Delay wrapper %s has no 'delayed' field of the expected type (the F# compiler's closure shape changed)." targetType.Name))
+            | _ -> Func<obj, obj>(fun target -> target)
+        DelayedReader(targetType, read)
+
+    static member Of(target: obj) : obj =
+        let t = target.GetType()
+        let r = last
+        let r =
+            if not (obj.ReferenceEquals(r, null)) && obj.ReferenceEquals(r.TargetType, t) then r
+            else
+                let r = readers.GetOrAdd(t, build)
+                last <- r
+                r
+        r.Read.Invoke target
+
 /// One closure-path cache entry, immutable and generation-stamped like `MachineHit`.
 [<AllowNullLiteral>]
 type internal SiteHit<'T>(closureType: Type, f: Func<obj, 'T>, generation: int) =
@@ -117,10 +158,6 @@ type DlrRun =
     static member Machine<'SM, 'T>(builder: obj, sm: byref<'SM>, file: string, line: int) : 'T =
         Machines<'SM, 'T>.Get(builder, file, line).Invoke(&sm)
 
-    /// Per delegate-target type: the field holding the Delay closure, or null when the compiler
-    /// inlined the closure into the target (then the target is the block's closure itself).
-    static member val private delayedFields = ConcurrentDictionary<Type, FieldInfo>()
-
     /// <summary>The fallback path (no statically compiled state machine, e.g. Debug): the block's Delay closure is read back out of the resumable-code delegate.</summary>
     static member Closure<'T>(builder: obj, code: ResumableCode<DlrData<'T>, 'T>, file: string, line: int) : 'T =
         let target = code.Target
@@ -128,11 +165,5 @@ type DlrRun =
             // An optimized build inlined the Delay closure and left a static delegate: only a
             // site the compiler could not turn into a state machine (FS3511) gets here.
             raise (DlrTranslationException(sprintf "dlr { } at %s:%d could not be compiled as a state machine (the compiler reported FS3511 at the site) and left no closure to compile from; write the block as dlr { … } rather than calling the builder's members directly." file line))
-        let field =
-            DlrRun.delayedFields.GetOrAdd(target.GetType(), fun t ->
-                match t.GetField("delayed", BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic) with
-                | null -> null
-                | f when f.FieldType = typeof<unit -> ResumableCode<DlrData<'T>, 'T>> -> f
-                | _ -> null)
-        let closure = if isNull field then target else field.GetValue target
+        let closure = Delayed<'T>.Of target
         Sites<'T>.Get(builder, closure, file, line).Invoke closure
