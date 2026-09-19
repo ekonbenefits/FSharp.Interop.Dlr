@@ -50,6 +50,21 @@ module internal Discover =
         | ShapeLambda(_, body) -> runsAt builderType file line body
         | ShapeCombination(_, args) -> args |> List.collect (runsAt builderType file line)
 
+    /// Whether `e` has a `builder.Run(…, file, line)` at this file and line whose argument is
+    /// *not* the Delay lambda — the builder's members written out with the body bound to a
+    /// `let` or passed in as a value, which `dlr { }` never produces. The body is somewhere
+    /// else in the tree (or in another member), and this is how to say so.
+    let rec private runOfValueAt (builderType: Type) (file: string) (line: int) (e: Expr) : bool =
+        match e with
+        | Call(Some receiver, mi, [ code; Value(f, _); Value(l, _) ])
+            when receiver.Type = builderType && mi.Name = "Run" && unbox<int> l = line && unbox<string> f = file ->
+            match code with
+            | Call(_, delay, [ Lambda _ ]) when delay.Name = "Delay" -> false
+            | _ -> true
+        | ShapeVar _ -> false
+        | ShapeLambda(_, body) -> runOfValueAt builderType file line body
+        | ShapeCombination(_, args) -> args |> List.exists (runOfValueAt builderType file line)
+
     /// What a block needs from its enclosing member's reflected definition.
     type Found =
         { /// Type declaring the enclosing member: the binder's accessibility context, as in C#.
@@ -113,6 +128,14 @@ module internal Discover =
                     | None -> m, memberBody, body
             { Context = m.DeclaringType; MemberBody = memberBody; Body = body }
         | [] ->
+            let runOfValue =
+                Seq.append [ holder ] (closureType.Assembly.GetTypes() |> Seq.filter (fun t -> not t.IsNested))
+                |> Seq.collect reflected
+                |> Seq.exists (fun (_, q) -> runOfValueAt builderType file line q)
+            if runOfValue then
+                raise (DlrTranslationException(
+                        sprintf "dlr { } at %s:%d: the builder's Run is applied to a value, not to the block's body (Delay bound to a let, or passed in), so the body cannot be found where the call is. Write the block as dlr { … } at the call."
+                            file line))
             raise (DlrTranslationException(
                     sprintf "dlr { } at %s:%d needs [<ReflectedDefinition>] on the function or member that contains it, so its body can be compiled (closure %s in %s). Put the attribute on that one binding, not the whole module, unless everything in the module can be quoted."
                         file line closureType.Name holder.FullName))

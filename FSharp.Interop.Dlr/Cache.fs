@@ -162,8 +162,9 @@ type DlrRun =
     static member Closure<'T>(builder: obj, code: ResumableCode<DlrData<'T>, 'T>, file: string, line: int) : 'T =
         let target = code.Target
         if isNull target then
-            // An optimized build inlined the Delay closure and left a static delegate: only a
-            // site the compiler could not turn into a state machine (FS3511) gets here.
-            raise (DlrTranslationException(sprintf "dlr { } at %s:%d could not be compiled as a state machine (the compiler reported FS3511 at the site) and left no closure to compile from; write the block as dlr { … } rather than calling the builder's members directly." file line))
+            // A static delegate: the optimizer found nothing to capture and no site to compile
+            // the body from — the builder's members written out with the body separated from
+            // Run (see Discover.runOfValueAt); a dlr { } always has its Delay closure here.
+            raise (DlrTranslationException(sprintf "dlr { } at %s:%d: the builder's Run is applied to a value with no closure behind it, so there is no body to compile. Write the block as dlr { … } at the call." file line))
         let closure = Delayed<'T>.Of target
         Sites<'T>.Get(builder, closure, file, line).Invoke closure
