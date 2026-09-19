@@ -94,8 +94,9 @@ argument for a delegate parameter and a delegate argument for a function paramet
 `generate-adapters.fsx`) whose `Invoke` has the delegate's exact signature (curried/tupled ×
 result/void, 0–16 parameters; `OptimizedClosures` for curried up to five), built per call by a
 factory emitted once per (function type, delegate type) as IL — `new Adapter(f)` and the
-delegate constructor over `Invoke`, ~30 ns, where `Delegate.CreateDelegate` per call is ~300 ns
-and a LINQ closure about the same; past sixteen parameters (a custom delegate type), a compiled
+delegate constructor over `Invoke` — an allocation and a constructor call, where
+`Delegate.CreateDelegate` per call or a LINQ closure would be an order of magnitude more; past
+sixteen parameters (a custom delegate type), a compiled
 lambda applying the function.
 
 *Delegate to function*: a typed `DelegateFunctions` wrapper (`FSharpFunc` subclass calling the
@@ -107,9 +108,11 @@ non-capturing lambda losing its arguments, is why every lambda and delegate lite
 block is made to capture the closure parameter there (`capturing` in `Translate.fs`, a no-op
 elsewhere).
 
-Measured (Release, Apple Silicon): a bound call with a converted F# function argument ~140 ns,
-with a converted delegate ~185 ns, against ~40 ns for an argument needing no conversion. Calls of
-a curried F# function member go through `InvokeFast` (one call, no intermediate closures), ~38 ns.
+Cost: a converted argument (either direction) makes a bound call several times the cost of one
+whose arguments need no conversion — the adapter allocation and the second delegate hop — and
+[benchmarks.md](benchmarks.md) has the F#-lambda-for-a-`Func`-parameter row against C#'s `Func`
+literal. Calls of a curried F# function member go through `InvokeFast` (one call, no intermediate
+closures); the `w?Fn(1, 2)` row there is that path, a small constant over a CLR method call.
 
 A parameter typed `Delegate` itself (WinForms `Control.Invoke`) gets the `Func`/`Action` F# would
 build for the function, and this rule goes *before* C#'s: left to C#, `FSharpFunc`'s own

@@ -71,13 +71,14 @@ call (`site.Target` and the `site` argument), so a LINQ `ExpressionVisitor` (`Si
 binding the sites its body uses to variables assigned once at entry; a use is a local read. Per
 lambda, because a variable captured by a nested lambda would be a `StrongBox` read, no better than
 the constant; on the LINQ tree, because FSharp.Core below 10.1 converts a quotation `Let` into a
-nested lambda invocation (measured 50× slower; the floor is 10.1 for the same converter's
-`Sequential`/`PropertySet` support). Hoisting is worth about 12 ns on a member call; the rest of
-the cost is the block's entry ([pipeline](pipeline.md)), whose by-reference reader is wrapped
-around the hoisted lambda after this pass, so the site locals sit inside the copy of the machine.
+nested lambda invocation, an order of magnitude slower (the floor is 10.1 for the same
+converter's `Sequential`/`PropertySet` support). Hoisting takes a member call from well over C#
+`dynamic`'s cost to a few nanoseconds above it; the rest is the block's entry
+([pipeline](pipeline.md)), whose by-reference reader is wrapped around the hoisted lambda after
+this pass, so the site locals sit inside the copy of the machine.
 
-The alternative, a holder type with static fields per block (the C# compiler's shape, ~1 ns
-faster), was built and rejected: a non-collectible holder cannot reference argument types from a
+The alternative, a holder type with static fields per block (the C# compiler's shape,
+marginally faster), was built and rejected: a non-collectible holder cannot reference argument types from a
 collectible `AssemblyLoadContext` (a regression for plugin hosts), and holders leaked after
 `DlrCache.clear()`; a per-block collectible assembly fixed both but meant an assembly per block
 in tooling. Hoisting gives up the nanosecond for none of that.

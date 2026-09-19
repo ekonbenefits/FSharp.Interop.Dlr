@@ -11,7 +11,8 @@ compile to what C# emits for `d.Name`, `d.Name(a, b)` and `d.Name = v` on a `dyn
 Microsoft.CSharp call site per operation, created once, dispatching on the target's runtime type.
 Same binder, same behaviour: C# overload resolution, named arguments, implicit conversions,
 `ExpandoObject` / `DynamicObject` / `IDynamicMetaObjectProvider`, and `RuntimeBinderException`
-when a bind fails. A block costs about 11 ns after its first call and allocates nothing.
+when a bind fails. A block costs a few nanoseconds over C# `dynamic` after its first call and
+allocates nothing itself (the numbers are under [Measured](#measured)).
 
 ```fsharp
 open FSharp.Interop.Dlr

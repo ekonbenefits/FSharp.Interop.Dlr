@@ -80,20 +80,22 @@ sequenceDiagram
     D-->>U: 'T
 ```
 
-About 11 ns for `w?Add(i, 1)` against 7.8 for C# `dynamic`, and no allocation but the box of a
-value result: what remains of the block's entry is the machine's construction, the slot read
-and the invoke; the site call itself is C#'s. (The closure path — the Debug fallback — is about
-20 ns and 24 B, of which the closure, `GetType()` and the compare are 12. A `Func<'SM, 'T>`
-taking the struct by value instead of the `inref` reader measures 13 ns slower than the reader.)
+The method-call row of [benchmarks.md](benchmarks.md) puts `w?Add(i, 1)` a few nanoseconds
+over C# `dynamic`'s `d.Add(i, 1)`, with no allocation but the box of a value result (the same
+box C# pays): what remains of the block's entry is the machine's construction, the slot read
+and the invoke; the site call itself is C#'s. (The closure path — the Debug fallback — roughly
+doubles the entry with the closure allocation, `GetType()` and the compare. A `Func<'SM, 'T>`
+taking the struct by value instead of the `inref` reader measured several times slower than
+the reader, in the spike on issue #70.)
 
-The 3–4 ns left over C# is the entry path measured on its own without a site (3–4 ns in the
-spike), and it is one delegate hop more than C# has: C# emits the site call inline in the caller
-and pays one indirect call, into the rule; we pay that plus the call into the compiled reader
-(a `DynamicMethod` delegate, through its shuffle thunk), and build and copy the machine around
-it. A library cannot remove that hop: the compiled body would have to be emitted into the
-caller's own method, which is compiler or source-generator territory (the analyzer rewriting
-the block at build time, say). Everything short of that has been measured and taken; treat the
-gap as the floor rather than something a faster cache or delegate shape would close.
+What is left over C# is the entry path itself, which measured alone (no site) accounts for the
+whole gap, and it is one delegate hop more than C# has: C# emits the site call inline in the
+caller and pays one indirect call, into the rule; we pay that plus the call into the compiled
+reader (a `DynamicMethod` delegate, through its shuffle thunk), and build and copy the machine
+around it. A library cannot remove that hop: the compiled body would have to be emitted into
+the caller's own method, which is compiler or source-generator territory (the analyzer
+rewriting the block at build time, say). Everything short of that has been measured and taken;
+treat the gap as the floor rather than something a faster cache or delegate shape would close.
 
 ## The first call at a site
 
@@ -130,15 +132,11 @@ paid on the first invoke like any C# `dynamic` call site.
 
 ## Measured
 
-Release, net10.0, Apple Silicon; the numbers for every path are in
-[benchmarks.md](benchmarks.md) (`Benchmarks/bench.sh docs`). Spot measurements for the
-function-member paths, which the suite does not all cover:
-
-| | ns |
-| --- | --- |
-| block, `w?Add(i, 1)` on a method | 11 |
-| block, `e?Fn(i)` with `Fn` an F# function property | 33 |
-| one site alternating between the two kinds | 70 |
-| bound `int -> int -> int`, full application | 11 |
-| bound `unit -> int` property read | 8.5 |
-| static `w.Add(i, 1)` | 11–15 |
+Every number is generated: [benchmarks.md](benchmarks.md), written by `Benchmarks/bench.sh docs`
+(Release, net10.0, Apple Silicon), has the block against static calls, cached reflection,
+FSharp.Interop.Dynamic and C# `dynamic` for each operation, and the README's short table is
+inserted from the same run. Two paths the suite does not have a row for, to read qualitatively:
+one site alternating between a CLR method and an F# function member pays a rule-cache miss on
+every switch, several times the cost of either kind alone; and a member bound as an F# function
+(`let add: int -> int -> int = dlr { return w?Add }`) costs about what a static call does per
+application, since the site is inside the returned function and the block is not re-entered.

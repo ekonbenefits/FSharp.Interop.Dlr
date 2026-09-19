@@ -6,7 +6,7 @@ covers usage; these pages are for reading or changing the library.
 ```mermaid
 flowchart LR
     src["dlr { … }"] --> run["Run (inline):<br/>a struct state machine"] --> sites{"Machines&lt;'SM,'T&gt;<br/>hit?"}
-    sites -- yes --> inv["compiled delegate<br/>~11 ns"]
+    sites -- yes --> inv["compiled delegate<br/>(a few ns over C# dynamic: benchmarks.md)"]
     sites -- no --> comp["Discover → Translate → Binders<br/>→ converter → SiteHoister → Compile<br/>once per site"] --> inv
 ```
 
