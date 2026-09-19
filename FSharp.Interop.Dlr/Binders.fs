@@ -112,13 +112,24 @@ module internal FunctionShapes =
     /// itself, for the largest delegates). None until then, and None when nothing applies.
     let mutable convertArgument : Type -> DynamicMetaObject -> Expression option = fun _ _ -> None
 
-    /// A null value fits any reference-type domain whatever its static type (an untyped `null`
-    /// is `obj`), as C# lets `null` go to any reference parameter; the rule then carries an
-    /// instance restriction for it (`restrictions`).
+    let isNullValue (a: DynamicMetaObject) = a.HasValue && isNull a.Value
+
+    /// The restriction a rule carries for one argument: its runtime type, or for a null value
+    /// (a null reference, or `unit`, whose value is null) the instance: a type restriction can
+    /// never hold for null, and a rule that fails its own test makes the DLR re-bind forever.
+    let restrictArg (a: DynamicMetaObject) =
+        if isNullValue a then BindingRestrictions.GetInstanceRestriction(a.Expression, null)
+        else BindingRestrictions.GetTypeRestriction(a.Expression, a.LimitType)
+
+    /// A null value fits any reference-type domain but `unit` whatever its static type (an untyped
+    /// `null` is `obj`), as C# lets `null` go to any reference parameter; the rule then carries an
+    /// instance restriction for it (`restrictions`). Not `unit`: that would let a one-argument
+    /// call bind a zero-argument function because the argument happened to be null.
+    let private fitsNull (domain: Type) (a: DynamicMetaObject) =
+        isNullValue a && not domain.IsValueType && domain <> typeof<unit>
+
     let private fitsArg (domain: Type) (a: DynamicMetaObject) =
-        fits domain a.LimitType
-        || (a.HasValue && isNull a.Value && not domain.IsValueType)
-        || (convertArgument domain a).IsSome
+        fits domain a.LimitType || fitsNull domain a || (convertArgument domain a).IsSome
 
     /// The `FSharpFunc<_, _>` a type is or derives from: a function value's runtime type is a
     /// compiler-generated subclass (`f@12`), a member's declared type usually the base itself.
@@ -136,7 +147,7 @@ module internal FunctionShapes =
         if fits t a.LimitType then
             let unboxed = if a.Expression.Type = a.LimitType then a.Expression else Expression.Convert(a.Expression, a.LimitType) :> Expression
             if a.LimitType = t then unboxed else Expression.Convert(unboxed, t) :> Expression
-        elif a.HasValue && isNull a.Value && not t.IsValueType then Expression.Convert(a.Expression, t) :> Expression   // null: any reference type
+        elif fitsNull t a then Expression.Convert(a.Expression, t) :> Expression
         else (convertArgument t a).Value
 
     /// A function type's parameter list and result: `(A * B) -> R` is `[A; B]` tupled, `A -> B -> R`
@@ -211,15 +222,9 @@ module internal FunctionShapes =
                                 | _ -> None
                         chain read funcType args |> Option.map boxed
 
-    /// The rule's restrictions: the function's runtime type and each argument's. A null argument
-    /// (a null reference, or `unit`, whose value is null) gets an instance restriction: a type
-    /// restriction can never hold for it, and a rule that fails its own test makes the DLR
-    /// re-bind forever.
+    /// The rule's restrictions: the function's runtime type and each argument's (`restrictArg`).
     let restrictions (target: DynamicMetaObject) (targetType: Type) (args: DynamicMetaObject[]) =
-        let forArg (a: DynamicMetaObject) =
-            if a.HasValue && isNull a.Value then BindingRestrictions.GetInstanceRestriction(a.Expression, null)
-            else BindingRestrictions.GetTypeRestriction(a.Expression, a.LimitType)
-        Array.fold (fun (r: BindingRestrictions) (a: DynamicMetaObject) -> r.Merge(forArg a))
+        Array.fold (fun (r: BindingRestrictions) (a: DynamicMetaObject) -> r.Merge(restrictArg a))
             (BindingRestrictions.GetTypeRestriction(target.Expression, targetType)) args
 
     /// A rule applying `value` with `args` if its runtime type is a fitting FSharpFunc: the DLR
@@ -465,7 +470,7 @@ module internal OptionalArguments =
         && p.ParameterType.IsGenericType
         && p.ParameterType.GetGenericTypeDefinition() = typedefof<option<_>>
 
-    let private isNullValue (a: DynamicMetaObject) = a.HasValue && isNull a.Value
+    let private isNullValue = FunctionShapes.isNullValue
 
     /// A concrete delegate type: `Delegate` and `MulticastDelegate` themselves have no `Invoke`.
     let private isDelegate (t: Type) = typeof<Delegate>.IsAssignableFrom t && not (isNull (t.GetMethod "Invoke"))
@@ -570,10 +575,7 @@ module internal OptionalArguments =
             let value =
                 if invocation.Type = typeof<Void> then Expression.Block(invocation, Expression.Constant(null, typeof<obj>)) :> Expression
                 else Expression.Convert(invocation, typeof<obj>) :> Expression
-            let restrict (a: DynamicMetaObject) =
-                if isNullValue a then BindingRestrictions.GetInstanceRestriction(a.Expression, null)
-                else BindingRestrictions.GetTypeRestriction(a.Expression, a.LimitType)
-            let restrictions = Array.fold (fun (r: BindingRestrictions) a -> r.Merge(restrict a)) targetRestriction args
+            let restrictions = Array.fold (fun (r: BindingRestrictions) a -> r.Merge(FunctionShapes.restrictArg a)) targetRestriction args
             ignore target
             Some(DynamicMetaObject(value, restrictions))
         | [] -> None
@@ -651,8 +653,6 @@ type FSharpBinaryOperationBinder(csharp: BinaryOperationBinder) =
         t.GetMethods(BindingFlags.Public ||| BindingFlags.Static ||| BindingFlags.FlattenHierarchy)
         |> Array.exists (fun m -> m.Name = name && m.GetParameters().Length = 2)
 
-    let isNullValue (a: DynamicMetaObject) = a.HasValue && isNull a.Value
-
     /// Whether the operation is one this binder may bind structurally.
     static member IsComparison(op: ExpressionType) = operatorName.ContainsKey op
 
@@ -660,7 +660,7 @@ type FSharpBinaryOperationBinder(csharp: BinaryOperationBinder) =
         let structural =
             match operatorName.TryGetValue this.Operation with
             | true, name ->
-                let operands = [ target; arg ] |> List.filter (fun a -> not (isNullValue a)) |> List.map (fun a -> a.LimitType)
+                let operands = [ target; arg ] |> List.filter (fun a -> not (FunctionShapes.isNullValue a)) |> List.map (fun a -> a.LimitType)
                 not operands.IsEmpty && operands |> List.forall (fun t -> not (native this.Operation t) && not (declares name t))
             | _ -> false
         if not structural then csharp.FallbackBinaryOperation(target, arg, errorSuggestion)
@@ -679,10 +679,7 @@ type FSharpBinaryOperationBinder(csharp: BinaryOperationBinder) =
                     | ExpressionType.LessThanOrEqual -> Expression.LessThanOrEqual(c, zero)
                     | ExpressionType.GreaterThan -> Expression.GreaterThan(c, zero)
                     | _ -> Expression.GreaterThanOrEqual(c, zero)
-            let restrict (a: DynamicMetaObject) =
-                if isNullValue a then BindingRestrictions.GetInstanceRestriction(a.Expression, null)
-                else BindingRestrictions.GetTypeRestriction(a.Expression, a.LimitType)
-            DynamicMetaObject(Expression.Convert(value, typeof<obj>), (restrict target).Merge(restrict arg))
+            DynamicMetaObject(Expression.Convert(value, typeof<obj>), (FunctionShapes.restrictArg target).Merge(FunctionShapes.restrictArg arg))
 
 /// C#'s Invoke binder, aware of F# function targets (`Dlr.call` on a function value, and the
 /// value step of a member invocation).

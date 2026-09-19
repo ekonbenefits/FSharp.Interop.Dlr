@@ -275,8 +275,11 @@ let private within (ms: int) (f: unit -> 'a) : 'a =
     // No second thread on wasm: run directly there (the JIT legs still catch a re-bind loop).
     if System.Environment.ProcessorCount < 2 then f ()
     else
-        let t = System.Threading.Tasks.Task.Run f
-        if t.Wait ms then t.Result else failwith "timed out: the site is re-binding forever"
+        // A dedicated thread: not starved by the pool under load, and a spinner it leaves behind
+        // does not occupy a pool thread.
+        let t = System.Threading.Tasks.Task.Factory.StartNew(f, System.Threading.Tasks.TaskCreationOptions.LongRunning)
+        let finished = try t.Wait ms with :? System.AggregateException as e -> raise e.InnerException   // the block's own exception
+        if finished then t.Result else failwith "timed out: the site is re-binding forever"
 
 [<Fact>]
 let ``a null argument to an F# function member binds, and does not re-bind forever`` () =
@@ -288,6 +291,11 @@ let ``a null argument to an F# function member binds, and does not re-bind forev
     let label = box (fun (s: string) -> if isNull s then "null" else s)
     within 5000 (fun () -> (dlr { return label |> Dlr.call (null: string) } : string)) |> should equal "null"
     within 5000 (fun () -> (dlr { return label |> Dlr.call null } : string)) |> should equal "null"
+    // A null does not fit a `unit -> R` function: a one-argument call must not bind a
+    // zero-argument function because the argument happened to be null.
+    let thunk = box (fun () -> "thunk")
+    (fun () -> within 5000 (fun () -> (dlr { return thunk |> Dlr.call null } : string)) |> ignore)
+    |> should throw typeof<RuntimeBinderException>
 
 [<Fact>]
 let ``a unit-typed variable as the argument means no arguments`` () =
