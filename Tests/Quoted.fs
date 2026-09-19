@@ -121,13 +121,75 @@ let ``inside task and async`` () =
     (Async.StartImmediateAsTask a).Result |> should equal "widget"
 
 [<Fact>]
-let ``two blocks on one line are told apart by shape`` () =
+let ``two blocks on one line are told apart by shape, including which variable they use`` () =
     // The one-per-line rule (DLR003) still applies as a lint; what saves these is that their
-    // quotations differ, so each gets its own entry.
+    // quotations differ — in a literal, or only in which bound variable is returned — so each
+    // gets its own entry.
     let w = box (Widget())
     // fsharpanalyzer: ignore-line-next DLR003
     let pair: int * string = (dlrq { return w?Count }), (dlrq { return w?Name })
     pair |> should equal (3, "widget")
+    // fsharpanalyzer: ignore-line-next DLR003
+    let vars: int * int = (dlrq { let x: int = w?Count in let y: int = w?Add(1, 1) in return x + y * 0 }), (dlrq { let x: int = w?Count in let y: int = w?Add(1, 1) in return y + x * 0 })
+    vars |> should equal (3, 2)
+
+[<Fact>]
+let ``let rec with captures in the definition and the body, of different types`` () =
+    // The slots are numbered at compile time and filled per call by two traversals; a let rec
+    // is the one node where FSharp.Core's shape puts the body before the definitions.
+    let w = box (Widget())
+    let n, s = 1, "abc"
+    let r: int =
+        dlrq {
+            let rec f (k: int) : int = if k = 0 then w?Add(n, 1) else f (k - 1)
+            return f 2 + s.Length
+        }
+    r |> should equal 5
+    let t: string =
+        dlrq {
+            let rec g (k: int) : string = if k = 0 then s else g (k - 1)
+            return g 1 + string (w?Add(n, n) : int)
+        }
+    t |> should equal "abc2"
+
+type private Holder<'T>() =
+    static member val P = typeof<'T>.Name with get, set
+    static member val F = typeof<'T>.Name
+
+let private setHolder<'T> (w: obj) : unit = dlrq { ignore (w?Count : int); Holder<'T>.P <- "set" }
+let private readHolder<'T> (w: obj) : string = dlrq { ignore (w?Count : int); return Holder<'T>.F }
+
+[<Fact>]
+let ``a type mentioned only by a static property set or get is part of the shape`` () =
+    let w = box (Widget())
+    setHolder<int> w
+    setHolder<string> w
+    Holder<int>.P |> should equal "set"
+    Holder<string>.P |> should equal "set"
+    readHolder<int> w |> should equal "Int32"
+    readHolder<string> w |> should equal "String"
+
+[<Fact>]
+let ``a fresh builder instance is still one site`` () =
+    let w = box (Widget())
+    DlrCache.clear ()
+    for _ in 1 .. 20 do
+        let b = DlrQuotedBuilder()
+        (b { return w?Count } : int) |> should equal 3
+    DlrCache.count () |> should equal 1
+
+// Needs real threads: on single-threaded wasm Parallel.For runs sequentially and would prove
+// nothing (AnyUnit has no threading capability yet).
+[<Fact>]
+let ``concurrent first calls compile once`` () =
+    if Environment.ProcessorCount < 2 then raise (AnyUnit.IgnoreException "needs more than one thread")
+    let w = box (Widget())
+    DlrCache.clear ()
+    let read (n: int) : int = dlrq { return w?Add(n, 1) }
+    let results = Array.zeroCreate 64
+    Parallel.For(0, 64, fun i -> results.[i] <- read i) |> ignore
+    results |> should equal [| for i in 0 .. 63 -> i + 1 |]
+    DlrCache.count () |> should equal 1
 
 [<Fact>]
 let ``errors are the same kinds`` () =

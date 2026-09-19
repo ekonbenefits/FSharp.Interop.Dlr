@@ -30,8 +30,8 @@ dotnet build Tests.Wasm -c Release && (cd Tests.Wasm/bin/Release/net10.0-browser
 - Tests: AnyUnit xunit style, `[<Fact>]` + FsUnit `should`; test modules are
   `[<ReflectedDefinition>]`; `Tests.Wasm` and `Tests.Quoted` link the same files, so add new
   test files to all three fsproj files. `Tests.Quoted` shadows `dlr` with `dlrq` (`Shim.fs`)
-  and defines `DLRQ`: where the builders differ (binder context is `obj`; a captured mutable
-  cannot be assigned), put the `dlrq` expectation under `#if DLRQ`. `Tests/Quoted.fs` holds
+  and defines `DLRQ`: where the builders differ (binder context is `obj`; a captured mutable cannot be assigned
+  nor a captured value-type's member used — FS3155), put the `dlrq` expectation under `#if DLRQ`. `Tests/Quoted.fs` holds
   what only `dlrq` needs and is deliberately not `[<ReflectedDefinition>]`. Tests needing real threads skip with `AnyUnit.IgnoreException` when
   `ProcessorCount < 2` (wasm) rather than passing vacuously.
 - Markers: `[<MethodImpl(NoInlining)>]`, throw outside a block, and every one is in the

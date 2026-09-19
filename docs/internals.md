@@ -23,8 +23,9 @@ compiled.Invoke(closure)       ~18 ns: field reads + one CallSite per operation
 file, line)` and builds that quotation literal on every call (`Deserialize40`, ~7 µs for a small
 block, uncached by FSharp.Core). The captured values are inside it as `ValueWithName` nodes.
 `Quoted.scan` walks it per call, reading those values into an `obj[]` and recording the shape
-(node types, literals, members); `QuotedSites<'T>` looks the shape up under the file and line and
-invokes the `Func<obj[], 'T>`. On a miss `Quoted.prepare` replaces each `ValueWithName` with a
+(every type and member the quotation mentions, every literal, and each bound variable as its
+index in scope); `QuotedSites<'T>` looks the shape up under the file and line and invokes the
+`Func<obj[], 'T>`. Misses are admitted under a lock, so concurrent first calls compile once. On a miss `Quoted.prepare` replaces each `ValueWithName` with a
 read of its slot, in the same traversal order, and the same `Translate.translate` compiles the
 result. No enclosing member is known, so the binder context is `obj`. See the caches table and
 "Translation notes".

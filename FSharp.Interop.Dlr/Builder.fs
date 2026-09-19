@@ -6,9 +6,6 @@ open System.Runtime.InteropServices
 
 [<Sealed>]
 type DlrBuilder() =
-    /// Both builders, this one first (the translator compiles a block of either kind nested in
-    /// one of the other); sealed types, so the list is a constant, not a per-call closure.
-    static let builderTypes = [ typeof<DlrBuilder>; typeof<DlrQuotedBuilder> ]
     member _.Return(value: 'T) = value
     member _.Zero() = ()
     member _.Delay(f: unit -> 'T) = f
@@ -22,10 +19,12 @@ type DlrBuilder() =
     member _.Run(body: unit -> 'T,
                     [<CallerFilePath; Optional; DefaultParameterValue("")>] file: string,
                     [<CallerLineNumber; Optional; DefaultParameterValue(0)>] line: int) : 'T =
-        Sites<'T>.Get(body, builderTypes, file, line).Invoke body
+        // Both builders, this one first: the translator compiles a block of either kind nested
+        // in one of the other. A non-capturing lambda is a static singleton — no allocation and,
+        // unlike a `static let`, no initialisation check on this path (measured ~1 ns).
+        Sites<'T>.Get(body, (fun () -> [ typeof<DlrBuilder>; typeof<DlrQuotedBuilder> ]), file, line).Invoke body
 
 and [<Sealed>] DlrQuotedBuilder() =
-    static let builderTypes = [ typeof<DlrQuotedBuilder>; typeof<DlrBuilder> ]
     member _.Return(value: 'T) = value
     member _.Zero() = ()
     member _.Delay(f: unit -> 'T) = f
@@ -40,7 +39,7 @@ and [<Sealed>] DlrQuotedBuilder() =
     member _.Run(q: Quotations.Expr<unit -> 'T>,
                     [<CallerFilePath; Optional; DefaultParameterValue("")>] file: string,
                     [<CallerLineNumber; Optional; DefaultParameterValue(0)>] line: int) : 'T =
-        QuotedSites<'T>.Get(builderTypes, q, file, line)
+        QuotedSites<'T>.Get((fun () -> [ typeof<DlrQuotedBuilder>; typeof<DlrBuilder> ]), q, file, line)
 
 [<AutoOpen>]
 module Builder =

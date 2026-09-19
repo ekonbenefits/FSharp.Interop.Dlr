@@ -74,7 +74,7 @@ let private writeDocs (short: bool) =
           yield "## The same operation, each way"
           yield ""
           yield! comparison r "Members" "`dlrq { }` is the same block without `[<ReflectedDefinition>]`: F# materialises its quotation on every call, which is where its microseconds go."
-                   [ "static"; "reflection (cached)"; "FSharp.Interop.Dynamic"; "C# `dynamic`"; "`dlr { }`"; "`dlrq { }`" ]
+                   [ "static"; "reflection (cached)"; "FSharp.Interop.Dynamic"; "C# `dynamic`"; "`dlr { }` 🙂"; "`dlrq { }` 😢" ]
                    [ "property get `w.Count`", [ "StaticGet"; "ReflectionGet"; "DynamicGet"; "CSharpGet"; "Get"; "QuotedGet" ]
                      "method call `w.Add(i, 1)`", [ "StaticCall"; "ReflectionCall"; "DynamicCall"; "CSharpCall"; "Call"; "QuotedCall" ]
                      "property set `w.Name <- v`", [ ""; ""; "DynamicSet"; "CSharpSet"; "Set"; "" ]
@@ -116,7 +116,10 @@ let private writeDocs (short: bool) =
               yield "| --- | ---: |"
               for name in readmeRows do
                   match r.TryGetValue name with
-                  | true, (description, mean, _) -> yield sprintf "| %s | %s |" description (fmtNs mean)
+                  | true, (description, mean, _) ->
+                      // The same faces as the docs table's column headers.
+                      let face = if description.StartsWith "dlrq " then "😢 " elif description.StartsWith "dlr " then "🙂 " else ""
+                      yield sprintf "| %s%s | %s |" face description (fmtNs mean)
                   | _ -> () ]
             |> String.concat "\n"
         let replaced = readme.Substring(0, i + startMarker.Length) + "\n" + table + "\n" + readme.Substring j

@@ -28,37 +28,49 @@ module internal Quoted =
         | Call(_, d, [ Lambda(_, body) ]) when d.Name = "Delay" -> body
         | other -> other
 
-    /// Per call: the captured values in traversal order, and the shape.
+    /// Per call: the captured values in traversal order, and the shape. The shape has every
+    /// type the quotation mentions (a generic enclosing function instantiates them), every
+    /// member, every literal, and each bound variable as its index among the variables in scope
+    /// (two blocks on one line that differ only in which variable they use must not share).
     let scan (builderType: Type) (q: Expr) : obj[] * obj[] =
         let slots = ResizeArray<obj>()
         let shape = ResizeArray<obj>()
-        let rec walk (e: Expr) =
+        let rec walk (bound: Var list) (e: Expr) =
+            let walk' = walk bound
             match e with
-            | ValueWithName(v, t, _) when isCapture builderType t ->
+            // The builder is a constant in the quotation: its type is the shape, not the instance.
+            | ValueWithName(_, t, _) when not (isCapture builderType t) -> shape.Add t
+            | ValueWithName(v, t, _) ->
                 slots.Add v
                 shape.Add t
             | Value(v, t) ->
                 shape.Add v
                 shape.Add t
-            | ShapeVar v -> shape.Add v.Type
+            | ShapeVar v ->
+                shape.Add v.Type
+                shape.Add(bound |> List.tryFindIndex (fun b -> obj.ReferenceEquals(b, v)) |> Option.defaultValue -1)
             | ShapeLambda(v, body) ->
                 shape.Add v.Type
-                walk body
-            // `Expr.Type` throws on this node (FSharp.Core's typeOfConst has no LetRec case).
+                walk (v :: bound) body
+            // Body first, as ExprShape orders it and `prepare` visits it (the slot numbering
+            // must agree). `Expr.Type` throws on this node, hence the explicit case.
             | LetRecursive(bindings, body) ->
-                for (v, def) in bindings do
-                    shape.Add v.Type
-                    walk def
-                walk body
+                let bound = (bindings |> List.map fst) @ bound
+                for (v, _) in bindings do shape.Add v.Type
+                walk bound body
+                for (_, def) in bindings do walk bound def
             | ShapeCombination(_, args) ->
                 shape.Add(
                     match e with
                     | Call(_, mi, _) -> box mi
                     | NewObject(ci, _) -> box ci
-                    | PropertyGet(_, pi, _) -> box pi
+                    | PropertyGet(_, pi, _) | PropertySet(_, pi, _, _) -> box pi
+                    | FieldGet(_, fi) | FieldSet(_, fi, _) -> box fi
+                    | UnionCaseTest(_, uci) -> box uci
+                    | TypeTest(_, t) -> box t
                     | _ -> box e.Type)
-                List.iter walk args
-        walk q
+                List.iter walk' args
+        walk [] q
         slots.ToArray(), shape.ToArray()
 
     let sameShape (a: obj[]) (b: obj[]) =
@@ -76,5 +88,10 @@ module internal Quoted =
                 if t = typeof<obj> then read else Expr.Coerce(read, t)
             | ShapeVar _ -> e
             | ShapeLambda(v, body) -> Expr.Lambda(v, rewrite body)
+            // Explicit, so the order (body, then definitions) is the one `scan` uses whatever
+            // shape FSharp.Core gives the node.
+            | LetRecursive(bindings, body) ->
+                let body = rewrite body
+                Expr.LetRecursive(bindings |> List.map (fun (v, def) -> v, rewrite def), body)
             | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map rewrite args)
         rewrite q

@@ -64,5 +64,5 @@ and [<Sealed>] DlrQuotedBuilder =
 module Builder =
     /// <summary>The <c>dlr { }</c> computation expression. Put <c>[&lt;ReflectedDefinition&gt;]</c> on the function or member that contains the block (an enclosing type or module also works, but only when everything in it can be quoted).</summary>
     val dlr: DlrBuilder
-    /// <summary>The <c>dlrq { }</c> computation expression: <c>dlr { }</c> without the attribute, at a per-call cost of microseconds rather than nanoseconds. Same body, same bindings; only public members bind, and a captured <c>let mutable</c> can be read but not assigned.</summary>
+    /// <summary>The <c>dlrq { }</c> computation expression: <c>dlr { }</c> without the attribute, at a per-call cost of microseconds rather than nanoseconds. Same body, same bindings; only public members bind, and (the compiler's quotation rules) a captured <c>let mutable</c> can be read but not assigned, and a member of a captured value-type local must be bound outside the block.</summary>
     val dlrq: DlrQuotedBuilder

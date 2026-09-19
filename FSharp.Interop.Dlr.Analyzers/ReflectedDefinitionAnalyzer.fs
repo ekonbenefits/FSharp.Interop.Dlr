@@ -170,7 +170,7 @@ let private analyzeSharedLines (typedTree: FSharpImplementationFileContents opti
                 ranges
                 |> List.map (fun r ->
                     { Type = "dlr { } blocks on one line"
-                      Message = sprintf "%d blocks start on line %d. A block is found by the line of its Run call (a dlr { } raises DlrTranslationException); put each block on its own line." ranges.Length line
+                      Message = sprintf "%d blocks start on line %d. A block is found by the line of its Run call: a dlr { } raises DlrTranslationException, and two dlrq { } of the same shape would share a delegate; put each block on its own line." ranges.Length line
                       Code = SharedLineCode
                       Severity = Severity.Error
                       Range = r

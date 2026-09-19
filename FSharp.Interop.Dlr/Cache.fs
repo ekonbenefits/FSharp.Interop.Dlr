@@ -24,11 +24,12 @@ module DlrCache =
         lock onClear (fun () -> for f in onClear do f ())
 
     /// The builders as the translator needs them: the caller's own first, for `Discover`.
-    let internal getOrCompile (builderTypes: Type list) (closureType: Type) (file: string) (line: int) (resultType: Type) =
+    let internal getOrCompile (builderTypes: unit -> Type list) (closureType: Type) (file: string) (line: int) (resultType: Type) =
         match cache.TryGetValue closureType with
         | true, compiled -> compiled
         | _ ->
             cache.GetOrAdd(closureType, fun t ->
+                let builderTypes = builderTypes ()
                 let found = Discover.findBody (List.head builderTypes) t file line
                 Translate.translate builderTypes found.Context found.MemberBody (FSharp.Quotations.Var("closure", typeof<obj>)) t resultType found.Body)
 
@@ -62,7 +63,7 @@ type internal Sites<'T> private () =
     static let mutable generation = 0
     static do lock DlrCache.onClear (fun () -> DlrCache.onClear.Add(fun () -> System.Threading.Interlocked.Increment &generation |> ignore; sites.Clear(); last <- null))
 
-    static member Get(body: obj, builderTypes: Type list, file: string, line: int) : Func<obj, 'T> =
+    static member Get(body: obj, builderTypes: unit -> Type list, file: string, line: int) : Func<obj, 'T> =
         let closureType = body.GetType()
         let generation = System.Threading.Volatile.Read &generation
         let hit = last
@@ -95,17 +96,27 @@ type internal QuotedSites<'T> private () =
         lock DlrCache.onClear (fun () -> DlrCache.onClear.Add(fun () -> System.Threading.Interlocked.Increment &generation |> ignore; sites.Clear()))
         lock DlrCache.counters (fun () -> DlrCache.counters.Add(fun () -> sites.Values |> Seq.sumBy Array.length))
 
-    static member Get(builderTypes: Type list, q: FSharp.Quotations.Expr, file: string, line: int) : 'T =
+    static member Get(builderTypes: unit -> Type list, q: FSharp.Quotations.Expr, file: string, line: int) : 'T =
+        let builderTypes = builderTypes ()
         let slots, shape = Quoted.scan (List.head builderTypes) q
         let generation = System.Threading.Volatile.Read &generation
         let key = struct (file, line)
         let hits = match sites.TryGetValue key with | true, hits -> hits | _ -> [||]
-        match hits |> Array.tryFind (fun h -> h.Generation = generation && Quoted.sameShape h.Shape shape) with
+        let find (hits: QuotedHit<'T>[]) = hits |> Array.tryFind (fun h -> h.Generation = generation && Quoted.sameShape h.Shape shape)
+        match find hits with
         | Some hit -> hit.Func.Invoke slots
         | None ->
-            let compiled = DlrCache.compileQuoted builderTypes q typeof<'T>
-            let hit = QuotedHit<'T>(shape, compiled.Delegate :?> Func<obj[], 'T>, generation)
-            sites.AddOrUpdate(key, [| hit |], fun _ old ->
-                let kept = old |> Array.filter (fun h -> h.Generation = generation)
-                Array.append (if kept.Length >= perSite then Array.skip 1 kept else kept) [| hit |]) |> ignore
+            // Misses are admitted under a lock, so concurrent first calls compile once and the
+            // per-site bound holds distinct shapes, not duplicates.
+            let hit =
+                lock sites (fun () ->
+                    let hits = match sites.TryGetValue key with | true, hits -> hits | _ -> [||]
+                    match find hits with
+                    | Some hit -> hit
+                    | None ->
+                        let compiled = DlrCache.compileQuoted builderTypes q typeof<'T>
+                        let hit = QuotedHit<'T>(shape, compiled.Delegate :?> Func<obj[], 'T>, generation)
+                        let kept = hits |> Array.filter (fun h -> h.Generation = generation)
+                        sites.[key] <- Array.append (if kept.Length >= perSite then Array.skip 1 kept else kept) [| hit |]
+                        hit)
             hit.Func.Invoke slots

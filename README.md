@@ -122,10 +122,12 @@ let total (rows: obj) : decimal = dlrq { return rows?Sum("Amount") }
 
 The price is that F# materialises the quotation literal on every call — about 7 µs for a small
 block, the whole of the difference: `dlrq w?Count` measures ~8 µs against ~20 ns for `dlr`.
-Fine outside hot paths; the benchmark table shows both. Two smaller differences: a `dlrq { }`
+Fine outside hot paths; the benchmark table shows both. Three smaller differences: a `dlrq { }`
 has no enclosing member, so it binds as `obj` would — public members only, no `internal` or F#
-`private` — and a captured `let mutable` can be read but not assigned (the compiler's own rule
-for quotations, FS3155). `Tests.Quoted` compiles the whole test suite with `dlr` swapped for
+`private`; a captured `let mutable` can be read but not assigned; and a member of a captured
+*value-type* local (`dt.Day`, `guid.ToString()`) cannot be used in the block — both the
+compiler's own rules for quotations (FS3155), and both fixed by binding the value outside the
+block (`let day = dt.Day`). `Tests.Quoted` compiles the whole test suite with `dlr` swapped for
 `dlrq`, so everything else documented here holds for both.
 
 ## Syntax
@@ -257,11 +259,11 @@ regenerates this table and the full [docs/benchmarks.md](docs/benchmarks.md) (ev
 | | ns/call |
 | --- | ---: |
 | static w.Add(i, 1) | 1.1 |
-| reflection: cached MethodInfo.Invoke | 36.6 |
-| FSharp.Interop.Dynamic w?Add(i, 1) | 7,561 |
-| C# dynamic d.Add(i, 1) | 7.4 |
-| dlr w?Add(i, 1) | 20.3 |
-| dlr w?Count | 19.7 |
-| dlr loop of 100 calls, one site (whole loop) | 1,531 |
-| dlrq w?Add(i, 1) | 10,796 |
+| reflection: cached MethodInfo.Invoke | 36.9 |
+| FSharp.Interop.Dynamic w?Add(i, 1) | 7,626 |
+| C# dynamic d.Add(i, 1) | 7.5 |
+| 🙂 dlr w?Add(i, 1) | 20.1 |
+| 🙂 dlr w?Count | 19.9 |
+| 🙂 dlr loop of 100 calls, one site (whole loop) | 1,536 |
+| 😢 dlrq w?Add(i, 1) | 11,400 |
 <!-- benchmarks:end -->
