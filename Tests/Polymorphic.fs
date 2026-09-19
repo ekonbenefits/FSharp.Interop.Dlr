@@ -58,8 +58,8 @@ let ``unit -> R: a property, a parameterless method, a delegate and an F# functi
         [ p (); m (); f (); v () ] |> should equal [ 1; 2; 3; 4 ]
 
 [<Fact>]
-let ``Dlr.call: a delegate and an F# function through one site`` () =
-    let call (f: obj) : int = dlr { return f |> Dlr.call 21 }
+let ``Dlr.apply: a delegate and an F# function through one site`` () =
+    let call (f: obj) : int = dlr { return f |> Dlr.apply 21 }
     let del = box (Func<int, int>(fun x -> x * 2))
     let fn = box (fun (x: int) -> x + 1)
     for _ in 1 .. rounds do

@@ -84,7 +84,7 @@ let ``unit result discards`` () =
 [<Fact>]
 let ``invoke the target itself`` () =
     let f = box (Func<int, int>(fun x -> x * 2))
-    (dlr { return f |> Dlr.call 21 } : int) |> should equal 42
+    (dlr { return f |> Dlr.apply 21 } : int) |> should equal 42
 
 [<Fact>]
 let ``delegate arg passes through`` () =
@@ -96,7 +96,7 @@ let ``delegate arg passes through`` () =
 let ``invoke the target with a unit result`` () =
     let mutable hits = 0
     let f = box (Action<int>(fun x -> hits <- hits + x))
-    dlr { f |> Dlr.call 5 }
+    dlr { f |> Dlr.apply 5 }
     hits |> should equal 5
 
 [<Fact>]
@@ -183,7 +183,7 @@ let ``a tuple in a variable is several arguments, as in F#'s own method calls`` 
     (dlr { return w?Add args } : int) |> should equal 42
     (dlr { return w |> Dlr.invoke "Add" args } : int) |> should equal 42
     let f = box (fun (a: int) (b: int) -> a + b)
-    (dlr { return f |> Dlr.call args } : int) |> should equal 42
+    (dlr { return f |> Dlr.apply args } : int) |> should equal 42
     // Elements keep their static types: `Greet(string, string)` binds, not the obj overload.
     let pair = ("hello", "world")
     (dlr { return w?Greet pair } : string) |> should equal "hello, world"

@@ -15,7 +15,8 @@ let ``every operator and marker throws outside dlr`` () =
     let outside (f: unit -> unit) = f |> should throw typeof<InvalidOperationException>
     outside (fun () -> (w?Count : int) |> ignore)
     outside (fun () -> w?Count <- 1)
-    outside (fun () -> (Dlr.call 1 w : int) |> ignore)
+    outside (fun () -> (Dlr.apply 1 w : int) |> ignore)
+    outside (fun () -> (Dlr.call w : int) |> ignore)
     outside (fun () -> Dlr.named {| a = 1 |} |> ignore)
     outside (fun () -> (Dlr.item 0 w : int) |> ignore)
     outside (fun () -> Dlr.setItem 0 1 w)

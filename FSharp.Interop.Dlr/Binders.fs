@@ -1060,9 +1060,10 @@ module internal Binders =
         let binder = if positional then FSharpInvokeConstructorBinder(context, t, csharp) :> CallSiteBinder else csharp :> CallSiteBinder
         siteCall binder all t
 
-    /// `Dlr.call args target`, applying `target` itself when it is an F# function.
+    /// `Dlr.call target args` / `Dlr.apply args target`: invoke `target` itself, applying it when
+    /// it is an F# function.
     let invokeOrApply (context: Type) (discard: bool) (target: Arg) (args: Arg list) =
-        callsOnly "Dlr.call" target
+        callsOnly "invoking a value (Dlr.call / Dlr.apply)" target
         let all = target :: args
         let csharp = Binder.Invoke((if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None), context, [ for a in all -> argInfo a ])
         let positional = args |> List.forall (fun a -> isNull a.Name)
@@ -1071,10 +1072,13 @@ module internal Binders =
             else FSharpInvokeBinder(csharp :?> InvokeBinder) :> CallSiteBinder
         siteCall binder all (if discard then voidType else typeof<obj>)
 
-    /// `x?Name` read as an F# function type (see FunctionMember): the argument types come from the
-    /// function type's domains, curried or tupled; `unit -> R` reads a property or invokes.
-    let functionMember (context: Type) (name: string) (functionType: Type) (target: Arg) : Expr =
-        callsOnly "reading a member as a function" target
+    /// A value read as an F# function type (see FunctionMember): the argument types come from the
+    /// function type's domains, curried or tupled; `binderFor` gives the site's binder for those
+    /// typed argument slots (`unit -> R` gets an empty list), `what` names the operation for the
+    /// tupled-arity error and `shortcut` says to return the target itself when it already is a
+    /// function of that type (a bare value, not a member read).
+    let private asFunction (context: Type) (functionType: Type) (original: Arg) (what: string) (shortcut: bool) (binderFor: Arg list -> bool -> CallSiteBinder) : Expr =
+        let target = original
         let rec domains (t: Type) =
             if FSharp.Reflection.FSharpType.IsFunction t then
                 let d, r = FSharp.Reflection.FSharpType.GetFunctionElements t
@@ -1088,39 +1092,63 @@ module internal Binders =
             | [ d ] when FSharp.Reflection.FSharpType.IsTuple d -> true, List.ofArray (FSharp.Reflection.FSharpType.GetTupleElements d)
             | ds -> false, ds
 
+        // With the shortcut the target is evaluated once into a variable that both the type test
+        // and the invoker read.
+        let targetVar = Var("target", typeof<obj>)
+        let target = if shortcut then { target with Expr = Expr.Var targetVar } else target
         let invokeArgs = [ for t in argTypes -> typedArg (Expr.Value(null, t)) ]
         let all = target :: invokeArgs
         // `… -> unit` invokes with the result discarded (a void site), as a statement call does.
         let discard = resultType = typeof<unit>
-        let flags = if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None
-        let binder =
-            if argTypes.IsEmpty then
+        let invokeSite = site (binderFor all discard) all (if discard then voidType else typeof<obj>)
+        let shape = (if tupled then "Tupled" else "Curried") + string argTypes.Length
+        let built =
+            if argTypes.Length > 5 && not tupled then
+                // Beyond the typed helpers: a run-time-built curried closure (CurriedInvoker), which is
+                // what F# itself does past OptimizedClosures, with DynamicInvoke at the end.
+                let convertSite = if discard then Expr.Value(null, typeof<CallSite>) else site (Binder.Convert(CSharpBinderFlags.None, resultType, context)) [ dynamicArg (Expr.Value(null, typeof<obj>)) ] resultType
+                let mi = typeof<CurryStep<obj, obj>>.Assembly.GetType("FSharp.Interop.Dlr.CurriedInvoker").GetMethod("build")
+                let call =
+                    Expr.Call(mi, [ Expr.Value(argTypes, typeof<Type list>); Expr.Value((if discard then typeof<unit> else resultType), typeof<Type>)
+                                    Expr.Coerce(invokeSite, typeof<CallSite>); Expr.Coerce(convertSite, typeof<CallSite>); target.Expr ])
+                Expr.Coerce(call, functionType)
+            elif argTypes.Length > 5 then
+                raise (DlrTranslationException(
+                        sprintf "dlr { } can read %s as a tupled function of up to five elements; this one has %d. Read it curried, or call it with the arguments." what argTypes.Length))
+            elif discard then
+                let helper = typeof<FunctionMember>.GetMethod(shape + "Unit")
+                let helper = if argTypes.IsEmpty then helper else helper.MakeGenericMethod(Array.ofList argTypes)
+                Expr.Call(helper, [ invokeSite; target.Expr ])
+            else
+                let convertSite = site (Binder.Convert(CSharpBinderFlags.None, resultType, context)) [ dynamicArg (Expr.Value(null, typeof<obj>)) ] resultType
+                let helper = typeof<FunctionMember>.GetMethod(shape).MakeGenericMethod(Array.ofList (argTypes @ [ resultType ]))
+                Expr.Call(helper, [ invokeSite; convertSite; target.Expr ])
+        if shortcut then
+            // A value that already is a function of this type is that function: no invoker.
+            Expr.Let(targetVar, original.Expr,
+                     Expr.IfThenElse(Expr.TypeTest(Expr.Var targetVar, functionType), Expr.Coerce(Expr.Var targetVar, functionType), built))
+        else built
+
+    /// `x?Name` read as an F# function type: `unit -> R` reads a property or invokes a
+    /// parameterless method; otherwise a typed InvokeMember site.
+    let functionMember (context: Type) (name: string) (functionType: Type) (target: Arg) : Expr =
+        callsOnly "reading a member as a function" target
+        asFunction context functionType target (sprintf "member '%s'" name) false (fun all discard ->
+            let flags = if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None
+            if all.Length = 1 then
                 let csharp = Binder.InvokeMember(flags, name, null, context, [ argInfo target ]) :?> InvokeMemberBinder
                 let csharpInvoke = Binder.Invoke(flags, context, [ argInfo target ]) :?> InvokeBinder
                 FSharpReadOrInvokeBinder(context, name, csharp, csharpInvoke) :> CallSiteBinder
-            else smartInvokeMember context name [] discard all
-        let invokeSite = site binder all (if discard then voidType else typeof<obj>)
-        let shape = (if tupled then "Tupled" else "Curried") + string argTypes.Length
-        if argTypes.Length > 5 && not tupled then
-            // Beyond the typed helpers: a run-time-built curried closure (CurriedInvoker), which is
-            // what F# itself does past OptimizedClosures, with DynamicInvoke at the end.
-            let convertSite = if discard then Expr.Value(null, typeof<CallSite>) else site (Binder.Convert(CSharpBinderFlags.None, resultType, context)) [ dynamicArg (Expr.Value(null, typeof<obj>)) ] resultType
-            let mi = typeof<CurryStep<obj, obj>>.Assembly.GetType("FSharp.Interop.Dlr.CurriedInvoker").GetMethod("build")
-            let call =
-                Expr.Call(mi, [ Expr.Value(argTypes, typeof<Type list>); Expr.Value((if discard then typeof<unit> else resultType), typeof<Type>)
-                                Expr.Coerce(invokeSite, typeof<CallSite>); Expr.Coerce(convertSite, typeof<CallSite>); target.Expr ])
-            Expr.Coerce(call, functionType)
-        elif argTypes.Length > 5 then
-            raise (DlrTranslationException(
-                    sprintf "dlr { } can read a member as a tupled function of up to five elements; '%s' is read as one of %d. Read it curried, or call it: x?%s(…)." name argTypes.Length name))
-        elif discard then
-            let helper = typeof<FunctionMember>.GetMethod(shape + "Unit")
-            let helper = if argTypes.IsEmpty then helper else helper.MakeGenericMethod(Array.ofList argTypes)
-            Expr.Call(helper, [ invokeSite; target.Expr ])
-        else
-            let convertSite = site (Binder.Convert(CSharpBinderFlags.None, resultType, context)) [ dynamicArg (Expr.Value(null, typeof<obj>)) ] resultType
-            let helper = typeof<FunctionMember>.GetMethod(shape).MakeGenericMethod(Array.ofList (argTypes @ [ resultType ]))
-            Expr.Call(helper, [ invokeSite; convertSite; target.Expr ])
+            else smartInvokeMember context name [] discard all)
+
+    /// `Dlr.call x` read as an F# function type: the target itself as that function — a typed
+    /// Invoke site (F# function values through FSharpInvokeBinder), or the target as it is when
+    /// it already is a function of the type.
+    let functionTarget (context: Type) (functionType: Type) (target: Arg) : Expr =
+        callsOnly "Dlr.call" target
+        asFunction context functionType target "the target" true (fun all discard ->
+            let flags = if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None
+            FSharpInvokeBinder(Binder.Invoke(flags, context, [ for a in all -> argInfo a ]) :?> InvokeBinder) :> CallSiteBinder)
 
     let getIndex (context: Type) (target: Arg) (indexes: Arg list) =
         callsOnly "indexing" target

@@ -40,9 +40,9 @@ function/delegate conversion) apply to every kind of call: instance and static m
 constructors, delegate-typed members and delegate values.
 
 - **A member holding an F# function value can be called** (`e?Fn(21)`, a record field
-  `h?OnPair(3, 4)`, `f |> Dlr.call 21`), curried or tupled, any arity; and any member can be read
-  as an F# function type (`let add: int -> int -> int = dlr { return w?Add }`; curried any
-  arity, tupled up to five), which C# has no form for.
+  `h?OnPair(3, 4)`, `f |> Dlr.apply 21`), curried or tupled, any arity; and any member — or the
+  value itself, `Dlr.call f` — can be read as an F# function type (`let add: int -> int -> int =
+  dlr { return w?Add }`; curried any arity, tupled up to five), which C# has no form for.
 - **An F# function fits a delegate parameter, and a delegate fits a function parameter**:
   `x?Each(items, fun i -> …)` against an `Action<int>`, `x?Apply(3, Func<int, int>(…))` against
   an `int -> int` — the conversions F# does at a static call. C#'s binder sees an `FSharpFunc`

@@ -43,7 +43,7 @@ let ``JS object properties, nested objects, and typed conversion`` () =
     (dlr { return w?nested?deep } : int) |> should equal 42
 
 [<Fact>]
-let ``JS functions: as members (this bound), as values through Dlr.call, closures, classes`` () =
+let ``JS functions: as members (this bound), as values through Dlr.apply, closures, classes`` () =
     let e = require ()
     let w = e.Evaluate "widget"
     let script = box e.Script                                                  // the global object, a ScriptObject
@@ -51,7 +51,7 @@ let ``JS functions: as members (this bound), as values through Dlr.call, closure
     (dlr { return w?add("a", "b") } : string) |> should equal "ab"             // JS duck typing at the same site
     (dlr { return w?greet("f#") } : string) |> should equal "hi f# from js"   // `this` is the object
     let add5: obj = dlr { return script?makeAdder(5) }                         // a JS closure comes back callable
-    (dlr { return add5 |> Dlr.call 10 } : int) |> should equal 15
+    (dlr { return add5 |> Dlr.apply 10 } : int) |> should equal 15
     // A JS class cannot be called without `new` (V8 refuses; ClearScript reports "Method or
     // property not found"), and C# `dynamic` has no `new` for script objects either: construct
     // through a JS factory or Evaluate, then use the instance dynamically.

@@ -159,8 +159,8 @@ type Core() =
     [<Benchmark(Description = "dlr d |> Dlr.item \"a\"")>]
     member _.Index() : int = dlr { return dictionary |> Dlr.item "a" }
 
-    [<Benchmark(Description = "dlr delegate |> Dlr.call 20")>]
-    member _.InvokeDelegate() : int = dlr { return adder |> Dlr.call 20 }
+    [<Benchmark(Description = "dlr delegate |> Dlr.apply 20")>]
+    member _.InvokeDelegate() : int = dlr { return adder |> Dlr.apply 20 }
 
     [<Benchmark(Description = "dlr Dlr.implicit to int64")>]
     member _.Convert() : int64 = dlr { return Dlr.implicit three }

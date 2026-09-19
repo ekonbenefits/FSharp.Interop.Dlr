@@ -52,7 +52,8 @@ module internal Translate =
 
     let private opDynamic = opMethod <@ fun (t: obj) (n: string) -> ((?) t n) : obj @>
     let private opDynamicAssign = opMethod <@ fun (t: obj) (n: string) (v: obj) -> (?<-) t n v @>
-    let private opCall = opMethod <@ fun (a: obj) (t: obj) -> (Dlr.call a t) : obj @>
+    let private opCall = opMethod <@ fun (t: obj) -> (Dlr.call t) : obj @>
+    let private opApply = opMethod <@ fun (a: obj) (t: obj) -> (Dlr.apply a t) : obj @>
     let private opNamed = opMethod <@ fun (r: obj) -> Dlr.named r @>
     /// `Dlr.new'<T>(a, b, …)`: the type and the arguments (each unboxed to its static type).
     let private (|New|_|) (e: Expr) =
@@ -554,7 +555,7 @@ module internal Translate =
             let args =
                 [ for a in argExprs do
                     match a with
-                    | TypeArgs _ -> unsupported "Dlr.typeArgs anywhere but as the first argument" a
+                    | TypeArgs _ -> unsupported "Dlr.typeArgs anywhere but as the first argument of a member call (a value invoked with Dlr.call / Dlr.apply takes no type arguments)" a
                     | NamedRecord(lets, fields) ->
                         bindings.AddRange lets
                         let inner = bindings |> Seq.fold (fun (b: Set<Var>) (v, _) -> b.Add v) bound
@@ -720,12 +721,18 @@ module internal Translate =
                 // which an obj-typed site rejects for a struct), so no Convert.
                 let bindings, args = argList bound argExprs
                 Binders.invokeConstructor context t args |> bind bound bindings |> Some
-            | Op opCall [ argExpr; Unboxed target ] ->
+            // The value's `?`: applied, a call; read at a function type, the target as that function.
+            | Application(EtaReduced(Op opCall [ Unboxed target ]), argExpr)
+            | Op opApply [ argExpr; Unboxed target ] ->
                 let discard = e.Type = typeof<unit>
                 let tupleBindings, argExprs = splitArgs argExpr
                 let bound' = withTuple bound tupleBindings
                 let bindings, args = argList bound' argExprs
                 Binders.invokeOrApply context discard (targetArg bound target) args |> finish discard e.Type |> bind bound' bindings |> bind bound tupleBindings |> Some
+            | Op opCall [ Unboxed target ] when FSharpType.IsFunction e.Type ->
+                Binders.functionTarget context e.Type (targetArg bound target) |> Some
+            | Op opCall [ _ ] ->
+                unsupported "Dlr.call read at a non-function type (a value read as a type is Dlr.implicit; to invoke, apply it: Dlr.call x (a, b))" e
             | Op opItem [ indexes; Unboxed target ] ->
                 let tupleBindings, indexExprs = splitArgs indexes
                 let bound' = withTuple bound tupleBindings

@@ -102,12 +102,12 @@ let ``Python objects: attributes, methods, defaults, repr`` () =
     (dlr { return p?__repr__() } : string) |> should equal "Point(3, 10)"
 
 [<Fact>]
-let ``Python callables through Dlr.call, dicts and lists through Dlr.item`` () =
+let ``Python callables through Dlr.apply, dicts and lists through Dlr.item`` () =
     requirePython ()
     use _gil = Py.GIL()
     let m = box (PyModule.FromString("sample3", source))
     let add5: obj = dlr { return m?make_adder(5) }
-    (dlr { return add5 |> Dlr.call 10 } : int) |> should equal 15
+    (dlr { return add5 |> Dlr.apply 10 } : int) |> should equal 15
     let data: obj = dlr { return m?data }
     (dlr { return data |> Dlr.item "name" } : string) |> should equal "py"
     (dlr { return data |> Dlr.item "items" |> Dlr.item 2 } : int) |> should equal 3

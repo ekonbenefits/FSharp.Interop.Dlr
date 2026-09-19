@@ -1,7 +1,7 @@
 /// The rules that go beyond C# — omitting F# optional parameters, an F# function for a delegate
 /// parameter, a delegate for a function parameter — apply to every kind of call, not only
 /// instance methods: static methods (`Dlr.Static<T>.Overloads`), constructors (`Dlr.new'`),
-/// delegate-typed members, an Expando's delegate member, `Dlr.call` on a delegate.
+/// delegate-typed members, an Expando's delegate member, `Dlr.apply` on a delegate.
 [<ReflectedDefinition>]
 module Tests.RulesEverywhere
 
@@ -37,6 +37,6 @@ let ``delegate members and delegate values take F# functions`` () =
     let e = box (Fixtures.expando [ "Run", box (Func<Func<int, int>, int>(fun f -> f.Invoke 21)) ])
     (dlr { return e?Run(fun (x: int) -> x * 2) } : int) |> should equal 42                 // an Expando's delegate member
     let d = box (Func<Func<int, int>, int>(fun f -> f.Invoke 21))
-    (dlr { return d |> Dlr.call (fun (x: int) -> x * 2) } : int) |> should equal 42        // Dlr.call on a delegate
+    (dlr { return d |> Dlr.apply (fun (x: int) -> x * 2) } : int) |> should equal 42        // Dlr.apply on a delegate
     let optionalDelegate = box (Func<int, int>(fun x -> x + 1))
-    (dlr { return optionalDelegate |> Dlr.call 20 } : int) |> should equal 21              // C#'s own invoke still first
+    (dlr { return optionalDelegate |> Dlr.apply 20 } : int) |> should equal 21              // C#'s own invoke still first

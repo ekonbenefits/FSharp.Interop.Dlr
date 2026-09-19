@@ -37,7 +37,7 @@ in `Adapters.fs` (`generate-adapters.fsx`).
 The misses caught in review were always "handled here, not there". Check each:
 
 - `FSharpInvokeMemberBinder` (`x?M(args)`), `FSharpReadOrInvokeBinder` (`unit -> R` read),
-  `FSharpInvokeBinder` (`Dlr.call` / a value invoked), `FunctionMember`/`CurriedInvoker`
+  `FSharpInvokeBinder` (`Dlr.call` / `Dlr.apply` / a value invoked), `FunctionMember`/`CurriedInvoker`
   (member read as `A -> B -> R`).
 - Result discarded (`ResultDiscarded`, void site) vs converted result vs `obj` result.
 - Typed args (`UseCompileTimeType`) vs `obj` args vs literals (`Constant`).

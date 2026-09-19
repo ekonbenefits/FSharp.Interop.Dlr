@@ -103,7 +103,9 @@ type Dlr =
     [<MethodImpl(MethodImplOptions.NoInlining)>]
     static member get (name: string) (target: obj) : 'T = ignore (name, target); outside "Dlr.get"
     [<MethodImpl(MethodImplOptions.NoInlining)>]
-    static member call (args: 'TArgs) (target: obj) : 'T = ignore (args, target); outside "Dlr.call"
+    static member call (target: obj) : 'T = ignore target; outside "Dlr.call"
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
+    static member apply (args: 'TArgs) (target: obj) : 'T = ignore (args, target); outside "Dlr.apply"
     [<MethodImpl(MethodImplOptions.NoInlining)>]
     static member addAssign (name: string) (value: 'TValue) (target: obj) : unit = ignore (name, value, target); outside "Dlr.addAssign"
     [<MethodImpl(MethodImplOptions.NoInlining)>]
