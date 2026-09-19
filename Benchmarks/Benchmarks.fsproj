@@ -14,7 +14,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="FSharp.Core" />
+    <PackageReference Include="FSharp.Core" Condition="'$(FSharpCoreResolved)' == ''" />
+    <PackageReference Include="FSharp.Core" VersionOverride="$(FSharpCoreResolved)" Condition="'$(FSharpCoreResolved)' != ''" />
     <PackageReference Include="BenchmarkDotNet" />
     <PackageReference Include="FSharp.Interop.Dynamic" />
     <PackageReference Include="Newtonsoft.Json" />

@@ -10,6 +10,7 @@ sites. Design and binder details: `docs/internals.md`. Skills: `check-review`, `
 dotnet build Tests/Tests.fsproj -c Debug -f net10.0 --no-incremental   # runs the analyzer over the tests
 dotnet test -c Debug
 dotnet test -c Release            # Release inlining has broken things Debug passed
+dotnet test -c Release -p:FSharpCore=latest   # the suite on the newest FSharp.Core (default: the floor)
 dotnet build Tests.Wasm -c Release && (cd Tests.Wasm/bin/Release/net10.0-browser/wwwroot && bun runtests.mjs)
 ```
 

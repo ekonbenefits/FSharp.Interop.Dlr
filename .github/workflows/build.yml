@@ -63,6 +63,17 @@ jobs:
             --report-anyunit-json results/Tests-net10-${{ matrix.configuration }}.json \
             --platform-suffix ${{ matrix.configuration }}
 
+      # The build above runs at the FSharp.Core floor (Directory.Packages.props), which is what
+      # the library promises; this leg rebuilds the Tests project on the newest FSharp.Core
+      # (FSharpCoreLatest in Directory.Build.props) to see what is coming.
+      - name: Test (net10.0, latest FSharp.Core)
+        shell: bash
+        run: |
+          dotnet build Tests/Tests.fsproj --configuration ${{ matrix.configuration }} -p:FSharpCore=latest -p:RunAnalyzers=false
+          dotnet Tests/bin/${{ matrix.configuration }}/net10.0/Tests.dll \
+            --report-anyunit-json results/Tests-net10-latest-${{ matrix.configuration }}.json \
+            --platform-suffix ${{ matrix.configuration }}-latest
+
       # The analyzer's own tests type-check small sources through the SDK's
       # testing package (it creates a scratch project and restores it).
       - name: Test (analyzers)

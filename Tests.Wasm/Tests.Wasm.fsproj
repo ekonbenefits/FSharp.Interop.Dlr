@@ -21,7 +21,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="FSharp.Core" />
+    <PackageReference Include="FSharp.Core" Condition="'$(FSharpCoreResolved)' == ''" />
+    <PackageReference Include="FSharp.Core" VersionOverride="$(FSharpCoreResolved)" Condition="'$(FSharpCoreResolved)' != ''" />
     <PackageReference Include="AnyUnit.TestingPlatform" />
     <PackageReference Include="AnyUnit.Style.Xunit" />
     <PackageReference Include="AnyUnit.Style.FsUnit" />

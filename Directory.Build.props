@@ -19,6 +19,17 @@
     <MinVerMinimumMajorMinor>1.0</MinVerMinimumMajorMinor>
   </PropertyGroup>
 
+  <!-- Which FSharp.Core the test projects run against. Default: the library's floor (from
+       Directory.Packages.props), so the floor is what the suite proves. `-p:FSharpCore=latest` runs
+       the same projects on the newest release, to see what is coming; `-p:FSharpCore=<version>`
+       any other. (A global property cannot be reassigned, hence the second, resolved one.) Keep
+       FSharpCoreLatest current. -->
+  <PropertyGroup>
+    <FSharpCoreLatest>10.1.401</FSharpCoreLatest>
+    <FSharpCoreResolved Condition="'$(FSharpCore)' == 'latest'">$(FSharpCoreLatest)</FSharpCoreResolved>
+    <FSharpCoreResolved Condition="'$(FSharpCore)' != '' and '$(FSharpCore)' != 'latest'">$(FSharpCore)</FSharpCoreResolved>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="MinVer" PrivateAssets="All" />
   </ItemGroup>
