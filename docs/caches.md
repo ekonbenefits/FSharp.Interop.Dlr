@@ -5,8 +5,10 @@ Where every piece of state lives, what keys it, and how long it lasts. Part of
 
 | Cache | Key | Value | Lifetime | Where |
 | --- | --- | --- | --- | --- |
-| `DlrCache` | closure `Type` (one per block; per instantiation for generic members) | `Compiled { Delegate: Func<obj,'T>; ResultType }` | process; `DlrCache.clear()` drops it | `Cache.fs` |
-| `Sites<'T>` | closure `Type`, per result type | the same delegate, already typed `Func<obj,'T>`, stamped with the clear generation it was compiled under — the hot path's lookup, no cast; plus a last-compiled slot (an immutable entry swapped atomically) so a block called repeatedly pays a reference compare, not a hash lookup, and blocks called in turn pay a lookup each and never write | process; `DlrCache.clear()` bumps the generation, so no pre-clear entry is served however it got installed | `Cache.fs` |
+| `DlrCache` | the block's container `Type`: its state machine struct, or on the fallback path its Delay closure (one per block; per instantiation for generic members) | `Compiled { Delegate: DlrReader<'SM,'T> or Func<obj,'T>; ResultType }` | process; `DlrCache.clear()` drops it | `Cache.fs` |
+| `Machines<'SM,'T>` | the type instantiation itself: one static slot per machine type | the same delegate, already typed `DlrReader<'SM,'T>`, stamped with the clear generation it was compiled under — the hot path: a static field read (no `static let`, so no initialization check), a generation compare, no lookup, no cast | process; `DlrCache.clear()` bumps the generation, so no pre-clear entry is served however it got installed, and a listener (registered on the first compile) nulls the slot | `Cache.fs` |
+| `Sites<'T>` | closure `Type`, per result type (fallback path) | the same delegate, already typed `Func<obj,'T>`, generation-stamped; plus a last-compiled slot (an immutable entry swapped atomically) so a block called repeatedly pays a reference compare, not a hash lookup, and blocks called in turn pay a lookup each and never write | as above | `Cache.fs` |
+| `DlrRun.delayedFields` | the resumable-code delegate's target type (fallback path) | the field holding the Delay closure, or null when the target is the closure itself | process | `Cache.fs` |
 | reflected definitions | declaring `Type` (module or class) | every `(MethodBase, Expr)` with a reflected definition on it and its nested types | process | `Discover.fs` |
 | `SiteCache<'Key>` | `string * Type list` — the member name and the explicit type arguments; whichever is static is a constant in the key | the operation's `CallSite[]` for that key | per site (a constant in the compiled tree); at `Capacity` (256) entries it clears and refills | `Binders.fs`, for `(?) x name` with a variable name |
 | `FunctionConversions.conversions`, `DelegateConversions.makers` | (function type, delegate type) | the emitted factory that adapts one to the other | process; bounded by the program's types | `Binders.fs` |
@@ -17,8 +19,9 @@ Where every piece of state lives, what keys it, and how long it lasts. Part of
 ```mermaid
 flowchart LR
     subgraph process["process-wide"]
-        DC["DlrCache<br/>closure Type → Compiled"]
-        S["Sites&lt;'T&gt;<br/>typed mirror + last hit,<br/>generation-stamped"]
+        DC["DlrCache<br/>container Type → Compiled"]
+        M["Machines&lt;'SM,'T&gt;<br/>one typed slot per machine type,<br/>generation-stamped"]
+        S["Sites&lt;'T&gt; (fallback)<br/>typed mirror + last hit,<br/>generation-stamped"]
         RD["reflected definitions<br/>declaring Type → (MethodBase, Expr) list"]
         CV["conversion factories<br/>(function type, delegate type)"]
     end
@@ -28,6 +31,7 @@ flowchart LR
         RC["DLR rule cache<br/>per site, per runtime type"]
     end
 
+    M -- miss --> DC
     S -- miss --> DC
     DC -- miss --> RD
     DC -- "compiles into" --> CS
@@ -37,6 +41,7 @@ flowchart LR
     RC -. "function ↔ delegate arguments" .-> CV
 
     clear(["DlrCache.clear()"]) --> DC
+    clear -- "bumps the generation" --> M
     clear -- "bumps the generation" --> S
 ```
 
@@ -48,7 +53,8 @@ is reachable only from that delegate and goes with it.
 
 ## Bounds
 
-- `DlrCache` and `Sites<'T>`: one entry per block (per instantiation of a generic member).
+- `DlrCache`, `Machines<'SM,'T>` and `Sites<'T>`: one entry per block (per instantiation of a
+  generic member).
 - reflected definitions: one list per type that has had a block looked up in it.
 - `SiteCache`: 256 keys per site, then it clears and refills; concurrent misses are admitted
   under a lock so the bound holds.

@@ -5,14 +5,15 @@ covers usage; these pages are for reading or changing the library.
 
 ```mermaid
 flowchart LR
-    src["dlr { … }"] --> run["Run"] --> sites{"Sites&lt;'T&gt;<br/>hit?"}
-    sites -- yes --> inv["compiled delegate<br/>~20 ns"]
+    src["dlr { … }"] --> run["Run (inline):<br/>a struct state machine"] --> sites{"Machines&lt;'SM,'T&gt;<br/>hit?"}
+    sites -- yes --> inv["compiled delegate<br/>~11 ns"]
     sites -- no --> comp["Discover → Translate → Binders<br/>→ converter → SiteHoister → Compile<br/>once per site"] --> inv
 ```
 
-- [**Pipeline**](pipeline.md) — from the CE desugaring to the delegate: `Run`, `Sites<'T>`,
-  `DlrCache`, `Discover`, `Translate`, the converter, `SiteHoister`; a sequence diagram of one
-  call on the hot path and of a first call; spot measurements.
+- [**Pipeline**](pipeline.md) — from the CE desugaring to the delegate: the resumable-code
+  `Run`, `Machines<'SM, 'T>` (and the closure fallback, `Sites<'T>`), `DlrCache`, `Discover`,
+  `Translate`, the converter, `SiteHoister`; a sequence diagram of one call on the hot path and
+  of a first call; spot measurements.
 - [**Caches**](caches.md) — every cache, its key, value and lifetime; how they relate and what
   `DlrCache.clear()` touches; the bounds.
 - [**Call sites**](call-sites.md) — one `CallSite` per operation, the argument flags, the site

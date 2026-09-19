@@ -23,7 +23,7 @@ Same binder, same limits — each pinned by a test in `Tests/Restrictions.fs`:
   throw `NotSupportedException` when called: their body only exists at inlining sites.
   Operator constraints (`v + v`) are fine, they resolve at run time.
 - **No NativeAOT, no trimming.** The runtime binder, `LambdaExpression.Compile()` and the
-  reflection that finds bodies and closure fields all need a JIT; the assembly is marked
+  reflection that finds bodies and the captured variables' fields all need a JIT; the assembly is marked
   `IsAotCompatible=false` / `IsTrimmable=false`. Interpreted (non-AOT) browser-wasm works, and CI
   runs it, just not at JIT speed.
 

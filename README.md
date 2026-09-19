@@ -11,7 +11,7 @@ compile to what C# emits for `d.Name`, `d.Name(a, b)` and `d.Name = v` on a `dyn
 Microsoft.CSharp call site per operation, created once, dispatching on the target's runtime type.
 Same binder, same behaviour: C# overload resolution, named arguments, implicit conversions,
 `ExpandoObject` / `DynamicObject` / `IDynamicMetaObjectProvider`, and `RuntimeBinderException`
-when a bind fails. A block costs about 25 ns after its first call.
+when a bind fails. A block costs about 11 ns after its first call and allocates nothing.
 
 ```fsharp
 open FSharp.Interop.Dlr
@@ -137,12 +137,16 @@ markers, ordinary F#: `let`, `let rec`, `let mutable`, `use`, `if`, `match`, `fo
 
 ## How it works
 
-`dlr { … }` desugars to `dlr.Run(dlr.Delay(fun () -> …), file, line)`; `Delay` returns the
-closure unevaluated. Its compiler-generated type identifies the block and its fields hold the
-captured variables. On the first call the body is found in the enclosing `[<ReflectedDefinition>]`,
-translated into an expression tree with one `CallSite` per operation baked in as a constant, and
-compiled to a `Func<obj, 'T>` cached by closure type. Invocation sites use C#'s binder wrapped in
-one that also applies F# function values, as DLR rules per runtime type.
+`dlr { … }` desugars to `dlr.Run(dlr.Delay(fun () -> …), file, line)`, and `Run` is resumable
+code in `task { }`'s shape: the compiler turns each block into a struct state machine whose
+fields are the captured variables — the machine is never run; its type identifies the block and
+its fields hold the values. On the first call the body is found in the enclosing
+`[<ReflectedDefinition>]`, translated into an expression tree with one `CallSite` per operation
+baked in as a constant, and compiled to a delegate over the machine, cached in a static slot per
+machine type, so a call is a field read and an invoke: no closure, no `GetType()`, no lookup.
+(Where the compiler does not build the machine — Debug builds — the `Delay` closure plays the
+same role, keyed by its type.) Invocation sites use C#'s binder wrapped in one that also applies
+F# function values, as DLR rules per runtime type.
 
 [docs/internals.md](docs/internals.md) indexes the full picture: every cache, every site and its
 argument flags, the F#-aware binders, and what the translator assumes about the compiler.
@@ -157,10 +161,10 @@ regenerates this table and the full [docs/benchmarks.md](docs/benchmarks.md) (ev
 | | ns/call |
 | --- | ---: |
 | static w.Add(i, 1) | 1.2 |
-| reflection: cached MethodInfo.Invoke | 36 |
-| FSharp.Interop.Dynamic w?Add(i, 1) | 7,566 |
-| C# dynamic d.Add(i, 1) | 7.8 |
-| dlr w?Add(i, 1) | 19.6 |
-| dlr w?Count | 19.1 |
-| dlr loop of 100 calls, one site (whole loop) | 1,526 |
+| reflection: cached MethodInfo.Invoke | 35.6 |
+| FSharp.Interop.Dynamic w?Add(i, 1) | 7,524 |
+| C# dynamic d.Add(i, 1) | 7.4 |
+| dlr w?Add(i, 1) | 11.2 |
+| dlr w?Count | 10.6 |
+| dlr loop of 100 calls, one site (whole loop) | 1,558 |
 <!-- benchmarks:end -->

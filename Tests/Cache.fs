@@ -85,3 +85,11 @@ let ``clear then a call recompiles`` () =
     let before = DlrCache.count ()
     read () |> should equal 3
     DlrCache.count () - before |> should equal 1          // recompiled, not served from a stale typed entry
+
+[<Fact>]
+let ``captured variables named like the state machine's own fields still resolve`` () =
+    // The compiled block's struct has `Data` and `ResumptionPoint` fields of its own; a captured
+    // local with one of those names must still be found (the compiler renames its field).
+    let Data = box (Widget())
+    let ResumptionPoint = 2
+    (dlr { return Data?Add(ResumptionPoint, 1) } : int) |> should equal 3
