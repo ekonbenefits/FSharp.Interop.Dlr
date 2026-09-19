@@ -154,6 +154,8 @@ let ``typeArgsOf with a list only known at run time`` () =
 [<Fact>]
 let ``typeArgs must come first`` () =
     let w = box (Widget())
+    // The analyzer reports this at build time (DLR005); this pins the run-time error behind it.
+    // fsharpanalyzer: ignore-line-next DLR005
     (fun () -> (dlr { return w?Pair(1, Dlr.typeArgs<int, int>()) } : string) |> ignore)
     |> should throw typeof<DlrTranslationException>
 

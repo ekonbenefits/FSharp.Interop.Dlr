@@ -23,11 +23,20 @@ module Operators =
     let ( ?<- ) (target: obj) (name: string) (value: 'V) : unit = failwith "marker"
     let ( ?+? ) (left: obj) (right: obj) : 'T = failwith "marker"
 type Named<'T> private () = class end
+type TypeArgs private () = class end
 [<Sealed; AbstractClass>]
 type Dlr =
     static member get (name: string) (target: obj) : 'T = failwith "marker"
     static member named (record: 'T) : Named<'T> = failwith "marker"
+    static member namedOf (args: (string * obj) list) : Named<(string * obj) list> = failwith "marker"
+    static member typeArgs<'A> () : TypeArgs = failwith "marker"
+    static member typeArgsOf (types: System.Type list) : TypeArgs = failwith "marker"
     static member item (indexes: 'TIndexes) (target: obj) : 'T = failwith "marker"
+    static member invoke (name: string) (args: 'TArgs) (target: obj) : 'T = failwith "marker"
+    static member call (target: obj) : 'T = failwith "marker"
+    static member apply (args: 'TArgs) (target: obj) : 'T = failwith "marker"
+    static member new'<'T> (a: obj) : 'T = failwith "marker"
+    static member new'<'T> (a: obj, b: obj) : 'T = failwith "marker"
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module Dlr =
     [<Sealed; AbstractClass>]
@@ -271,3 +280,39 @@ module Impl =
 """
         |> outside
     msgs.Length |> should equal 1
+
+[<Fact>]
+let ``argument markers are fine as call arguments and reported anywhere else`` () =
+    let msgs =
+        run """
+module Impl =
+    let w = box 1
+    let kw: (string * obj) list = []
+    let ts: System.Type list = []
+    [<ReflectedDefinition>]
+    let fine () : int =
+        let a: int = dlr { return w?M(1, Dlr.named {| p = 2 |}, Dlr.namedOf kw) }
+        let b: int = dlr { return w?M(Dlr.typeArgs<int>(), Dlr.namedOf kw) }
+        let c: int = dlr { return w |> Dlr.invoke "M" (1, Dlr.namedOf kw) }
+        let d: int = dlr { return w |> Dlr.apply (Dlr.namedOf kw) }
+        let e: int = dlr { return Dlr.call w (Dlr.typeArgsOf ts, 1) }
+        let f: int = dlr { return Dlr.new'<int>(Dlr.namedOf kw) }
+        let g: int = dlr { return (w |> Dlr.get "M") (Dlr.named {| p = 2 |}) }
+        a + b + c + d + e + f + g
+    [<ReflectedDefinition>]
+    let wrong () : int =
+        let a: int = dlr { return w?M(Dlr.namedOf kw, Dlr.namedOf kw) }          // twice
+        let b: int = dlr { return w?M(1, Dlr.typeArgs<int>()) }                 // not first
+        let c: obj = dlr { return box (Dlr.namedOf kw) }                        // not an argument
+        let d: int = dlr { return w |> Dlr.item (Dlr.named {| p = 2 |}) }       // an indexer is not a call
+        a + b + c.GetHashCode() + d
+"""
+    let out = msgs |> List.filter (fun m -> m.Code = ReflectedDefinitionAnalyzer.ArgumentMarkerCode)
+    let lines = out |> List.map (fun m -> m.Range.StartLine) |> List.sort
+    let first = List.head lines
+    lines |> should equal [ first; first + 1; first + 2; first + 3 ]
+    (out |> List.map (fun m -> m.Message)) |> List.exists (fun m -> m.Contains "twice") |> should equal true
+    (out |> List.map (fun m -> m.Message)) |> List.exists (fun m -> m.Contains "first argument") |> should equal true
+    (out |> List.map (fun m -> m.Message)) |> List.filter (fun m -> m.Contains "only meaningful as an argument") |> List.length |> should equal 2
+    (msgs |> List.filter (fun m -> m.Code <> ReflectedDefinitionAnalyzer.ArgumentMarkerCode)) |> should equal []
+
