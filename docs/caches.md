@@ -48,13 +48,14 @@ flowchart LR
 `clear()` drops the compiled delegates and invalidates the typed entries; the next call at each
 site recompiles. It does not touch the reflected-definition cache (decoding is per type, and the
 definitions have not changed) or the conversion factories (per type pair, and still correct).
-Everything inside a delegate — its sites, their rule caches, a `SiteCache` for a computed name —
-is reachable only from that delegate and goes with it.
+Everything inside a delegate — its sites, their rule caches, a `SiteCache` for a
+[computed name](call-sites.md#computed-names-and-runtime-type-arguments) — is reachable only from
+that delegate and goes with it.
 
 ## Bounds
 
 - `DlrCache`, `Machines<'SM,'T>` and `Sites<'T>`: one entry per block (per instantiation of a
-  generic member).
+  generic member; how each is reached is in the [pipeline](pipeline.md)).
 - reflected definitions: one list per type that has had a block looked up in it.
 - `SiteCache`: 256 keys per site, then it clears and refills; concurrent misses are admitted
   under a lock so the bound holds.

@@ -40,17 +40,18 @@ Blue is every call; orange is the first call at a site (and again after `DlrCach
 each block into a **struct** whose fields are the captured variables — the machine `task`
 would suspend on, used here as the block's container — and hands `AfterCode` a `byref` to it.
 `MoveNext` is never called; the struct's type is the call site's identity (a JIT constant in
-`DlrRun.Machine<'SM, 'T>`) and its fields are the captured values. The compiled reader takes
-the machine by reference and reads the captured variables off its fields. No closure is
-allocated and no `GetType()` runs.
+`DlrRun.Machine<'SM, 'T>`, keying the [`Machines<'SM,'T>` slot](caches.md)) and its fields are
+the captured values. The compiled reader takes the machine by reference and reads the captured
+variables off its fields ([translation](translation.md)). No closure is allocated and no
+`GetType()` runs.
 
 **Fallback.** Where the compiler does not build the machine — Debug builds (`__useResumableCode`
 is false without optimization) — `Run`'s `else` branch receives the `ResumableCode`
 delegate. `DlrRun.Closure` reads the block's `Delay` closure back out of that delegate's
 target (the builder's own `Delay` lambda captures it in a field named `delayed`; when the
 optimizer has inlined it, the target itself is the closure) and continues on the closure path:
-the closure's type is the key, its fields the captured values, and `Sites<'T>` the typed cache
-(last-hit compare, then a dictionary). Same contract, same `Discover` and `Translate`; the cost
+the closure's type is the key, its fields the captured values, and [`Sites<'T>`](caches.md) the
+typed cache (last-hit compare, then a dictionary). Same contract, same `Discover` and `Translate`; the cost
 is the closure allocation, `GetType()` and a field read. Both paths are exercised: the suite
 runs in Debug and in Release. A Release site the compiler reports as not statically compilable
 (warning FS3511) also takes the `else` branch, but there the optimizer has inlined the closure
@@ -126,9 +127,10 @@ sequenceDiagram
 The reflected definition is unaffected by the resumable-code machinery: the quotation is taken
 before inlining, so `Discover` still sees `Run(Delay(fun () -> …), file, line)`.
 
-Microseconds to low milliseconds, once per site: decoding the reflected definition (per type),
-building the binders and sites, `Compile()`. The DLR's own first bind per site (the rule) is
-paid on the first invoke like any C# `dynamic` call site.
+Microseconds to low milliseconds, once per site: decoding the reflected definition (per type,
+[cached](caches.md)), building the [binders](binders.md) and [sites](call-sites.md), `Compile()`
+after the [sites are hoisted into locals](call-sites.md#sites-hoisted-into-locals). The DLR's own
+first bind per site (the rule) is paid on the first invoke like any C# `dynamic` call site.
 
 ## Measured
 

@@ -10,7 +10,7 @@ flowchart TD
     body["body (from Discover)"] --> norm["<b>normalize</b><br/>pipes and curried markers beta-reduced;<br/>lets of literals and variables inlined"]
     norm --> rw["<b>rewriteIn</b> bound e<br/>(the dispatcher)"]
     rw -- "call on the builder" --> pl["<b>Plumbing</b><br/>Return / Zero / Combine fold away;<br/>For / While / TryWith / TryFinally / Using<br/>→ DlrRuntime calls over Func delegates;<br/>nested Run → its body"]
-    rw -- "marker operation" --> mb["<b>Members</b><br/>literal name → baked site (Binders);<br/>computed name / runtime type args → keyedSite;<br/>compoundAssign; new'; item; operators; cast"]
+    rw -- "marker operation" --> mb["<b>Members</b><br/>literal name → baked site (binders.md);<br/>computed name / runtime type args → keyedSite (call-sites.md);<br/>compoundAssign; new'; item; operators; cast"]
     rw -- "free variable" --> cp["<b>Captures</b><br/>field of the machine (or closure) by name;<br/>FSharpRef for a mutable; else the definition the<br/>optimizer inlined, from the enclosing member's body"]
     rw -- "everything else" --> gen["generic rewriting<br/>let mutable and let rec → ref cells;<br/>NewDelegate and lambdas (capturing on wasm);<br/>structure rebuilt as-is"]
     pl --> rw
@@ -48,7 +48,8 @@ nested delegates (loop and try bodies), and the copy costs nothing measurable, w
   the single application of a once-called local function.
 - **Control flow** the expression converter has no node for (`for`, `while`, `try`, `use`) is
   emitted as calls to `DlrRuntime.*` helpers with the bodies as `Func` delegates (not F#
-  lambdas: on browser-wasm the `FuncConvert` wrapper the converter would add lost arguments).
+  lambdas: on browser-wasm the `FuncConvert` wrapper the converter would add lost arguments,
+  the same fault behind the [function ↔ delegate conversions](binders.md#functions-and-delegates)).
   `let rec` is tied through reference cells, and so is a `let mutable` of the block: loop and
   `try` bodies are compiled into delegates, and a tree variable cannot be assigned from inside
   one. A captured mutable already is a cell, so `v <- x` writes its `Value`.

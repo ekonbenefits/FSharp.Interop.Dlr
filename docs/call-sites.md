@@ -52,8 +52,8 @@ When the member name, the type arguments, or both are only known at run time, th
 delegate is still compiled once, at translation time, with its `CallSite`s as parameters: the
 shape does not depend on the name, only the sites do, so the sites are lifted out of a template
 built for a placeholder key. A `SiteCache` constant keyed by `(name, types)` — whichever of the
-two is static being a constant in the key — creates the sites per distinct key, and the emitted
-code is
+two is static being a constant in the key; its bound and lifetime are in [caches](caches.md) —
+creates the sites per distinct key, and the emitted code is
 
 ```
 let sites = cache.Get((name, types)) in delegate.Invoke(sites.[0], …, target, args…)
