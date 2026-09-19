@@ -350,17 +350,19 @@ module internal Translate =
     let private onWasm =
         string System.Runtime.InteropServices.RuntimeInformation.OSArchitecture = "Wasm"   // no Architecture.Wasm on netstandard2.0
 
-    /// What every part of the translation of one block needs: where it is (the builder and the
-    /// member it sits in) and where its values come from (the Delay closure).
+    /// What every part of the translation of one block needs: where it is (the builders and the
+    /// member it sits in) and where its values come from (the delegate's one parameter: the
+    /// Delay closure for `dlr { }`, the slot array for `dlrq { }`).
     type private Block =
-        { BuilderType: Type
+        { /// Both builders: a block of either kind nested in this one compiles into it.
+          BuilderTypes: Type list
           /// Type declaring the enclosing member: the binder's accessibility context, as in C#.
           Context: Type
           /// The enclosing member's whole reflected body, for values the optimizer inlined.
           MemberBody: Expr
           /// The compiler-generated class of the Delay closure.
           ClosureType: Type
-          /// The compiled delegate's one parameter: the closure, as `obj`.
+          /// The compiled delegate's one parameter.
           Closure: Var
           /// The closure's fields, named after the captured variables.
           Fields: Collections.Generic.IDictionary<string, Reflection.FieldInfo> }
@@ -380,7 +382,7 @@ module internal Translate =
     /// when invoked (see DlrRuntime); one that captures is fine. So there, a nested delegate
     /// body is made to capture the block's closure parameter, which costs nothing elsewhere.
     let private capturing (block: Block) (body: Expr) =
-        if onWasm then Expr.Let(Var("captured", typeof<obj>), Expr.Var block.Closure, body) else body
+        if onWasm then Expr.Let(Var("captured", block.Closure.Type), Expr.Var block.Closure, body) else body
 
     /// Where a free variable of the body comes from: the Delay closure, or failing that the
     /// enclosing member's body.
@@ -458,9 +460,10 @@ module internal Translate =
                 Expr.Call(tryFinally.MakeGenericMethod(e.Type), [ func [] body; func [] compensation ])
             | "Using", [ resource; Lambda(r, body) ] ->
                 Expr.Call(using.MakeGenericMethod(r.Type, e.Type), [ rewrite resource; func [ r ] body ])
-            // A nested dlr { } is compiled as part of this one: at run time its closure would be
-            // made by our compiled code, not the F# compiler, so it has no reflected body of its own.
-            | "Run", [ Call(_, d, [ Lambda(_, inner) ]); _; _ ] when d.Name = "Delay" -> rewrite inner
+            // A nested block is compiled as part of this one: at run time its closure would be
+            // made by our compiled code, not the F# compiler, so it has no reflected body of its
+            // own. A nested dlrq { } is its quotation literal, with the same Delay inside.
+            | "Run", [ (Call(_, d, [ Lambda(_, inner) ]) | QuoteTyped(Call(_, d, [ Lambda(_, inner) ])) | QuoteRaw(Call(_, d, [ Lambda(_, inner) ]))); _; _ ] when d.Name = "Delay" -> rewrite inner
             | name, _ -> unsupported (sprintf "the '%s' construct" name) e
 
     /// The marker operations: a literal name is a baked site; a computed name or runtime type
@@ -679,13 +682,14 @@ module internal Translate =
             | StaticTarget _ -> unsupported "Dlr.Static<T>.Overloads anywhere but as the target of a call" e
             | _ -> None
 
-    /// Compiles the reflected body of one `dlr { }` block. `closureType` is the compiler-generated
-    /// class of the `Delay` closure: its fields, named after the captured variables, are where
-    /// the body's free variables are read from at call time.
-    let translate (builderType: Type) (context: Type) (memberBody: Expr) (closureType: Type) (resultType: Type) (body: Expr) : Compiled =
-        let closure = Var("closure", typeof<obj>)
+    /// Compiles the body of one block into a delegate over `parameter`. For `dlr { }` that is
+    /// the Delay closure as `obj` and `closureType` its compiler-generated class, whose fields,
+    /// named after the captured variables, are where the body's free variables are read from at
+    /// call time; for `dlrq { }` it is the slot array, and the body has no free variables left.
+    let translate (builderTypes: Type list) (context: Type) (memberBody: Expr) (parameter: Var) (closureType: Type) (resultType: Type) (body: Expr) : Compiled =
+        let closure = parameter
         let block =
-            { BuilderType = builderType
+            { BuilderTypes = builderTypes
               Context = context
               MemberBody = memberBody
               ClosureType = closureType
@@ -697,11 +701,11 @@ module internal Translate =
 
         /// Variables bound inside the expression being rewritten are left alone; anything else
         /// that is not the builder comes from the closure or the enclosing member.
-        let isCaptured (bound: Set<Var>) (v: Var) = not (bound.Contains v) && v.Type <> block.BuilderType
+        let isCaptured (bound: Set<Var>) (v: Var) = not (bound.Contains v) && not (List.contains v.Type block.BuilderTypes)
 
         let isBuilder (receiver: Expr option) =
             match receiver with
-            | Some r -> r.Type = block.BuilderType
+            | Some r -> List.contains r.Type block.BuilderTypes
             | None -> false
 
         /// Builder calls and marker operations go to their sections; everything else is generic
@@ -768,10 +772,10 @@ module internal Translate =
             | ShapeLambda(v, lambdaBody) -> Expr.Lambda(v, capturing block (asUnit (rewriteIn (bound.Add v) lambdaBody)))
             | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map rewrite args)
 
-        let delegateType = typedefof<Func<_, _>>.MakeGenericType(typeof<obj>, resultType)
+        let delegateType = typedefof<Func<_, _>>.MakeGenericType(closure.Type, resultType)
         let compiled =
             try
-                let rewritten = asUnit (rewriteIn Set.empty (normalize body))
+                let rewritten = asUnit (rewriteIn (Set.singleton closure) (normalize body))
                 let lambda = Expr.NewDelegate(delegateType, [ closure ], rewritten)
                 let linq = LeafExpressionConverter.QuotationToExpression lambda :?> LambdaExpression
                 (SiteHoister().Visit linq :?> LambdaExpression).Compile()

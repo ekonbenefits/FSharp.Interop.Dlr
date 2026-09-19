@@ -11,8 +11,11 @@ code is reported without a fix: move it into a function.
 | Code | Severity | Reports |
 | --- | --- | --- |
 | `DLR001` | Error | a `dlr { }` with no `[<ReflectedDefinition>]` on its enclosing function/member, module or type |
-| `DLR002` | Error | a `?` operator or `Dlr.*` marker used outside any `dlr { }` (it is only ever quoted; executed, it throws `InvalidOperationException`) |
-| `DLR003` | Error | two or more `dlr { }` blocks starting on one source line (a block is found by the line of its `Run` call; the first call raises `DlrTranslationException`) |
+| `DLR002` | Error | a `?` operator or `Dlr.*` marker used outside any `dlr { }` or `dlrq { }` (it is only ever quoted; executed, it throws `InvalidOperationException`) |
+| `DLR003` | Error | two or more blocks, `dlr { }` or `dlrq { }`, starting on one source line (a block is found by the line of its `Run` call; a `dlr { }`'s first call raises `DlrTranslationException`) |
+
+`dlrq { }` needs no attribute, so `DLR001` never reports it; a `dlr { }` nested inside one
+compiles as part of it and is not reported either.
 
 ## Setup
 

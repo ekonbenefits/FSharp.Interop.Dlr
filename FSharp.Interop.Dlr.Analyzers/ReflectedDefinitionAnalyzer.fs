@@ -14,8 +14,8 @@ let Code = "DLR001"
 [<Literal>]
 let OutsideCode = "DLR002"
 
-/// Two or more `dlr { }` blocks starting on one source line: a block's body is found by the file
-/// and line of its `Run` call, so the first call raises DlrTranslationException.
+/// Two or more blocks starting on one source line: a block's body (`dlr { }`) or its cache
+/// entry (`dlrq { }`) is found by the file and line of its `Run` call.
 [<Literal>]
 let SharedLineCode = "DLR003"
 
@@ -37,19 +37,26 @@ let private memberIsReflected (mfv: FSharpMemberOrFunctionOrValue) =
         | None -> false
     isReflectedDefinition mfv.Attributes || entityChain mfv.DeclaringEntity
 
-let private isDlrRun (mfv: FSharpMemberOrFunctionOrValue) =
+let private isRunOf (builder: string) (mfv: FSharpMemberOrFunctionOrValue) =
     mfv.DisplayName = "Run"
     && (match mfv.DeclaringEntity with
-        | Some e -> (try e.FullName = "FSharp.Interop.Dlr.DlrBuilder" with _ -> false)
+        | Some e -> (try e.FullName = builder with _ -> false)
         | None -> false)
 
-/// Ranges of every `dlr.Run(...)` call in an expression.
+/// `dlr.Run(...)`: the block needs a reflected definition.
+let private isDlrRun = isRunOf "FSharp.Interop.Dlr.DlrBuilder"
+
+/// `dlr.Run(...)` or `dlrq.Run(...)`: a block of either kind.
+let private isAnyRun (mfv: FSharpMemberOrFunctionOrValue) =
+    isDlrRun mfv || isRunOf "FSharp.Interop.Dlr.DlrQuotedBuilder" mfv
+
+/// Ranges of every `dlr.Run(...)` call in an expression. A `dlrq { }` needs no reflected
+/// definition, and a `dlr { }` nested in one compiles as part of it, so its subtree is skipped.
 let rec private runCalls (e: FSharpExpr) : range list =
-    let here =
-        match e with
-        | FSharpExprPatterns.Call(_, mfv, _, _, _) when isDlrRun mfv -> [ e.Range ]
-        | _ -> []
-    here @ (e.ImmediateSubExpressions |> List.collect runCalls)
+    match e with
+    | FSharpExprPatterns.Call(_, mfv, _, _, _) when isDlrRun mfv -> [ e.Range ]
+    | FSharpExprPatterns.Call(_, mfv, _, _, _) when isAnyRun mfv -> []
+    | _ -> e.ImmediateSubExpressions |> List.collect runCalls
 
 let private entityFullName (mfv: FSharpMemberOrFunctionOrValue) =
     match mfv.DeclaringEntity with
@@ -68,7 +75,7 @@ let private isMarker (mfv: FSharpMemberOrFunctionOrValue) =
 /// The outermost marker of a nested use (`Dlr.item (x |> Dlr.get "A") 0`) is reported once.
 let rec private markersOutsideRun (e: FSharpExpr) : (range * string) list =
     match e with
-    | FSharpExprPatterns.Call(_, mfv, _, _, _) when isDlrRun mfv -> []
+    | FSharpExprPatterns.Call(_, mfv, _, _, _) when isAnyRun mfv -> []
     | FSharpExprPatterns.Call(_, mfv, _, _, _) when isMarker mfv -> [ e.Range, mfv.DisplayName ]
     | _ -> e.ImmediateSubExpressions |> List.collect markersOutsideRun
 
@@ -134,11 +141,11 @@ let private analyzeOutside (typedTree: FSharpImplementationFileContents option) 
               Range = m
               Fixes = [] })
 
-/// The outermost `dlr.Run(...)` calls in an expression: a block nested in another is compiled as
-/// part of it and has no site of its own, so it does not count.
+/// The outermost `Run(...)` calls of either builder in an expression: a block nested in another
+/// is compiled as part of it and has no site of its own, so it does not count.
 let rec private outermostRuns (e: FSharpExpr) : range list =
     match e with
-    | FSharpExprPatterns.Call(_, mfv, _, _, _) when isDlrRun mfv -> [ e.Range ]
+    | FSharpExprPatterns.Call(_, mfv, _, _, _) when isAnyRun mfv -> [ e.Range ]
     | _ -> e.ImmediateSubExpressions |> List.collect outermostRuns
 
 /// Every outermost `dlr.Run(...)` call in the file, from all declarations.
@@ -163,7 +170,7 @@ let private analyzeSharedLines (typedTree: FSharpImplementationFileContents opti
                 ranges
                 |> List.map (fun r ->
                     { Type = "dlr { } blocks on one line"
-                      Message = sprintf "%d dlr { } blocks start on line %d. A block is found by the line of its Run call, so the first call raises DlrTranslationException; put each dlr { } on its own line." ranges.Length line
+                      Message = sprintf "%d blocks start on line %d. A block is found by the line of its Run call (a dlr { } raises DlrTranslationException); put each block on its own line." ranges.Length line
                       Code = SharedLineCode
                       Severity = Severity.Error
                       Range = r

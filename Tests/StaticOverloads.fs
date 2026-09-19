@@ -35,7 +35,12 @@ let ``BCL statics, and F# private statics from the same assembly`` () =
     (dlr { return Dlr.Static<Math>.Overloads?Max(box 3, box 7) } : int) |> should equal 7
     (dlr { return Dlr.Static<Math>.Overloads?Max(box 2.5, box 1.0) } : float) |> should equal 2.5
     (dlr { return Dlr.Static<String>.Overloads?Join(", ", [| "a"; "b" |]) } : string) |> should equal "a, b"
+#if DLRQ
+    // No enclosing member, so the context is obj: an IL-internal member is out of reach.
+    (fun () -> (dlr { return Dlr.Static<Renderer>.Overloads?Secret() } : string) |> ignore) |> should throw typeof<RuntimeBinderException>
+#else
     (dlr { return Dlr.Static<Renderer>.Overloads?Secret() } : string) |> should equal "secret"   // F# private is IL internal
+#endif
 
 [<Fact>]
 let ``a miss is the binder's error; anything but a call is a translation error`` () =

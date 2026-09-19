@@ -19,12 +19,23 @@ compiled.Invoke(closure)       ~18 ns: field reads + one CallSite per operation
 `Delay` returns the closure unevaluated. `Run` never executes it; it is the call site's identity
 (its type) and the source of the captured values (its fields).
 
+`dlrq { … }` has a `Quote` member, so F# desugars it to `dlrq.Run(<@ dlrq.Delay(fun () -> …) @>,
+file, line)` and builds that quotation literal on every call (`Deserialize40`, ~7 µs for a small
+block, uncached by FSharp.Core). The captured values are inside it as `ValueWithName` nodes.
+`Quoted.scan` walks it per call, reading those values into an `obj[]` and recording the shape
+(node types, literals, members); `QuotedSites<'T>` looks the shape up under the file and line and
+invokes the `Func<obj[], 'T>`. On a miss `Quoted.prepare` replaces each `ValueWithName` with a
+read of its slot, in the same traversal order, and the same `Translate.translate` compiles the
+result. No enclosing member is known, so the binder context is `obj`. See the caches table and
+"Translation notes".
+
 ## Caches
 
 | Cache | Key | Value | Lifetime | Where |
 | --- | --- | --- | --- | --- |
 | `DlrCache` | closure `Type` (one per block; per instantiation for generic members) | `Compiled { Delegate: Func<obj,'T>; ResultType }` | process; `DlrCache.clear()` drops it | `Cache.fs` |
 | `Sites<'T>` | closure `Type`, per result type | the same delegate, already typed `Func<obj,'T>`, stamped with the clear generation it was compiled under — the hot path's lookup, no cast; plus a last-compiled slot (an immutable entry swapped atomically) so a block called repeatedly pays a reference compare, not a hash lookup, and blocks called in turn pay a lookup each and never write | process; `DlrCache.clear()` bumps the generation, so no pre-clear entry is served however it got installed | `Cache.fs` |
+| `QuotedSites<'T>` | `file * line`, per result type; within a site, the quotation's shape (so a generic enclosing function's instantiations each get an entry; at most 8 per site) | `Func<obj[],'T>` over the slot array, generation-stamped like `Sites<'T>` | process; `DlrCache.clear()` bumps the generation and clears it; counted in `DlrCache.count()` | `Cache.fs` |
 | reflected definitions | declaring `Type` (module or class) | every `(MethodBase, Expr)` with a reflected definition on it and its nested types | process | `Discover.fs` |
 | `SiteCache<'Key>` | `string * Type list` — the member name and the explicit type arguments; whichever is static is a constant in the key | the operation's `CallSite[]` for that key | per site (a constant in the compiled tree); at `Capacity` (256) entries it clears and refills | `Binders.fs`, for `(?) x name` with a variable name |
 | DLR rule cache | runtime types (restrictions) | the bound rule | per `CallSite<_>` | inside each site, owned by the DLR |
@@ -169,7 +180,10 @@ on both runtime types (instance-restricted for a null). Non-comparable types fai
 
 ## Translation notes
 
-`Translate.translate` is a dispatcher over three private sections — `Plumbing` (the builder's
+`Translate.translate` compiles a body over one parameter — the Delay closure (`obj`) for
+`dlr { }`, the slot array (`obj[]`) for `dlrq { }` — and knows both builder types, so a block of
+either kind nested in one of the other compiles into it (a nested `dlrq` is a `QuoteTyped` node
+around the same `Delay`). It is a dispatcher over three private sections — `Plumbing` (the builder's
 methods), `Members` (the marker operations, `keyedSite`, `compoundAssign`) and `Captures`
 (where a free variable comes from) — with the generic rewriting (`let mutable`, `let rec`,
 lambdas) inline; each section takes the recursive rewriter as a parameter.

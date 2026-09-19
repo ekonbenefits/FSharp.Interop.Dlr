@@ -2,13 +2,14 @@
 
 `dlr { }` = C# `dynamic` for F#: markers (`?`, `Dlr.*`, `Dlr.Static<T>.Overloads`) are read from
 the block's `[<ReflectedDefinition>]` body and compiled once per site into Microsoft.CSharp call
-sites. Design and binder details: `docs/internals.md`. Skills: `check-review`, `new-binder`.
+sites. `dlrq { }` is the same block quoted by the compiler at the block (no attribute, ~8 µs a
+call). Design and binder details: `docs/internals.md`. Skills: `check-review`, `new-binder`.
 
 ## Gate before pushing
 
 ```
 dotnet build Tests/Tests.fsproj -c Debug -f net10.0 --no-incremental   # runs the analyzer over the tests
-dotnet test -c Debug
+dotnet test -c Debug              # Tests, Tests.Quoted (dlr as dlrq) and Analyzers.Tests
 dotnet test -c Release            # Release inlining has broken things Debug passed
 dotnet build Tests.Wasm -c Release && (cd Tests.Wasm/bin/Release/net10.0-browser/wwwroot && bun runtests.mjs)
 ```
@@ -27,8 +28,11 @@ dotnet build Tests.Wasm -c Release && (cd Tests.Wasm/bin/Release/net10.0-browser
 ## Conventions
 
 - Tests: AnyUnit xunit style, `[<Fact>]` + FsUnit `should`; test modules are
-  `[<ReflectedDefinition>]`; `Tests.Wasm` links the same files, so add new test files to both
-  fsproj files. Tests needing real threads skip with `AnyUnit.IgnoreException` when
+  `[<ReflectedDefinition>]`; `Tests.Wasm` and `Tests.Quoted` link the same files, so add new
+  test files to all three fsproj files. `Tests.Quoted` shadows `dlr` with `dlrq` (`Shim.fs`)
+  and defines `DLRQ`: where the builders differ (binder context is `obj`; a captured mutable
+  cannot be assigned), put the `dlrq` expectation under `#if DLRQ`. `Tests/Quoted.fs` holds
+  what only `dlrq` needs and is deliberately not `[<ReflectedDefinition>]`. Tests needing real threads skip with `AnyUnit.IgnoreException` when
   `ProcessorCount < 2` (wasm) rather than passing vacuously.
 - Markers: `[<MethodImpl(NoInlining)>]`, throw outside a block, and every one is in the
   `Errors.fs` outside-a-block test. New `Dlr` members are analyzer markers automatically; types

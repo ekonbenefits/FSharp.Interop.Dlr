@@ -63,6 +63,14 @@ jobs:
             --report-anyunit-json results/Tests-net10-${{ matrix.configuration }}.json \
             --platform-suffix ${{ matrix.configuration }}
 
+      # The Tests sources again with dlr shadowed by dlrq (Tests.Quoted/Shim.fs).
+      - name: Test (dlrq)
+        shell: bash
+        run: |
+          dotnet Tests.Quoted/bin/${{ matrix.configuration }}/net10.0/Tests.Quoted.dll \
+            --report-anyunit-json results/Quoted-net10-${{ matrix.configuration }}.json \
+            --platform-suffix ${{ matrix.configuration }}
+
       # The analyzer's own tests type-check small sources through the SDK's
       # testing package (it creates a scratch project and restores it).
       - name: Test (analyzers)

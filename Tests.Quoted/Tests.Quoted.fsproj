@@ -1,36 +1,37 @@
-<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
-
-  <!--
-    The Tests sources as a browser-wasm build run through MTP under bun (or node) - no browser,
-    no web server. dotnet.js boots the runtime and runs AnyUnit.TestingPlatform.WasmEntry (an
-    awaitable entry point shipped in the package; the one MTP generates for an .fsproj blocks
-    in Async.RunSynchronously on the single-threaded runtime), which discovers the tests in
-    this assembly. Same AssemblyName as Tests so the results merge into that assembly's row of
-    the combined report as another platform. wwwroot/runtests.mjs is the harness: boot, run
-    Main with the script's arguments, copy the results file out of Emscripten's in-memory
-    filesystem. Recipe from AnyUnit's WhoTestsTheTesters/Tests/Style/FsUnitTests.Wasm.Mtp.
-  -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The Tests sources compiled with `dlr` shadowed by `dlrq` (Shim.fs), so the shared
+       semantics run over both builders. Left out: Cache.fs, HotPath.fs and Unreflected.fs, which
+       test dlr's own mechanism (closure-type keys, nanosecond entry, the DLR001 error). -->
   <PropertyGroup>
-    <TargetFramework>net10.0-browser</TargetFramework>
-    <RuntimeIdentifier>browser-wasm</RuntimeIdentifier>
-    <AssemblyName>Tests</AssemblyName>
+    <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>Tests</RootNamespace>
     <IsPackable>false</IsPackable>
-    <EnableAnyUnitRunner>true</EnableAnyUnitRunner>
     <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+    <OutputType>Exe</OutputType>
+    <EnableAnyUnitRunner>true</EnableAnyUnitRunner>
+    <DefineConstants>$(DefineConstants);DLRQ</DefineConstants>
+    <RunAnalyzers>false</RunAnalyzers>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="FSharp.Core" VersionOverride="10.1.401" />
+    <PackageReference Include="Microsoft.Testing.Extensions.TrxReport" />
     <PackageReference Include="AnyUnit.TestingPlatform" />
     <PackageReference Include="AnyUnit.Style.Xunit" />
     <PackageReference Include="AnyUnit.Style.FsUnit" />
     <PackageReference Include="Newtonsoft.Json" />
-    <!-- Satisfies Sdk.BlazorWebAssembly's build; Main never builds a WebAssemblyHostBuilder. -->
-    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" />
+    <PackageReference Include="pythonnet" />
+    <PackageReference Include="Dapper" />
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+    <PackageReference Include="Microsoft.ClearScript.V8" />
+    <PackageReference Include="Microsoft.ClearScript.V8.Native.osx-arm64" />
+    <PackageReference Include="Microsoft.ClearScript.V8.Native.osx-x64" />
+    <PackageReference Include="Microsoft.ClearScript.V8.Native.linux-x64" />
+    <PackageReference Include="Microsoft.ClearScript.V8.Native.win-x64" />
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="Shim.fs" />
     <Compile Include="..\Tests\AssemblyInfo.fs" Link="AssemblyInfo.fs" />
     <Compile Include="..\Tests\Fixtures.fs" Link="Fixtures.fs" />
     <Compile Include="..\Tests\Members.fs" Link="Members.fs" />
@@ -39,7 +40,6 @@
     <Compile Include="..\Tests\Operators.fs" Link="Operators.fs" />
     <Compile Include="..\Tests\Index.fs" Link="Index.fs" />
     <Compile Include="..\Tests\Body.fs" Link="Body.fs" />
-    <Compile Include="..\Tests\Cache.fs" Link="Cache.fs" />
     <Compile Include="..\Tests\Loops.fs" Link="Loops.fs" />
     <Compile Include="..\Tests\DynamicObjects.fs" Link="DynamicObjects.fs" />
     <Compile Include="..\Tests\TryBlocks.fs" Link="TryBlocks.fs" />
@@ -52,27 +52,20 @@
     <Compile Include="..\Tests\Restrictions.fs" Link="Restrictions.fs" />
     <Compile Include="..\Tests\FunctionMembers.fs" Link="FunctionMembers.fs" />
     <Compile Include="..\Tests\Polymorphic.fs" Link="Polymorphic.fs" />
-    <Compile Include="..\Tests\Constructors.fs" />
-    <Compile Include="..\Tests\Mutables.fs" />
-    <Compile Include="..\Tests\Delegates.fs" />
-    <Compile Include="..\Tests\StaticOverloads.fs" />
+    <Compile Include="..\Tests\Constructors.fs" Link="Constructors.fs" />
+    <Compile Include="..\Tests\Mutables.fs" Link="Mutables.fs" />
+    <Compile Include="..\Tests\Delegates.fs" Link="Delegates.fs" />
+    <Compile Include="..\Tests\StaticOverloads.fs" Link="StaticOverloads.fs" />
     <Compile Include="..\Tests\JsonNet.fs" Link="JsonNet.fs" />
-    <Compile Include="..\Tests\HotPath.fs" Link="HotPath.fs" />
+    <Compile Include="..\Tests\PythonNet.fs" Link="PythonNet.fs" />
+    <Compile Include="..\Tests\DapperRows.fs" Link="DapperRows.fs" />
+    <Compile Include="..\Tests\ClearScriptV8.fs" Link="ClearScriptV8.fs" />
     <Compile Include="..\Tests\FSharpInBlocks.fs" Link="FSharpInBlocks.fs" />
     <Compile Include="..\Tests\RulesEverywhere.fs" Link="RulesEverywhere.fs" />
-    <Compile Include="..\Tests\Unreflected.fs" Link="Unreflected.fs" />
     <Compile Include="..\Tests\Quoted.fs" Link="Quoted.fs" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\FSharp.Interop.Dlr\FSharp.Interop.Dlr.fsproj" />
   </ItemGroup>
-
-  <ItemGroup>
-    <!-- Explicit copies: Blazor's static-web-assets pipeline only runs at publish. -->
-    <None Include="wwwroot/index.html" CopyToOutputDirectory="PreserveNewest" Link="wwwroot/index.html" />
-    <None Include="wwwroot/runtests.mjs" CopyToOutputDirectory="PreserveNewest" Link="wwwroot/runtests.mjs" />
-    <None Include="wwwroot/package.json" CopyToOutputDirectory="PreserveNewest" Link="wwwroot/package.json" />
-  </ItemGroup>
-
 </Project>

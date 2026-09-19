@@ -101,13 +101,32 @@ build time instead (`DLR001`, with a fix), reports a `?` or `Dlr.*` used outside
 in Ionide; it needs the `fsharp-analyzers`
 tool and `RunAnalyzers=true` in the project (see its README — builds for .NET SDK 8/9 and 10).
 
-One `dlr { }` per source line. Blocks in generic functions and members work (one site per
+One block per source line. Blocks in generic functions and members work (one site per
 instantiation); so do nested blocks, blocks inside `task { }` / `async { }`, and F# Interactive.
 Inside a block, ordinary F# is ordinary: `sprintf` and `$"…"`, `match` (literals, type tests),
 records, unions, options, tuples, lists and arrays built from dynamic results, comprehensions
 and `seq { }`, `List.map` with a lambda, `failwith`/`raise` (propagating as themselves, or
 caught by the block's `try`), even an `async { }` or `task { }` — `Tests/FSharpInBlocks.fs`
 pins each.
+
+### `dlrq { }`: the same block without the attribute
+
+When the function around a block cannot be quoted — or you would rather not touch it — `dlrq { }`
+is the same block with its body quoted by the compiler at the block itself, so nothing around it
+needs `[<ReflectedDefinition>]`: module-level code, a function with a `byref` or an inner generic
+function, a script, anywhere. Same syntax, same bindings, same cache of compiled delegates.
+
+```fsharp
+let total (rows: obj) : decimal = dlrq { return rows?Sum("Amount") }
+```
+
+The price is that F# materialises the quotation literal on every call — about 7 µs for a small
+block, the whole of the difference: `dlrq w?Count` measures ~8 µs against ~20 ns for `dlr`.
+Fine outside hot paths; the benchmark table shows both. Two smaller differences: a `dlrq { }`
+has no enclosing member, so it binds as `obj` would — public members only, no `internal` or F#
+`private` — and a captured `let mutable` can be read but not assigned (the compiler's own rule
+for quotations, FS3155). `Tests.Quoted` compiles the whole test suite with `dlr` swapped for
+`dlrq`, so everything else documented here holds for both.
 
 ## Syntax
 
@@ -157,7 +176,8 @@ Same binder, same limits — each pinned by a test in `Tests/Restrictions.fs`:
   unless the type also exposes the member; cast to the interface statically (`o :?> IFoo`) and
   call it there.
 - **Accessibility is the calling type's**: `private` binds only inside the declaring type,
-  `internal` anywhere in the assembly. F# `private` compiles to IL `internal`.
+  `internal` anywhere in the assembly. F# `private` compiles to IL `internal`. (`dlrq { }` has
+  no calling type: public members only.)
 - **No compile-time checking**: a misspelt member or wrong arity is a `RuntimeBinderException`
   at the call.
 - **Target and result are `obj`**, so value types box there; arguments do not. `byref` and
@@ -219,7 +239,10 @@ closure unevaluated. Its compiler-generated type identifies the block and its fi
 captured variables. On the first call the body is found in the enclosing `[<ReflectedDefinition>]`,
 translated into an expression tree with one `CallSite` per operation baked in as a constant, and
 compiled to a `Func<obj, 'T>` cached by closure type. Invocation sites use C#'s binder wrapped in
-one that also applies F# function values, as DLR rules per runtime type.
+one that also applies F# function values, as DLR rules per runtime type. `dlrq { }` has a `Quote`
+member instead, so the compiler passes the body as a quotation with the captured values inside it;
+the same translation runs over it once per site (and per shape, for a generic function), and each
+call reads the captured values back out of the fresh quotation into the delegate's slot array.
 
 [docs/internals.md](docs/internals.md) has the full picture: every cache, every site and its
 argument flags, the F#-aware binders, and what the translator assumes about the compiler.
@@ -233,11 +256,12 @@ regenerates this table and the full [docs/benchmarks.md](docs/benchmarks.md) (ev
 <!-- benchmarks:start -->
 | | ns/call |
 | --- | ---: |
-| static w.Add(i, 1) | 1.2 |
-| reflection: cached MethodInfo.Invoke | 36 |
-| FSharp.Interop.Dynamic w?Add(i, 1) | 7,566 |
-| C# dynamic d.Add(i, 1) | 7.8 |
-| dlr w?Add(i, 1) | 19.6 |
-| dlr w?Count | 19.1 |
-| dlr loop of 100 calls, one site (whole loop) | 1,526 |
+| static w.Add(i, 1) | 1.1 |
+| reflection: cached MethodInfo.Invoke | 36.6 |
+| FSharp.Interop.Dynamic w?Add(i, 1) | 7,561 |
+| C# dynamic d.Add(i, 1) | 7.4 |
+| dlr w?Add(i, 1) | 20.3 |
+| dlr w?Count | 19.7 |
+| dlr loop of 100 calls, one site (whole loop) | 1,531 |
+| dlrq w?Add(i, 1) | 10,796 |
 <!-- benchmarks:end -->

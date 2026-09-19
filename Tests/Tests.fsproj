@@ -94,6 +94,7 @@
     <Compile Include="FSharpInBlocks.fs" />
     <Compile Include="RulesEverywhere.fs" />
     <Compile Include="Unreflected.fs" />
+    <Compile Include="Quoted.fs" />
   </ItemGroup>
 
   <ItemGroup>

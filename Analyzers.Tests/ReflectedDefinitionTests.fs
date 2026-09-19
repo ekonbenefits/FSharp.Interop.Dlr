@@ -14,9 +14,15 @@ type DlrBuilder() =
     member _.Return(x: 'T) = x
     member _.Delay(f: unit -> 'T) = f
     member _.Run(f: unit -> 'T) : 'T = f ()
+type DlrQuotedBuilder() =
+    member _.Return(x: 'T) = x
+    member _.Delay(f: unit -> 'T) = f
+    member _.Quote(q: Quotations.Expr<'T>) = q
+    member _.Run(q: Quotations.Expr<unit -> 'T>) : 'T = Unchecked.defaultof<'T>
 [<AutoOpen>]
 module Builder =
     let dlr = DlrBuilder()
+    let dlrq = DlrQuotedBuilder()
 [<AutoOpen>]
 module Operators =
     let ( ? ) (target: obj) (name: string) : 'T = failwith "marker"
@@ -173,7 +179,7 @@ module Impl =
         |> sharedLine
     msgs.Length |> should equal 2
     msgs |> List.forall (fun m -> m.Severity = Severity.Error) |> should equal true
-    msgs.[0].Message |> should haveSubstring "2 dlr { } blocks start on line"
+    msgs.[0].Message |> should haveSubstring "2 blocks start on line"
     msgs.[0].Range.StartLine |> should equal msgs.[1].Range.StartLine
     msgs.[0].Range.StartColumn |> should not' (equal msgs.[1].Range.StartColumn)
 
@@ -234,3 +240,21 @@ module Impl =
 """
         |> outside
     msgs.Length |> should equal 1
+
+[<Fact>]
+let ``dlrq needs no attribute, its markers are inside a block, and it shares the one-per-line rule`` () =
+    let msgs =
+        run """
+module Impl =
+    let w = box 1
+    let count () : int = dlrq { return w?Count }                       // no DLR001, no DLR002
+    let nested () : int = dlrq { return (dlr { return w?Count } : int) }   // a dlr inside compiles with it: nothing
+    let outer () : int = dlr { return (dlrq { return w?Count } : int) }    // the dlr is the site: DLR001 for 'outer'
+    let pair () : int * int = (dlrq { return 1 }), (dlr { return 2 })    // DLR003 twice, DLR001 for 'pair'
+"""
+    let lines (c: string) = msgs |> List.filter (fun m -> m.Code = c) |> List.map (fun m -> m.Range.StartLine) |> List.sort
+    let first = List.head (lines ReflectedDefinitionAnalyzer.Code)   // 'outer'
+    lines ReflectedDefinitionAnalyzer.Code |> should equal [ first; first + 1 ]
+    outside msgs |> should equal []
+    lines ReflectedDefinitionAnalyzer.SharedLineCode |> should equal [ first + 1; first + 1 ]
+    msgs.Length |> should equal 4

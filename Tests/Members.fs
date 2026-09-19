@@ -72,7 +72,13 @@ let ``binder context is the declaring type, so non-public members bind from insi
     // F# `member private` is IL internal, so it also binds from elsewhere in this assembly;
     // String's private field shows the context does not open members of other assemblies.
     let w = Widget()
+#if DLRQ
+    // dlrq { } has no enclosing member: its context is obj, and non-public members do not bind.
+    (fun () -> w.PeekSecretFromOutside(w) |> ignore) |> should throw typeof<RuntimeBinderException>
+    (fun () -> (dlr { return (box w)?Secret } : string) |> ignore) |> should throw typeof<RuntimeBinderException>
+#else
     w.PeekSecretFromOutside(w) |> should equal "hidden"
     (dlr { return (box w)?Secret } : string) |> should equal "hidden"
+#endif
     let s = box "abc"
     (fun () -> (dlr { return s?_firstChar } : char) |> ignore) |> should throw typeof<RuntimeBinderException>

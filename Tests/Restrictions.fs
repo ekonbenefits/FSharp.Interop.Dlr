@@ -32,7 +32,12 @@ let ``explicitly implemented interface members are not found`` () =
 let ``accessibility is the calling type's`` () =
     // Widget.Secret is `member private`, which is IL internal: reachable from this assembly...
     let w = Widget()
+#if DLRQ
+    // ...from a dlr { }; a dlrq { } has no enclosing member, so its context is obj and it is not.
+    (fun () -> (dlr { return (box w)?Secret } : string) |> ignore) |> should throw typeof<RuntimeBinderException>
+#else
     (dlr { return (box w)?Secret } : string) |> should equal "hidden"
+#endif
     // ...while a genuinely private member of another assembly is not.
     let s = box "abc"
     (fun () -> (dlr { return s?_firstChar } : char) |> ignore) |> should throw typeof<RuntimeBinderException>

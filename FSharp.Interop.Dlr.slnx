@@ -5,4 +5,5 @@
   <Project Path="FSharp.Interop.Dlr.Analyzers/FSharp.Interop.Dlr.Analyzers.fsproj" />
   <Project Path="FSharp.Interop.Dlr/FSharp.Interop.Dlr.fsproj" />
   <Project Path="Tests/Tests.fsproj" />
+  <Project Path="Tests.Quoted/Tests.Quoted.fsproj" />
 </Solution>

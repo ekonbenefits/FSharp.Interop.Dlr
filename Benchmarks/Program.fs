@@ -10,7 +10,7 @@ open BenchmarkDotNet.Running
 let private suites = [| typeof<Core>; typeof<Targets> |]
 
 /// The README's "Measured" rows (method names, in order): the shape of the numbers, not all of them.
-let private readmeRows = [ "StaticCall"; "ReflectionCall"; "DynamicCall"; "CSharpCall"; "Call"; "Get"; "Loop" ]
+let private readmeRows = [ "StaticCall"; "ReflectionCall"; "DynamicCall"; "CSharpCall"; "Call"; "Get"; "Loop"; "QuotedCall" ]
 
 /// One result per benchmark method: description, mean ns, allocated bytes per call.
 let private results (summaries: (Type * Summary) list) =
@@ -73,11 +73,13 @@ let private writeDocs (short: bool) =
           yield ""
           yield "## The same operation, each way"
           yield ""
-          yield! comparison r "Members" "" [ "static"; "reflection (cached)"; "FSharp.Interop.Dynamic"; "C# `dynamic`"; "`dlr { }`" ]
-                   [ "property get `w.Count`", [ "StaticGet"; "ReflectionGet"; "DynamicGet"; "CSharpGet"; "Get" ]
-                     "method call `w.Add(i, 1)`", [ "StaticCall"; "ReflectionCall"; "DynamicCall"; "CSharpCall"; "Call" ]
-                     "property set `w.Name <- v`", [ ""; ""; "DynamicSet"; "CSharpSet"; "Set" ]
-                     "100 method calls in one loop — the whole loop, so ÷100 per call", [ ""; ""; "DynamicLoop"; "CSharpLoop"; "Loop" ] ]
+          yield! comparison r "Members" "`dlrq { }` is the same block without `[<ReflectedDefinition>]`: F# materialises its quotation on every call, which is where its microseconds go."
+                   [ "static"; "reflection (cached)"; "FSharp.Interop.Dynamic"; "C# `dynamic`"; "`dlr { }`"; "`dlrq { }`" ]
+                   [ "property get `w.Count`", [ "StaticGet"; "ReflectionGet"; "DynamicGet"; "CSharpGet"; "Get"; "QuotedGet" ]
+                     "method call `w.Add(i, 1)`", [ "StaticCall"; "ReflectionCall"; "DynamicCall"; "CSharpCall"; "Call"; "QuotedCall" ]
+                     "property set `w.Name <- v`", [ ""; ""; "DynamicSet"; "CSharpSet"; "Set"; "" ]
+                     "100 method calls in one loop — the whole loop, so ÷100 per call", [ ""; ""; "DynamicLoop"; "CSharpLoop"; "Loop"; "QuotedLoop" ]
+                     "the quotation literal alone: F# building the `w.Count` block's body, nothing run", [ ""; ""; ""; ""; ""; "QuoteOnly" ] ]
           yield! comparison r "Operators, indexers, delegates, conversions" "" [ "FSharp.Interop.Dynamic"; "C# `dynamic`"; "`dlr { }`" ]
                    [ "`a + b` on boxed ints", [ "DynamicAdd"; "CSharpAdd"; "Add" ]
                      "indexer `d[\"a\"]` on a dictionary", [ "DynamicIndex"; "CSharpIndex"; "Index" ]

@@ -6,6 +6,9 @@ open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
 open Microsoft.CSharp.RuntimeBinder
 
+// Assigning a captured mutable is a compile error inside a quotation (FS3155), so dlrq { }
+// cannot have these; a captured mutable can still be read there (Quoted.fs).
+#if !DLRQ
 [<Fact>]
 let ``a captured mutable can be assigned in the block`` () =
     let w = box (Widget())
@@ -41,6 +44,7 @@ let ``a captured mutable can be assigned inside for, while, try`` () =
         finally hits <- hits * 10
     }
     hits |> should equal 30
+#endif
 
 [<Fact>]
 let ``a let mutable inside the block works, including across loops and try`` () =
@@ -77,6 +81,7 @@ let ``a let snapshot of a mutable keeps the value at that point`` () =
     // normalize inlines `let y = x` for a variable x — but not when x is mutable: a snapshot
     // must not read the current value later.
     let w = box (Widget())
+#if !DLRQ
     let mutable n = 1
     let r: string =
         dlr {
@@ -85,6 +90,7 @@ let ``a let snapshot of a mutable keeps the value at that point`` () =
             return w?Greet(string y, string n)
         }
     r |> should equal "1, 2"
+#endif
     let inner: string =
         dlr {
             let mutable m = 1

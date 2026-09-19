@@ -22,6 +22,19 @@ type Widget() =
 
 type Point = { X: int; Y: int }
 
+/// A builder shaped like `dlrq` whose `Run` does nothing: what F# spends materialising the
+/// quotation literal per call, before the library sees it.
+type QuoteOnlyBuilder() =
+    member _.Return(value: 'T) = value
+    member _.Zero() = ()
+    member _.Delay(f: unit -> 'T) = f
+    member _.Quote(q: FSharp.Quotations.Expr<'T>) = q
+    static member val Last: obj = null with get, set
+    // Not inlined and the quotation stored, or the optimizer drops the literal as unused.
+    [<System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)>]
+    member _.Run(q: FSharp.Quotations.Expr<unit -> 'T>) : 'T = QuoteOnlyBuilder.Last <- box q; Unchecked.defaultof<'T>
+
+
 [<ReflectedDefinition>]
 [<MemoryDiagnoser>]
 type Core() =
@@ -32,6 +45,7 @@ type Core() =
     let countProperty = typeof<Widget>.GetProperty("Count")
     let addMethod = typeof<Widget>.GetMethod("Add")
     let names = [| "Count"; "Name" |]
+    let quoteOnly = QuoteOnlyBuilder()
     let one, two, three = box 1, box 2, box 3
     let dictionary = box (Collections.Generic.Dictionary<string, int>(dict [ "a", 1 ]))
     let adder = box (Func<int, int>(fun x -> x + 1))
@@ -130,6 +144,24 @@ type Core() =
     [<Benchmark(Description = "dlr loop of 100 calls, one site (whole loop)")>]
     member _.Loop() : int =
         dlr {
+            let mutable s = 0
+            for x in items do s <- s + (o?Add(x, 1) : int)
+            return s
+        }
+
+    // --- dlrq { }: the same blocks with the body quoted per call ----------------------------
+    [<Benchmark(Description = "quotation literal only: F# building the dlrq body, Run doing nothing")>]
+    member _.QuoteOnly() : int = quoteOnly { return o?Count }
+
+    [<Benchmark(Description = "dlrq w?Count")>]
+    member _.QuotedGet() : int = dlrq { return o?Count }
+
+    [<Benchmark(Description = "dlrq w?Add(i, 1)")>]
+    member _.QuotedCall() : int = i <- i + 1; dlrq { return o?Add(i, 1) }
+
+    [<Benchmark(Description = "dlrq loop of 100 calls, one site (whole loop)")>]
+    member _.QuotedLoop() : int =
+        dlrq {
             let mutable s = 0
             for x in items do s <- s + (o?Add(x, 1) : int)
             return s

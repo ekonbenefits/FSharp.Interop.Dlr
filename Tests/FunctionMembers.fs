@@ -174,9 +174,16 @@ let ``an indexed property is left to C#, which binds it as an index, not a membe
 let ``non-public F# function members and optional-parameter methods bind from an allowed context`` () =
     // F# `member private` is IL internal: the whole assembly is an allowed context, like C#'s binder.
     let h = Holders()
+#if DLRQ
+    // dlrq { } has no enclosing member: its context is obj, and IL-internal members do not bind.
+    (fun () -> h.Reveal(h) |> ignore) |> should throw typeof<RuntimeBinderException>
+    (fun () -> h.RevealOptional(h) |> ignore) |> should throw typeof<RuntimeBinderException>
+    (fun () -> (dlr { return (box h)?Hidden(3) } : int) |> ignore) |> should throw typeof<RuntimeBinderException>
+#else
     h.Reveal(h) |> should equal 9
     h.RevealOptional(h) |> should equal 101
     (dlr { return (box h)?Hidden(3) } : int) |> should equal 2
+#endif
 
 [<Fact>]
 let ``an obj-typed argument matches a function shape by its runtime type`` () =
