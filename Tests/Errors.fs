@@ -18,6 +18,7 @@ let ``every operator and marker throws outside dlr`` () =
     outside (fun () -> (Dlr.apply 1 w : int) |> ignore)
     outside (fun () -> (Dlr.call w : int) |> ignore)
     outside (fun () -> Dlr.named {| a = 1 |} |> ignore)
+    outside (fun () -> Dlr.namedOf [ "a", box 1 ] |> ignore)
     outside (fun () -> (Dlr.item 0 w : int) |> ignore)
     outside (fun () -> Dlr.setItem 0 1 w)
     outside (fun () -> Dlr.typeArgs<int>() |> ignore)

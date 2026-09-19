@@ -944,6 +944,60 @@ type SiteCache<'Key when 'Key: equality>(template: 'Key -> Expr) =
     /// `sites.[i]`, for the quotation (array indexing has no direct quotation form the converter takes).
     static member At(sites: CallSite[], i: int) : CallSite = sites.[i]
 
+/// For `Dlr.namedOf`: the site's operation compiled once per distinct list of argument names
+/// (the names change the site's arity, so the whole delegate is per key, not only its sites),
+/// bounded like `SiteCache`. The delegate takes the target, the fixed arguments and the named
+/// values as `obj[]`.
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+type NamedOfCache(compile: string list -> Delegate) =
+    /// The entries, few per site in practice, scanned in place: a lookup compares the pairs'
+    /// names against each entry's and allocates nothing. Replaced whole under the lock on a miss.
+    let mutable entries : struct (string[] * Delegate)[] = [||]
+
+    /// Entries kept per cache before it is cleared: a miss is a `Compile()`.
+    static member val Capacity = 64 with get, set
+
+    member _.Count = entries.Length
+
+    static member private Matches(names: string[], pairs: (string * obj) list) =
+        let rec go (pairs: (string * obj) list) i =
+            match pairs with
+            | [] -> i = names.Length
+            | (n, _) :: rest -> i < names.Length && String.Equals(n, names.[i]) && go rest (i + 1)
+        go pairs 0
+
+    /// The delegate for the pairs' names, in order.
+    member this.Get(pairs: (string * obj) list) : Delegate =
+        let snapshot = entries
+        let mutable found = null
+        let mutable i = 0
+        while isNull found && i < snapshot.Length do
+            let struct (names, d) = snapshot.[i]
+            if NamedOfCache.Matches(names, pairs) then found <- d
+            i <- i + 1
+        if not (isNull found) then found
+        else
+            lock this (fun () ->
+                let current = entries
+                match current |> Array.tryFind (fun (struct (names, _)) -> NamedOfCache.Matches(names, pairs)) with
+                | Some(struct (_, d)) -> d
+                | None ->
+                    let names = pairs |> List.map fst
+                    let d = compile names
+                    let kept = if current.Length >= NamedOfCache.Capacity then [||] else current
+                    entries <- Array.append kept [| struct (Array.ofList names, d) |]
+                    d)
+
+    /// The values of the pairs, for the quotation.
+    static member Values(pairs: (string * obj) list) : obj[] =
+        let values = Array.zeroCreate (List.length pairs)
+        let mutable i = 0
+        for (_, v) in pairs do
+            values.[i] <- v
+            i <- i + 1
+        values
+    static member At(values: obj[], i: int) : obj = values.[i]
+
 /// Builds Microsoft.CSharp binders and emits the quotation fragment that calls a
 /// pre-created CallSite: `Call(FieldGet(Value site, Target), Invoke, site :: args)`.
 /// The `Value site` becomes an Expression.Constant, so the site is baked into the

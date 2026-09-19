@@ -86,6 +86,10 @@ let ``Python module functions, positional and keyword arguments`` () =
     (dlr { return m?greet("jay") } : string) |> should equal "hello jay!"
     (dlr { return m?greet("jay", Dlr.named {| greeting = "hi" |}) } : string) |> should equal "hi jay!"
     (dlr { return m?greet("jay", Dlr.named {| punct = "?"; greeting = "yo" |}) } : string) |> should equal "yo jay?"
+    // Keyword arguments from data: Dlr.namedOf, compiled once per distinct name list.
+    let kwargs = [ "punct", box "?"; "greeting", box "yo" ]
+    (dlr { return m?greet("jay", Dlr.namedOf kwargs) } : string) |> should equal "yo jay?"
+    (dlr { return m?greet("jay", Dlr.namedOf [ "greeting", box "hi" ]) } : string) |> should equal "hi jay!"
 
 [<Fact>]
 let ``Python objects: attributes, methods, defaults, repr`` () =

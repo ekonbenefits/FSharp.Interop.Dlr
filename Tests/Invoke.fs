@@ -213,3 +213,58 @@ let ``an argument upcast with :> obj dispatches on its runtime type, like box`` 
     (dlr { return w?Kind(s) } : string) |> should equal "obj"
     (dlr { return w?Kind(box 1) } : string) |> should equal "obj"
     (dlr { return w |> Dlr.invoke "Kind" (d :> obj) } : string) |> should equal "enum"
+
+// Dlr.namedOf: named arguments whose names are run-time values (keyword arguments from data).
+// The call is compiled once per distinct name list at the site and cached.
+
+[<Fact>]
+let ``namedOf: names from a list bind by name, in any order, mixed with positional and named`` () =
+    let w = box (Widget())
+    let greet (kw: (string * obj) list) : string = dlr { return w?Greet(Dlr.namedOf kw) }
+    greet [ "greeting", box "Hi"; "name", box "Jay" ] |> should equal "Hi, Jay"
+    greet [ "name", box "Jay"; "greeting", box "Yo" ] |> should equal "Yo, Jay"          // another order: its own delegate
+    greet [ "greeting", box "Hi"; "name", box "Ann" ] |> should equal "Hi, Ann"          // the first again: cached
+    let mixed (kw: (string * obj) list) : string = dlr { return w?Greet("Hey", Dlr.namedOf kw) }
+    mixed [ "name", box "Jay" ] |> should equal "Hey, Jay"
+    let both (kw: (string * obj) list) : string = dlr { return w?Greet(Dlr.named {| greeting = "Ho" |}, Dlr.namedOf kw) }
+    both [ "name", box "Jay" ] |> should equal "Ho, Jay"
+    (dlr { return w?Describe(Dlr.namedOf []) } : string) |> should equal "described"      // an empty list is no named arguments
+
+[<Fact>]
+let ``namedOf: two name lists alternate at one site, and many distinct lists stay correct past the bound`` () =
+    let w = box (Widget())
+    let add (kw: (string * obj) list) : int = dlr { return w?Add(Dlr.namedOf kw) }
+    for i in 1 .. 50 do
+        add [ "a", box i; "b", box 1 ] |> should equal (i + 1)
+        add [ "b", box 1; "a", box i ] |> should equal (i + 1)
+    // Past NamedOfCache.Capacity distinct lists (here: the same two names under different
+    // *values* are one list; distinct lists need distinct names, so use Greet's optional-free
+    // two names in the two orders plus a pile of misses that are the binder's error).
+    let r = Recorder()
+    let o = box r
+    for i in 1 .. NamedOfCache.Capacity + 5 do
+        let kw = [ sprintf "p%d" i, box i ]
+        (dlr { return o?Call(Dlr.namedOf kw) } : string) |> should equal (string i)
+    (dlr { return o?Call(Dlr.namedOf [ "p1", box 1 ]) } : string) |> should equal "1"     // still fine after the clear
+
+[<Fact>]
+let ``namedOf: a name matching no parameter is the binder's error`` () =
+    let w = box (Widget())
+    (fun () -> (dlr { return w?Add(Dlr.namedOf [ "nope", box 1; "b", box 2 ]) } : int) |> ignore) |> should throw typeof<RuntimeBinderException>
+
+[<Fact>]
+let ``namedOf: a constructor, a static overload set, Dlr.apply on a TryInvoke object`` () =
+    let h: Handler = dlr { return Dlr.new'<Handler>(Dlr.namedOf [ "count", box 3; "name", box "n" ]) }
+    h.Kind |> should equal "named"
+    h.Detail |> should equal "n:3"
+    (dlr { return Dlr.Static<Statics>.Overloads?BumpF(Dlr.namedOf [ "count", box 1; "step", box 10 ]) } : int) |> should equal 11
+    let r = Recorder()
+    let o = box r
+    (dlr { return o |> Dlr.apply (1, Dlr.namedOf [ "second", box 2 ]) } : string) |> should equal "1|2"
+    List.ofSeq r.Log |> should equal [ "invoke self(2 args)" ]
+
+[<Fact>]
+let ``namedOf: with a computed name or run-time type arguments is a translation error`` () =
+    let w = box (Widget())
+    let name = "Add"
+    (fun () -> (dlr { return (?) w name (Dlr.namedOf [ "a", box 1; "b", box 2 ]) } : int) |> ignore) |> should throw typeof<DlrTranslationException>

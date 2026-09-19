@@ -123,7 +123,7 @@ The common forms; [docs/syntax.md](docs/syntax.md) has every one, with what each
 | --- | --- |
 | `x?Name` | get, converted to the inferred type |
 | `x?Name(a, b)` · `x?Name()` | call; arguments keep their static types, `box a` dispatches on the runtime type |
-| `x?Name(a, Dlr.named {\| p = v \|})` | named arguments |
+| `x?Name(a, Dlr.named {\| p = v \|})` · `Dlr.namedOf kw` | named arguments, from a record or from data |
 | `x?Name <- v` | set |
 | `x \|> Dlr.item i` · `x \|> Dlr.setItem (i, j) v` | indexers |
 | `x \|> Dlr.get "Name"` · `Dlr.invoke "Name" (a, b)` · `Dlr.set "Name" v` | the same three with the target last, for pipelines |
