@@ -1060,9 +1060,10 @@ module internal Binders =
         let binder = if positional then FSharpInvokeConstructorBinder(context, t, csharp) :> CallSiteBinder else csharp :> CallSiteBinder
         siteCall binder all t
 
-    /// `Dlr.call args target`, applying `target` itself when it is an F# function.
+    /// `Dlr.call target args` / `Dlr.apply args target`: invoke `target` itself, applying it when
+    /// it is an F# function.
     let invokeOrApply (context: Type) (discard: bool) (target: Arg) (args: Arg list) =
-        callsOnly "Dlr.call" target
+        callsOnly "invoking a value (Dlr.call / Dlr.apply)" target
         let all = target :: args
         let csharp = Binder.Invoke((if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None), context, [ for a in all -> argInfo a ])
         let positional = args |> List.forall (fun a -> isNull a.Name)
@@ -1113,7 +1114,7 @@ module internal Binders =
                 Expr.Coerce(call, functionType)
             elif argTypes.Length > 5 then
                 raise (DlrTranslationException(
-                        sprintf "dlr { } can read %s as a tupled function of up to five elements; this one has %d. Read it curried, or call it." what argTypes.Length))
+                        sprintf "dlr { } can read %s as a tupled function of up to five elements; this one has %d. Read it curried, or call it with the arguments." what argTypes.Length))
             elif discard then
                 let helper = typeof<FunctionMember>.GetMethod(shape + "Unit")
                 let helper = if argTypes.IsEmpty then helper else helper.MakeGenericMethod(Array.ofList argTypes)

@@ -555,7 +555,7 @@ module internal Translate =
             let args =
                 [ for a in argExprs do
                     match a with
-                    | TypeArgs _ -> unsupported "Dlr.typeArgs anywhere but as the first argument" a
+                    | TypeArgs _ -> unsupported "Dlr.typeArgs anywhere but as the first argument of a member call (a value invoked with Dlr.call / Dlr.apply takes no type arguments)" a
                     | NamedRecord(lets, fields) ->
                         bindings.AddRange lets
                         let inner = bindings |> Seq.fold (fun (b: Set<Var>) (v, _) -> b.Add v) bound
