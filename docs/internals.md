@@ -39,8 +39,8 @@ LINQ `ExpressionVisitor` (`SiteHoister` in `Translate.fs`) gives each lambda —
 every nested loop/try body — a `Block` binding the sites its body uses to variables assigned once
 at entry; a use is a local read. Per lambda, because a variable captured by a nested lambda would
 be a `StrongBox` read, no better than the constant; on the LINQ tree, because FSharp.Core before
-10.1 converts a quotation `Let` into a nested lambda invocation (measured 50× slower — the floor
-is 6.0.1). Measured, a member call went from ~30 ns to ~18 against C# `dynamic`'s ~7.5; what
+10.1 converts a quotation `Let` into a nested lambda invocation (measured 50× slower; the floor
+is now 10.1, for the same converter's `Sequential`/`PropertySet` support). Measured, a member call went from ~30 ns to ~18 against C# `dynamic`'s ~7.5; what
 remains is the block's entry: the `Delay` closure F# allocates (3 ns), `GetType()` on it (3), the
 last-hit compare and the delegate invoke.
 

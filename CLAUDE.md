@@ -10,6 +10,7 @@ sites. Design and binder details: `docs/internals.md`. Skills: `check-review`, `
 dotnet build Tests/Tests.fsproj -c Debug -f net10.0 --no-incremental   # runs the analyzer over the tests
 dotnet test -c Debug
 dotnet test -c Release            # Release inlining has broken things Debug passed
+dotnet test -c Release -p:FSharpCore=latest   # the suite on the newest FSharp.Core (default: the floor)
 dotnet build Tests.Wasm -c Release && (cd Tests.Wasm/bin/Release/net10.0-browser/wwwroot && bun runtests.mjs)
 ```
 
@@ -42,7 +43,8 @@ dotnet build Tests.Wasm -c Release && (cd Tests.Wasm/bin/Release/net10.0-browser
 - wasm: a nested non-capturing lambda loses its arguments on Mono's interpreter, and
   `FuncConvert` wrappers do too; `capturing` in `Translate.fs` and the typed wrappers in
   `Binders.fs` exist for that — do not "simplify" them away.
-- FSharp.Core floor 6.0.1; netstandard2.0 has no `Architecture.Wasm` or Reflection.Emit inbox
+- FSharp.Core floor 10.1.201 (older converters reject `Sequential`/`PropertySet`, so unit blocks,
+  mutables and `let rec` fail there; the test projects run at the floor); netstandard2.0 has no `Architecture.Wasm` or Reflection.Emit inbox
   (`System.Reflection.Emit.Lightweight` is referenced for it).
 - Copilot: one automatic review per new PR, none on later pushes; never request one while
   waiting (15–20 min); address via `check-review`, verifying each claim with a test first.

@@ -32,8 +32,10 @@ let demo (w: obj) (root: obj) =
     n, s, v, name, depth
 ```
 
-Targets `netstandard2.0` and `net10.0`; needs FSharp.Core ≥ 6.0.1 (and Microsoft.CSharp on
-netstandard2.0). Experimental.
+Targets `netstandard2.0` and `net10.0`; needs FSharp.Core ≥ 10.1 at run time (and Microsoft.CSharp
+on netstandard2.0) — its expression converter is the first that handles a block's statements. Any
+compiler can reference that package; on an older SDK, set the `FSharp.Core` package version in the
+app. Experimental.
 
 ## Scope
 
