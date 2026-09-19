@@ -80,14 +80,15 @@ type internal Machines<'SM, 'T> private () =
 /// field named `delayed` — so its reader is compiled once per `'T` (a LINQ field read; the
 /// optimizer may instead inline the lambda away, and then the target is the closure itself and
 /// the reader is the identity) and a call pays a type compare and a delegate invoke, not
-/// reflection. The pair is one immutable object swapped atomically; a target of another type,
-/// which should not happen, simply builds again.
+/// reflection. The last reader is one immutable object swapped atomically; a target of another
+/// type (not expected) goes to a dictionary, so alternating types cannot rebuild per call.
 type private DelayedReader(targetType: Type, read: Func<obj, obj>) =
     member _.TargetType = targetType
     member _.Read = read
 
 type internal Delayed<'T> private () =
-    static let mutable reader : DelayedReader = Unchecked.defaultof<_>
+    static let mutable last : DelayedReader = Unchecked.defaultof<_>
+    static let readers = ConcurrentDictionary<Type, DelayedReader>()
 
     static let build (targetType: Type) =
         let read =
@@ -96,18 +97,23 @@ type internal Delayed<'T> private () =
                 let target = System.Linq.Expressions.Expression.Parameter(typeof<obj>, "target")
                 System.Linq.Expressions.Expression.Lambda<Func<obj, obj>>(
                     System.Linq.Expressions.Expression.Field(System.Linq.Expressions.Expression.Convert(target, targetType), f), target).Compile()
+            | _ when targetType.Assembly = typeof<Delayed<'T>>.Assembly ->
+                // Our wrapper, but not the field we expect: the compiler's shape changed. Say so,
+                // rather than treat the wrapper as the closure and key every block of this result
+                // type on the one shared class.
+                raise (DlrTranslationException(sprintf "dlr { } fallback path: the builder's Delay wrapper %s has no 'delayed' field of the expected type (the F# compiler's closure shape changed)." targetType.Name))
             | _ -> Func<obj, obj>(fun target -> target)
         DelayedReader(targetType, read)
 
     static member Of(target: obj) : obj =
         let t = target.GetType()
-        let r = reader
+        let r = last
         let r =
             if not (obj.ReferenceEquals(r, null)) && obj.ReferenceEquals(r.TargetType, t) then r
             else
-                let built = build t
-                reader <- built
-                built
+                let r = readers.GetOrAdd(t, build)
+                last <- r
+                r
         r.Read.Invoke target
 
 /// One closure-path cache entry, immutable and generation-stamped like `MachineHit`.
