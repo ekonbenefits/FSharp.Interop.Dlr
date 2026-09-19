@@ -37,9 +37,10 @@ let ``pipe form, computed name, type arguments`` () =
 
 [<Fact>]
 let ``BCL statics, and F# private statics from the same assembly`` () =
-    let max (a: obj) (b: obj) : obj = dlr { return Dlr.Static<Math>.Overloads?Max(a, b) }
-    max 3 7 |> should equal (box 7)
-    max 2.5 1.0 |> should equal (box 2.5)
+    let larger: int = dlr { return Dlr.Static<Math>.Overloads?Max(box 3, box 7) }
+    let largerF: float = dlr { return Dlr.Static<Math>.Overloads?Max(box 2.5, box 1.0) }
+    larger |> should equal 7
+    largerF |> should equal 2.5
     let joined: string = dlr { return Dlr.Static<String>.Overloads?Join(", ", [| "a"; "b" |]) }
     joined |> should equal "a, b"
     let secret: string = dlr { return Dlr.Static<Renderer>.Overloads?Secret() }        // F# private is IL internal
