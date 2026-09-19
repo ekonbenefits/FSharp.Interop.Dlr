@@ -38,6 +38,8 @@ public static class CSharpDynamic
 
     public static int InvokeDelegate(object f, int arg) { dynamic d = f; return d(arg); }
 
+    public static int NamedArgs(object o, int i) { dynamic d = o; return d.Add(b: 1, a: i); }
+
     public static long Convert(object o) { dynamic d = o; return d; }
 
     public static bool AreEqual(object a, object b) { dynamic x = a; dynamic y = b; return x == y; }

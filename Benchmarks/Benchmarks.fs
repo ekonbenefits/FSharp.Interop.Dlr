@@ -32,6 +32,9 @@ type Core() =
     let countProperty = typeof<Widget>.GetProperty("Count")
     let addMethod = typeof<Widget>.GetMethod("Add")
     let names = [| "Count"; "Name" |]
+    let kwargs = [ "b", box 1; "a", box 2 ]
+    let kwargsOther = [ "a", box 2; "b", box 1 ]
+    let adder2 = box (fun (a: int) (b: int) -> a + b)
     let one, two, three = box 1, box 2, box 3
     let dictionary = box (Collections.Generic.Dictionary<string, int>(dict [ "a", 1 ]))
     let adder = box (Func<int, int>(fun x -> x + 1))
@@ -106,6 +109,9 @@ type Core() =
     [<Benchmark(Description = "C# dynamic d[\"a\"]")>]
     member _.CSharpIndex() = CSharpDynamic.Index(dictionary, "a")
 
+    [<Benchmark(Description = "C# dynamic d.Add(b: 1, a: i)")>]
+    member _.CSharpNamedArgs() = i <- i + 1; CSharpDynamic.NamedArgs(o, i)
+
     [<Benchmark(Description = "C# dynamic d(20) on a delegate")>]
     member _.CSharpInvokeDelegate() = CSharpDynamic.InvokeDelegate(adder, 20)
 
@@ -134,6 +140,18 @@ type Core() =
             for x in items do s <- s + (o?Add(x, 1) : int)
             return s
         }
+
+    [<Benchmark(Description = "dlr named arguments w?Add(Dlr.named {| b = 1; a = i |})")>]
+    member _.NamedArgs() : int = i <- i + 1; dlr { return o?Add(Dlr.named {| b = 1; a = i |}) }
+
+    [<Benchmark(Description = "dlr keyword arguments from data w?Add(Dlr.namedOf kwargs)")>]
+    member _.NamedOf() : int = dlr { return o?Add(Dlr.namedOf kwargs) }
+
+    [<Benchmark(Description = "dlr Dlr.namedOf, two name lists alternating")>]
+    member _.NamedOfAlternating() : int = i <- i + 1; let kw = (if i % 2 = 0 then kwargs else kwargsOther) in dlr { return o?Add(Dlr.namedOf kw) }
+
+    [<Benchmark(Description = "dlr Dlr.call f read as int -> int -> int, then applied")>]
+    member _.CallAsFunction() : int = let f: int -> int -> int = dlr { return Dlr.call adder2 } in f 1 2
 
     [<Benchmark(Description = "dlr (?) o name, name alternating (SiteCache hit)")>]
     member _.ComputedName() : obj = i <- i + 1; let n = names.[i % 2] in dlr { return (?) o n }
