@@ -67,7 +67,10 @@ five like `OptimizedClosures`; a curried read past five builds a chain of `Curry
 run time that collects the arguments and invokes the site's delegate once (`DynamicInvoke`, so
 slower than the typed helpers); tupled reads past five are a translation error. The argument
 types a shape has to fit are the meta-objects' `LimitType`s — the runtime type of an `obj`-typed
-argument, the static type of a typed one — matching the site's own argument rules. Our reflection
+argument, the static type of a typed one — matching the site's own argument rules; a null value
+fits any reference-type domain whatever its static type (an untyped `null` is `obj`), and the
+rule carries an instance restriction for it — a type restriction can never hold for null, and a
+rule that fails its own test makes the DLR re-bind forever. Our reflection
 lookups (function members, optional-parameter methods) apply the C# binder's accessibility rule
 from the same context type: public always, internal from the same assembly (F# `private` is IL
 internal), private from inside the declaring type. Named or generic calls use C#'s binder

@@ -216,7 +216,10 @@ module internal Translate =
     /// `box t` passes a tuple as one dynamic argument. Returns the binding, if any, and the items.
     let private splitArgs (e: Expr) : (Var * Expr) list * Expr list =
         match e with
+        // `()`, or a `unit`-typed variable (a generic parameter instantiated to unit, `let args = ()`):
+        // no arguments, and nothing to evaluate.
         | Value(_, t) when t = typeof<unit> -> [], []
+        | Var v when v.Type = typeof<unit> -> [], []
         | NewTuple items -> [], items
         | _ when FSharpType.IsTuple e.Type && not e.Type.IsValueType ->
             let v = Var("args", e.Type)
