@@ -86,6 +86,15 @@ and the invoke; the site call itself is C#'s. (The closure path was about 20 ns 
 which the closure, `GetType()` and the compare were 12; a `Func<'SM, 'T>` taking the struct by
 value instead of the `inref` reader measured 13 ns slower than the reader, so the reader it is.)
 
+The 3–4 ns left over C# is the entry path measured on its own without a site (3–4 ns in the
+spike), and it is one delegate hop more than C# has: C# emits the site call inline in the caller
+and pays one indirect call, into the rule; we pay that plus the call into the compiled reader
+(a `DynamicMethod` delegate, through its shuffle thunk), and build and copy the machine around
+it. A library cannot remove that hop: the compiled body would have to be emitted into the
+caller's own method, which is compiler or source-generator territory (the analyzer rewriting
+the block at build time, say). Everything short of that has been measured and taken; treat the
+gap as the floor rather than something a faster cache or delegate shape would close.
+
 ## The first call at a site
 
 ```mermaid

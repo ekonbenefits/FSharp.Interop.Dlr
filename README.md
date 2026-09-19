@@ -144,6 +144,9 @@ its fields hold the values. On the first call the body is found in the enclosing
 `[<ReflectedDefinition>]`, translated into an expression tree with one `CallSite` per operation
 baked in as a constant, and compiled to a delegate over the machine, cached in a static slot per
 machine type, so a call is a field read and an invoke: no closure, no `GetType()`, no lookup.
+The few nanoseconds left over C# `dynamic` are that invoke — C# emits its site call inline
+in the caller; a library cannot — so closing them would take compiler or source-generator
+support, not a faster cache.
 (Where the compiler does not build the machine — Debug builds — the `Delay` closure plays the
 same role, keyed by its type.) Invocation sites use C#'s binder wrapped in one that also applies
 F# function values, as DLR rules per runtime type.
