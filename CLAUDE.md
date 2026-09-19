@@ -2,7 +2,7 @@
 
 `dlr { }` = C# `dynamic` for F#: markers (`?`, `Dlr.*`, `Dlr.Static<T>.Overloads`) are read from
 the block's `[<ReflectedDefinition>]` body and compiled once per site into Microsoft.CSharp call
-sites. Design and binder details: `docs/internals.md`. Skills: `check-review`, `new-binder`.
+sites. Design: `docs/internals.md` (index; pipeline, caches, call-sites, binders, translation pages). Skills: `check-review`, `new-binder`.
 
 ## Gate before pushing
 

@@ -5,7 +5,7 @@ description: Checklist for adding or changing an F#-aware DLR binder (Binders.fs
 
 # Adding an F#-aware binder
 
-Read `docs/internals.md` first; `FSharp.Interop.Dlr/Binders.fs` holds everything (helpers,
+Read `docs/binders.md` and `docs/call-sites.md` first (index: `docs/internals.md`); `FSharp.Interop.Dlr/Binders.fs` holds everything (helpers,
 `Accessibility`, `OptionalArguments`, `FunctionShapes`, the binders, the `Binders` module that
 `Translate.fs` calls to emit `siteCall` nodes); the generated delegate/function adapter types are
 in `Adapters.fs` (`generate-adapters.fsx`).
@@ -68,7 +68,7 @@ Gate: `dotnet test -c Debug`, `dotnet test -c Release` (optimizer inlining diffe
 
 ## Docs
 
-- `docs/internals.md`: the binder's rule, its order relative to C#, its restrictions.
+- `docs/binders.md`: the binder's rule, its order relative to C#, its restrictions; `docs/call-sites.md` if it adds a site shape.
 - `README.md`: the "F# things C# `dynamic` cannot do" list gets the new capability in one
   bullet; the restrictions section loses the lifted one. Keep it terse — the owner asked for a
   less wordy README more than once.
