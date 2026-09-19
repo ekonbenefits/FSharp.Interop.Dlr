@@ -350,183 +350,374 @@ module internal Translate =
     let private onWasm =
         string System.Runtime.InteropServices.RuntimeInformation.OSArchitecture = "Wasm"   // no Architecture.Wasm on netstandard2.0
 
-    /// Compiles the reflected body of one `dlr { }` block. `closureType` is the compiler-generated
-    /// class of the `Delay` closure: its fields, named after the captured variables, are where
-    /// the body's free variables are read from at call time.
-    let translate (builderType: Type) (context: Type) (memberBody: Expr) (closureType: Type) (resultType: Type) (body: Expr) : Compiled =
-        let convert = Binders.convert context
-        let closure = Var("closure", typeof<obj>)
-        let self = Expr.Coerce(Expr.Var closure, closureType)
-        let fields =
-            closureType.GetFields(Reflection.BindingFlags.Instance ||| Reflection.BindingFlags.Public ||| Reflection.BindingFlags.NonPublic)
-            |> Array.map (fun f -> f.Name, f)
-            |> dict
+    /// What every part of the translation of one block needs: where it is (the builder and the
+    /// member it sits in) and where its values come from (the Delay closure).
+    type private Block =
+        { BuilderType: Type
+          /// Type declaring the enclosing member: the binder's accessibility context, as in C#.
+          Context: Type
+          /// The enclosing member's whole reflected body, for values the optimizer inlined.
+          MemberBody: Expr
+          /// The compiler-generated class of the Delay closure.
+          ClosureType: Type
+          /// The compiled delegate's one parameter: the closure, as `obj`.
+          Closure: Var
+          /// The closure's fields, named after the captured variables.
+          Fields: Collections.Generic.IDictionary<string, Reflection.FieldInfo> }
+        member this.Self = Expr.Coerce(Expr.Var this.Closure, this.ClosureType)
+        member this.Convert (resultType: Type) (e: Expr) = Binders.convert this.Context resultType e
+
+    /// The generic rewriter, threaded through the sections so each can rewrite a subexpression:
+    /// the variables bound inside the expression so far, and the expression.
+    type private Rewrite = Set<Var> -> Expr -> Expr
+
+    /// A `unit` expression may compile to a void call, which cannot be the value of a lambda or
+    /// of the block; end it with the unit constant so the tree has a `Unit` value.
+    let private asUnit (e: Expr) =
+        if e.Type = typeof<unit> then Expr.Sequential(e, Expr.Value(())) else e
+
+    /// On Mono's browser-wasm runtime a nested lambda that captures nothing loses its arguments
+    /// when invoked (see DlrRuntime); one that captures is fine. So there, a nested delegate
+    /// body is made to capture the block's closure parameter, which costs nothing elsewhere.
+    let private capturing (block: Block) (body: Expr) =
+        if onWasm then Expr.Let(Var("captured", typeof<obj>), Expr.Var block.Closure, body) else body
+
+    /// Where a free variable of the body comes from: the Delay closure, or failing that the
+    /// enclosing member's body.
+    module private Captures =
+
+        let private isRefCell (f: Reflection.FieldInfo) (t: Type) =
+            f.FieldType.IsGenericType
+            && f.FieldType.GetGenericTypeDefinition() = typedefof<Ref<_>>
+            && f.FieldType.GetGenericArguments().[0] = t
 
         /// A free variable of the body becomes a read of the closure field of the same name.
         /// A captured `let mutable` is stored as an FSharpRef cell; read through it. When there is
         /// no such field the optimizer inlined the variable's definition (a literal, a local
         /// function, ...) instead of capturing it, so substitute that definition from the
         /// enclosing member's body; its own free variables resolve the same way.
-        let captured (resolve: Expr -> Expr) (v: Var) : Expr =
-            match fields.TryGetValue v.Name with
-            | true, f when f.FieldType = v.Type -> Expr.FieldGet(self, f)
-            | true, f when f.FieldType.IsGenericType
-                           && f.FieldType.GetGenericTypeDefinition() = typedefof<Ref<_>>
-                           && f.FieldType.GetGenericArguments().[0] = v.Type ->
-                Expr.PropertyGet(Expr.FieldGet(self, f), f.FieldType.GetProperty("Value"))
+        let read (block: Block) (resolve: Expr -> Expr) (v: Var) : Expr =
+            match block.Fields.TryGetValue v.Name with
+            | true, f when f.FieldType = v.Type -> Expr.FieldGet(block.Self, f)
+            | true, f when isRefCell f v.Type ->
+                Expr.PropertyGet(Expr.FieldGet(block.Self, f), f.FieldType.GetProperty("Value"))
             | true, f ->
                 raise (DlrTranslationException(
                         sprintf "dlr { } captured '%s' as %s but the body uses it as %s." v.Name f.FieldType.Name v.Type.Name))
             | _ ->
-                match letDefinition v memberBody with
+                match letDefinition v block.MemberBody with
                 | Some def -> resolve def
                 | None ->
-                    match parameterArgument v memberBody with
+                    match parameterArgument v block.MemberBody with
                     | Some arg -> resolve arg
                     | None ->
                         raise (DlrTranslationException(
                                 sprintf "dlr { } could not find captured variable '%s' on closure %s (fields: %s), a let binding for it, or a single application supplying it (the optimizer inlined it; give the enclosing local function more than one call site or hoist the block)."
-                                    v.Name closureType.Name (String.Join(", ", fields.Keys))))
+                                    v.Name block.ClosureType.Name (String.Join(", ", block.Fields.Keys))))
 
         /// `v <- value` on a captured `let mutable`: a write through its FSharpRef cell.
-        let assignCaptured (v: Var) (value: Expr) : Expr =
-            match fields.TryGetValue v.Name with
-            | true, f when f.FieldType.IsGenericType
-                           && f.FieldType.GetGenericTypeDefinition() = typedefof<Ref<_>>
-                           && f.FieldType.GetGenericArguments().[0] = v.Type ->
-                Expr.PropertySet(Expr.FieldGet(self, f), f.FieldType.GetProperty("Value"), value)
+        let assign (block: Block) (v: Var) (value: Expr) : Expr =
+            match block.Fields.TryGetValue v.Name with
+            | true, f when isRefCell f v.Type ->
+                Expr.PropertySet(Expr.FieldGet(block.Self, f), f.FieldType.GetProperty("Value"), value)
             | _ ->
                 raise (DlrTranslationException(
                         sprintf "dlr { } assigns '%s', which is not a captured mutable on closure %s (fields: %s)."
-                            v.Name closureType.Name (String.Join(", ", fields.Keys))))
+                            v.Name block.ClosureType.Name (String.Join(", ", block.Fields.Keys))))
 
-        /// A `unit` expression may compile to a void call, which cannot be the value of a lambda or
-        /// of the block; end it with the unit constant so the tree has a `Unit` value.
-        let asUnit (e: Expr) =
-            if e.Type = typeof<unit> then Expr.Sequential(e, Expr.Value(())) else e
-
-        /// On Mono's browser-wasm runtime a nested lambda that captures nothing loses its arguments
-        /// when invoked (see DlrRuntime); one that captures is fine. So there, a nested delegate
-        /// body is made to capture the block's closure parameter, which costs nothing elsewhere.
-        let capturing (body: Expr) =
-            if onWasm then Expr.Let(Var("captured", typeof<obj>), Expr.Var closure, body) else body
-
-        /// Variables bound inside the expression being rewritten are left alone; anything else
-        /// that is not the builder comes from the closure or the enclosing member.
-        let isCaptured (bound: Set<Var>) (v: Var) = not (bound.Contains v) && v.Type <> builderType
-
-        let isBuilder (receiver: Expr option) =
-            match receiver with
-            | Some r -> r.Type = builderType
-            | None -> false
+    /// The builder's own methods: `Return`/`Zero`/`Combine` fold away, and the control-flow
+    /// members become `DlrRuntime` calls over delegates.
+    module private Plumbing =
 
         /// A body as a `Func<..>` delegate over `vars` (see DlrRuntime for why not an F# function).
         /// The delegate's type is built from the variables' types and the body's; a `unit` body
         /// (which may compile to a void call) becomes a `Func<.., unit>`, not an `Action`.
-        let rec func (bound: Set<Var>) (vars: Var list) (body: Expr) : Expr =
+        let private func (block: Block) (rewriteIn: Rewrite) (bound: Set<Var>) (vars: Var list) (body: Expr) : Expr =
             let bound = vars |> List.fold (fun b v -> Set.add v b) bound
-            let body = capturing (asUnit (rewriteIn bound body))
+            let body = capturing block (asUnit (rewriteIn bound body))
             let delegateType = Expression.GetFuncType(Array.append (vars |> List.map (fun v -> v.Type) |> Array.ofList) [| body.Type |])
             Expr.NewDelegate(delegateType, vars, body)
 
-        and rewriteIn (bound: Set<Var>) (e: Expr) : Expr =
+        /// A call on the builder (Discover already unwrapped the outermost Delay).
+        let call (block: Block) (rewriteIn: Rewrite) (bound: Set<Var>) (mi: Reflection.MethodInfo) (args: Expr list) (e: Expr) : Expr =
             let rewrite = rewriteIn bound
-            match e with
-            // CE plumbing (Discover already unwrapped the outermost Delay)
-            | Call(receiver, mi, args) when isBuilder receiver ->
-                match mi.Name, args with
-                | "Return", [ value ] -> rewrite value
-                | "Zero", [] -> Expr.Value(())
-                | "Combine", [ first; Call(_, d, [ Lambda(_, rest) ]) ] when d.Name = "Delay" ->
-                    Expr.Sequential(rewrite first, rewrite rest)
-                | "For", [ items; Lambda(x, body) ] ->
-                    let items = rewrite items
-                    Expr.Call(forEach.MakeGenericMethod(x.Type), [ items; func bound [ x ] body ])
-                | "While", [ Lambda(_, guard); Call(_, d, [ Lambda(_, body) ]) ] when d.Name = "Delay" ->
-                    Expr.Call(whileLoop, [ func bound [] guard; func bound [] body ])
-                | "TryWith", [ Call(_, d, [ Lambda(_, body) ]); Lambda(ex, handler) ] when d.Name = "Delay" ->
-                    Expr.Call(tryWith.MakeGenericMethod(e.Type), [ func bound [] body; func bound [ ex ] handler ])
-                | "TryFinally", [ Call(_, d, [ Lambda(_, body) ]); Lambda(_, compensation) ] when d.Name = "Delay" ->
-                    Expr.Call(tryFinally.MakeGenericMethod(e.Type), [ func bound [] body; func bound [] compensation ])
-                | "Using", [ resource; Lambda(r, body) ] ->
-                    Expr.Call(using.MakeGenericMethod(r.Type, e.Type), [ rewrite resource; func bound [ r ] body ])
-                // A nested dlr { } is compiled as part of this one: at run time its closure would be
-                // made by our compiled code, not the F# compiler, so it has no reflected body of its own.
-                | "Run", [ Call(_, d, [ Lambda(_, inner) ]); _; _ ] when d.Name = "Delay" -> rewrite inner
-                | name, _ -> unsupported (sprintf "the '%s' construct" name) e
+            let func = func block rewriteIn bound
+            match mi.Name, args with
+            | "Return", [ value ] -> rewrite value
+            | "Zero", [] -> Expr.Value(())
+            | "Combine", [ first; Call(_, d, [ Lambda(_, rest) ]) ] when d.Name = "Delay" ->
+                Expr.Sequential(rewrite first, rewrite rest)
+            | "For", [ items; Lambda(x, body) ] ->
+                let items = rewrite items
+                Expr.Call(forEach.MakeGenericMethod(x.Type), [ items; func [ x ] body ])
+            | "While", [ Lambda(_, guard); Call(_, d, [ Lambda(_, body) ]) ] when d.Name = "Delay" ->
+                Expr.Call(whileLoop, [ func [] guard; func [] body ])
+            | "TryWith", [ Call(_, d, [ Lambda(_, body) ]); Lambda(ex, handler) ] when d.Name = "Delay" ->
+                Expr.Call(tryWith.MakeGenericMethod(e.Type), [ func [] body; func [ ex ] handler ])
+            | "TryFinally", [ Call(_, d, [ Lambda(_, body) ]); Lambda(_, compensation) ] when d.Name = "Delay" ->
+                Expr.Call(tryFinally.MakeGenericMethod(e.Type), [ func [] body; func [] compensation ])
+            | "Using", [ resource; Lambda(r, body) ] ->
+                Expr.Call(using.MakeGenericMethod(r.Type, e.Type), [ rewrite resource; func [ r ] body ])
+            // A nested dlr { } is compiled as part of this one: at run time its closure would be
+            // made by our compiled code, not the F# compiler, so it has no reflected body of its own.
+            | "Run", [ Call(_, d, [ Lambda(_, inner) ]); _; _ ] when d.Name = "Delay" -> rewrite inner
+            | name, _ -> unsupported (sprintf "the '%s' construct" name) e
 
-            // Member operations: a literal name is a baked site; a computed name binds per name.
+    /// The marker operations: a literal name is a baked site; a computed name or runtime type
+    /// arguments bind per key through a SiteCache.
+    module private Members =
+
+        let private targetArg (rewriteIn: Rewrite) bound (target: Expr) =
+            match target with
+            | StaticTarget t -> Binders.staticTarget t
+            | _ ->
+                let t = rewriteIn bound target
+                Binders.dynamicArg (if t.Type = typeof<obj> then t else Expr.Coerce(t, typeof<obj>))
+
+        let private valueArg (rewriteIn: Rewrite) bound (value: Expr) =
+            match value with
+            | Value _ -> Binders.constant (Binders.typedArg value)
+            | _ -> Binders.typedArg (rewriteIn bound value)
+
+        let private argList (rewriteIn: Rewrite) bound (argExprs: Expr list) =
+            let bindings = ResizeArray()
+            let args =
+                [ for a in argExprs do
+                    match a with
+                    | TypeArgs _ -> unsupported "Dlr.typeArgs anywhere but as the first argument" a
+                    | NamedRecord(lets, fields) ->
+                        bindings.AddRange lets
+                        let inner = bindings |> Seq.fold (fun (b: Set<Var>) (v, _) -> b.Add v) bound
+                        for (name, v) in fields -> Binders.named name (valueArg rewriteIn inner v)
+                    // Argument positions are generic-typed, so a `Coerce(_, obj)` here is the user's
+                    // `x :> obj` and means what `box x` means: an obj argument, runtime dispatch.
+                    | v -> yield valueArg rewriteIn bound v ]
+            List.ofSeq bindings, args
+
+        let private bind (rewriteIn: Rewrite) bound (bindings: (Var * Expr) list) (call: Expr) =
+            List.foldBack (fun (v, value) body -> Expr.Let(v, rewriteIn bound value, body)) bindings call
+
+        let private indexList (rewriteIn: Rewrite) bound (indexes: Expr list) = [ for i in indexes -> valueArg rewriteIn bound i ]
+
+        let private finish (block: Block) discard (resultType: Type) (call: Expr) =
+            if discard then call else block.Convert resultType call
+
+        /// The tuple bindings of `splitArgs`, added to the bound set for the argument rewrites.
+        let private withTuple (bound: Set<Var>) (tupleBindings: (Var * Expr) list) =
+            tupleBindings |> List.fold (fun (b: Set<Var>) (v, _) -> b.Add v) bound
+
+        /// An operation whose binder inputs — the member name, the type arguments, or both — are
+        /// only known at run time: the operation's delegate is compiled once here with its call
+        /// sites as parameters (lifted from a template built for a placeholder key), and a
+        /// SiteCache constant creates the sites per distinct `(name, types)` key; the emitted
+        /// code is `let sites = cache.Get((name, types)) in delegate.Invoke(sites.[0], …, target, args…)`.
+        /// Argument names in `Dlr.named` stay static.
+        let private keyedSite (block: Block) (rewriteIn: Rewrite) bound (nameExpr: Expr) (typeArgs: TypeArgsSpec) (target: Expr) (argExprs: Expr list) (resultType: Type) (site: string -> Type list -> Binders.Arg -> Binders.Arg list -> Expr) : Expr =
+            let rewrite = rewriteIn bound
+            let bindings, argInfos = argList rewriteIn bound argExprs
+            let targetInfo = targetArg rewriteIn bound target
+            let targetVar = Var("target", targetInfo.Type)
+            let argVars = argInfos |> List.mapi (fun i a -> Var(sprintf "a%d" i, a.Type))
+            let template (name: string, types: Type list) =
+                let args = List.map2 (fun (info: Binders.Arg) (v: Var) -> { info with Expr = Expr.Var v }) argInfos argVars
+                site name types { targetInfo with Expr = Expr.Var targetVar } args
+            // The operation's shape does not depend on the key, only its sites do: build it once
+            // for a placeholder, lift every site constant into a parameter, and compile that one
+            // delegate now. Per key, the cache creates the sites and hands them back in the
+            // same order.
+            let placeholderName, nameE =
+                match nameExpr with
+                | Literal name -> string name, Expr.Value(string name)
+                | e -> "name", rewrite e
+            let placeholderTypes, typesE =
+                match typeArgs with
+                | StaticTypes ts -> ts, Expr.Value(ts, typeof<Type list>)
+                | RuntimeTypes e -> [], rewrite e
+            let placeholder = template (placeholderName, placeholderTypes)
+            let sites = SiteCache<string * Type list>.Sites placeholder
+            let siteVars = sites |> List.mapi (fun i s -> s, Var(sprintf "site%d" i, s.GetType()))
+            let rec lift (e: Expr) =
+                match e with
+                | Value(v, _) when (v :? CallSite) ->
+                    match siteVars |> List.tryFind (fun (s, _) -> obj.ReferenceEquals(s, v)) with
+                    | Some(_, var) -> Expr.Var var
+                    | None -> e
+                | ShapeVar _ -> e
+                | ShapeLambda(v, body) -> Expr.Lambda(v, lift body)
+                | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map lift args)
+            let body = lift placeholder
+            let delegateType =
+                Expression.GetDelegateType(Array.ofList ([ for _, v in siteVars -> v.Type ] @ targetVar.Type :: [ for v in argVars -> v.Type ] @ [ typeof<obj> ]))
+            // A discarded result is a void site: the delegate still returns obj, so hand back null.
+            let boxed =
+                if body.Type = typeof<obj> then body
+                elif body.Type = typeof<unit> || body.Type = typeof<Void> then Expr.Sequential(body, Expr.Value(null, typeof<obj>))
+                else Expr.Coerce(body, typeof<obj>)
+            let lambda = Expr.NewDelegate(delegateType, [ for _, v in siteVars -> v ] @ targetVar :: argVars, boxed)
+            let compiled = (LeafExpressionConverter.QuotationToExpression lambda :?> LambdaExpression).Compile()
+            let cache = SiteCache<string * Type list>(template)
+            let cacheType = typeof<SiteCache<string * Type list>>
+            let sitesVar = Var("sites", typeof<CallSite[]>)
+            let at = cacheType.GetMethod("At")
+            let siteArgs = siteVars |> List.mapi (fun i (_, v) -> Expr.Coerce(Expr.Call(at, [ Expr.Var sitesVar; Expr.Value i ]), v.Type))
+            let call =
+                Expr.Let(sitesVar, Expr.Call(Expr.Value(cache, cacheType), cacheType.GetMethod("Get"), [ Expr.NewTuple [ nameE; typesE ] ]),
+                         Expr.Call(Expr.Value(compiled, delegateType), delegateType.GetMethod("Invoke"), siteArgs @ targetInfo.Expr :: [ for a in argInfos -> a.Expr ]))
+            (if FSharpType.IsFunction resultType then Expr.Coerce(call, resultType) else block.Convert resultType call)
+            |> bind rewriteIn bound bindings
+
+        /// `(?) x name` with a computed name (no type arguments): see keyedSite.
+        let private computedName block rewriteIn bound (nameExpr: Expr) (target: Expr) (argExprs: Expr list) (resultType: Type) (site: string -> Binders.Arg -> Binders.Arg list -> Expr) : Expr =
+            keyedSite block rewriteIn bound nameExpr (StaticTypes []) target argExprs resultType (fun name _ targetArg args -> site name targetArg args)
+
+        /// `Dlr.addAssign`/`subtractAssign`: bind the target and value once, then both branches
+        /// of the IsEvent decision refer to them. A computed name goes through the SiteCache
+        /// like any other member operation.
+        let private compoundAssign (block: Block) (rewriteIn: Rewrite) bound (subtract: bool) (nameExpr: Expr) (target: Expr) (value: Expr) : Expr =
+            match nameExpr with
+            | Literal name ->
+                let targetInfo = targetArg rewriteIn bound target
+                let v = rewriteIn bound value
+                let tv = Var("target", targetInfo.Type)
+                let vv = Var("value", v.Type)
+                // A literal value keeps C#'s constant conversions (a byte member += 1) even though
+                // it is read through a variable here.
+                let valueArg =
+                    let a = Binders.typedArg (Expr.Var vv)
+                    match value with
+                    | Value _ -> Binders.constant a
+                    | _ -> a
+                let body = Binders.compoundAssign block.Context (string name) subtract { targetInfo with Expr = Expr.Var tv } valueArg
+                Expr.Let(tv, targetInfo.Expr, Expr.Let(vv, v, body))
+            | _ ->
+                computedName block rewriteIn bound nameExpr target [ value ] typeof<unit> (fun name targetArg args ->
+                    // The name-cache template already makes target and value delegate parameters.
+                    Expr.Sequential(Binders.compoundAssign block.Context name subtract targetArg (List.head args), Expr.Value(null, typeof<obj>)))
+
+        /// The expression, if it is a marker operation.
+        let tryOperation (block: Block) (rewriteIn: Rewrite) (bound: Set<Var>) (e: Expr) : Expr option =
+            let context = block.Context
+            let convert = block.Convert
+            let rewrite = rewriteIn bound
+            let targetArg = targetArg rewriteIn
+            let valueArg = valueArg rewriteIn
+            let argList = argList rewriteIn
+            let bind = bind rewriteIn
+            let indexList = indexList rewriteIn
+            let finish = finish block
+            let computedName = computedName block rewriteIn bound
+            match e with
             | MemberOp(InvokeMember(target, nameExpr, argExpr)) ->
                 let tupleBindings, argExprs = splitArgs argExpr
-                let bound' = tupleBindings |> List.fold (fun (b: Set<Var>) (v, _) -> b.Add v) bound
+                let bound' = withTuple bound tupleBindings
                 let typeArgs, argExprs =
                     match argExprs with
                     | TypeArgs spec :: rest -> spec, rest
                     | args -> StaticTypes [], args
+                let discard = e.Type = typeof<unit>
                 match nameExpr, typeArgs with
                 | Literal name, StaticTypes ts ->
-                    let discard = e.Type = typeof<unit>
                     let bindings, args = argList bound' argExprs
                     Binders.invokeMemberOrApply context (string name) ts discard (targetArg bound target) args |> finish discard e.Type |> bind bound' bindings |> bind bound tupleBindings
                 | _ ->
-                    let discard = e.Type = typeof<unit>
-                    keyedSite bound' nameExpr typeArgs target argExprs e.Type (fun name ts targetArg args ->
+                    keyedSite block rewriteIn bound' nameExpr typeArgs target argExprs e.Type (fun name ts targetArg args ->
                         Binders.invokeMemberOrApply context name ts discard targetArg args)
                     |> bind bound tupleBindings
+                |> Some
             | MemberOp(GetMember(target, nameExpr)) when FSharpType.IsFunction e.Type ->
                 // Read as an F# function: a curried invoker of the member (method, delegate or F#
                 // function), so `let f: int -> int -> int = dlr { return x?Add }` then `f 1 2`.
                 match nameExpr with
                 | Literal name -> Binders.functionMember context (string name) e.Type (targetArg bound target)
-                | _ -> computedName bound nameExpr target [] e.Type (fun name targetArg _ -> Binders.functionMember context name e.Type targetArg)
+                | _ -> computedName nameExpr target [] e.Type (fun name targetArg _ -> Binders.functionMember context name e.Type targetArg)
+                |> Some
             | MemberOp(GetMember(target, nameExpr)) ->
                 match nameExpr with
                 | Literal name -> Binders.getMember context (string name) (targetArg bound target) |> convert e.Type
-                | _ -> computedName bound nameExpr target [] e.Type (fun name targetArg _ -> Binders.getMember context name targetArg)
-            | Op opAddAssign [ nameExpr; Unboxed value; Unboxed target ] -> compoundAssign bound false nameExpr target value
-            | Op opSubtractAssign [ nameExpr; Unboxed value; Unboxed target ] -> compoundAssign bound true nameExpr target value
+                | _ -> computedName nameExpr target [] e.Type (fun name targetArg _ -> Binders.getMember context name targetArg)
+                |> Some
+            | Op opAddAssign [ nameExpr; Unboxed value; Unboxed target ] -> Some(compoundAssign block rewriteIn bound false nameExpr target value)
+            | Op opSubtractAssign [ nameExpr; Unboxed value; Unboxed target ] -> Some(compoundAssign block rewriteIn bound true nameExpr target value)
             | MemberOp(SetMember(target, nameExpr, value)) ->
                 match nameExpr with
                 | Literal name -> Binders.setMember context (string name) (targetArg bound target) (valueArg bound value) |> convert typeof<unit>
                 | _ ->
-                    computedName bound nameExpr target [ value ] typeof<unit> (fun name targetArg args ->
+                    computedName nameExpr target [ value ] typeof<unit> (fun name targetArg args ->
                         Binders.setMember context name targetArg (List.head args))
+                |> Some
             | New(t, argExprs) ->
                 // The site is typed `T` itself (the binder types a constructor's result as `T`,
                 // which an obj-typed site rejects for a struct), so no Convert.
                 let bindings, args = argList bound argExprs
-                Binders.invokeConstructor context t args |> bind bound bindings
+                Binders.invokeConstructor context t args |> bind bound bindings |> Some
             | Op opCall [ argExpr; Unboxed target ] ->
                 let discard = e.Type = typeof<unit>
                 let tupleBindings, argExprs = splitArgs argExpr
-                let bound' = tupleBindings |> List.fold (fun (b: Set<Var>) (v, _) -> b.Add v) bound
+                let bound' = withTuple bound tupleBindings
                 let bindings, args = argList bound' argExprs
-                Binders.invokeOrApply context discard (targetArg bound target) args |> finish discard e.Type |> bind bound' bindings |> bind bound tupleBindings
+                Binders.invokeOrApply context discard (targetArg bound target) args |> finish discard e.Type |> bind bound' bindings |> bind bound tupleBindings |> Some
             | Op opItem [ indexes; Unboxed target ] ->
                 let tupleBindings, indexExprs = splitArgs indexes
-                let bound' = tupleBindings |> List.fold (fun (b: Set<Var>) (v, _) -> b.Add v) bound
-                Binders.getIndex context (targetArg bound target) (indexList bound' indexExprs) |> convert e.Type |> bind bound tupleBindings
+                let bound' = withTuple bound tupleBindings
+                Binders.getIndex context (targetArg bound target) (indexList bound' indexExprs) |> convert e.Type |> bind bound tupleBindings |> Some
             | Op opSetItem [ indexes; value; Unboxed target ] ->
                 let tupleBindings, indexExprs = splitArgs indexes
-                let bound' = tupleBindings |> List.fold (fun (b: Set<Var>) (v, _) -> b.Add v) bound
-                Binders.setIndex context (targetArg bound target) (indexList bound' indexExprs) (valueArg bound' value) |> convert typeof<unit> |> bind bound tupleBindings
+                let bound' = withTuple bound tupleBindings
+                Binders.setIndex context (targetArg bound target) (indexList bound' indexExprs) (valueArg bound' value) |> convert typeof<unit> |> bind bound tupleBindings |> Some
             | BinaryOp(op, Unboxed left, Unboxed right) ->
-                Binders.binaryOperation context op (valueArg bound left) (valueArg bound right) |> convert e.Type
+                Binders.binaryOperation context op (valueArg bound left) (valueArg bound right) |> convert e.Type |> Some
             | UnaryOp(op, Unboxed operand) ->
-                Binders.unaryOperation context op (valueArg bound operand) |> convert e.Type
+                Binders.unaryOperation context op (valueArg bound operand) |> convert e.Type |> Some
             | Op opCast [ Unboxed value ] ->
                 let v = rewrite value
-                Binders.convertExplicit context e.Type (if v.Type = typeof<obj> then v else Expr.Coerce(v, typeof<obj>))
+                Binders.convertExplicit context e.Type (if v.Type = typeof<obj> then v else Expr.Coerce(v, typeof<obj>)) |> Some
             | Op opImplicit [ Unboxed value ] ->
                 let v = rewrite value
-                convert e.Type (if v.Type = typeof<obj> then v else Expr.Coerce(v, typeof<obj>))
-
-            // Everything else: captured variables become field reads, structure is rebuilt as-is.
+                convert e.Type (if v.Type = typeof<obj> then v else Expr.Coerce(v, typeof<obj>)) |> Some
             // The marker anywhere but as a target would run its getter at run time and throw the
             // outside-a-block error from inside one; say what is wrong instead.
             | StaticTarget _ -> unsupported "Dlr.Static<T>.Overloads anywhere but as the target of a call" e
-            | Var v when isCaptured bound v -> captured (rewriteIn bound) v
-            | VarSet(v, value) when isCaptured bound v -> assignCaptured v (rewrite value)
+            | _ -> None
+
+    /// Compiles the reflected body of one `dlr { }` block. `closureType` is the compiler-generated
+    /// class of the `Delay` closure: its fields, named after the captured variables, are where
+    /// the body's free variables are read from at call time.
+    let translate (builderType: Type) (context: Type) (memberBody: Expr) (closureType: Type) (resultType: Type) (body: Expr) : Compiled =
+        let closure = Var("closure", typeof<obj>)
+        let block =
+            { BuilderType = builderType
+              Context = context
+              MemberBody = memberBody
+              ClosureType = closureType
+              Closure = closure
+              Fields =
+                closureType.GetFields(Reflection.BindingFlags.Instance ||| Reflection.BindingFlags.Public ||| Reflection.BindingFlags.NonPublic)
+                |> Array.map (fun f -> f.Name, f)
+                |> dict }
+
+        /// Variables bound inside the expression being rewritten are left alone; anything else
+        /// that is not the builder comes from the closure or the enclosing member.
+        let isCaptured (bound: Set<Var>) (v: Var) = not (bound.Contains v) && v.Type <> block.BuilderType
+
+        let isBuilder (receiver: Expr option) =
+            match receiver with
+            | Some r -> r.Type = block.BuilderType
+            | None -> false
+
+        /// Builder calls and marker operations go to their sections; everything else is generic
+        /// rewriting: captured variables become closure reads, and the structure is rebuilt as-is
+        /// except where the expression tree has no form for it.
+        let rec rewriteIn (bound: Set<Var>) (e: Expr) : Expr =
+            let rewrite = rewriteIn bound
+            match e with
+            | Call(receiver, mi, args) when isBuilder receiver -> Plumbing.call block rewriteIn bound mi args e
+            | _ ->
+            match Members.tryOperation block rewriteIn bound e with
+            | Some rewritten -> rewritten
+            | None ->
+            match e with
+            | Var v when isCaptured bound v -> Captures.read block (rewriteIn bound) v
+            | VarSet(v, value) when isCaptured bound v -> Captures.assign block v (rewrite value)
             | ShapeVar _ -> e
             // A `let mutable` of the block has no expression-tree form: loop and try bodies are
             // compiled into delegates, and a tree variable cannot be assigned from inside one. So
@@ -573,139 +764,14 @@ module internal Translate =
                 let peeled, body = peel (n - vars.Length) delegateBody []
                 let allVars = vars @ peeled
                 let inner = allVars |> List.fold (fun b v -> Set.add v b) bound
-                Expr.NewDelegate(t, allVars, capturing (asUnit (rewriteIn inner body)))
-            | ShapeLambda(v, lambdaBody) -> Expr.Lambda(v, capturing (asUnit (rewriteIn (bound.Add v) lambdaBody)))
+                Expr.NewDelegate(t, allVars, capturing block (asUnit (rewriteIn inner body)))
+            | ShapeLambda(v, lambdaBody) -> Expr.Lambda(v, capturing block (asUnit (rewriteIn (bound.Add v) lambdaBody)))
             | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map rewrite args)
-
-        /// `(?) x name` with a computed name (no type arguments): see keyedSite.
-        and computedName bound (nameExpr: Expr) (target: Expr) (argExprs: Expr list) (resultType: Type) (site: string -> Binders.Arg -> Binders.Arg list -> Expr) : Expr =
-            keyedSite bound nameExpr (StaticTypes []) target argExprs resultType (fun name _ targetArg args -> site name targetArg args)
-
-        /// An operation whose binder inputs — the member name, the type arguments, or both — are
-        /// only known at run time: the operation's delegate is compiled once here with its call
-        /// sites as parameters (lifted from a template built for a placeholder key), and a
-        /// SiteCache constant creates the sites per distinct `(name, types)` key; the emitted
-        /// code is `let sites = cache.Get((name, types)) in delegate.Invoke(sites.[0], …, target, args…)`.
-        /// Argument names in `Dlr.named` stay static.
-        and keyedSite bound (nameExpr: Expr) (typeArgs: TypeArgsSpec) (target: Expr) (argExprs: Expr list) (resultType: Type) (site: string -> Type list -> Binders.Arg -> Binders.Arg list -> Expr) : Expr =
-            let rewrite = rewriteIn bound
-            let bindings, argInfos = argList bound argExprs
-            let targetInfo = targetArg bound target
-            let targetVar = Var("target", targetInfo.Type)
-            let argVars = argInfos |> List.mapi (fun i a -> Var(sprintf "a%d" i, a.Type))
-            let template (name: string, types: Type list) =
-                let args = List.map2 (fun (info: Binders.Arg) (v: Var) -> { info with Expr = Expr.Var v }) argInfos argVars
-                site name types { targetInfo with Expr = Expr.Var targetVar } args
-            // The operation's shape does not depend on the key, only its sites do: build it once
-            // for a placeholder, lift every site constant into a parameter, and compile that one
-            // delegate now. Per key, the cache creates the sites and hands them back in the
-            // same order.
-            let placeholderName, nameE =
-                match nameExpr with
-                | Literal name -> string name, Expr.Value(string name)
-                | e -> "name", rewrite e
-            let placeholderTypes, typesE =
-                match typeArgs with
-                | StaticTypes ts -> ts, Expr.Value(ts, typeof<Type list>)
-                | RuntimeTypes e -> [], rewrite e
-            let placeholder = template (placeholderName, placeholderTypes)
-            let sites = SiteCache<string * Type list>.Sites placeholder
-            let siteVars = sites |> List.mapi (fun i s -> s, Var(sprintf "site%d" i, s.GetType()))
-            let rec lift (e: Expr) =
-                match e with
-                | Value(v, _) when (v :? CallSite) ->
-                    match siteVars |> List.tryFind (fun (s, _) -> obj.ReferenceEquals(s, v)) with
-                    | Some(_, var) -> Expr.Var var
-                    | None -> e
-                | ShapeVar _ -> e
-                | ShapeLambda(v, body) -> Expr.Lambda(v, lift body)
-                | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map lift args)
-            let body = lift placeholder
-            let delegateType =
-                Expression.GetDelegateType(Array.ofList ([ for _, v in siteVars -> v.Type ] @ targetVar.Type :: [ for v in argVars -> v.Type ] @ [ typeof<obj> ]))
-            // A discarded result is a void site: the delegate still returns obj, so hand back null.
-            let boxed =
-                if body.Type = typeof<obj> then body
-                elif body.Type = typeof<unit> || body.Type = typeof<Void> then Expr.Sequential(body, Expr.Value(null, typeof<obj>))
-                else Expr.Coerce(body, typeof<obj>)
-            let lambda = Expr.NewDelegate(delegateType, [ for _, v in siteVars -> v ] @ targetVar :: argVars, boxed)
-            let compiled = (Microsoft.FSharp.Linq.RuntimeHelpers.LeafExpressionConverter.QuotationToExpression lambda :?> LambdaExpression).Compile()
-            let cache = SiteCache<string * Type list>(template)
-            let cacheType = typeof<SiteCache<string * Type list>>
-            let sitesVar = Var("sites", typeof<CallSite[]>)
-            let at = cacheType.GetMethod("At")
-            let siteArgs = siteVars |> List.mapi (fun i (_, v) -> Expr.Coerce(Expr.Call(at, [ Expr.Var sitesVar; Expr.Value i ]), v.Type))
-            let call =
-                Expr.Let(sitesVar, Expr.Call(Expr.Value(cache, cacheType), cacheType.GetMethod("Get"), [ Expr.NewTuple [ nameE; typesE ] ]),
-                         Expr.Call(Expr.Value(compiled, delegateType), delegateType.GetMethod("Invoke"), siteArgs @ targetInfo.Expr :: [ for a in argInfos -> a.Expr ]))
-            (if FSharpType.IsFunction resultType then Expr.Coerce(call, resultType) else convert resultType call)
-            |> bind bound bindings
-
-        /// `Dlr.addAssign`/`subtractAssign`: bind the target and value once, then both branches
-        /// of the IsEvent decision refer to them. A computed name goes through the SiteCache
-        /// like any other member operation.
-        and compoundAssign bound (subtract: bool) (nameExpr: Expr) (target: Expr) (value: Expr) : Expr =
-            match nameExpr with
-            | Literal name ->
-                let targetInfo = targetArg bound target
-                let v = rewriteIn bound value
-                let tv = Var("target", targetInfo.Type)
-                let vv = Var("value", v.Type)
-                // A literal value keeps C#'s constant conversions (a byte member += 1) even though
-                // it is read through a variable here.
-                let valueArg =
-                    let a = Binders.typedArg (Expr.Var vv)
-                    match value with
-                    | Value _ -> Binders.constant a
-                    | _ -> a
-                let body = Binders.compoundAssign context (string name) subtract { targetInfo with Expr = Expr.Var tv } valueArg
-                Expr.Let(tv, targetInfo.Expr, Expr.Let(vv, v, body))
-            | _ ->
-                computedName bound nameExpr target [ value ] typeof<unit> (fun name targetArg args ->
-                    // The name-cache template already makes target and value delegate parameters.
-                    Expr.Sequential(Binders.compoundAssign context name subtract targetArg (List.head args), Expr.Value(null, typeof<obj>)))
-
-        and targetArg bound (target: Expr) =
-            match target with
-            | StaticTarget t -> Binders.staticTarget t
-            | _ ->
-                let t = rewriteIn bound target
-                Binders.dynamicArg (if t.Type = typeof<obj> then t else Expr.Coerce(t, typeof<obj>))
-
-        and valueArg bound (value: Expr) =
-            match value with
-            | Value _ -> Binders.constant (Binders.typedArg value)
-            | _ -> Binders.typedArg (rewriteIn bound value)
-
-        and argList bound (argExprs: Expr list) =
-            let bindings = ResizeArray()
-            let args =
-                [ for a in argExprs do
-                    match a with
-                    | TypeArgs _ -> unsupported "Dlr.typeArgs anywhere but as the first argument" a
-                    | NamedRecord(lets, fields) ->
-                        bindings.AddRange lets
-                        let inner = bindings |> Seq.fold (fun (b: Set<Var>) (v, _) -> b.Add v) bound
-                        for (name, v) in fields -> Binders.named name (valueArg inner v)
-                    // Argument positions are generic-typed, so a `Coerce(_, obj)` here is the user's
-                    // `x :> obj` and means what `box x` means: an obj argument, runtime dispatch.
-                    | v -> yield valueArg bound v ]
-            List.ofSeq bindings, args
-
-        and bind bound (bindings: (Var * Expr) list) (call: Expr) =
-            List.foldBack (fun (v, value) body -> Expr.Let(v, rewriteIn bound value, body)) bindings call
-
-        and indexList bound (indexes: Expr list) = [ for i in indexes -> valueArg bound i ]
-
-        and finish discard (resultType: Type) (call: Expr) =
-            if discard then call else convert resultType call
-
-        let rewrite = rewriteIn Set.empty
 
         let delegateType = typedefof<Func<_, _>>.MakeGenericType(typeof<obj>, resultType)
         let compiled =
             try
-                let rewritten = asUnit (rewrite (normalize body))
+                let rewritten = asUnit (rewriteIn Set.empty (normalize body))
                 let lambda = Expr.NewDelegate(delegateType, [ closure ], rewritten)
                 let linq = LeafExpressionConverter.QuotationToExpression lambda :?> LambdaExpression
                 (SiteHoister().Visit linq :?> LambdaExpression).Compile()

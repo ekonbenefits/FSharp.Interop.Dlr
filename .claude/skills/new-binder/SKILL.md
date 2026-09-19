@@ -7,7 +7,8 @@ description: Checklist for adding or changing an F#-aware DLR binder (Binders.fs
 
 Read `docs/internals.md` first; `FSharp.Interop.Dlr/Binders.fs` holds everything (helpers,
 `Accessibility`, `OptionalArguments`, `FunctionShapes`, the binders, the `Binders` module that
-`Translate.fs` calls to emit `siteCall` nodes).
+`Translate.fs` calls to emit `siteCall` nodes); the generated delegate/function adapter types are
+in `Adapters.fs` (`generate-adapters.fsx`).
 
 ## Shape of a binder
 

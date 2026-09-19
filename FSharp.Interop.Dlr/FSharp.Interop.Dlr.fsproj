@@ -36,6 +36,7 @@
   <ItemGroup>
     <Compile Include="Operators.fsi" />
     <Compile Include="Operators.fs" />
+    <Compile Include="Adapters.fs" />
     <Compile Include="Binders.fs" />
     <Compile Include="Translate.fs" />
     <Compile Include="Discover.fs" />
