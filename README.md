@@ -60,7 +60,7 @@ Python.NET, Dapper rows over SQLite, ClearScript V8 — and on browser-wasm.
    places, and the library follows through rather than restricting them: `?` takes a string, so
    a member name can be a variable; `Dlr.typeArgsOf` takes a list, so type arguments can be
    run-time values; a tuple applies as several arguments, as in F#'s own method calls. Each is
-   cached per call site so it costs a lookup, not a bind.
+   cached per call site so it costs a lookup, not a bind. Every form: [docs/syntax.md](docs/syntax.md).
 
 4. **Mindful of speed.** It uses the same call sites C# does, bound once, and tries to stay in
    that neighbourhood; [docs/benchmarks.md](docs/benchmarks.md) has the numbers.
