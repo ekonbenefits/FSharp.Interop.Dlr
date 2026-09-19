@@ -52,8 +52,8 @@ When the member name, the type arguments, or both are only known at run time, th
 delegate is still compiled once, at translation time, with its `CallSite`s as parameters: the
 shape does not depend on the name, only the sites do, so the sites are lifted out of a template
 built for a placeholder key. A `SiteCache` constant keyed by `(name, types)` — whichever of the
-two is static being a constant in the key — creates the sites per distinct key, and the emitted
-code is
+two is static being a constant in the key; its bound and lifetime are in [caches](caches.md) —
+creates the sites per distinct key, and the emitted code is
 
 ```
 let sites = cache.Get((name, types)) in delegate.Invoke(sites.[0], …, target, args…)
@@ -70,13 +70,15 @@ call (`site.Target` and the `site` argument), so a LINQ `ExpressionVisitor` (`Si
 `Translate.fs`) gives each lambda — the block's own and every nested loop/try body — a `Block`
 binding the sites its body uses to variables assigned once at entry; a use is a local read. Per
 lambda, because a variable captured by a nested lambda would be a `StrongBox` read, no better than
-the constant; on the LINQ tree, because FSharp.Core before 10.1 converted a quotation `Let` into a
-nested lambda invocation (measured 50× slower; the floor is now 10.1, for the same converter's
-`Sequential`/`PropertySet` support). Measured, a member call went from ~30 ns to ~18 against C#
-`dynamic`'s ~7.5; what remains is the block's entry ([pipeline](pipeline.md)).
+the constant; on the LINQ tree, because FSharp.Core below 10.1 converts a quotation `Let` into a
+nested lambda invocation, an order of magnitude slower (the floor is 10.1 for the same
+converter's `Sequential`/`PropertySet` support). Hoisting takes a member call from well over C#
+`dynamic`'s cost to a few nanoseconds above it; the rest is the block's entry
+([pipeline](pipeline.md)), whose by-reference reader is wrapped around the hoisted lambda after
+this pass, so the site locals sit inside the copy of the machine.
 
-An earlier design emitted a holder type with static fields per block (the C# compiler's shape,
-~1 ns faster) and was dropped: a non-collectible holder cannot reference argument types from a
+The alternative, a holder type with static fields per block (the C# compiler's shape,
+marginally faster), was built and rejected: a non-collectible holder cannot reference argument types from a
 collectible `AssemblyLoadContext` (a regression for plugin hosts), and holders leaked after
 `DlrCache.clear()`; a per-block collectible assembly fixed both but meant an assembly per block
 in tooling. Hoisting gives up the nanosecond for none of that.

@@ -19,12 +19,26 @@ let ``a failed bind can be caught inside the block`` () =
 
 [<Fact>]
 let ``unmatched exceptions propagate`` () =
+    // The compiler's unmatched arm rethrows and then yields a default of the block's code type;
+    // the translator retypes that default to the result: a reference, a value, and unit.
     let w = box (Widget())
     (fun () ->
         (dlr {
             try return (w?Missing : string)
             with :? ArgumentException -> return "wrong handler"
         }) |> ignore)
+    |> should throw typeof<RuntimeBinderException>
+    (fun () ->
+        (dlr {
+            try return (w?Missing : int)
+            with :? ArgumentException -> return -1
+        }) |> ignore)
+    |> should throw typeof<RuntimeBinderException>
+    (fun () ->
+        dlr {
+            try w?Missing()
+            with :? ArgumentException -> ()
+        })
     |> should throw typeof<RuntimeBinderException>
 
 [<Fact>]

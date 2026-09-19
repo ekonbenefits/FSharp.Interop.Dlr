@@ -27,6 +27,13 @@ dotnet build Tests.Wasm -c Release && (cd Tests.Wasm/bin/Release/net10.0-browser
 
 ## Conventions
 
+- The builder is resumable code (`inline` members, `ResumableCode<'D, 'T>` types; `Run` is
+  `__stateMachine` in `task`'s shape): in Release each block is a struct state machine and its
+  type keys `Machines<'SM, 'T>`; in Debug `__useResumableCode` is false and `DlrRun.Closure`
+  unwraps the Delay closure (field `delayed` of the delegate's target) into the closure path.
+  Both paths must stay correct — the suite runs in both. A Release FS3511 (not statically
+  compilable; only direct builder-member calls produce it) leaves a static delegate with no
+  closure, and `DlrRun.Closure` throws at that site; CI's warnings-as-errors catches it first.
 - Tests: AnyUnit xunit style, `[<Fact>]` + FsUnit `should`; test modules are
   `[<ReflectedDefinition>]`; `Tests.Wasm` links the same files, so add new test files to both
   fsproj files. Tests needing real threads skip with `AnyUnit.IgnoreException` when

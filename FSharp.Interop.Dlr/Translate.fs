@@ -10,11 +10,23 @@ open FSharp.Reflection
 open Microsoft.FSharp.Linq.RuntimeHelpers
 open System.Runtime.CompilerServices
 
-/// Turns the reflected body of a `dlr { }` block into a `Func<obj, 'T>` over its Delay closure,
-/// with the DLR call sites baked in as constants.
+/// <summary>The state machine's data slot; the builder's <c>Return</c> writes it so the value stays live in the compiled machine. Never read.</summary>
+[<Struct; NoComparison; NoEquality>]
+type DlrData<'T> =
+    [<DefaultValue(false)>]
+    val mutable Result: 'T
+
+/// The compiled block over its state machine, by reference: no copy of the struct at the call,
+/// none of the delegate-with-a-struct-argument cost a `Func<'SM, 'T>` has (measured 4x slower).
+type internal DlrReader<'SM, 'T> = delegate of inref<'SM> -> 'T
+
+/// Turns the reflected body of a `dlr { }` block into a delegate over the block's compiler-generated
+/// container — a `DlrReader<'SM, 'T>` over its state machine struct, or a `Func<obj, 'T>` over its
+/// Delay closure — with the DLR call sites baked in as constants.
 module internal Translate =
 
-    /// A compiled `dlr { }` site: a `Func<obj, 'T>` over the Delay closure object.
+    /// A compiled `dlr { }` site: a `DlrReader<'SM, 'T>` over the state machine struct, or in the
+    /// fallback path a `Func<obj, 'T>` over the Delay closure object.
     type Compiled =
         { Delegate: Delegate
           ResultType: Type }
@@ -351,21 +363,38 @@ module internal Translate =
         string System.Runtime.InteropServices.RuntimeInformation.OSArchitecture = "Wasm"   // no Architecture.Wasm on netstandard2.0
 
     /// What every part of the translation of one block needs: where it is (the builder and the
-    /// member it sits in) and where its values come from (the Delay closure).
+    /// member it sits in) and where its values come from (the state machine struct or the Delay
+    /// closure — the same contract: the captured variables are its fields, by name).
     type private Block =
         { BuilderType: Type
           /// Type declaring the enclosing member: the binder's accessibility context, as in C#.
           Context: Type
           /// The enclosing member's whole reflected body, for values the optimizer inlined.
           MemberBody: Expr
-          /// The compiler-generated class of the Delay closure.
+          /// The compiler-generated container: the state machine struct, or the Delay closure class.
           ClosureType: Type
-          /// The compiled delegate's one parameter: the closure, as `obj`.
+          /// The compiled delegate's one parameter: the struct itself (a copy of the machine the
+          /// reader is handed by reference), or the closure as `obj`.
           Closure: Var
-          /// The closure's fields, named after the captured variables.
+          /// The container's fields, named after the captured variables.
           Fields: Collections.Generic.IDictionary<string, Reflection.FieldInfo> }
-        member this.Self = Expr.Coerce(Expr.Var this.Closure, this.ClosureType)
+        member this.Self =
+            if this.ClosureType.IsValueType then Expr.Var this.Closure
+            else Expr.Coerce(Expr.Var this.Closure, this.ClosureType)
         member this.Convert (resultType: Type) (e: Expr) = Binders.convert this.Context resultType e
+
+    /// The builder's members type as `ResumableCode<'D, 'R>` — the shape the compiler's state
+    /// machine needs — where the translation produces the plain `'R` value. `codeType` is what
+    /// such an expression's type becomes; an expression typed that way that is not a builder call
+    /// (the compiler's default value in an unmatched `try … with` arm) is retyped to it so the
+    /// rebuilt tree is consistent.
+    let private isCode (t: Type) =
+        t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<Microsoft.FSharp.Core.CompilerServices.ResumableCode<_, _>>
+    let private codeType (t: Type) = if isCode t then t.GetGenericArguments().[1] else t
+    let private defaultOf (t: Type) =
+        if t = typeof<unit> then Expr.Value(())
+        elif t.IsValueType then Expr.DefaultValue t
+        else Expr.Value(null, t)
 
     /// The generic rewriter, threaded through the sections so each can rewrite a subexpression:
     /// the variables bound inside the expression so far, and the expression.
@@ -380,11 +409,32 @@ module internal Translate =
     /// when invoked (see DlrRuntime); one that captures is fine. So there, a nested delegate
     /// body is made to capture the block's closure parameter, which costs nothing elsewhere.
     let private capturing (block: Block) (body: Expr) =
-        if onWasm then Expr.Let(Var("captured", typeof<obj>), Expr.Var block.Closure, body) else body
+        if onWasm then Expr.Let(Var("captured", block.Closure.Type), Expr.Var block.Closure, body) else body
 
     /// Where a free variable of the body comes from: the Delay closure, or failing that the
     /// enclosing member's body.
     module private Captures =
+
+        /// The container's fields by name. A state machine also has fields of its own, `Data`
+        /// (a `DlrData<_>`) and `ResumptionPoint` (an int), declared first, and they are skipped
+        /// rather than found by name: a captured `Data` gets a second field of that name after
+        /// them (IL allows it, the types differ); a captured `ResumptionPoint` is an `FSharpRef`
+        /// when mutable, a compiler error (FS2014, as in `task { }`) when an `int` the optimizer
+        /// kept, and when it inlined the value there is no field, and the body's variable of that
+        /// name must resolve from the enclosing member, not to the machine's own counter.
+        let fields (containerType: Type) : Collections.Generic.IDictionary<string, Reflection.FieldInfo> =
+            let all = containerType.GetFields(Reflection.BindingFlags.Instance ||| Reflection.BindingFlags.Public ||| Reflection.BindingFlags.NonPublic)
+            let isData (f: Reflection.FieldInfo) =
+                f.Name = "Data" && f.FieldType.IsGenericType && f.FieldType.GetGenericTypeDefinition() = typedefof<DlrData<_>>
+            let own =
+                if containerType.IsValueType then
+                    [ yield! all |> Array.filter isData
+                      yield! all |> Array.filter (fun f -> f.Name = "ResumptionPoint" && f.FieldType = typeof<int>) |> Array.truncate 1 ]
+                else []
+            let fields = Collections.Generic.Dictionary<string, Reflection.FieldInfo>()
+            for f in all do
+                if not (List.contains f own) then fields.[f.Name] <- f
+            fields :> _
 
         let private isRefCell (f: Reflection.FieldInfo) (t: Type) =
             f.FieldType.IsGenericType
@@ -453,11 +503,11 @@ module internal Translate =
             | "While", [ Lambda(_, guard); Call(_, d, [ Lambda(_, body) ]) ] when d.Name = "Delay" ->
                 Expr.Call(whileLoop, [ func [] guard; func [] body ])
             | "TryWith", [ Call(_, d, [ Lambda(_, body) ]); Lambda(ex, handler) ] when d.Name = "Delay" ->
-                Expr.Call(tryWith.MakeGenericMethod(e.Type), [ func [] body; func [ ex ] handler ])
+                Expr.Call(tryWith.MakeGenericMethod(codeType e.Type), [ func [] body; func [ ex ] handler ])
             | "TryFinally", [ Call(_, d, [ Lambda(_, body) ]); Lambda(_, compensation) ] when d.Name = "Delay" ->
-                Expr.Call(tryFinally.MakeGenericMethod(e.Type), [ func [] body; func [] compensation ])
+                Expr.Call(tryFinally.MakeGenericMethod(codeType e.Type), [ func [] body; func [] compensation ])
             | "Using", [ resource; Lambda(r, body) ] ->
-                Expr.Call(using.MakeGenericMethod(r.Type, e.Type), [ rewrite resource; func [ r ] body ])
+                Expr.Call(using.MakeGenericMethod(r.Type, codeType e.Type), [ rewrite resource; func [ r ] body ])
             // A nested dlr { } is compiled as part of this one: at run time its closure would be
             // made by our compiled code, not the F# compiler, so it has no reflected body of its own.
             | "Run", [ Call(_, d, [ Lambda(_, inner) ]); _; _ ] when d.Name = "Delay" -> rewrite inner
@@ -679,21 +729,19 @@ module internal Translate =
             | StaticTarget _ -> unsupported "Dlr.Static<T>.Overloads anywhere but as the target of a call" e
             | _ -> None
 
-    /// Compiles the reflected body of one `dlr { }` block. `closureType` is the compiler-generated
-    /// class of the `Delay` closure: its fields, named after the captured variables, are where
+    /// Compiles the reflected body of one `dlr { }` block. `closureType` is the block's
+    /// compiler-generated container — its state machine struct, or in the fallback path the
+    /// class of its `Delay` closure: its fields, named after the captured variables, are where
     /// the body's free variables are read from at call time.
     let translate (builderType: Type) (context: Type) (memberBody: Expr) (closureType: Type) (resultType: Type) (body: Expr) : Compiled =
-        let closure = Var("closure", typeof<obj>)
+        let closure = if closureType.IsValueType then Var("sm", closureType) else Var("closure", typeof<obj>)
         let block =
             { BuilderType = builderType
               Context = context
               MemberBody = memberBody
               ClosureType = closureType
               Closure = closure
-              Fields =
-                closureType.GetFields(Reflection.BindingFlags.Instance ||| Reflection.BindingFlags.Public ||| Reflection.BindingFlags.NonPublic)
-                |> Array.map (fun f -> f.Name, f)
-                |> dict }
+              Fields = Captures.fields closureType }
 
         /// Variables bound inside the expression being rewritten are left alone; anything else
         /// that is not the builder comes from the closure or the enclosing member.
@@ -719,6 +767,9 @@ module internal Translate =
             | Var v when isCaptured bound v -> Captures.read block (rewriteIn bound) v
             | VarSet(v, value) when isCaptured bound v -> Captures.assign block v (rewrite value)
             | ShapeVar _ -> e
+            // A resumable-code-typed leftover of the builder's shape (see `codeType`): the
+            // compiler's `null` after the rethrow in an unmatched `try … with` arm.
+            | Value(null, t) when isCode t -> defaultOf (codeType t)
             // A `let mutable` of the block has no expression-tree form: loop and try bodies are
             // compiled into delegates, and a tree variable cannot be assigned from inside one. So
             // it lives in a reference cell, as the compiler does for a captured mutable, with
@@ -768,13 +819,22 @@ module internal Translate =
             | ShapeLambda(v, lambdaBody) -> Expr.Lambda(v, capturing block (asUnit (rewriteIn (bound.Add v) lambdaBody)))
             | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map rewrite args)
 
-        let delegateType = typedefof<Func<_, _>>.MakeGenericType(typeof<obj>, resultType)
+        let delegateType = typedefof<Func<_, _>>.MakeGenericType(closure.Type, resultType)
         let compiled =
             try
                 let rewritten = asUnit (rewriteIn Set.empty (normalize body))
                 let lambda = Expr.NewDelegate(delegateType, [ closure ], rewritten)
                 let linq = LeafExpressionConverter.QuotationToExpression lambda :?> LambdaExpression
-                (SiteHoister().Visit linq :?> LambdaExpression).Compile()
+                let hoisted = SiteHoister().Visit linq :?> LambdaExpression
+                if closureType.IsValueType then
+                    // The machine comes by reference (a quotation variable cannot be byref):
+                    // copy it into the by-value local the body was converted against. A byref
+                    // cannot be closed over, and the copy is free; the reads are off the local.
+                    let machine = hoisted.Parameters.[0]
+                    let byRef = Expression.Parameter(closureType.MakeByRefType(), "machine")
+                    let readerType = typedefof<DlrReader<_, _>>.MakeGenericType(closureType, resultType)
+                    Expression.Lambda(readerType, Expression.Block(resultType, [ machine ], Expression.Assign(machine, byRef), hoisted.Body), [ byRef ]).Compile()
+                else hoisted.Compile()
             with :? DlrTranslationException -> reraise ()
                // A static member resolved here by reflection and missing is the binder's kind of
                // error, as it would be at the call for an instance target.

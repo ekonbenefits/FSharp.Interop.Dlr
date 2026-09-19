@@ -18,19 +18,18 @@ let private allocatedBy (n: int) (run: unit -> unit) =
     (GC.GetAllocatedBytesForCurrentThread() - before) / int64 n
 
 [<Fact>]
-let ``a bound call allocates only the block's closure and, for a value result, its box`` () : unit =
+let ``a bound call allocates nothing but, for a value result, its box`` () : unit =
 #if DEBUG
-    raise (AnyUnit.IgnoreException "allocation counts are for the Release build (Debug keeps extra closures alive)")
+    raise (AnyUnit.IgnoreException "allocation counts are for the Release build (Debug runs the closure fallback, which allocates the Delay closure per call)")
 #else
     if string System.Runtime.InteropServices.RuntimeInformation.OSArchitecture = "Wasm" then
         raise (AnyUnit.IgnoreException "allocation counts are for the JIT runtimes")
     let w = box (Widget())
-    // Per call: the closure F# allocates for the block (`fun () -> …` capturing `w`, 24 bytes on
-    // 64-bit) — inherent to a computation expression — plus one box when the operation's result
-    // is a value type, because a DLR site returns `obj` (C# `dynamic` boxes the same way). The
-    // compiled delegate, the sites and their rules allocate nothing once bound; anything past
-    // these numbers is a regression (a boxing conversion, a per-call closure in a rule).
-    let closure = 24L
+    // Per call: nothing for the block itself — it is a struct state machine on the stack, not a
+    // closure — plus one box when the operation's result is a value type, because a DLR site
+    // returns `obj` (C# `dynamic` boxes the same way). The compiled delegate, the sites and
+    // their rules allocate nothing once bound; anything past these numbers is a regression (a
+    // boxing conversion, a per-call closure in a rule, a block falling back to its closure).
     let box' = 24L
     let get () = (dlr { return w?Count } : int) |> ignore
     let call () = (dlr { return w?Add(1, 2) } : int) |> ignore
@@ -38,11 +37,11 @@ let ``a bound call allocates only the block's closure and, for a value result, i
     let set () = dlr { w?Count <- 3 }                               // SetMember returns the value: boxed
     let stringGet () = (dlr { return w?Name } : string) |> ignore   // a reference result: no box
     let bytes = allocatedBy 1000
-    bytes unitCall |> should lessThanOrEqualTo closure
-    bytes stringGet |> should lessThanOrEqualTo closure
-    bytes get |> should lessThanOrEqualTo (closure + box')
-    bytes call |> should lessThanOrEqualTo (closure + box')
-    bytes set |> should lessThanOrEqualTo (closure + box')
+    bytes unitCall |> should equal 0L
+    bytes stringGet |> should equal 0L
+    bytes get |> should lessThanOrEqualTo box'
+    bytes call |> should lessThanOrEqualTo box'
+    bytes set |> should lessThanOrEqualTo box'
 #endif
 
 [<Fact>]

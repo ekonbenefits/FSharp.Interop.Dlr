@@ -99,8 +99,8 @@ let private writeDocs (short: bool) =
                    [ "`JObject` `j.count`", [ "JObjectStatic"; ""; "CSharpJObjectGet"; "JObjectGet" ]
                      "`JObject` `j.owner.name`", [ ""; ""; "CSharpJObjectChain"; "JObjectChain" ]
                      "`ExpandoObject` `e.count`", [ ""; "DynamicExpandoGet"; "CSharpExpandoGet"; "ExpandoGet" ] ]
-          yield "Allocation per call is the block's closure (24 B) plus a box for a value-typed result — the same"
-          yield "box C# `dynamic` pays — see `Tests/HotPath.fs`. `Benchmarks/README.md` explains the suites." ]
+          yield "Allocation per call is the box for a value-typed result — the same box C# `dynamic` pays — and"
+          yield "nothing for the block itself (a struct state machine) — see `Tests/HotPath.fs`. `Benchmarks/README.md` explains the suites." ]
         |> String.concat "\n"
     File.WriteAllText(Path.Combine(root, "docs", "benchmarks.md"), full + "\n")
     let readmePath = Path.Combine(root, "README.md")
