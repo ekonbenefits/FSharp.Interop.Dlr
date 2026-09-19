@@ -93,6 +93,10 @@ let ``Python module functions, positional and keyword arguments`` () =
     // The function name from data too.
     let fname = "greet"
     (dlr { return (?) m fname ("jay", Dlr.namedOf kwargs) } : string) |> should equal "yo jay?"
+    // f(*args, **kwargs): both lists from data.
+    let args = [ box "jay" ]
+    (dlr { return m?greet(Dlr.argsOf args, Dlr.namedOf kwargs) } : string) |> should equal "yo jay?"
+    (dlr { return m?add(Dlr.argsOf [ box 2; box 3 ]) } : int) |> should equal 5
 
 [<Fact>]
 let ``Python objects: attributes, methods, defaults, repr`` () =

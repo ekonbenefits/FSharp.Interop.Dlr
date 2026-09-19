@@ -292,3 +292,46 @@ let ``an argument marker anywhere but in a call's arguments is a translation err
     let ex = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> (dlr { let args = (1, Dlr.named {| p = 2 |}) in return w?Add args } : int) |> ignore)
     ex.Message |> should haveSubstring "Dlr.named anywhere but as an argument"
     // fsharpanalyzer: ignore-region-end DLR005
+
+// Dlr.argsOf: positional arguments whose count is a run-time value (Python's *args), through
+// the same per-shape compile as Dlr.namedOf: an empty name in the key stands for a positional.
+
+[<Fact>]
+let ``argsOf: a list of 0, 1, 3 values; mixed with fixed, Dlr.named and Dlr.namedOf in source order`` () =
+    let w = box (Widget())
+    let sum (xs: obj list) : int = dlr { return w?Sum6(Dlr.argsOf xs) }
+    (fun () -> sum [] |> ignore) |> should throw typeof<RuntimeBinderException>                  // Sum6 takes six
+    let add (xs: obj list) : int = dlr { return w?Add(Dlr.argsOf xs) }
+    add [ box 1; box 2 ] |> should equal 3
+    add [ box 3; box 4 ] |> should equal 7                                                      // same count: cached
+    let one (xs: obj list) : int = dlr { return w?Add(Dlr.argsOf xs, 10) }                     // fixed after the splat
+    one [ box 1 ] |> should equal 11
+    let three (xs: obj list) : string = dlr { return w?Greet(Dlr.argsOf xs) }
+    (fun () -> three [ box "a"; box "b"; box "c" ] |> ignore) |> should throw typeof<RuntimeBinderException>
+    let mixed (xs: obj list) (kw: (string * obj) list) : string = dlr { return w?Greet("Hi", Dlr.argsOf xs, Dlr.namedOf kw) }
+    mixed [] [ "name", box "Jay" ] |> should equal "Hi, Jay"
+    mixed [ box "Jay" ] [] |> should equal "Hi, Jay"
+    let both (xs: obj list) (kw: (string * obj) list) : string = dlr { return w?Greet(Dlr.argsOf xs, Dlr.named {| name = "Ann" |}, Dlr.namedOf kw) }
+    both [ box "Yo" ] [] |> should equal "Yo, Ann"
+    (dlr { return w?Describe(Dlr.argsOf []) } : string) |> should equal "described"
+
+[<Fact>]
+let ``argsOf: two counts alternate at one site; Dlr.apply, a constructor, a static overload set; errors`` () =
+    let w = box (Widget())
+    let sum (xs: obj list) : int = dlr { return w?Sum6(Dlr.argsOf xs) }
+    let add (xs: obj list) : int = dlr { return w?Add(Dlr.argsOf xs) }
+    for i in 1 .. 30 do
+        add [ box i; box 1 ] |> should equal (i + 1)
+        sum [ box i; box 1; box 1; box 1; box 1; box 1 ] |> should equal (i + 5)
+    let r = Recorder()
+    let o = box r
+    (dlr { return o |> Dlr.apply (Dlr.argsOf [ box 1; box 2 ]) } : string) |> should equal "1|2"
+    let h: Handler = dlr { return Dlr.new'<Handler>(Dlr.argsOf [ box "n"; box 3 ]) }
+    h.Detail |> should equal "n:3"
+    (dlr { return Dlr.Static<Statics>.Overloads?BumpF(Dlr.argsOf [ box 1; box 10 ]) } : int) |> should equal 11
+    // Errors: twice; a positional after Dlr.namedOf.
+    // fsharpanalyzer: ignore-region-start DLR005
+    let xs = [ box 1 ]
+    (fun () -> (dlr { return w?Add(Dlr.argsOf xs, Dlr.argsOf xs) } : int) |> ignore) |> should throw typeof<DlrTranslationException>
+    (fun () -> (dlr { return w?Add(Dlr.namedOf [ "b", box 2 ], Dlr.argsOf xs) } : int) |> ignore) |> should throw typeof<DlrTranslationException>
+    // fsharpanalyzer: ignore-region-end DLR005

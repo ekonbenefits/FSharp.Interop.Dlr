@@ -95,6 +95,7 @@ let private writeDocs (short: bool) =
                      "constructor chosen by an argument's runtime type", [ ""; "Construct" ]
                      "member name from a variable, alternating between two", [ ""; "ComputedName" ]
                      "keyword arguments from data, `Dlr.namedOf kwargs` (compiled once per name list)", [ ""; "NamedOf" ]
+                     "positional arguments from data, `Dlr.argsOf args` (compiled once per count)", [ ""; "ArgsOf" ]
                      "`Dlr.namedOf`, two name lists alternating", [ ""; "NamedOfAlternating" ]
                      "a value read as an F# function, `Dlr.call f : int -> int -> int`, then applied", [ ""; "CallAsFunction" ] ]
           yield "## Real targets"

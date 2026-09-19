@@ -124,7 +124,7 @@ The common forms; [docs/syntax.md](docs/syntax.md) has every one, with what each
 | --- | --- |
 | `x?Name` | get, converted to the inferred type |
 | `x?Name(a, b)` · `x?Name()` | call; arguments keep their static types, `box a` dispatches on the runtime type |
-| `x?Name(a, Dlr.named {\| p = v \|})` · `Dlr.namedOf kw` | named arguments, from a record or from data |
+| `x?Name(a, Dlr.named {\| p = v \|})` · `Dlr.namedOf kw` · `Dlr.argsOf xs` | named arguments, from a record or from data; positional ones from data |
 | `x?Name <- v` | set |
 | `x \|> Dlr.item i` · `x \|> Dlr.setItem (i, j) v` | indexers |
 | `x \|> Dlr.get "Name"` · `Dlr.invoke "Name" (a, b)` · `Dlr.set "Name" v` | the same three with the target last, for pipelines |
@@ -170,10 +170,10 @@ regenerates this table and the full [docs/benchmarks.md](docs/benchmarks.md) (ev
 | | ns/call |
 | --- | ---: |
 | static w.Add(i, 1) | 1.2 |
-| reflection: cached MethodInfo.Invoke | 36.1 |
-| FSharp.Interop.Dynamic w?Add(i, 1) | 7,501 |
-| C# dynamic d.Add(i, 1) | 7.5 |
-| dlr w?Add(i, 1) | 11.6 |
-| dlr w?Count | 11 |
-| dlr loop of 100 calls, one site (whole loop) | 1,591 |
+| reflection: cached MethodInfo.Invoke | 35.8 |
+| FSharp.Interop.Dynamic w?Add(i, 1) | 7,586 |
+| C# dynamic d.Add(i, 1) | 7.4 |
+| dlr w?Add(i, 1) | 11.7 |
+| dlr w?Count | 10.8 |
+| dlr loop of 100 calls, one site (whole loop) | 1,574 |
 <!-- benchmarks:end -->

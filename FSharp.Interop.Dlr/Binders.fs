@@ -944,10 +944,12 @@ type SiteCache<'Key when 'Key: equality>(template: 'Key -> Expr) =
     /// `sites.[i]`, for the quotation (array indexing has no direct quotation form the converter takes).
     static member At(sites: CallSite[], i: int) : CallSite = sites.[i]
 
-/// For `Dlr.namedOf`: the site's operation compiled once per distinct list of argument names
-/// (the names change the site's arity, so the whole delegate is per key, not only its sites),
-/// bounded like `SiteCache`. The delegate takes the target, the fixed arguments and the named
-/// values as `obj[]`.
+/// For `Dlr.argsOf` / `Dlr.namedOf`: the site's operation compiled once per distinct argument
+/// shape — the ordered names, an empty name standing for a positional argument (`argsOf`
+/// values first, then `namedOf` names) — since the shape changes the site's arity, so the
+/// whole delegate is per key, not only its sites; bounded like `SiteCache`. The delegate takes
+/// the target, the fixed arguments and the splatted values as one `obj[]` (positional, then
+/// named).
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type NamedOfCache(compile: string list -> Delegate) =
     /// The entries, few per site in practice, scanned in place: a lookup compares the pairs'
@@ -959,40 +961,52 @@ type NamedOfCache(compile: string list -> Delegate) =
 
     member _.Count = entries.Length
 
-    static member private Matches(names: string[], pairs: (string * obj) list) =
-        let rec go (pairs: (string * obj) list) i =
+    /// Whether an entry's names are the shape of these arguments: `positional.Length` empty
+    /// names, then the pairs' names in order.
+    static member private Matches(names: string[], positional: obj list, pairs: (string * obj) list) =
+        let rec positionals (ps: obj list) i =
+            match ps with
+            | [] -> Some i
+            | _ :: rest -> if i < names.Length && names.[i].Length = 0 then positionals rest (i + 1) else None
+        let rec named (pairs: (string * obj) list) i =
             match pairs with
             | [] -> i = names.Length
-            | (n, _) :: rest -> i < names.Length && String.Equals(n, names.[i]) && go rest (i + 1)
-        go pairs 0
+            | (n, _) :: rest -> i < names.Length && String.Equals(n, names.[i]) && named rest (i + 1)
+        match positionals positional 0 with
+        | Some i -> named pairs i
+        | None -> false
 
-    /// The delegate for the pairs' names, in order.
-    member this.Get(pairs: (string * obj) list) : Delegate =
+    /// The delegate for these arguments' shape.
+    member this.Get(positional: obj list, pairs: (string * obj) list) : Delegate =
+        if isNull (box positional) then nullArg "Dlr.argsOf: the list is null"
         if isNull (box pairs) then nullArg "Dlr.namedOf: the list is null"
         let snapshot = entries
         let mutable found = null
         let mutable i = 0
         while isNull found && i < snapshot.Length do
             let struct (names, d) = snapshot.[i]
-            if NamedOfCache.Matches(names, pairs) then found <- d
+            if NamedOfCache.Matches(names, positional, pairs) then found <- d
             i <- i + 1
         if not (isNull found) then found
         else
             lock this (fun () ->
                 let current = entries
-                match current |> Array.tryFind (fun (struct (names, _)) -> NamedOfCache.Matches(names, pairs)) with
+                match current |> Array.tryFind (fun (struct (names, _)) -> NamedOfCache.Matches(names, positional, pairs)) with
                 | Some(struct (_, d)) -> d
                 | None ->
-                    let names = pairs |> List.map fst
+                    let names = (positional |> List.map (fun _ -> "")) @ (pairs |> List.map fst)
                     let d = compile names
                     let kept = if current.Length >= NamedOfCache.Capacity then [||] else current
                     entries <- Array.append kept [| struct (Array.ofList names, d) |]
                     d)
 
-    /// The values of the pairs, for the quotation.
-    static member Values(pairs: (string * obj) list) : obj[] =
-        let values = Array.zeroCreate (List.length pairs)
+    /// The splatted values, positional then named, for the quotation.
+    static member Values(positional: obj list, pairs: (string * obj) list) : obj[] =
+        let values = Array.zeroCreate (List.length positional + List.length pairs)
         let mutable i = 0
+        for v in positional do
+            values.[i] <- v
+            i <- i + 1
         for (_, v) in pairs do
             values.[i] <- v
             i <- i + 1

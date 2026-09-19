@@ -29,6 +29,7 @@ type Dlr =
     static member get (name: string) (target: obj) : 'T = failwith "marker"
     static member named (record: 'T) : Named<'T> = failwith "marker"
     static member namedOf (args: (string * obj) list) : Named<(string * obj) list> = failwith "marker"
+    static member argsOf (args: obj list) : Named<obj list> = failwith "marker"
     static member typeArgs<'A> () : TypeArgs = failwith "marker"
     static member typeArgsOf (types: System.Type list) : TypeArgs = failwith "marker"
     static member item (indexes: 'TIndexes) (target: obj) : 'T = failwith "marker"
@@ -288,6 +289,7 @@ let ``argument markers are fine as call arguments and reported anywhere else`` (
 module Impl =
     let w = box 1
     let kw: (string * obj) list = []
+    let xs: obj list = []
     let ts: System.Type list = []
     [<ReflectedDefinition>]
     let fine () : int =
@@ -299,7 +301,8 @@ module Impl =
         let f: int = dlr { return Dlr.new'<int>(Dlr.namedOf kw) }
         let g: int = dlr { return (w |> Dlr.get "M") (Dlr.named {| p = 2 |}) }
         let h: int = dlr { return Dlr.get "M" w (Dlr.typeArgsOf ts, Dlr.named {| p = 2 |}) }
-        a + b + c + d + e + f + g + h
+        let i: int = dlr { return w?M(1, Dlr.argsOf xs, Dlr.named {| p = 2 |}, Dlr.namedOf kw) }
+        a + b + c + d + e + f + g + h + i
     [<ReflectedDefinition>]
     let wrong () : int =
         let a: int = dlr { return w?M(Dlr.namedOf kw, Dlr.namedOf kw) }          // twice
@@ -309,14 +312,17 @@ module Impl =
         let e: int = dlr { return Dlr.call w (Dlr.typeArgsOf ts, 1) }           // type arguments on a value call
         let f: int = dlr { return Dlr.new'<int>(Dlr.namedOf kw, Dlr.namedOf kw) } // twice, through new''s obj coercions
         let g: int = dlr { let args = (1, Dlr.named {| p = 2 |}) in return w?M args }   // a let the user wrote: not followed
-        a + b + c.GetHashCode() + d + e + f + g
+        let h: int = dlr { return w?M(Dlr.argsOf xs, Dlr.argsOf xs) }                 // argsOf twice
+        let i: int = dlr { return w?M(Dlr.namedOf kw, Dlr.argsOf xs) }                 // positional after named
+        a + b + c.GetHashCode() + d + e + f + g + h + i
 """
     let out = msgs |> List.filter (fun m -> m.Code = ReflectedDefinitionAnalyzer.ArgumentMarkerCode)
     let lines = out |> List.map (fun m -> m.Range.StartLine) |> List.sort
     let first = List.head lines
-    lines |> should equal [ for i in 0 .. 6 -> first + i ]
+    lines |> should equal [ for i in 0 .. 8 -> first + i ]
     let messages = out |> List.map (fun m -> m.Message)
-    messages |> List.filter (fun m -> m.Contains "twice") |> List.length |> should equal 2
+    messages |> List.filter (fun m -> m.Contains "twice") |> List.length |> should equal 3
+    messages |> List.exists (fun m -> m.Contains "named arguments come last") |> should equal true
     messages |> List.exists (fun m -> m.Contains "first argument") |> should equal true
     messages |> List.exists (fun m -> m.Contains "only applies to a member call") |> should equal true
     messages |> List.filter (fun m -> m.Contains "only meaningful as an argument") |> List.length |> should equal 3

@@ -17,22 +17,22 @@ Apple M1 Pro, 1 CPU, 10 logical and 10 physical cores
 
 | | static | reflection (cached) | FSharp.Interop.Dynamic | C# `dynamic` | `dlr { }` |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| property get `w.Count` | 0 ns | 12.5 ns / 24 B | 3,971 ns / 1552 B | 6.8 ns / 24 B | 11 ns / 24 B |
-| method call `w.Add(i, 1)` | 1.2 ns | 36.1 ns / 112 B | 7,501 ns / 3809 B | 7.5 ns / 24 B | 11.6 ns / 24 B |
-| property set `w.Name <- v` | — | — | 72.9 ns / 168 B | 3.6 ns | 6.7 ns |
-| 100 method calls in one loop — the whole loop, so ÷100 per call | — | — | 771,609 ns / 380852 B | 850 ns / 2400 B | 1,591 ns / 2672 B |
+| property get `w.Count` | 0 ns | 12.5 ns / 24 B | 3,960 ns / 1552 B | 6.8 ns / 24 B | 10.8 ns / 24 B |
+| method call `w.Add(i, 1)` | 1.2 ns | 35.8 ns / 112 B | 7,586 ns / 3809 B | 7.4 ns / 24 B | 11.7 ns / 24 B |
+| property set `w.Name <- v` | — | — | 75.6 ns / 168 B | 3.5 ns | 6.6 ns |
+| 100 method calls in one loop — the whole loop, so ÷100 per call | — | — | 768,496 ns / 380852 B | 795 ns / 2400 B | 1,574 ns / 2672 B |
 
 ### Operators, indexers, delegates, conversions
 
 | | FSharp.Interop.Dynamic | C# `dynamic` | `dlr { }` |
 | --- | ---: | ---: | ---: |
-| `a + b` on boxed ints | 6.9 ns / 24 B | 9.6 ns / 24 B | 11.6 ns / 24 B |
-| indexer `d["a"]` on a dictionary | 4,114 ns / 1992 B | 14.1 ns / 24 B | 17.9 ns / 24 B |
-| invoke a delegate value with 20 | 7,227 ns / 3440 B | 8 ns / 24 B | 11.9 ns / 24 B |
-| implicit conversion of a boxed int to int64 | 347.7 ns / 432 B | 3.2 ns | 5.5 ns |
-| static method chosen by an argument's runtime type | 7,200 ns / 3488 B | 13.1 ns / 24 B | 11.3 ns / 24 B |
-| a lambda for a `Func` parameter (C#: a `Func` literal; dlr: an F# lambda in the block) | — | 12 ns / 24 B | 306.2 ns / 200 B |
-| named arguments `d.Add(b: 1, a: i)` | — | 7.7 ns / 24 B | 11.7 ns / 24 B |
+| `a + b` on boxed ints | 6.8 ns / 24 B | 7.6 ns / 24 B | 11.7 ns / 24 B |
+| indexer `d["a"]` on a dictionary | 4,143 ns / 1992 B | 13 ns / 24 B | 17.8 ns / 24 B |
+| invoke a delegate value with 20 | 7,198 ns / 3440 B | 7.7 ns / 24 B | 12 ns / 24 B |
+| implicit conversion of a boxed int to int64 | 342.6 ns / 432 B | 3.1 ns | 5.5 ns |
+| static method chosen by an argument's runtime type | 7,182 ns / 3488 B | 7.1 ns / 24 B | 11.2 ns / 24 B |
+| a lambda for a `Func` parameter (C#: a `Func` literal; dlr: an F# lambda in the block) | — | 9.3 ns / 24 B | 300.9 ns / 200 B |
+| named arguments `d.Add(b: 1, a: i)` | — | 7.4 ns / 24 B | 11.4 ns / 24 B |
 
 ### Where the forms differ
 
@@ -40,14 +40,15 @@ Each column does what its language offers here: C# `dynamic` has no spelling for
 
 | | C# `dynamic` | `dlr { }` |
 | --- | ---: | ---: |
-| F# function member `w?Fn(1, 2)` | — | 18.1 ns / 48 B |
+| F# function member `w?Fn(1, 2)` | — | 18.3 ns / 48 B |
 | optional parameter omitted `w?Bump(1)` | — | 11.1 ns / 24 B |
-| record `==` (C#: reference; dlr: structural) | 17 ns / 72 B | 29.7 ns / 72 B |
+| record `==` (C#: reference; dlr: structural) | 14.5 ns / 72 B | 30.1 ns / 72 B |
 | constructor chosen by an argument's runtime type | — | 9.5 ns / 32 B |
-| member name from a variable, alternating between two | — | 55 ns / 44 B |
-| keyword arguments from data, `Dlr.namedOf kwargs` (compiled once per name list) | — | 32.2 ns / 64 B |
-| `Dlr.namedOf`, two name lists alternating | — | 34.9 ns / 64 B |
-| a value read as an F# function, `Dlr.call f : int -> int -> int`, then applied | — | 34.8 ns / 88 B |
+| member name from a variable, alternating between two | — | 55.7 ns / 44 B |
+| keyword arguments from data, `Dlr.namedOf kwargs` (compiled once per name list) | — | 37.3 ns / 88 B |
+| positional arguments from data, `Dlr.argsOf args` (compiled once per count) | — | 35.7 ns / 88 B |
+| `Dlr.namedOf`, two name lists alternating | — | 40.8 ns / 100 B |
+| a value read as an F# function, `Dlr.call f : int -> int -> int`, then applied | — | 34.6 ns / 88 B |
 
 ## Real targets
 
@@ -55,9 +56,9 @@ Each column does what its language offers here: C# `dynamic` has no spelling for
 
 | | typed API | FSharp.Interop.Dynamic | C# `dynamic` | `dlr { }` |
 | --- | ---: | ---: | ---: | ---: |
-| `JObject` `j.count` | 12.3 ns | — | 42.9 ns / 24 B | 47.2 ns / 24 B |
-| `JObject` `j.owner.name` | — | — | 49.8 ns | 52.1 ns |
-| `ExpandoObject` `e.count` | — | 3,988 ns / 1528 B | 5.7 ns | 9.6 ns |
+| `JObject` `j.count` | 12.3 ns | — | 44.3 ns / 24 B | 47.4 ns / 24 B |
+| `JObject` `j.owner.name` | — | — | 49.6 ns | 51.6 ns |
+| `ExpandoObject` `e.count` | — | 3,986 ns / 1528 B | 5.8 ns | 9.5 ns |
 
 Allocation per call is the box for a value-typed result — the same box C# `dynamic` pays — and
 nothing for the block itself (a struct state machine) — see `Tests/HotPath.fs`. `Benchmarks/README.md` explains the suites.

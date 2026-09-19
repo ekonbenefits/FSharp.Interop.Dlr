@@ -56,6 +56,7 @@ module internal Translate =
     let private opApply = opMethod <@ fun (a: obj) (t: obj) -> (Dlr.apply a t) : obj @>
     let private opNamed = opMethod <@ fun (r: obj) -> Dlr.named r @>
     let private opNamedOf = opMethod <@ fun (l: (string * obj) list) -> Dlr.namedOf l @>
+    let private opArgsOf = opMethod <@ fun (l: obj list) -> Dlr.argsOf l @>
     /// `Dlr.new'<T>(a, b, …)`: the type and the arguments (each unboxed to its static type).
     let private (|New|_|) (e: Expr) =
         match e with
@@ -143,6 +144,15 @@ module internal Translate =
         match e with
         | Op opNamedOf [ pairs ] -> Some pairs
         | _ -> None
+
+    /// `Dlr.argsOf values`: the list expression.
+    let private (|ArgsOf|_|) (e: Expr) =
+        match e with
+        | Op opArgsOf [ values ] -> Some values
+        | _ -> None
+
+    /// Either splat marker.
+    let private isSplat (e: Expr) = match e with NamedOf _ | ArgsOf _ -> true | _ -> false
 
     let private (|UnaryOp|_|) (e: Expr) =
         match e with
@@ -563,7 +573,7 @@ module internal Translate =
                 [ for a in argExprs do
                     match a with
                     | TypeArgs _ -> unsupported "Dlr.typeArgs anywhere but as the first argument of a member call (a value invoked with Dlr.call / Dlr.apply takes no type arguments)" a
-                    | NamedOf _ -> unsupported "Dlr.namedOf here (it goes in the arguments of a member call, Dlr.call / Dlr.apply, or Dlr.new')" a
+                    | NamedOf _ | ArgsOf _ -> unsupported "Dlr.namedOf / Dlr.argsOf here (they go in the arguments of a member call, Dlr.call / Dlr.apply, or Dlr.new')" a
                     | NamedRecord(lets, fields) ->
                         bindings.AddRange lets
                         let inner = bindings |> Seq.fold (fun (b: Set<Var>) (v, _) -> b.Add v) bound
@@ -667,12 +677,30 @@ module internal Translate =
         /// (`key`), their expressions are evaluated in the block's scope and passed into the
         /// per-name-list delegate as parameters, where `operation` gets them for a `keyedSiteCore`.
         let private namedOfCallKeyed (block: Block) (rewriteIn: Rewrite) bound (target: Expr) (argExprs: Expr list) (resultType: Type) (discard: bool) (key: KeySpec option) (operation: KeySpec -> Binders.Arg -> Binders.Arg list -> Expr) : Expr option =
-            match argExprs |> List.tryPick (function NamedOf pairs -> Some pairs | _ -> None) with
-            | None -> None
-            | Some pairsExpr ->
-                if (argExprs |> List.filter (function NamedOf _ -> true | _ -> false)).Length > 1 then
-                    unsupported "more than one Dlr.namedOf in one call (concatenate the lists)" pairsExpr
-                let fixedExprs = argExprs |> List.filter (function NamedOf _ -> false | _ -> true)
+            let namedOfs = argExprs |> List.choose (function NamedOf pairs -> Some pairs | _ -> None)
+            let argsOfs = argExprs |> List.choose (function ArgsOf values -> Some values | _ -> None)
+            if namedOfs.IsEmpty && argsOfs.IsEmpty then None
+            else
+                if namedOfs.Length > 1 then unsupported "more than one Dlr.namedOf in one call (concatenate the lists)" namedOfs.[1]
+                if argsOfs.Length > 1 then unsupported "more than one Dlr.argsOf in one call (concatenate the lists)" argsOfs.[1]
+                // Named arguments are the call's trailing ones (the binder's CallInfo names the
+                // last arguments), so nothing positional may follow Dlr.namedOf.
+                (match argExprs |> List.tryFindIndex (function NamedOf _ -> true | _ -> false) with
+                 | Some i when argExprs |> List.skip (i + 1) |> List.exists (function NamedRecord _ -> false | _ -> true) ->
+                    unsupported "a positional argument after Dlr.namedOf (named arguments come last)" argExprs.[i]
+                 | _ -> ())
+                let pairsExpr = match namedOfs with [ p ] -> p | _ -> Expr.Value(([]: (string * obj) list), typeof<(string * obj) list>)
+                let positionalExpr = match argsOfs with [ p ] -> p | _ -> Expr.Value(([]: obj list), typeof<obj list>)
+                /// The argument list's layout: fixed arguments by index, the positional splat, the
+                /// named splat — so the compiled call keeps the source order.
+                let layout =
+                    let mutable next = 0
+                    argExprs |> List.choose (fun a ->
+                        match a with
+                        | NamedOf _ -> Some(Choice3Of3 ())
+                        | ArgsOf _ -> Some(Choice2Of3 ())
+                        | _ -> (let i = next in next <- next + 1; Some(Choice1Of3 i)))
+                let fixedExprs = argExprs |> List.filter (fun a -> not (isSplat a))
                 let bindings, fixedInfos = argList rewriteIn bound fixedExprs
                 let targetInfo = targetArg rewriteIn bound target
                 let targetVar = Var("target", targetInfo.Type)
@@ -694,8 +722,22 @@ module internal Translate =
                 let delegateType = Expression.GetDelegateType(Array.ofList (targetVar.Type :: [ for v in fixedVars -> v.Type ] @ [ for v in keyVars -> v.Type ] @ [ typeof<obj[]>; typeof<obj> ]))
                 let compile (names: string list) : Delegate =
                     let fixed' = List.map2 (fun (info: Binders.Arg) (v: Var) -> { info with Expr = Expr.Var v }) fixedInfos fixedVars
-                    let named = names |> List.mapi (fun i name -> Binders.named name (Binders.dynamicArg (Expr.Call(at, [ Expr.Var valuesVar; Expr.Value i ]))))
-                    let body = operation (defaultArg innerKey (Choice1Of2 "", Choice1Of2 [])) { targetInfo with Expr = Expr.Var targetVar } (fixed' @ named)
+                    // `fixedInfos` are grouped per source argument (a Dlr.named record is several):
+                    // walk the fixed expressions again to know how many each contributed.
+                    let fixedGroups =
+                        let counted = fixedExprs |> List.map (fun a -> match a with NamedRecord(_, fields) -> fields.Length | _ -> 1)
+                        let mutable offset = 0
+                        [ for n in counted -> (let g = List.take n (List.skip offset fixed') in offset <- offset + n; g) ]
+                    let value i = Binders.dynamicArg (Expr.Call(at, [ Expr.Var valuesVar; Expr.Value i ]))
+                    let positionalCount = names |> List.takeWhile (fun n -> n.Length = 0) |> List.length
+                    let positional = [ for i in 0 .. positionalCount - 1 -> value i ]
+                    let named = names |> List.skip positionalCount |> List.mapi (fun j name -> Binders.named name (value (positionalCount + j)))
+                    let args =
+                        layout |> List.collect (function
+                            | Choice1Of3 i -> fixedGroups.[i]
+                            | Choice2Of3 () -> positional
+                            | Choice3Of3 () -> named)
+                    let body = operation (defaultArg innerKey (Choice1Of2 "", Choice1Of2 [])) { targetInfo with Expr = Expr.Var targetVar } args
                     let boxed =
                         if body.Type = typeof<obj> then body
                         elif body.Type = typeof<unit> || body.Type = typeof<Void> then Expr.Sequential(body, Expr.Value(null, typeof<obj>))
@@ -706,12 +748,14 @@ module internal Translate =
                 let cache = NamedOfCache(compile)
                 let cacheType = typeof<NamedOfCache>
                 let pairsVar = Var("pairs", typeof<(string * obj) list>)
+                let positionalVar = Var("positional", typeof<obj list>)
                 let delegateVar = Var("d", delegateType)
-                let values = Expr.Call(cacheType.GetMethod("Values"), [ Expr.Var pairsVar ])
+                let values = Expr.Call(cacheType.GetMethod("Values"), [ Expr.Var positionalVar; Expr.Var pairsVar ])
                 let call =
-                    Expr.Let(pairsVar, rewriteIn bound pairsExpr,
-                        Expr.Let(delegateVar, Expr.Coerce(Expr.Call(Expr.Value(cache, cacheType), cacheType.GetMethod("Get"), [ Expr.Var pairsVar ]), delegateType),
-                            Expr.Call(Expr.Var delegateVar, delegateType.GetMethod("Invoke"), targetInfo.Expr :: [ for a in fixedInfos -> a.Expr ] @ keyExprs @ [ values ])))
+                    Expr.Let(positionalVar, rewriteIn bound positionalExpr,
+                      Expr.Let(pairsVar, rewriteIn bound pairsExpr,
+                        Expr.Let(delegateVar, Expr.Coerce(Expr.Call(Expr.Value(cache, cacheType), cacheType.GetMethod("Get"), [ Expr.Var positionalVar; Expr.Var pairsVar ]), delegateType),
+                            Expr.Call(Expr.Var delegateVar, delegateType.GetMethod("Invoke"), targetInfo.Expr :: [ for a in fixedInfos -> a.Expr ] @ keyExprs @ [ values ]))))
                 (if discard then Expr.Sequential(call, Expr.Value(())) else block.Convert resultType call)
                 |> bind rewriteIn bound bindings
                 |> Some
@@ -769,7 +813,7 @@ module internal Translate =
                     | TypeArgs spec :: rest -> spec, rest
                     | args -> StaticTypes [], args
                 let discard = e.Type = typeof<unit>
-                let hasNamedOf = argExprs |> List.exists (function NamedOf _ -> true | _ -> false)
+                let hasNamedOf = argExprs |> List.exists isSplat
                 match nameExpr, typeArgs with
                 | Literal name, StaticTypes ts when hasNamedOf ->
                     (namedOfCall block rewriteIn bound' target argExprs e.Type discard (fun t args -> Binders.invokeMemberOrApply context (string name) ts discard t args)).Value
@@ -854,6 +898,7 @@ module internal Translate =
             | StaticTarget _ -> unsupported "Dlr.Static<T>.Overloads anywhere but as the target of a call" e
             | Op opNamed _ -> unsupported "Dlr.named anywhere but as an argument of a call (a member call, Dlr.invoke, Dlr.call / Dlr.apply, Dlr.new')" e
             | Op opNamedOf _ -> unsupported "Dlr.namedOf anywhere but as an argument of a call (a member call, Dlr.invoke, Dlr.call / Dlr.apply, Dlr.new')" e
+            | Op opArgsOf _ -> unsupported "Dlr.argsOf anywhere but as an argument of a call (a member call, Dlr.invoke, Dlr.call / Dlr.apply, Dlr.new')" e
             | TypeArgs _ -> unsupported "Dlr.typeArgs anywhere but as the first argument of a member call" e
             | _ -> None
 

@@ -33,6 +33,7 @@ type Core() =
     let addMethod = typeof<Widget>.GetMethod("Add")
     let names = [| "Count"; "Name" |]
     let kwargs = [ "b", box 1; "a", box 2 ]
+    let args = [ box 2; box 1 ]
     let kwargsOther = [ "a", box 2; "b", box 1 ]
     let adder2 = box (fun (a: int) (b: int) -> a + b)
     let one, two, three = box 1, box 2, box 3
@@ -146,6 +147,9 @@ type Core() =
 
     [<Benchmark(Description = "dlr keyword arguments from data w?Add(Dlr.namedOf kwargs)")>]
     member _.NamedOf() : int = dlr { return o?Add(Dlr.namedOf kwargs) }
+
+    [<Benchmark(Description = "dlr positional arguments from data w?Add(Dlr.argsOf args)")>]
+    member _.ArgsOf() : int = dlr { return o?Add(Dlr.argsOf args) }
 
     [<Benchmark(Description = "dlr Dlr.namedOf, two name lists alternating")>]
     member _.NamedOfAlternating() : int = i <- i + 1; let kw = (if i % 2 = 0 then kwargs else kwargsOther) in dlr { return o?Add(Dlr.namedOf kw) }

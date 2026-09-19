@@ -26,7 +26,7 @@ let SharedLineCode = "DLR003"
 [<Literal>]
 let InlineCode = "DLR004"
 
-/// An argument marker (`Dlr.named`, `Dlr.namedOf`, `Dlr.typeArgs`, `Dlr.typeArgsOf`) anywhere
+/// An argument marker (`Dlr.named`, `Dlr.namedOf`, `Dlr.argsOf`, `Dlr.typeArgs`, `Dlr.typeArgsOf`) anywhere
 /// but as an argument of a call — a member call, `Dlr.invoke`, `Dlr.call` / `Dlr.apply`,
 /// `Dlr.new'` — or misplaced there: type arguments not first, `namedOf` twice in one call.
 /// Each is a DlrTranslationException at the block's first call.
@@ -145,7 +145,7 @@ let rec private findInDeclarations (reflected: bool) (decls: FSharpImplementatio
 
 /// `Dlr.named` / `namedOf` / `typeArgs` / `typeArgsOf`: meaningful only as an argument.
 let private isArgumentMarker (mfv: FSharpMemberOrFunctionOrValue) =
-    isMarker mfv && (match mfv.DisplayName with "named" | "namedOf" | "typeArgs" | "typeArgsOf" -> true | _ -> false)
+    isMarker mfv && (match mfv.DisplayName with "named" | "namedOf" | "argsOf" | "typeArgs" | "typeArgsOf" -> true | _ -> false)
 
 /// The marker a function expression is headed by, descending through pipes, lambdas (a partial
 /// application of `Dlr.invoke` is an eta-expanded lambda chain), coercions and lets — with the
@@ -232,11 +232,20 @@ let private misplacedMarkers (block: FSharpExpr) : (range * string) list =
     let perList =
         argumentLists
         |> List.collect (fun (args, isMember) ->
-            let named = args |> List.filter (function FSharpExprPatterns.Call(_, mfv, _, _, _) when isArgumentMarker mfv && mfv.DisplayName = "namedOf" -> true | _ -> false)
+            let markerNamed (name: string) (a: FSharpExpr) = match a with FSharpExprPatterns.Call(_, mfv, _, _, _) when isArgumentMarker mfv && mfv.DisplayName = name -> true | _ -> false
             let twice =
-                match named with
-                | _ :: second :: _ -> [ second.Range, "Dlr.namedOf twice in one call: concatenate the lists into one Dlr.namedOf." ]
-                | _ -> []
+                [ for name in [ "namedOf"; "argsOf" ] do
+                    match args |> List.filter (markerNamed name) with
+                    | _ :: second :: _ -> yield second.Range, sprintf "Dlr.%s twice in one call: concatenate the lists into one Dlr.%s." name name
+                    | _ -> () ]
+            // Named arguments are the call's trailing ones: nothing positional after Dlr.namedOf.
+            let afterNamed =
+                match args |> List.tryFindIndex (markerNamed "namedOf") with
+                | Some i ->
+                    args |> List.skip (i + 1)
+                    |> List.filter (fun a -> not (markerNamed "named" a) && not (markerNamed "namedOf" a))
+                    |> List.map (fun a -> a.Range, "a positional argument after Dlr.namedOf: named arguments come last.")
+                | None -> []
             let typeArgs =
                 args
                 |> List.mapi (fun i a -> i, a)
@@ -247,7 +256,7 @@ let private misplacedMarkers (block: FSharpExpr) : (range * string) list =
                         elif i > 0 then Some(a.Range, sprintf "Dlr.%s must be the first argument." mfv.DisplayName)
                         else None
                     | _ -> None)
-            twice @ typeArgs)
+            twice @ afterNamed @ typeArgs)
     outOfPlace @ perList
 
 /// The outermost `dlr.Run(...)` subtrees of `e`.
