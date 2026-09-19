@@ -233,8 +233,9 @@ module internal Translate =
         | ShapeCombination(_, args) -> args |> List.tryPick (letDefinition v)
 
     /// The argument a parameter of a let-bound local function takes, when the member body
-    /// applies that function exactly once: the optimizer inlines such a function at its call
-    /// site, so its parameters become that call's arguments and are never captured.
+    /// applies that function exactly once — or of a lambda applied on the spot,
+    /// `(fun k -> …) 1`: the optimizer inlines such a function at its call site, so its
+    /// parameters become that call's arguments and are never captured.
     let private parameterArgument (v: Var) (memberBody: Expr) : Expr option =
         let rec lambdaParams (e: Expr) =
             match e with
@@ -254,6 +255,21 @@ module internal Translate =
                 | ShapeVar _ -> []
                 | ShapeLambda(_, body) -> applications f body
                 | ShapeCombination(_, args) -> args |> List.collect (applications f)
+        /// `(fun p1 p2 -> body) a1 a2`: the lambda chain and its arguments, in order.
+        let rec applied (e: Expr) (acc: Expr list) =
+            match e with
+            | Application(inner, arg) -> applied inner (arg :: acc)
+            | Lambda _ when not acc.IsEmpty -> Some(e, acc)
+            | _ -> None
+        /// The argument `v` takes in a lambda applied on the spot, if `e` is one binding `v`.
+        let appliedArgument (e: Expr) : Expr option =
+            match applied e [] with
+            | Some(f, args) ->
+                let ps, _ = lambdaParams f
+                match List.tryFindIndex ((=) v) ps with
+                | Some i when i < args.Length -> Some args.[i]
+                | _ -> None
+            | None -> None
         let rec search (e: Expr) : Expr option =
             match e with
             | Let(f, def, rest) when (let ps, _ = lambdaParams def in List.contains v ps) ->
@@ -263,6 +279,7 @@ module internal Translate =
                 | [ args ] when args.Length > index -> Some args.[index]
                 | [] -> None
                 | _ -> None
+            | Application _ when (appliedArgument e).IsSome -> appliedArgument e
             | ShapeVar _ -> None
             | ShapeLambda(_, body) -> search body
             | ShapeCombination(_, args) -> args |> List.tryPick search

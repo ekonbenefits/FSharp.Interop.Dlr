@@ -44,8 +44,10 @@ nested delegates (loop and try bodies), and the copy costs nothing measurable, w
   second field of that name after them; an inlined `ResumptionPoint` has none and must not find
   the machine's, and an `int` one the optimizer keeps is a compiler error, as in `task { }`); a `let mutable` is an
   `FSharpRef` field, read through `.Value`. When the Release optimizer inlined a value instead of
-  capturing it, its definition is taken from the enclosing member's reflected body: a `let`, or
-  the single application of a once-called local function.
+  capturing it, its definition is taken from the enclosing member's reflected body: a `let`,
+  the single application of a once-called local function, or a lambda applied on the spot.
+  (A block in an `inline` function is beyond recovery in Release — it is expanded into each
+  caller — and the analyzer's `DLR004` refuses it.)
 - **Control flow** the expression converter has no node for (`for`, `while`, `try`, `use`) is
   emitted as calls to `DlrRuntime.*` helpers with the bodies as `Func` delegates (not F#
   lambdas: on browser-wasm the `FuncConvert` wrapper the converter would add lost arguments,
@@ -85,7 +87,7 @@ converts a `Let` without a nested lambda). Not specified — read by `Translate.
   `Discover`);
 - generic members: a struct or closure class generic over the member's type parameters, under
   the same names (`Discover.instantiate` rebuilds the member with the container's arguments);
-- the Release optimizer inlining constants and once-called local functions; the markers are
+- the Release optimizer inlining constants, once-called local functions and applied lambdas; the markers are
   `NoInlining` so their arguments stay live and are hoisted into the machine.
 
 A change in any of these raises `DlrTranslationException` on the first call at a site; nothing
