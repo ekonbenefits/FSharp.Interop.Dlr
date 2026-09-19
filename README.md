@@ -106,8 +106,9 @@ quoted, move the block into the smallest function that can.
 Without the attribute the first call raises a `DlrTranslationException` that says so; the
 [analyzer package](FSharp.Interop.Dlr.Analyzers/README.md) reports it at build time instead
 (`DLR001`, with a fix), along with a marker used outside any block (`DLR002`), two blocks on
-one line (`DLR003`) and a block in an `inline` function (`DLR004`: it fails in Release, where
-the function is expanded into its callers). Why the block is not simply quoted by the compiler, sparing the attribute:
+one line (`DLR003`), a block in an `inline` function (`DLR004`: it fails in Release, where
+the function is expanded into its callers) and an argument marker such as `Dlr.named` out of
+its place (`DLR005`). Why the block is not simply quoted by the compiler, sparing the attribute:
 tried and [scrapped](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/60) — a quotation
 literal costs ~7 µs per evaluation and carries no calling type, so `internal` members would not
 bind.
@@ -123,7 +124,7 @@ The common forms; [docs/syntax.md](docs/syntax.md) has every one, with what each
 | --- | --- |
 | `x?Name` | get, converted to the inferred type |
 | `x?Name(a, b)` · `x?Name()` | call; arguments keep their static types, `box a` dispatches on the runtime type |
-| `x?Name(a, Dlr.named {\| p = v \|})` | named arguments |
+| `x?Name(a, Dlr.named {\| p = v \|})` · `Dlr.namedOf kw` | named arguments, from a record or from data |
 | `x?Name <- v` | set |
 | `x \|> Dlr.item i` · `x \|> Dlr.setItem (i, j) v` | indexers |
 | `x \|> Dlr.get "Name"` · `Dlr.invoke "Name" (a, b)` · `Dlr.set "Name" v` | the same three with the target last, for pipelines |
@@ -169,10 +170,10 @@ regenerates this table and the full [docs/benchmarks.md](docs/benchmarks.md) (ev
 | | ns/call |
 | --- | ---: |
 | static w.Add(i, 1) | 1.2 |
-| reflection: cached MethodInfo.Invoke | 35.6 |
-| FSharp.Interop.Dynamic w?Add(i, 1) | 7,524 |
-| C# dynamic d.Add(i, 1) | 7.4 |
-| dlr w?Add(i, 1) | 11.2 |
-| dlr w?Count | 10.6 |
-| dlr loop of 100 calls, one site (whole loop) | 1,558 |
+| reflection: cached MethodInfo.Invoke | 36.1 |
+| FSharp.Interop.Dynamic w?Add(i, 1) | 7,501 |
+| C# dynamic d.Add(i, 1) | 7.5 |
+| dlr w?Add(i, 1) | 11.6 |
+| dlr w?Count | 11 |
+| dlr loop of 100 calls, one site (whole loop) | 1,591 |
 <!-- benchmarks:end -->

@@ -21,6 +21,7 @@ Decided once per site (`Binders.Arg`):
 | argument typed `obj` | `obj` | `None` — dispatch on the runtime type |
 | literal | its type | `UseCompileTimeType ||| Constant` — C#'s constant conversions |
 | `Dlr.named` field | its type | `… ||| NamedArgument` with the field name |
+| `Dlr.namedOf` value | `obj` | `NamedArgument` with the run-time name (see below) |
 
 The binder context (accessibility) is the type declaring the member that contains the block —
 what C# passes as the calling class. Results come back as `obj` and go through a second,
@@ -62,6 +63,20 @@ let sites = cache.Get((name, types)) in delegate.Invoke(sites.[0], …, target, 
 
 A new key creates binders and sites (microseconds) — no `Compile()` — and then pays the DLR's
 own first bind like any site. Argument names in `Dlr.named` stay static.
+
+## Run-time argument names
+
+`Dlr.namedOf pairs` changes the site's *arity* with the names, so per distinct name list the
+whole operation is compiled, not only its sites: a `NamedOfCache` constant holds one compiled
+delegate per name list (target, the fixed arguments, the named values as `obj[]`), all of one
+delegate type, so the call is a typed `Invoke`. A lookup compares the pairs' names against the
+entries in place (a site sees few name lists) and allocates nothing but the values array; a
+miss is a `Compile()` (once). At `Capacity` (64) entries it clears. Measured ~32 ns a call
+against ~12 for `Dlr.named` and ~8 for C#'s named arguments (`docs/benchmarks.md`). With a
+computed member name or run-time type arguments, their
+expressions are evaluated in the block's scope and passed into the per-name-list delegate as
+parameters, where the operation is a `keyedSiteCore` of its own: a delegate per name list (few),
+sites per member name inside it (many, no `Compile()`) — each cost where it belongs.
 
 ## Sites hoisted into locals
 

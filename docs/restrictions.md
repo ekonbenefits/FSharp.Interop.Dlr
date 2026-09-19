@@ -55,6 +55,7 @@ constructors, delegate-typed members and delegate values.
   them by reference (`{ X = 1 } == { X = 1 }` is `false` there) and has no `<` for them at all.
   Primitives, enums, strings (`==` only; `<` on strings and bools, which C# lacks, is F#'s), types declaring
   `op_Equality` and dynamic objects keep C#'s rules.
-- **Member names and generic type arguments may be run-time values**: `(?) x name` and
-  `Dlr.typeArgsOf ts` create the call sites per distinct name or type list, cached per site. C#'s
-  are fixed at compile time.
+- **Member names, generic type arguments and argument names may be run-time values**: `(?) x name`
+  and `Dlr.typeArgsOf ts` create the call sites per distinct name or type list, and
+  `Dlr.namedOf kw` compiles the call per distinct list of argument names (keyword arguments from
+  data), cached per site. C#'s are fixed at compile time.

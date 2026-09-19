@@ -67,6 +67,8 @@ type Dlr =
     [<MethodImpl(MethodImplOptions.NoInlining)>]
     static member named (record: 'T) : Named<'T> = ignore record; outside "Dlr.named"
     [<MethodImpl(MethodImplOptions.NoInlining)>]
+    static member namedOf (args: (string * obj) list) : Named<(string * obj) list> = ignore args; outside "Dlr.namedOf"
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
     static member item (indexes: 'TIndexes) (target: obj) : 'T = ignore (indexes, target); outside "Dlr.item"
     [<MethodImpl(MethodImplOptions.NoInlining)>]
     static member setItem (indexes: 'TIndexes) (value: 'TValue) (target: obj) : unit = ignore (indexes, value, target); outside "Dlr.setItem"

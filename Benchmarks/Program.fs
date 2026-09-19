@@ -84,7 +84,8 @@ let private writeDocs (short: bool) =
                      "invoke a delegate value with 20", [ "DynamicInvokeDelegate"; "CSharpInvokeDelegate"; "InvokeDelegate" ]
                      "implicit conversion of a boxed int to int64", [ "DynamicConvert"; "CSharpConvert"; "Convert" ]
                      "static method chosen by an argument's runtime type", [ "DynamicStatic"; "CSharpStaticOverloads"; "StaticOverloads" ]
-                     "a lambda for a `Func` parameter (C#: a `Func` literal; dlr: an F# lambda in the block)", [ ""; "CSharpRunFunc"; "FunctionToDelegate" ] ]
+                     "a lambda for a `Func` parameter (C#: a `Func` literal; dlr: an F# lambda in the block)", [ ""; "CSharpRunFunc"; "FunctionToDelegate" ]
+                     "named arguments `d.Add(b: 1, a: i)`", [ ""; "CSharpNamedArgs"; "NamedArgs" ] ]
           yield! comparison r "Where the forms differ"
                    "Each column does what its language offers here: C# `dynamic` has no spelling for calling an F# function value held in a member or for omitting an F# optional parameter, and its `==` on records is reference equality, so those cells are not like for like."
                    [ "C# `dynamic`"; "`dlr { }`" ]
@@ -92,7 +93,10 @@ let private writeDocs (short: bool) =
                      "optional parameter omitted `w?Bump(1)`", [ ""; "OptionalOmitted" ]
                      "record `==` (C#: reference; dlr: structural)", [ "CSharpEquals"; "StructuralEquals" ]
                      "constructor chosen by an argument's runtime type", [ ""; "Construct" ]
-                     "member name from a variable, alternating between two", [ ""; "ComputedName" ] ]
+                     "member name from a variable, alternating between two", [ ""; "ComputedName" ]
+                     "keyword arguments from data, `Dlr.namedOf kwargs` (compiled once per name list)", [ ""; "NamedOf" ]
+                     "`Dlr.namedOf`, two name lists alternating", [ ""; "NamedOfAlternating" ]
+                     "a value read as an F# function, `Dlr.call f : int -> int -> int`, then applied", [ ""; "CallAsFunction" ] ]
           yield "## Real targets"
           yield ""
           yield! comparison r "Newtonsoft.Json `JObject` and `ExpandoObject`" "" [ "typed API"; "FSharp.Interop.Dynamic"; "C# `dynamic`"; "`dlr { }`" ]

@@ -55,6 +55,7 @@ module internal Translate =
     let private opCall = opMethod <@ fun (t: obj) -> (Dlr.call t) : obj @>
     let private opApply = opMethod <@ fun (a: obj) (t: obj) -> (Dlr.apply a t) : obj @>
     let private opNamed = opMethod <@ fun (r: obj) -> Dlr.named r @>
+    let private opNamedOf = opMethod <@ fun (l: (string * obj) list) -> Dlr.namedOf l @>
     /// `Dlr.new'<T>(a, b, …)`: the type and the arguments (each unboxed to its static type).
     let private (|New|_|) (e: Expr) =
         match e with
@@ -135,6 +136,12 @@ module internal Translate =
     let private (|Op|_|) (def: Reflection.MethodInfo) (e: Expr) =
         match e with
         | Call(None, mi, args) when genericDef mi = def -> Some args
+        | _ -> None
+
+    /// `Dlr.namedOf pairs`: the list expression.
+    let private (|NamedOf|_|) (e: Expr) =
+        match e with
+        | Op opNamedOf [ pairs ] -> Some pairs
         | _ -> None
 
     let private (|UnaryOp|_|) (e: Expr) =
@@ -556,6 +563,7 @@ module internal Translate =
                 [ for a in argExprs do
                     match a with
                     | TypeArgs _ -> unsupported "Dlr.typeArgs anywhere but as the first argument of a member call (a value invoked with Dlr.call / Dlr.apply takes no type arguments)" a
+                    | NamedOf _ -> unsupported "Dlr.namedOf here (it goes in the arguments of a member call, Dlr.call / Dlr.apply, or Dlr.new')" a
                     | NamedRecord(lets, fields) ->
                         bindings.AddRange lets
                         let inner = bindings |> Seq.fold (fun (b: Set<Var>) (v, _) -> b.Add v) bound
@@ -577,16 +585,18 @@ module internal Translate =
         let private withTuple (bound: Set<Var>) (tupleBindings: (Var * Expr) list) =
             tupleBindings |> List.fold (fun (b: Set<Var>) (v, _) -> b.Add v) bound
 
+        /// The name and the type arguments of a keyed site, each either static (a constant in the
+        /// key) or an expression evaluated per call in the scope the site is emitted in.
+        type KeySpec = Choice<string, Expr> * Choice<Type list, Expr>
+
         /// An operation whose binder inputs — the member name, the type arguments, or both — are
         /// only known at run time: the operation's delegate is compiled once here with its call
         /// sites as parameters (lifted from a template built for a placeholder key), and a
         /// SiteCache constant creates the sites per distinct `(name, types)` key; the emitted
         /// code is `let sites = cache.Get((name, types)) in delegate.Invoke(sites.[0], …, target, args…)`.
-        /// Argument names in `Dlr.named` stay static.
-        let private keyedSite (block: Block) (rewriteIn: Rewrite) bound (nameExpr: Expr) (typeArgs: TypeArgsSpec) (target: Expr) (argExprs: Expr list) (resultType: Type) (site: string -> Type list -> Binders.Arg -> Binders.Arg list -> Expr) : Expr =
-            let rewrite = rewriteIn bound
-            let bindings, argInfos = argList rewriteIn bound argExprs
-            let targetInfo = targetArg rewriteIn bound target
+        /// Argument names in `Dlr.named` stay static. This is the core over prepared arguments;
+        /// the name and type expressions must be valid where the result is placed.
+        let private keyedSiteCore (block: Block) (key: KeySpec) (targetInfo: Binders.Arg) (argInfos: Binders.Arg list) (resultType: Type) (site: string -> Type list -> Binders.Arg -> Binders.Arg list -> Expr) : Expr =
             let targetVar = Var("target", targetInfo.Type)
             let argVars = argInfos |> List.mapi (fun i a -> Var(sprintf "a%d" i, a.Type))
             let template (name: string, types: Type list) =
@@ -597,13 +607,13 @@ module internal Translate =
             // delegate now. Per key, the cache creates the sites and hands them back in the
             // same order.
             let placeholderName, nameE =
-                match nameExpr with
-                | Literal name -> string name, Expr.Value(string name)
-                | e -> "name", rewrite e
+                match fst key with
+                | Choice1Of2 name -> name, Expr.Value name
+                | Choice2Of2 e -> "name", e
             let placeholderTypes, typesE =
-                match typeArgs with
-                | StaticTypes ts -> ts, Expr.Value(ts, typeof<Type list>)
-                | RuntimeTypes e -> [], rewrite e
+                match snd key with
+                | Choice1Of2 ts -> ts, Expr.Value(ts, typeof<Type list>)
+                | Choice2Of2 e -> [], e
             let placeholder = template (placeholderName, placeholderTypes)
             let sites = SiteCache<string * Type list>.Sites placeholder
             let siteVars = sites |> List.mapi (fun i s -> s, Var(sprintf "site%d" i, s.GetType()))
@@ -634,8 +644,81 @@ module internal Translate =
             let call =
                 Expr.Let(sitesVar, Expr.Call(Expr.Value(cache, cacheType), cacheType.GetMethod("Get"), [ Expr.NewTuple [ nameE; typesE ] ]),
                          Expr.Call(Expr.Value(compiled, delegateType), delegateType.GetMethod("Invoke"), siteArgs @ targetInfo.Expr :: [ for a in argInfos -> a.Expr ]))
-            (if FSharpType.IsFunction resultType then Expr.Coerce(call, resultType) else block.Convert resultType call)
+            if FSharpType.IsFunction resultType then Expr.Coerce(call, resultType) else block.Convert resultType call
+
+        /// The key of a computed name / run-time type arguments, its expressions rewritten in
+        /// the block's scope.
+        let private keySpec (rewriteIn: Rewrite) bound (nameExpr: Expr) (typeArgs: TypeArgsSpec) : KeySpec =
+            (match nameExpr with Literal name -> Choice1Of2(string name) | e -> Choice2Of2(rewriteIn bound e)),
+            (match typeArgs with StaticTypes ts -> Choice1Of2 ts | RuntimeTypes e -> Choice2Of2(rewriteIn bound e))
+
+        /// `keyedSiteCore` over argument expressions, in the block's scope.
+        let private keyedSite (block: Block) (rewriteIn: Rewrite) bound (nameExpr: Expr) (typeArgs: TypeArgsSpec) (target: Expr) (argExprs: Expr list) (resultType: Type) (site: string -> Type list -> Binders.Arg -> Binders.Arg list -> Expr) : Expr =
+            let bindings, argInfos = argList rewriteIn bound argExprs
+            keyedSiteCore block (keySpec rewriteIn bound nameExpr typeArgs) (targetArg rewriteIn bound target) argInfos resultType site
             |> bind rewriteIn bound bindings
+
+        /// An invocation whose arguments include `Dlr.namedOf pairs`: the operation is compiled
+        /// per distinct name list — the names decide the site's arity, so the whole delegate is
+        /// per key — through a bounded `NamedOfCache` constant, taking the target, the fixed
+        /// arguments and the named values (`obj`, dispatched on runtime type). `operation` builds
+        /// the site expression for a target and its full argument list. `None` when there is no
+        /// `namedOf` in `argExprs`. With a computed member name / run-time type arguments
+        /// (`key`), their expressions are evaluated in the block's scope and passed into the
+        /// per-name-list delegate as parameters, where `operation` gets them for a `keyedSiteCore`.
+        let private namedOfCallKeyed (block: Block) (rewriteIn: Rewrite) bound (target: Expr) (argExprs: Expr list) (resultType: Type) (discard: bool) (key: KeySpec option) (operation: KeySpec -> Binders.Arg -> Binders.Arg list -> Expr) : Expr option =
+            match argExprs |> List.tryPick (function NamedOf pairs -> Some pairs | _ -> None) with
+            | None -> None
+            | Some pairsExpr ->
+                if (argExprs |> List.filter (function NamedOf _ -> true | _ -> false)).Length > 1 then
+                    unsupported "more than one Dlr.namedOf in one call (concatenate the lists)" pairsExpr
+                let fixedExprs = argExprs |> List.filter (function NamedOf _ -> false | _ -> true)
+                let bindings, fixedInfos = argList rewriteIn bound fixedExprs
+                let targetInfo = targetArg rewriteIn bound target
+                let targetVar = Var("target", targetInfo.Type)
+                let fixedVars = fixedInfos |> List.mapi (fun i a -> Var(sprintf "a%d" i, a.Type))
+                let valuesVar = Var("values", typeof<obj[]>)
+                let at = typeof<NamedOfCache>.GetMethod("At")
+                // A computed name / run-time type list are evaluated out here and passed in as
+                // parameters: the delegate does not see the block's scope.
+                let keyVars, keyExprs, innerKey =
+                    match key with
+                    | None -> [], [], None
+                    | Some(name, types) ->
+                        let nameVar, nameE = (match name with Choice1Of2 n -> None, Choice1Of2 n | Choice2Of2 e -> (let v = Var("name", typeof<string>) in Some(v, e), Choice2Of2(Expr.Var v)))
+                        let typesVar, typesE = (match types with Choice1Of2 ts -> None, Choice1Of2 ts | Choice2Of2 e -> (let v = Var("types", typeof<Type list>) in Some(v, e), Choice2Of2(Expr.Var v)))
+                        let vars = [ nameVar; typesVar ] |> List.choose id
+                        List.map fst vars, List.map snd vars, Some((nameE, typesE): KeySpec)
+                // One delegate type for every key at this site: the names change the sites inside,
+                // not the parameters, so the call is a typed Invoke, not DynamicInvoke.
+                let delegateType = Expression.GetDelegateType(Array.ofList (targetVar.Type :: [ for v in fixedVars -> v.Type ] @ [ for v in keyVars -> v.Type ] @ [ typeof<obj[]>; typeof<obj> ]))
+                let compile (names: string list) : Delegate =
+                    let fixed' = List.map2 (fun (info: Binders.Arg) (v: Var) -> { info with Expr = Expr.Var v }) fixedInfos fixedVars
+                    let named = names |> List.mapi (fun i name -> Binders.named name (Binders.dynamicArg (Expr.Call(at, [ Expr.Var valuesVar; Expr.Value i ]))))
+                    let body = operation (defaultArg innerKey (Choice1Of2 "", Choice1Of2 [])) { targetInfo with Expr = Expr.Var targetVar } (fixed' @ named)
+                    let boxed =
+                        if body.Type = typeof<obj> then body
+                        elif body.Type = typeof<unit> || body.Type = typeof<Void> then Expr.Sequential(body, Expr.Value(null, typeof<obj>))
+                        else Expr.Coerce(body, typeof<obj>)
+                    let lambda = Expr.NewDelegate(delegateType, targetVar :: fixedVars @ keyVars @ [ valuesVar ], boxed)
+                    let linq = LeafExpressionConverter.QuotationToExpression lambda :?> LambdaExpression
+                    (SiteHoister().Visit linq :?> LambdaExpression).Compile()
+                let cache = NamedOfCache(compile)
+                let cacheType = typeof<NamedOfCache>
+                let pairsVar = Var("pairs", typeof<(string * obj) list>)
+                let delegateVar = Var("d", delegateType)
+                let values = Expr.Call(cacheType.GetMethod("Values"), [ Expr.Var pairsVar ])
+                let call =
+                    Expr.Let(pairsVar, rewriteIn bound pairsExpr,
+                        Expr.Let(delegateVar, Expr.Coerce(Expr.Call(Expr.Value(cache, cacheType), cacheType.GetMethod("Get"), [ Expr.Var pairsVar ]), delegateType),
+                            Expr.Call(Expr.Var delegateVar, delegateType.GetMethod("Invoke"), targetInfo.Expr :: [ for a in fixedInfos -> a.Expr ] @ keyExprs @ [ values ])))
+                (if discard then Expr.Sequential(call, Expr.Value(())) else block.Convert resultType call)
+                |> bind rewriteIn bound bindings
+                |> Some
+
+        /// An invocation whose arguments include `Dlr.namedOf pairs`, with a literal member name.
+        let private namedOfCall (block: Block) (rewriteIn: Rewrite) bound (target: Expr) (argExprs: Expr list) (resultType: Type) (discard: bool) (operation: Binders.Arg -> Binders.Arg list -> Expr) : Expr option =
+            namedOfCallKeyed block rewriteIn bound target argExprs resultType discard None (fun _ t args -> operation t args)
 
         /// `(?) x name` with a computed name (no type arguments): see keyedSite.
         let private computedName block rewriteIn bound (nameExpr: Expr) (target: Expr) (argExprs: Expr list) (resultType: Type) (site: string -> Binders.Arg -> Binders.Arg list -> Expr) : Expr =
@@ -686,10 +769,18 @@ module internal Translate =
                     | TypeArgs spec :: rest -> spec, rest
                     | args -> StaticTypes [], args
                 let discard = e.Type = typeof<unit>
+                let hasNamedOf = argExprs |> List.exists (function NamedOf _ -> true | _ -> false)
                 match nameExpr, typeArgs with
+                | Literal name, StaticTypes ts when hasNamedOf ->
+                    (namedOfCall block rewriteIn bound' target argExprs e.Type discard (fun t args -> Binders.invokeMemberOrApply context (string name) ts discard t args)).Value
+                    |> bind bound tupleBindings
                 | Literal name, StaticTypes ts ->
                     let bindings, args = argList bound' argExprs
                     Binders.invokeMemberOrApply context (string name) ts discard (targetArg bound target) args |> finish discard e.Type |> bind bound' bindings |> bind bound tupleBindings
+                | _ when hasNamedOf ->
+                    (namedOfCallKeyed block rewriteIn bound' target argExprs e.Type discard (Some(keySpec rewriteIn bound' nameExpr typeArgs)) (fun key t args ->
+                        keyedSiteCore block key t args typeof<obj> (fun name ts targetArg args -> Binders.invokeMemberOrApply context name ts discard targetArg args))).Value
+                    |> bind bound tupleBindings
                 | _ ->
                     keyedSite block rewriteIn bound' nameExpr typeArgs target argExprs e.Type (fun name ts targetArg args ->
                         Binders.invokeMemberOrApply context name ts discard targetArg args)
@@ -719,16 +810,22 @@ module internal Translate =
             | New(t, argExprs) ->
                 // The site is typed `T` itself (the binder types a constructor's result as `T`,
                 // which an obj-typed site rejects for a struct), so no Convert.
-                let bindings, args = argList bound argExprs
-                Binders.invokeConstructor context t args |> bind bound bindings |> Some
+                match namedOfCall block rewriteIn bound (Expr.Value(null, typeof<obj>)) argExprs e.Type false (fun _ args -> Binders.invokeConstructor context t args) with
+                | Some call -> Some call
+                | None ->
+                    let bindings, args = argList bound argExprs
+                    Binders.invokeConstructor context t args |> bind bound bindings |> Some
             // The value's `?`: applied, a call; read at a function type, the target as that function.
             | Application(EtaReduced(Op opCall [ Unboxed target ]), argExpr)
             | Op opApply [ argExpr; Unboxed target ] ->
                 let discard = e.Type = typeof<unit>
                 let tupleBindings, argExprs = splitArgs argExpr
                 let bound' = withTuple bound tupleBindings
-                let bindings, args = argList bound' argExprs
-                Binders.invokeOrApply context discard (targetArg bound target) args |> finish discard e.Type |> bind bound' bindings |> bind bound tupleBindings |> Some
+                match namedOfCall block rewriteIn bound' target argExprs e.Type discard (fun t args -> Binders.invokeOrApply context discard t args) with
+                | Some call -> call |> bind bound tupleBindings |> Some
+                | None ->
+                    let bindings, args = argList bound' argExprs
+                    Binders.invokeOrApply context discard (targetArg bound target) args |> finish discard e.Type |> bind bound' bindings |> bind bound tupleBindings |> Some
             | Op opCall [ Unboxed target ] when FSharpType.IsFunction e.Type ->
                 Binders.functionTarget context e.Type (targetArg bound target) |> Some
             | Op opCall [ _ ] ->
@@ -752,8 +849,12 @@ module internal Translate =
                 let v = rewrite value
                 convert e.Type (if v.Type = typeof<obj> then v else Expr.Coerce(v, typeof<obj>)) |> Some
             // The marker anywhere but as a target would run its getter at run time and throw the
-            // outside-a-block error from inside one; say what is wrong instead.
+            // outside-a-block error from inside one; say what is wrong instead. Likewise an
+            // argument marker anywhere but in a call's argument list (those were consumed above).
             | StaticTarget _ -> unsupported "Dlr.Static<T>.Overloads anywhere but as the target of a call" e
+            | Op opNamed _ -> unsupported "Dlr.named anywhere but as an argument of a call (a member call, Dlr.invoke, Dlr.call / Dlr.apply, Dlr.new')" e
+            | Op opNamedOf _ -> unsupported "Dlr.namedOf anywhere but as an argument of a call (a member call, Dlr.invoke, Dlr.call / Dlr.apply, Dlr.new')" e
+            | TypeArgs _ -> unsupported "Dlr.typeArgs anywhere but as the first argument of a member call" e
             | _ -> None
 
     /// Compiles the reflected body of one `dlr { }` block. `closureType` is the block's
