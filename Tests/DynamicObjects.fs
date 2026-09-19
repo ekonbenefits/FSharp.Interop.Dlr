@@ -11,22 +11,27 @@ open Microsoft.CSharp.RuntimeBinder
 
 [<Fact>]
 let ``TryInvoke handles Dlr.apply on a DynamicObject`` () =
-    let a = box (Arith(1))
-    (dlr { return a |> Dlr.apply (1, 2) } : string) |> should equal "invoked with 2 args"
+    let a: obj = Arith(1)
+    let invoked: string = dlr { return a |> Dlr.apply (1, 2) }
+    invoked |> should equal "invoked with 2 args"
 
 [<Fact>]
 let ``TryBinaryOperation handles the operators`` () =
     let a, b = box (Arith(6)), box (Arith(7))
-    (dlr { return a ?+? b } : Arith).Value |> should equal 13
-    (dlr { return a ?*? (box 2) } : Arith).Value |> should equal 12
+    let sum: Arith = dlr { return a ?+? b }
+    let product: Arith = dlr { return a ?*? (box 2) }
+    sum.Value |> should equal 13
+    product.Value |> should equal 12
     dlr { return a ?=? b } |> should equal false
     dlr { return a ?<? b } |> should equal true
 
 [<Fact>]
 let ``TryConvert handles the inferred result type`` () =
-    let e = box (Fixtures.expando [ "A", box (Arith(42)) ])
-    (dlr { return e?A } : int) |> should equal 42
-    (dlr { return e?A } : string) |> should equal "42"
+    let e: obj = Fixtures.expando [ "A", box (Arith(42)) ]
+    let asInt: int = dlr { return e?A }
+    let asString: string = dlr { return e?A }
+    asInt |> should equal 42
+    asString |> should equal "42"
 
 [<Fact>]
 let ``unsupported TryBinaryOperation raises RuntimeBinderException`` () =
@@ -35,32 +40,35 @@ let ``unsupported TryBinaryOperation raises RuntimeBinderException`` () =
 
 [<Fact>]
 let ``TryGetMember returning false raises RuntimeBinderException`` () =
-    let a = box (Arith(1))
-    (dlr { return a?Value } : int) |> should equal 1
+    let a: obj = Arith(1)
+    let value: int = dlr { return a?Value }
+    value |> should equal 1
     (fun () -> (dlr { return a?Missing } : obj) |> ignore) |> should throw typeof<RuntimeBinderException>
 
 [<Fact>]
 let ``Expando invokes a stored delegate member`` () =
-    let e = box (Fixtures.expando [ "Double", box (Func<int, int>(fun x -> x * 2)) ])
-    (dlr { return e?Double(21) } : int) |> should equal 42
+    let e: obj = Fixtures.expando [ "Double", box (Func<int, int>(fun x -> x * 2)) ]
+    let doubled: int = dlr { return e?Double(21) }
+    doubled |> should equal 42
 
 [<Fact>]
 let ``Expando members set then read in one block`` () =
-    let e = box (ExpandoObject())
-    let n: int =
+    let e: obj = ExpandoObject()
+    let total: int =
         dlr {
             e?X <- 20
             e?Y <- 22
             return (e?X : int) + (e?Y : int)
         }
-    n |> should equal 42
+    total |> should equal 42
 
 [<Fact>]
 let ``IDynamicMetaObjectProvider implemented directly`` () =
     let bag = Bag()
-    let o = box bag
+    let o: obj = bag
     dlr { o?Name <- "jay" }
-    (dlr { return o?Name } : string) |> should equal "jay"
+    let name: string = dlr { return o?Name }
+    name |> should equal "jay"
     bag.Data.["Name"] |> should equal (box "jay")
 
 [<Fact>]

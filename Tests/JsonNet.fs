@@ -17,20 +17,29 @@ let private json =
 
 [<Fact>]
 let ``reading members converts JValues to the inferred types`` () =
-    let o = box (JObject.Parse json)
-    (dlr { return o?name } : string) |> should equal "widget"
-    (dlr { return o?count } : int) |> should equal 3
-    (dlr { return o?count } : int64) |> should equal 3L        // JValue.TryConvert widens
-    (dlr { return o?price } : float) |> should equal 2.5
-    (dlr { return o?active } : bool) |> should equal true
-    (dlr { return o?owner?name } : string) |> should equal "jay"   // chained: owner is a JObject
+    let o: obj = JObject.Parse json
+    let name: string = dlr { return o?name }
+    let count: int = dlr { return o?count }
+    let wide: int64 = dlr { return o?count }                     // JValue.TryConvert widens
+    let price: float = dlr { return o?price }
+    let active: bool = dlr { return o?active }
+    let owner: string = dlr { return o?owner?name }              // chained: owner is a JObject
+    name |> should equal "widget"
+    count |> should equal 3
+    wide |> should equal 3L
+    price |> should equal 2.5
+    active |> should equal true
+    owner |> should equal "jay"
 
 [<Fact>]
 let ``arrays index and iterate`` () =
-    let o = box (JObject.Parse json)
-    (dlr { return o?tags |> Dlr.item 1 } : string) |> should equal "b"
-    (dlr { return o?owner?ids |> Dlr.item 2 } : int) |> should equal 3
-    (dlr { return o?tags?Count } : int) |> should equal 2
+    let o: obj = JObject.Parse json
+    let tag: string = dlr { return o?tags |> Dlr.item 1 }
+    let id: int = dlr { return o?owner?ids |> Dlr.item 2 }
+    let tagCount: int = dlr { return o?tags?Count }
+    tag |> should equal "b"
+    id |> should equal 3
+    tagCount |> should equal 2
     let sum =
         dlr {
             let mutable total = 0
@@ -43,7 +52,7 @@ let ``arrays index and iterate`` () =
 [<Fact>]
 let ``members set and add, values write back to the tree`` () =
     let j = JObject.Parse json
-    let o = box j
+    let o: obj = j
     dlr { o?count <- 10 }
     dlr { o?owner?name <- "someone" }
     dlr { o?extra <- "new" }                                     // a member that was not there
@@ -55,7 +64,7 @@ let ``members set and add, values write back to the tree`` () =
 
 [<Fact>]
 let ``computed names, null members and misses`` () =
-    let o = box (JObject.Parse json)
+    let o: obj = JObject.Parse json
     let read (field: string) : string = dlr { return (?) o field }
     read "name" |> should equal "widget"
     let missing: obj = dlr { return o?missing }                  // a JSON null is a JValue of null
@@ -66,9 +75,11 @@ let ``computed names, null members and misses`` () =
 
 [<Fact>]
 let ``JObject methods bind like any CLR method`` () =
-    let o = box (JObject.Parse json)
-    (dlr { return o?ContainsKey("name") } : bool) |> should equal true
-    (dlr { return o?ToString(Newtonsoft.Json.Formatting.None) } : string).StartsWith "{\"name\"" |> should equal true
+    let o: obj = JObject.Parse json
+    let hasName: bool = dlr { return o?ContainsKey("name") }
+    hasName |> should equal true
+    let compact: string = dlr { return o?ToString(Newtonsoft.Json.Formatting.None) }
+    compact.StartsWith "{\"name\"" |> should equal true
     let deep: string = dlr { return (o?SelectToken("owner.ids[1]") : JToken).ToString() }
     deep |> should equal "2"
 

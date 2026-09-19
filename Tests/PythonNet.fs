@@ -79,60 +79,78 @@ data = {"name": "py", "items": [1, 2, 3]}
 let ``Python module functions, positional and keyword arguments`` () =
     requirePython ()
     use _gil = Py.GIL()
-    let m = box (PyModule.FromString("sample", source))
-    (dlr { return m?add(2, 3) } : int) |> should equal 5
-    (dlr { return m?add(2.5, 3.0) } : float) |> should equal 5.5              // duck typing: same function
-    (dlr { return m?add("a", "b") } : string) |> should equal "ab"
-    (dlr { return m?greet("jay") } : string) |> should equal "hello jay!"
-    (dlr { return m?greet("jay", Dlr.named {| greeting = "hi" |}) } : string) |> should equal "hi jay!"
-    (dlr { return m?greet("jay", Dlr.named {| punct = "?"; greeting = "yo" |}) } : string) |> should equal "yo jay?"
+    let m: obj = PyModule.FromString("sample", source)
+    let ints: int = dlr { return m?add(2, 3) }
+    let floats: float = dlr { return m?add(2.5, 3.0) }                        // duck typing: same function
+    let strings: string = dlr { return m?add("a", "b") }
+    ints |> should equal 5
+    floats |> should equal 5.5
+    strings |> should equal "ab"
+    let plain: string = dlr { return m?greet("jay") }
+    let oneKeyword: string = dlr { return m?greet("jay", Dlr.named {| greeting = "hi" |}) }
+    let twoKeywords: string = dlr { return m?greet("jay", Dlr.named {| punct = "?"; greeting = "yo" |}) }
+    plain |> should equal "hello jay!"
+    oneKeyword |> should equal "hi jay!"
+    twoKeywords |> should equal "yo jay?"
     // Keyword arguments from data: Dlr.namedOf, compiled once per distinct name list.
-    let kwargs = [ "punct", box "?"; "greeting", box "yo" ]
-    (dlr { return m?greet("jay", Dlr.namedOf kwargs) } : string) |> should equal "yo jay?"
-    (dlr { return m?greet("jay", Dlr.namedOf [ "greeting", box "hi" ]) } : string) |> should equal "hi jay!"
+    let greet (kwargs: (string * obj) list) : string = dlr { return m?greet("jay", Dlr.namedOf kwargs) }
+    greet [ "punct", box "?"; "greeting", box "yo" ] |> should equal "yo jay?"
+    greet [ "greeting", box "hi" ] |> should equal "hi jay!"
     // The function name from data too.
-    let fname = "greet"
-    (dlr { return (?) m fname ("jay", Dlr.namedOf kwargs) } : string) |> should equal "yo jay?"
+    let call (fname: string) (kwargs: (string * obj) list) : string = dlr { return (?) m fname ("jay", Dlr.namedOf kwargs) }
+    call "greet" [ "punct", box "?"; "greeting", box "yo" ] |> should equal "yo jay?"
     // f(*args, **kwargs): both lists from data.
-    let args = [ box "jay" ]
-    (dlr { return m?greet(Dlr.argsOf args, Dlr.namedOf kwargs) } : string) |> should equal "yo jay?"
-    (dlr { return m?add(Dlr.argsOf [ box 2; box 3 ]) } : int) |> should equal 5
+    let splat (args: obj list) (kwargs: (string * obj) list) : string = dlr { return m?greet(Dlr.argsOf args, Dlr.namedOf kwargs) }
+    splat [ box "jay" ] [ "punct", box "?"; "greeting", box "yo" ] |> should equal "yo jay?"
+    let add (args: obj list) : int = dlr { return m?add(Dlr.argsOf args) }
+    add [ box 2; box 3 ] |> should equal 5
 
 [<Fact>]
 let ``Python objects: attributes, methods, defaults, repr`` () =
     requirePython ()
     use _gil = Py.GIL()
-    let m = box (PyModule.FromString("sample2", source))
+    let m: obj = PyModule.FromString("sample2", source)
     let p: obj = dlr { return m?Point(3, 4) }                                  // a class is callable
-    (dlr { return p?x } : int) |> should equal 3
+    let x: int = dlr { return p?x }
+    x |> should equal 3
     dlr { p?y <- 10 }
-    (dlr { return p?y } : int) |> should equal 10
-    (dlr { return p?scaled()?x } : int) |> should equal 6                     // default k
-    (dlr { return p?scaled(3)?y } : int) |> should equal 30
-    (dlr { return p?scaled(Dlr.named {| k = 10 |})?x } : int) |> should equal 30
-    (dlr { return p?__repr__() } : string) |> should equal "Point(3, 10)"
+    let y: int = dlr { return p?y }
+    y |> should equal 10
+    let defaultK: int = dlr { return p?scaled()?x }                            // default k
+    let positionalK: int = dlr { return p?scaled(3)?y }
+    let keywordK: int = dlr { return p?scaled(Dlr.named {| k = 10 |})?x }
+    defaultK |> should equal 6
+    positionalK |> should equal 30
+    keywordK |> should equal 30
+    let repr: string = dlr { return p?__repr__() }
+    repr |> should equal "Point(3, 10)"
 
 [<Fact>]
 let ``Python callables through Dlr.apply, dicts and lists through Dlr.item`` () =
     requirePython ()
     use _gil = Py.GIL()
-    let m = box (PyModule.FromString("sample3", source))
+    let m: obj = PyModule.FromString("sample3", source)
     let add5: obj = dlr { return m?make_adder(5) }
-    (dlr { return add5 |> Dlr.apply 10 } : int) |> should equal 15
+    let added: int = dlr { return add5 |> Dlr.apply 10 }
+    added |> should equal 15
     let data: obj = dlr { return m?data }
-    (dlr { return data |> Dlr.item "name" } : string) |> should equal "py"
-    (dlr { return data |> Dlr.item "items" |> Dlr.item 2 } : int) |> should equal 3
+    let name: string = dlr { return data |> Dlr.item "name" }
+    let third: int = dlr { return data |> Dlr.item "items" |> Dlr.item 2 }
+    name |> should equal "py"
+    third |> should equal 3
     // PyObject has no TrySetIndex; its CLR indexer's setter takes a PyObject, so the value is
     // converted first (as with Python.NET's own `dynamic` use).
     dlr { data |> Dlr.setItem "name" ("changed".ToPython()) }
-    (dlr { return data |> Dlr.item "name" } : string) |> should equal "changed"
-    (dlr { return m?math?sqrt(16.0) } : float) |> should equal 4.0            // an imported module through the module
+    let changed: string = dlr { return data |> Dlr.item "name" }
+    changed |> should equal "changed"
+    let root: float = dlr { return m?math?sqrt(16.0) }                         // an imported module through the module
+    root |> should equal 4.0
 
 [<Fact>]
 let ``Python errors and misses`` () =
     requirePython ()
     use _gil = Py.GIL()
-    let m = box (PyModule.FromString("sample4", source))
+    let m: obj = PyModule.FromString("sample4", source)
     // A missing attribute is Python.NET's KeyNotFoundException (its TryGetMember's choice, not the
     // binder's); a Python-side error is a PythonException carrying the Python type.
     (fun () -> (dlr { return m?nothere() } : int) |> ignore) |> should throw typeof<Collections.Generic.KeyNotFoundException>
@@ -143,7 +161,7 @@ let ``Python errors and misses`` () =
 let ``one site alternates Python objects and CLR objects`` () =
     requirePython ()
     use _gil = Py.GIL()
-    let m = box (PyModule.FromString("sample5", source))
+    let m: obj = PyModule.FromString("sample5", source)
     let py: obj = dlr { return m?Point(1, 2) }
     let targets: obj list = [ py; box {| x = 7 |}; py ]
     let xs = ResizeArray<int>()

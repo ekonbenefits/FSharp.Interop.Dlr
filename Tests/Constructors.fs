@@ -18,13 +18,18 @@ let ``the constructor overload is picked by the argument's runtime type`` () =
 [<Fact>]
 let ``typed, no, named and tupled arguments`` () =
     let p = { X = 5; Y = 6 }
-    (dlr { return Dlr.new'<Handler>(p) } : Handler).Kind |> should equal "point"        // static type binds
-    (dlr { return Dlr.new'<Handler>() } : Handler).Kind |> should equal "none"
-    (dlr { return Dlr.new'<Handler>("k", 2) } : Handler).Detail |> should equal "k:2"
-    (dlr { return Dlr.new'<Handler>(Dlr.named {| count = 7; name = "n" |}) } : Handler).Detail |> should equal "n:7"
-    (dlr { return Dlr.new'<System.Text.StringBuilder>("seed") } : System.Text.StringBuilder).ToString() |> should equal "seed"
-    let n: int = dlr { return Dlr.new'<Widget>()?Count }
-    n |> should equal 3
+    let typed: Handler = dlr { return Dlr.new'<Handler>(p) }                                   // static type binds
+    let none: Handler = dlr { return Dlr.new'<Handler>() }
+    let tupled: Handler = dlr { return Dlr.new'<Handler>("k", 2) }
+    let named: Handler = dlr { return Dlr.new'<Handler>(Dlr.named {| count = 7; name = "n" |}) }
+    typed.Kind |> should equal "point"
+    none.Kind |> should equal "none"
+    tupled.Detail |> should equal "k:2"
+    named.Detail |> should equal "n:7"
+    let sb: System.Text.StringBuilder = dlr { return Dlr.new'<System.Text.StringBuilder>("seed") }
+    sb.ToString() |> should equal "seed"
+    let count: int = dlr { return Dlr.new'<Widget>()?Count }
+    count |> should equal 3
 
 [<Fact>]
 let ``no matching constructor is a binder error`` () =

@@ -37,35 +37,47 @@ let private require () =
 let ``JS object properties, nested objects, and typed conversion`` () =
     let e = require ()
     let w = e.Evaluate "widget"
-    (dlr { return w?name } : string) |> should equal "js"
-    (dlr { return w?count } : int) |> should equal 3
-    (dlr { return w?count } : float) |> should equal 3.0
-    (dlr { return w?nested?deep } : int) |> should equal 42
+    let name: string = dlr { return w?name }
+    let count: int = dlr { return w?count }
+    let asFloat: float = dlr { return w?count }
+    let deep: int = dlr { return w?nested?deep }
+    name |> should equal "js"
+    count |> should equal 3
+    asFloat |> should equal 3.0
+    deep |> should equal 42
 
 [<Fact>]
 let ``JS functions: as members (this bound), as values through Dlr.apply, closures, classes`` () =
     let e = require ()
     let w = e.Evaluate "widget"
-    let script = box e.Script                                                  // the global object, a ScriptObject
-    (dlr { return w?add(2, 3) } : int) |> should equal 5
-    (dlr { return w?add("a", "b") } : string) |> should equal "ab"             // JS duck typing at the same site
-    (dlr { return w?greet("f#") } : string) |> should equal "hi f# from js"   // `this` is the object
+    let script: obj = e.Script                                                 // the global object, a ScriptObject
+    let sum: int = dlr { return w?add(2, 3) }
+    let joined: string = dlr { return w?add("a", "b") }                        // JS duck typing at the same site
+    let greeting: string = dlr { return w?greet("f#") }                        // `this` is the object
+    sum |> should equal 5
+    joined |> should equal "ab"
+    greeting |> should equal "hi f# from js"
     let add5: obj = dlr { return script?makeAdder(5) }                         // a JS closure comes back callable
-    (dlr { return add5 |> Dlr.apply 10 } : int) |> should equal 15
+    let added: int = dlr { return add5 |> Dlr.apply 10 }
+    added |> should equal 15
     // A JS class cannot be called without `new` (V8 refuses; ClearScript reports "Method or
     // property not found"), and C# `dynamic` has no `new` for script objects either: construct
     // through a JS factory or Evaluate, then use the instance dynamically.
     (fun () -> (dlr { return script?Point(1, 2) } : obj) |> ignore) |> should throw typeof<ScriptEngineException>
     let p = e.Evaluate "new Point(1, 2)"
-    (dlr { return p?scaled(3)?y } : int) |> should equal 6
-    (dlr { return p?scaled()?x } : int) |> should equal 2                     // default parameter
+    let scaledY: int = dlr { return p?scaled(3)?y }
+    let defaultX: int = dlr { return p?scaled()?x }                            // default parameter
+    scaledY |> should equal 6
+    defaultX |> should equal 2
 
 [<Fact>]
 let ``JS arrays index by number, expose length, and iterate`` () =
     let e = require ()
     let w = e.Evaluate "widget"
-    (dlr { return w?tags |> Dlr.item 1 } : string) |> should equal "b"
-    (dlr { return w?tags?length } : int) |> should equal 2
+    let tag: string = dlr { return w?tags |> Dlr.item 1 }
+    let tagCount: int = dlr { return w?tags?length }
+    tag |> should equal "b"
+    tagCount |> should equal 2
     let numbers = e.Evaluate "numbers"
     let total: int =
         dlr {
@@ -77,14 +89,16 @@ let ``JS arrays index by number, expose length, and iterate`` () =
         }
     total |> should equal 60
     dlr { numbers |> Dlr.setItem 0 100 }
-    (dlr { return numbers |> Dlr.item 0 } : int) |> should equal 100
+    let first: int = dlr { return numbers |> Dlr.item 0 }
+    first |> should equal 100
 
 [<Fact>]
 let ``sets add properties; undefined and null both cross over`` () =
     let e = require ()
     let w = e.Evaluate "widget"
     dlr { w?extra <- "new" }
-    (dlr { return w?extra } : string) |> should equal "new"
+    let extra: string = dlr { return w?extra }
+    extra |> should equal "new"
     e.Evaluate("widget.extra") |> should equal (box "new")
     let nothing: obj = dlr { return w?nothing }                                // JS null
     isNull nothing |> should equal true

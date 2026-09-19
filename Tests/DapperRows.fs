@@ -23,12 +23,16 @@ let private openDb () =
 [<Fact>]
 let ``row columns read with SQLite's types, converting to the inferred ones`` () =
     use c = openDb ()
-    let row = box (c.QueryFirst("select * from widget where name = 'a'"))
-    (dlr { return row?name } : string) |> should equal "a"
-    (dlr { return row?count } : int64) |> should equal 3L        // SQLite integer
-    (dlr { return Dlr.cast<int> row?count } : int) |> should equal 3   // int64 -> int is a cast, as in C#
+    let row: obj = c.QueryFirst("select * from widget where name = 'a'")
+    let name: string = dlr { return row?name }
+    let count: int64 = dlr { return row?count }                  // SQLite integer
+    let narrowed: int = dlr { return Dlr.cast<int> row?count }   // int64 -> int is a cast, as in C#
+    let price: float = dlr { return row?price }
+    name |> should equal "a"
+    count |> should equal 3L
+    narrowed |> should equal 3
+    price |> should equal 2.5
     (fun () -> (dlr { return row?count } : int) |> ignore) |> should throw typeof<RuntimeBinderException>   // no implicit narrowing
-    (dlr { return row?price } : float) |> should equal 2.5
     let note: obj = dlr { return row?note }                      // NULL is null
     isNull note |> should equal true
     // An unknown column is not a binder error: DapperRow's TryGetMember answers null for any name.
@@ -46,16 +50,19 @@ let ``a query's rows in a loop reuse one site; a column name with a space is a c
             acc.Add((o?name : string) + "=" + string (o?count : int64))
     }
     List.ofSeq acc |> should equal [ "a=3"; "b=10" ]
+    let first: obj = rows.Head
     let col = "display name"
-    (dlr { return (?) (box rows.Head) col } : string) |> should equal "Widget A"
+    let display: string = dlr { return (?) first col }
+    display |> should equal "Widget A"
 
 [<Fact>]
 let ``rows are settable and dictionary-like too`` () =
     use c = openDb ()
     let r = c.QueryFirst("select * from widget where name = 'b'")
-    let o = box r
+    let o: obj = r
     dlr { o?count <- 11L }                                       // DapperRow's TrySetMember
-    (dlr { return o?count } : int64) |> should equal 11L
+    let count: int64 = dlr { return o?count }
+    count |> should equal 11L
     (r :?> IDictionary<string, obj>).["count"] |> should equal (box 11L)
     // IDictionary is implemented explicitly on DapperRow, so `o?Keys` is not reachable (README:
     // explicitly implemented interface members); cast statically for those.
