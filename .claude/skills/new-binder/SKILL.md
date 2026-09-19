@@ -61,7 +61,7 @@ Minimum set for a binder change:
   shadow it.
 - The failure: what still throws (`RuntimeBinderException`) or is a `DlrTranslationException`,
   with a message assertion.
-- If a README restriction is lifted, delete its pin in `Tests/Restrictions.fs`.
+- If a restriction in `docs/restrictions.md` is lifted, delete its pin in `Tests/Restrictions.fs`.
 
 Gate: `dotnet test -c Debug`, `dotnet test -c Release` (optimizer inlining differs), and the
 `Tests.Wasm` run (interpreted runtime; expression compilation differs) — commands in CLAUDE.md.
@@ -69,8 +69,8 @@ Gate: `dotnet test -c Debug`, `dotnet test -c Release` (optimizer inlining diffe
 ## Docs
 
 - `docs/binders.md`: the binder's rule, its order relative to C#, its restrictions; `docs/call-sites.md` if it adds a site shape.
-- `README.md`: the "F# things C# `dynamic` cannot do" list gets the new capability in one
-  bullet; the restrictions section loses the lifted one. Keep it terse — the owner asked for a
-  less wordy README more than once.
+- `docs/restrictions.md`: the "five places it goes beyond C#" list gets the new capability in
+  one bullet; the restrictions list loses the lifted one. `docs/syntax.md` if it adds a form.
+  The README stays short — the owner asked for a less wordy README more than once.
 - Benchmarks in the README are Release, Apple Silicon; if you touch the hot path, re-measure
   before quoting numbers.

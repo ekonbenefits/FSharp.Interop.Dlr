@@ -35,7 +35,8 @@ let demo (w: obj) (root: obj) =
 Targets `netstandard2.0` and `net10.0`; needs FSharp.Core ≥ 10.1 at run time (and Microsoft.CSharp
 on netstandard2.0) — its expression converter is the first that handles a block's statements. Any
 compiler can reference that package; on an older SDK, set the `FSharp.Core` package version in the
-app. Experimental.
+app. Experimental. The suite also runs against real dynamic targets — Newtonsoft `JObject`,
+Python.NET, Dapper rows over SQLite, ClearScript V8 — and on browser-wasm.
 
 ## Scope
 
@@ -45,19 +46,21 @@ app. Experimental.
    here — member get/set/invoke, indexers, operators, conversions, named and generic arguments,
    `+=`/`-=`, constructors and static overloads chosen by an argument's runtime type — through
    the same Microsoft.CSharp binders, so it binds what C# binds and fails where C# fails. C#'s
-   restrictions are ours (extension methods, explicit interface members, accessibility, no AOT).
+   restrictions are ours — extension methods, explicit interface members, accessibility, no AOT:
+   [docs/restrictions.md](docs/restrictions.md).
 
 2. **F# values C#'s binder does not understand.** F# code passes things C# never produces:
    function values (`FSharpFunc`) where C# has delegates, optional parameters compiled as
    `FSharpOption` with no `[Optional]`, records and unions with structural equality but no
    `op_Equality`. For those, the library adds binding rules of its own — only where C#'s binder
-   would fail or bind against F#'s expectation, never changing what C# binds correctly.
+   would fail or bind against F#'s expectation, never changing what C# binds correctly. The
+   five places, [listed](docs/restrictions.md#five-places-it-goes-beyond-c).
 
 3. **What F#'s spelling exposes.** The F# forms are more general than C#'s syntax in a few
    places, and the library follows through rather than restricting them: `?` takes a string, so
    a member name can be a variable; `Dlr.typeArgsOf` takes a list, so type arguments can be
    run-time values; a tuple applies as several arguments, as in F#'s own method calls. Each is
-   cached per call site so it costs a lookup, not a bind.
+   cached per call site so it costs a lookup, not a bind. Every form: [docs/syntax.md](docs/syntax.md).
 
 4. **Mindful of speed.** It uses the same call sites C# does, bound once, and tries to stay in
    that neighbourhood; [docs/benchmarks.md](docs/benchmarks.md) has the numbers.
@@ -79,13 +82,10 @@ dotnet nuget add source https://nuget.pkg.github.com/ekonbenefits/index.json \
 dotnet add package FSharp.Interop.Dlr --prerelease
 ```
 
-## The `[<ReflectedDefinition>]` rule
+## Where the attribute goes
 
-A block's body is read from the reflected definition of the function or member containing it, so
-that function needs `[<ReflectedDefinition>]`. Put it on that one binding — not the module: the
-attribute makes the compiler store a quotation of everything it covers, and ordinary F# often has
-no quotation form (inner generic functions, byrefs, `Span`), so a module-wide attribute breaks
-unrelated code. An enclosing type or module attribute does work when everything in it is quotable.
+The library reads a block's body from the reflected definition of the function or member around
+it, so that function carries `[<ReflectedDefinition>]`:
 
 ```fsharp
 [<ReflectedDefinition>]
@@ -96,129 +96,44 @@ type Report(data: obj) =
     member _.Total: decimal = dlr { return data?Total }
 ```
 
-Why not have the compiler quote the block itself, and skip the attribute? Tried, and
-[scrapped](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/60): a quotation literal
-costs ~7 µs per evaluation, and a quotation carries no calling type, so the binder could not reach
-`internal` types or F# `private` members. Only the closure (what `dlr` keys on) and the attribute
-on the member know where a block sits.
+Put it on that one binding, not the module. The attribute makes the compiler store a quotation
+of everything under it, and ordinary F# often has no quotation form — inner generic functions,
+`byref`s, `Span` — so a module-wide attribute breaks unrelated code. (A type- or module-level
+attribute is fine when everything inside is quotable.) If the function around a block cannot be
+quoted, move the block into the smallest function that can.
 
-Without it, the first call raises a `DlrTranslationException` that says so. The
-[`FSharp.Interop.Dlr.Analyzers`](FSharp.Interop.Dlr.Analyzers/README.md) package reports it at
-build time instead (`DLR001`, with a fix), reports a `?` or `Dlr.*` used outside any block
-(`DLR002`) and two blocks starting on one line (`DLR003`), through `FSharp.Analyzers.Build` and
-in Ionide; it needs the `fsharp-analyzers`
-tool and `RunAnalyzers=true` in the project (see its README — builds for .NET SDK 8/9 and 10).
+Without the attribute the first call raises a `DlrTranslationException` that says so; the
+[analyzer package](FSharp.Interop.Dlr.Analyzers/README.md) reports it at build time instead
+(`DLR001`, with a fix), along with a marker used outside any block (`DLR002`) and two blocks on
+one line (`DLR003`). Why the block is not simply quoted by the compiler, sparing the attribute:
+tried and [scrapped](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/60) — a quotation
+literal costs ~7 µs per evaluation and carries no calling type, so `internal` members would not
+bind.
 
-One `dlr { }` per source line. Blocks in generic functions and members work (one site per
+One block per source line. Blocks in generic functions and members work (one site per
 instantiation); so do nested blocks, blocks inside `task { }` / `async { }`, and F# Interactive.
-Inside a block, ordinary F# is ordinary: `sprintf` and `$"…"`, `match` (literals, type tests),
-records, unions, options, tuples, lists and arrays built from dynamic results, comprehensions
-and `seq { }`, `List.map` with a lambda, `failwith`/`raise` (propagating as themselves, or
-caught by the block's `try`), even an `async { }` or `task { }` — `Tests/FSharpInBlocks.fs`
-pins each.
 
 ## Syntax
 
-A member name, or the type-argument list of `Dlr.typeArgsOf`, may be a variable: the site then
-creates its call sites per distinct name/types on first use (kept up to 256 keys, then cleared),
-and a repeated key costs a dictionary lookup.
+The common forms; [docs/syntax.md](docs/syntax.md) has every one, with what each binds to.
 
-| Syntax | Binder |
+| | |
 | --- | --- |
-| `x?Name` | GetMember, then Convert to the inferred type |
-| `x?Name(a, b)`, `x?Name()`, `x?Name args` | InvokeMember. Arguments keep their static type; `obj` arguments (`box a`, `a :> obj`) dispatch on the runtime type; literals get C#'s constant conversions (`5` to `byte`, `0` to an enum, `null` to any reference type). As in F#'s own method calls, a tuple-typed expression is several arguments (`let args = (1, 2)` then `x?Add args`) and a struct tuple is one; `box t` passes a tuple as one. A member holding an F# function value (curried or tupled) is applied when the binder cannot invoke it |
-| `x?Name(a, Dlr.named {\| p = v \|})` | named arguments (a bare anonymous record is one positional argument) |
-| `x?Name(Dlr.typeArgs<A, B>(), a)`, `x?Name(Dlr.typeArgsOf ts, a)` | explicit type arguments, first: `typeArgs` up to four; `typeArgsOf` any number, and its list may be a variable — types only known at run time, which C# `dynamic` cannot do (cached per site like a computed name); otherwise inferred from the arguments as in C# |
-| `x?Name` typed `A -> B -> R` | a curried F# function that invokes the member when fully applied — a method, a delegate or an F# function alike — so `let add: int -> int -> int = dlr { return w?Add }`, then `add 1 2` or `add 1` partially; `A * B -> R` calls with a tuple; `unit -> R` reads a property or calls a parameterless method |
-| `x?Name <- v` | SetMember |
-| `(?) x name`, `((?) x name)(a)`, `(?<-) x name v` | the same three as plain function applications |
-| `x \|> Dlr.get "Name"` | GetMember, target last, for pipelines; applied to arguments it invokes, like `?` |
-| `x \|> Dlr.invoke "Name" (a, b)` | InvokeMember, target last |
-| `x \|> Dlr.set "Name" v` | SetMember, target last |
-| `x \|> Dlr.addAssign "Name" v`, `x \|> Dlr.subtractAssign "Name" v` | C#'s `+=` / `-=`: an IsEvent site picks the event accessor (`add_` / `remove_`) or read-modify-write |
-| `x \|> Dlr.call (a, b)`, `x \|> Dlr.call ()` | Invoke the object itself: a delegate, a callable dynamic object, or an F# function value |
-| `Dlr.Static<T>.Overloads?Name(a)`, `Dlr.Static<T>.Overloads \|> Dlr.invoke "Name" (a)` | a static overload set as the target, C#'s `T.Name(dynamicArg)`: the overload is chosen by the arguments' runtime types (multiple dispatch). Calls only — a static property is `T.P` in plain F# |
-| `Dlr.new'<T>(a, b)`, `Dlr.new'<T>()` | InvokeConstructor, C#'s `new T(dynamicArg)`: the constructor overload is chosen by the arguments' runtime types (multiple dispatch); up to eight arguments, `Dlr.named` allowed |
-| `x \|> Dlr.item i`, `x \|> Dlr.item (i, j)`, `x \|> Dlr.setItem (i, j) v` | GetIndex / SetIndex, target last; a tuple is several indexes |
-| `?+? ?-? ?*? ?/? ?%? ?&&&? ?\|\|\|? ?^^^? ?<<<? ?>>>?` | BinaryOperation, then Convert |
-| `?=? ?<>? ?<? ?>? ?<=? ?>=?` | BinaryOperation, then Convert to `bool` |
-| `Dlr.neg x`, `Dlr.not x`, `Dlr.complement x` | UnaryOperation, then Convert |
-| `Dlr.cast<T> x` | explicit Convert (a C# cast) |
-| `Dlr.implicit x` | implicit Convert to the inferred type: widening, `op_Implicit`, `TryConvert` |
+| `x?Name` | get, converted to the inferred type |
+| `x?Name(a, b)` · `x?Name()` | call; arguments keep their static types, `box a` dispatches on the runtime type |
+| `x?Name(a, Dlr.named {\| p = v \|})` | named arguments |
+| `x?Name <- v` | set |
+| `x \|> Dlr.item i` · `x \|> Dlr.setItem (i, j) v` | indexers |
+| `x \|> Dlr.get "Name"` · `Dlr.invoke "Name" (a, b)` · `Dlr.set "Name" v` | the same three with the target last, for pipelines |
+| `?+?` `?-?` … `?=?` `?<?` … | operators, converted to the inferred type (comparisons to `bool`) |
+| `Dlr.cast<T> x` · `Dlr.implicit x` | explicit / implicit conversion |
+| `Dlr.Static<T>.Overloads?Name(a)` · `Dlr.new'<T>(a)` | static overload / constructor chosen by the arguments' runtime types |
+| `let f: int -> int -> int = dlr { return x?Add }` | a member read as an F# function |
 
-Around them, ordinary F#: `let`, `let rec`, `use`, `if`, `for`, `while`, `try … with`,
-`try … finally`, `let mutable` (inside the block or captured from outside, assigned anywhere in
-it), and any code that quotations can express. Loop bodies reuse the block's call sites; a
-`RuntimeBinderException` can be caught inside the block. Calling any operator or `Dlr.*` marker
-outside a block throws `InvalidOperationException`; they exist only to be quoted.
-
-## The same restrictions as C# `dynamic`
-
-Same binder, same limits — each pinned by a test in `Tests/Restrictions.fs`:
-
-- **Extension methods** are not found; the binder sees only the target's own members.
-- **Static members** cannot be reached through an instance; static *calls* have their own target,
-  `Dlr.Static<T>.Overloads`.
-- **Explicitly implemented interface members** are not found: the binder sees the runtime type's
-  public members, and an explicit implementation is a private method named `IFoo.Bar`. In F#
-  every interface implementation is explicit, so `o?Dispose()` on an F# `IDisposable` fails
-  unless the type also exposes the member; cast to the interface statically (`o :?> IFoo`) and
-  call it there.
-- **Accessibility is the calling type's**: `private` binds only inside the declaring type,
-  `internal` anywhere in the assembly. F# `private` compiles to IL `internal`.
-- **No compile-time checking**: a misspelt member or wrong arity is a `RuntimeBinderException`
-  at the call.
-- **Target and result are `obj`**, so value types box there; arguments do not. `byref` and
-  `Span` cannot cross a dynamic operation.
-- **Generic type arguments** must be inferable from the arguments, or given explicitly —
-  `Dlr.typeArgs<A, B>()` or `Dlr.typeArgsOf [ … ]`, whose list may even be a run-time value.
-- **`inline` members with a member constraint** (`^T: (member Name: string)`) are found but
-  throw `NotSupportedException` when called: their body only exists at inlining sites.
-  Operator constraints (`v + v`) are fine, they resolve at run time.
-- **No NativeAOT, no trimming.** The runtime binder, `LambdaExpression.Compile()` and the
-  reflection that finds bodies and closure fields all need a JIT; the assembly is marked
-  `IsAotCompatible=false` / `IsTrimmable=false`. Interpreted (non-AOT) browser-wasm works, and CI
-  runs it, just not at JIT speed.
-
-Five places it goes beyond C# — the first four as binder rules for what C# would have failed
-or got wrong, so nothing C# binds correctly changes. The argument rules (optional parameters,
-function/delegate conversion) apply to every kind of call: instance and static methods,
-constructors, delegate-typed members and delegate values.
-
-- **A member holding an F# function value can be called** (`e?Fn(21)`, a record field
-  `h?OnPair(3, 4)`, `f |> Dlr.call 21`), curried or tupled, any arity; and any member can be read
-  as an F# function type (`let add: int -> int -> int = dlr { return w?Add }`; curried any
-  arity, tupled up to five), which C# has no form for.
-- **An F# function fits a delegate parameter, and a delegate fits a function parameter**:
-  `x?Each(items, fun i -> …)` against an `Action<int>`, `x?Apply(3, Func<int, int>(…))` against
-  an `int -> int` — the conversions F# does at a static call. C#'s binder sees an `FSharpFunc`
-  and a `Func` as unrelated types.
-- **F# optional parameters (`?arg`) can be omitted**: omitted ones are `None`, bare values become
-  `Some`. C#'s binder cannot omit them (they are `FSharpOption<'T>` parameters with no `[Optional]`
-  metadata).
-- **`?=?` and `?<?` are structural on F# types**: records, unions, tuples, lists, options, sets
-  — anything without a CLR operator — compare as F# `=` and `compare` do. C# would compare
-  them by reference (`{ X = 1 } == { X = 1 }` is `false` there) and has no `<` for them at all.
-  Primitives, enums, strings (`==` only; `<` on strings and bools, which C# lacks, is F#'s), types declaring
-  `op_Equality` and dynamic objects keep C#'s rules.
-- **Member names and generic type arguments may be run-time values**: `(?) x name` and
-  `Dlr.typeArgsOf ts` create the call sites per distinct name or type list, cached per site. C#'s
-  are fixed at compile time.
-
-## Real targets in the tests
-
-Besides `ExpandoObject`, `DynamicObject`s and plain CLR objects, the suite runs against two
-real-world dynamic providers: Newtonsoft.Json's `JObject` (`json?owner?name`, `Dlr.item` on
-arrays, sets that write back, `TryConvert` to the inferred type; on wasm too) and Python.NET
-(`m?greet("jay", Dlr.named {| greeting = "hi" |})`, Python classes and attributes, `Dlr.call` on
-callables, dicts and lists through `Dlr.item`; skipped where no Python 3.10+ is found —
-`PYTHONNET_PYDLL` names one explicitly), and Dapper's rows over an in-memory SQLite database
-(SQLite's `int64` columns, `null`, a column name with a space as a computed name, an unknown
-column answered as null by Dapper itself), and ClearScript's V8 (JS objects, arrays indexed by
-number, functions as members with `this` and as values through `Dlr.call`, `undefined` vs
-`null`; a JS class needs `new` on the JS side). `Tests/HotPath.fs` pins what a bound call allocates —
-the block's closure, plus one box for a value-typed result, as C# `dynamic` — and that first use
-of a site under concurrency yields one cache entry and correct results on every thread.
+A member name may be a variable (`(?) x name`), and so may the type-argument list
+(`Dlr.typeArgsOf ts`); each distinct value gets its own call sites, cached per site. Around the
+markers, ordinary F#: `let`, `let rec`, `let mutable`, `use`, `if`, `match`, `for`, `while`,
+`try`, lambdas, `sprintf`. A `RuntimeBinderException` can be caught inside the block.
 
 ## How it works
 
