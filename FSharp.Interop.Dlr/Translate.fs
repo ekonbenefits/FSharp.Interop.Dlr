@@ -416,9 +416,12 @@ module internal Translate =
     module private Captures =
 
         /// The container's fields by name. A state machine also has fields of its own, `Data`
-        /// (a `DlrData<_>`) and `ResumptionPoint` (an int), declared first; a captured variable
-        /// with one of those names gets a field of the same name after them (IL allows it), so
-        /// the machine's own are skipped rather than found by name.
+        /// (a `DlrData<_>`) and `ResumptionPoint` (an int), declared first, and they are skipped
+        /// rather than found by name: a captured `Data` gets a second field of that name after
+        /// them (IL allows it, the types differ); a captured `ResumptionPoint` is an `FSharpRef`
+        /// when mutable, a compiler error (FS2014, as in `task { }`) when an `int` the optimizer
+        /// kept, and when it inlined the value there is no field, and the body's variable of that
+        /// name must resolve from the enclosing member, not to the machine's own counter.
         let fields (containerType: Type) : Collections.Generic.IDictionary<string, Reflection.FieldInfo> =
             let all = containerType.GetFields(Reflection.BindingFlags.Instance ||| Reflection.BindingFlags.Public ||| Reflection.BindingFlags.NonPublic)
             let isData (f: Reflection.FieldInfo) =

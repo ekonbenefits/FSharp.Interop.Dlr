@@ -40,8 +40,9 @@ nested delegates (loop and try bodies), and the copy costs nothing measurable, w
   `let`s of literals and variables are inlined, so `w |> Dlr.get "A"` is the same node as
   `Dlr.get "A" w` with a literal name.
 - **Captured variables** become reads of the container's fields by name (`Captures.fields`
-  skips the machine's own `Data` and `ResumptionPoint`, declared first: a captured variable of
-  that name has a second field of the same name after them); a `let mutable` is an
+  skips the machine's own `Data` and `ResumptionPoint`, declared first: a captured `Data` has a
+  second field of that name after them; an inlined `ResumptionPoint` has none and must not find
+  the machine's, and an `int` one the optimizer keeps is a compiler error, as in `task { }`); a `let mutable` is an
   `FSharpRef` field, read through `.Value`. When the Release optimizer inlined a value instead of
   capturing it, its definition is taken from the enclosing member's reflected body: a `let`, or
   the single application of a once-called local function.

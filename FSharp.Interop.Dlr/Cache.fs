@@ -24,10 +24,12 @@ module DlrCache =
     /// Number of compiled `dlr { }` sites.
     let count () = cache.Count
 
-    /// Drops every compiled site; the next call at each site recompiles.
+    /// Drops every compiled site; the next call at each site recompiles. The dictionary is
+    /// cleared *before* the generation moves: a miss that reads the new generation must not be
+    /// able to find a pre-clear entry in the dictionary and install it stamped as current.
     let clear () =
-        Interlocked.Increment &generation |> ignore
         cache.Clear()
+        Interlocked.Increment &generation |> ignore
         lock onClear (fun () -> for f in onClear do f ())
 
     let internal getOrCompile (builderType: unit -> Type) (blockType: Type) (file: string) (line: int) (resultType: Type) =
@@ -123,7 +125,9 @@ type DlrRun =
     static member Closure<'T>(builder: obj, code: ResumableCode<DlrData<'T>, 'T>, file: string, line: int) : 'T =
         let target = code.Target
         if isNull target then
-            raise (DlrTranslationException(sprintf "dlr { } at %s:%d: the block's resumable code has no closure to compile from." file line))
+            // An optimized build inlined the Delay closure and left a static delegate: only a
+            // site the compiler could not turn into a state machine (FS3511) gets here.
+            raise (DlrTranslationException(sprintf "dlr { } at %s:%d could not be compiled as a state machine (the compiler reported FS3511 at the site) and left no closure to compile from; write the block as dlr { … } rather than calling the builder's members directly." file line))
         let field =
             DlrRun.delayedFields.GetOrAdd(target.GetType(), fun t ->
                 match t.GetField("delayed", BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic) with

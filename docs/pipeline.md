@@ -45,15 +45,18 @@ the machine by reference and reads the captured variables off its fields. No clo
 allocated and no `GetType()` runs.
 
 **Fallback.** Where the compiler does not build the machine — Debug builds (`__useResumableCode`
-is false without optimization), or a Release site it reports as not statically compilable
-(warning FS3511; none in the suite) — `Run`'s `else` branch receives the `ResumableCode`
+is false without optimization) — `Run`'s `else` branch receives the `ResumableCode`
 delegate. `DlrRun.Closure` reads the block's `Delay` closure back out of that delegate's
 target (the builder's own `Delay` lambda captures it in a field named `delayed`; when the
 optimizer has inlined it, the target itself is the closure) and continues on the closure path:
 the closure's type is the key, its fields the captured values, and `Sites<'T>` the typed cache
 (last-hit compare, then a dictionary). Same contract, same `Discover` and `Translate`; the cost
 is the closure allocation, `GetType()` and a field read. Both paths are exercised: the suite
-runs in Debug and in Release.
+runs in Debug and in Release. A Release site the compiler reports as not statically compilable
+(warning FS3511) also takes the `else` branch, but there the optimizer has inlined the closure
+away and left a static delegate with no target, so `DlrRun.Closure` raises a
+`DlrTranslationException` naming the site; no `dlr { }` syntax produces FS3511 (only direct
+calls to the builder's members do), so the suite has none.
 
 ## One call on the hot path
 
@@ -66,11 +69,11 @@ sequenceDiagram
     participant C as CallSite (DLR)
 
     U->>R: the state machine struct, on the stack
-    R->>M: DlrRun.Machine(builder, &sm, file, line)
+    R->>M: DlrRun.Machine(builder, sm by reference, file, line)
     M->>M: static slot read, generation compare
     M-->>R: DlrReader<'SM, 'T>
-    R->>D: Invoke(&sm)
-    D->>D: copy the machine to a local; read captured fields
+    R->>D: Invoke(sm by reference)
+    D->>D: copy the machine to a local, read captured fields
     D->>C: site.Target(site, target, args…)
     C->>C: rule cache: restriction on runtime type
     C-->>D: obj (or a value for a typed site)

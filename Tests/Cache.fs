@@ -88,8 +88,15 @@ let ``clear then a call recompiles`` () =
 
 [<Fact>]
 let ``captured variables named like the state machine's own fields still resolve`` () =
-    // The compiled block's struct has `Data` and `ResumptionPoint` fields of its own; a captured
-    // local with one of those names must still be found (the compiler renames its field).
+    // The compiled block's struct has `Data` and `ResumptionPoint` fields of its own, which the
+    // translator must not resolve a variable to. `Data`: the closure gets a second field of that
+    // name (of the local's type). `ResumptionPoint`: the optimizer inlines the literal, so there is
+    // no field and the variable resolves from the enclosing member, not to the machine's counter
+    // (which would read 0). An `int` of that name the optimizer keeps is a compiler error in
+    // Release, as in task { }; a `let mutable` is an FSharpRef field and clashes with nothing.
     let Data = box (Widget())
     let ResumptionPoint = 2
     (dlr { return Data?Add(ResumptionPoint, 1) } : int) |> should equal 3
+    let mutable ResumptionPoint = 5
+    dlr { ResumptionPoint <- Data?Add(ResumptionPoint, 1) }
+    ResumptionPoint |> should equal 6
