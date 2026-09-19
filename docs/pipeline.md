@@ -82,9 +82,9 @@ sequenceDiagram
 
 About 11 ns for `w?Add(i, 1)` against 7.8 for C# `dynamic`, and no allocation but the box of a
 value result: what remains of the block's entry is the machine's construction, the slot read
-and the invoke; the site call itself is C#'s. (The closure path was about 20 ns and 24 B, of
-which the closure, `GetType()` and the compare were 12; a `Func<'SM, 'T>` taking the struct by
-value instead of the `inref` reader measured 13 ns slower than the reader, so the reader it is.)
+and the invoke; the site call itself is C#'s. (The closure path — the Debug fallback — is about
+20 ns and 24 B, of which the closure, `GetType()` and the compare are 12. A `Func<'SM, 'T>`
+taking the struct by value instead of the `inref` reader measures 13 ns slower than the reader.)
 
 The 3–4 ns left over C# is the entry path measured on its own without a site (3–4 ns in the
 spike), and it is one delegate hop more than C# has: C# emits the site call inline in the caller
@@ -130,13 +130,13 @@ paid on the first invoke like any C# `dynamic` call site.
 
 ## Measured
 
-Release, net10.0, Apple Silicon; the current numbers for every path are in
-[benchmarks.md](benchmarks.md) (`Benchmarks/bench.sh docs`). Older spot measurements, for the
-function-member paths:
+Release, net10.0, Apple Silicon; the numbers for every path are in
+[benchmarks.md](benchmarks.md) (`Benchmarks/bench.sh docs`). Spot measurements for the
+function-member paths, which the suite does not all cover:
 
 | | ns |
 | --- | --- |
-| block, `w?Add(i, 1)` on a method | 11 (18 on the closure path; 29 before the hoisted sites and typed cache) |
+| block, `w?Add(i, 1)` on a method | 11 |
 | block, `e?Fn(i)` with `Fn` an F# function property | 33 |
 | one site alternating between the two kinds | 70 |
 | bound `int -> int -> int`, full application | 11 |

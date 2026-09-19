@@ -70,15 +70,14 @@ call (`site.Target` and the `site` argument), so a LINQ `ExpressionVisitor` (`Si
 `Translate.fs`) gives each lambda — the block's own and every nested loop/try body — a `Block`
 binding the sites its body uses to variables assigned once at entry; a use is a local read. Per
 lambda, because a variable captured by a nested lambda would be a `StrongBox` read, no better than
-the constant; on the LINQ tree, because FSharp.Core before 10.1 converted a quotation `Let` into a
-nested lambda invocation (measured 50× slower; the floor is now 10.1, for the same converter's
-`Sequential`/`PropertySet` support). Measured, a member call went from ~30 ns to ~18 against C#
-`dynamic`'s ~7.5; what remained was the block's entry, since cut to ~11 by the struct state
-machine ([pipeline](pipeline.md)), whose by-reference reader is wrapped around the hoisted lambda
-after this pass, so the site locals sit inside the copy of the machine.
+the constant; on the LINQ tree, because FSharp.Core below 10.1 converts a quotation `Let` into a
+nested lambda invocation (measured 50× slower; the floor is 10.1 for the same converter's
+`Sequential`/`PropertySet` support). Hoisting is worth about 12 ns on a member call; the rest of
+the cost is the block's entry ([pipeline](pipeline.md)), whose by-reference reader is wrapped
+around the hoisted lambda after this pass, so the site locals sit inside the copy of the machine.
 
-An earlier design emitted a holder type with static fields per block (the C# compiler's shape,
-~1 ns faster) and was dropped: a non-collectible holder cannot reference argument types from a
+The alternative, a holder type with static fields per block (the C# compiler's shape, ~1 ns
+faster), was built and rejected: a non-collectible holder cannot reference argument types from a
 collectible `AssemblyLoadContext` (a regression for plugin hosts), and holders leaked after
 `DlrCache.clear()`; a per-block collectible assembly fixed both but meant an assembly per block
 in tooling. Hoisting gives up the nanosecond for none of that.
