@@ -56,14 +56,11 @@ typed cache (last-hit compare, then a dictionary). Same contract, same `Discover
 is the closure allocation, `GetType()` and a field read. Both paths are exercised: the suite
 runs in Debug and in Release.
 
-The builder's members written out by hand, `dlr.Run(dlr.Delay(fun () -> …))`, are the same
-block: the compiler builds the machine for them too, no warning. What is *not* a block is the
-`Delay` result bound to a `let` or passed in as a value and `Run` applied to that: the body is
-then not at the `Run` call, `Discover` finds a `Run` at the line with a value for its argument,
-and raises a `DlrTranslationException` saying so (the compiler also warns — FS3501 for the
-binding, FS3511 "not statically compilable" for the parameter — and takes the `else` branch,
-where a closure-less static delegate gets the same message from `DlrRun.Closure`).
-`Tests/Unreflected.fs` pins each shape.
+Every `dlr { }` desugars to `Run(Delay(fun () -> …))` in one expression, which the compiler
+always builds the machine for; nothing the syntax produces reaches the `else` branch in
+Release. (Only the builder's members called by hand with the `Delay` result bound or passed
+separately do — FS3501/FS3511 from the compiler, and a `DlrTranslationException` from
+`Discover`, which finds no body at the call — and nobody writes that.)
 
 ## One call on the hot path
 
