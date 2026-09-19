@@ -229,7 +229,7 @@ translated into an expression tree with one `CallSite` per operation baked in as
 compiled to a `Func<obj, 'T>` cached by closure type. Invocation sites use C#'s binder wrapped in
 one that also applies F# function values, as DLR rules per runtime type.
 
-[docs/internals.md](docs/internals.md) has the full picture: every cache, every site and its
+[docs/internals.md](docs/internals.md) indexes the full picture: every cache, every site and its
 argument flags, the F#-aware binders, and what the translator assumes about the compiler.
 
 ## Measured

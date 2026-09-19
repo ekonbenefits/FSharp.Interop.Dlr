@@ -1,0 +1,57 @@
+# Caches
+
+Where every piece of state lives, what keys it, and how long it lasts. Part of
+[internals](internals.md).
+
+| Cache | Key | Value | Lifetime | Where |
+| --- | --- | --- | --- | --- |
+| `DlrCache` | closure `Type` (one per block; per instantiation for generic members) | `Compiled { Delegate: Func<obj,'T>; ResultType }` | process; `DlrCache.clear()` drops it | `Cache.fs` |
+| `Sites<'T>` | closure `Type`, per result type | the same delegate, already typed `Func<obj,'T>`, stamped with the clear generation it was compiled under — the hot path's lookup, no cast; plus a last-compiled slot (an immutable entry swapped atomically) so a block called repeatedly pays a reference compare, not a hash lookup, and blocks called in turn pay a lookup each and never write | process; `DlrCache.clear()` bumps the generation, so no pre-clear entry is served however it got installed | `Cache.fs` |
+| reflected definitions | declaring `Type` (module or class) | every `(MethodBase, Expr)` with a reflected definition on it and its nested types | process | `Discover.fs` |
+| `SiteCache<'Key>` | `string * Type list` — the member name and the explicit type arguments; whichever is static is a constant in the key | the operation's `CallSite[]` for that key | per site (a constant in the compiled tree); at `Capacity` (256) entries it clears and refills | `Binders.fs`, for `(?) x name` with a variable name |
+| `FunctionConversions.conversions`, `DelegateConversions.makers` | (function type, delegate type) | the emitted factory that adapts one to the other | process; bounded by the program's types | `Binders.fs` |
+| DLR rule cache | runtime types (restrictions) | the bound rule | per `CallSite<_>` | inside each site, owned by the DLR |
+
+## How they relate
+
+```mermaid
+flowchart LR
+    subgraph process["process-wide"]
+        DC["DlrCache<br/>closure Type → Compiled"]
+        S["Sites&lt;'T&gt;<br/>typed mirror + last hit,<br/>generation-stamped"]
+        RD["reflected definitions<br/>declaring Type → (MethodBase, Expr) list"]
+        CV["conversion factories<br/>(function type, delegate type)"]
+    end
+    subgraph delegate["inside one compiled delegate (collected with it)"]
+        CS["CallSites<br/>Expression.Constant, hoisted to locals"]
+        SC["SiteCache<br/>(name, types) → CallSite[]<br/>capacity 256"]
+        RC["DLR rule cache<br/>per site, per runtime type"]
+    end
+
+    S -- miss --> DC
+    DC -- miss --> RD
+    DC -- "compiles into" --> CS
+    DC -- "for a computed name" --> SC
+    SC --> CS
+    CS --> RC
+    RC -. "function ↔ delegate arguments" .-> CV
+
+    clear(["DlrCache.clear()"]) --> DC
+    clear -- "bumps the generation" --> S
+```
+
+`clear()` drops the compiled delegates and invalidates the typed entries; the next call at each
+site recompiles. It does not touch the reflected-definition cache (decoding is per type, and the
+definitions have not changed) or the conversion factories (per type pair, and still correct).
+Everything inside a delegate — its sites, their rule caches, a `SiteCache` for a computed name —
+is reachable only from that delegate and goes with it.
+
+## Bounds
+
+- `DlrCache` and `Sites<'T>`: one entry per block (per instantiation of a generic member).
+- reflected definitions: one list per type that has had a block looked up in it.
+- `SiteCache`: 256 keys per site, then it clears and refills; concurrent misses are admitted
+  under a lock so the bound holds.
+- conversion factories: one per (function type, delegate type) pair that has been converted.
+- The DLR's rule caches: the DLR's own policy (a polymorphic cache per site, with a global
+  fallback past a handful of rules).
