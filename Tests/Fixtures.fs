@@ -69,6 +69,7 @@ type Holders() =
     member val AsObj: obj = box (fun (x: int) -> x * 3) with get, set
     member val AsDelegate: Func<int> = Func<int>(fun () -> 9) with get, set
     member val AsFunction: int -> int = (fun x -> x + 1) with get, set
+    member val Label: string -> string = (fun s -> if isNull s then "null" else s) with get
     member _.Item with get (i: int) = i * 10
     /// F# private: IL internal, reachable from this assembly's context, as the binder allows.
     member private _.Hidden = fun (x: int) -> x - 1

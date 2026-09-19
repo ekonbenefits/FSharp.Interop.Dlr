@@ -112,7 +112,13 @@ module internal FunctionShapes =
     /// itself, for the largest delegates). None until then, and None when nothing applies.
     let mutable convertArgument : Type -> DynamicMetaObject -> Expression option = fun _ _ -> None
 
-    let private fitsArg (domain: Type) (a: DynamicMetaObject) = fits domain a.LimitType || (convertArgument domain a).IsSome
+    /// A null value fits any reference-type domain whatever its static type (an untyped `null`
+    /// is `obj`), as C# lets `null` go to any reference parameter; the rule then carries an
+    /// instance restriction for it (`restrictions`).
+    let private fitsArg (domain: Type) (a: DynamicMetaObject) =
+        fits domain a.LimitType
+        || (a.HasValue && isNull a.Value && not domain.IsValueType)
+        || (convertArgument domain a).IsSome
 
     /// The `FSharpFunc<_, _>` a type is or derives from: a function value's runtime type is a
     /// compiler-generated subclass (`f@12`), a member's declared type usually the base itself.
@@ -130,6 +136,7 @@ module internal FunctionShapes =
         if fits t a.LimitType then
             let unboxed = if a.Expression.Type = a.LimitType then a.Expression else Expression.Convert(a.Expression, a.LimitType) :> Expression
             if a.LimitType = t then unboxed else Expression.Convert(unboxed, t) :> Expression
+        elif a.HasValue && isNull a.Value && not t.IsValueType then Expression.Convert(a.Expression, t) :> Expression   // null: any reference type
         else (convertArgument t a).Value
 
     /// A function type's parameter list and result: `(A * B) -> R` is `[A; B]` tupled, `A -> B -> R`
@@ -204,8 +211,15 @@ module internal FunctionShapes =
                                 | _ -> None
                         chain read funcType args |> Option.map boxed
 
-    let private restrictions (target: DynamicMetaObject) (targetType: Type) (args: DynamicMetaObject[]) =
-        Array.fold (fun (r: BindingRestrictions) (a: DynamicMetaObject) -> r.Merge(BindingRestrictions.GetTypeRestriction(a.Expression, a.LimitType)))
+    /// The rule's restrictions: the function's runtime type and each argument's. A null argument
+    /// (a null reference, or `unit`, whose value is null) gets an instance restriction: a type
+    /// restriction can never hold for it, and a rule that fails its own test makes the DLR
+    /// re-bind forever.
+    let restrictions (target: DynamicMetaObject) (targetType: Type) (args: DynamicMetaObject[]) =
+        let forArg (a: DynamicMetaObject) =
+            if a.HasValue && isNull a.Value then BindingRestrictions.GetInstanceRestriction(a.Expression, null)
+            else BindingRestrictions.GetTypeRestriction(a.Expression, a.LimitType)
+        Array.fold (fun (r: BindingRestrictions) (a: DynamicMetaObject) -> r.Merge(forArg a))
             (BindingRestrictions.GetTypeRestriction(target.Expression, targetType)) args
 
     /// A rule applying `value` with `args` if its runtime type is a fitting FSharpFunc: the DLR
@@ -707,9 +721,7 @@ type FSharpInvokeMemberBinder(context: Type, name: string, csharp: InvokeMemberB
     /// otherwise C#'s own binding, with a rule for F# optional parameters as its error suggestion.
     override _.FallbackInvokeMember(target, args, errorSuggestion) =
         let t = target.LimitType
-        let restrictions =
-            Array.fold (fun (r: BindingRestrictions) (a: DynamicMetaObject) -> r.Merge(BindingRestrictions.GetTypeRestriction(a.Expression, a.LimitType)))
-                (BindingRestrictions.GetTypeRestriction(target.Expression, t)) args
+        let restrictions = FunctionShapes.restrictions target t args
         let direct =
             FunctionShapes.clrMember context t name target
             |> Option.bind (fun (mt, read) ->

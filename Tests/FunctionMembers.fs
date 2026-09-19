@@ -266,3 +266,33 @@ let ``a method of only optional parameters can be read as unit -> R`` () =
     let o = box (Widget())
     let wrap: unit -> string = dlr { return o?Wrap }
     wrap () |> should equal "<x>"
+
+/// A null argument to an F# function member, or to `Dlr.call` on a function: the rule's
+/// restriction on that argument must be an instance restriction (a type restriction can never
+/// hold for null), or the DLR re-binds forever. Run with a timeout so a regression fails rather
+/// than hangs the suite.
+let private within (ms: int) (f: unit -> 'a) : 'a =
+    // No second thread on wasm: run directly there (the JIT legs still catch a re-bind loop).
+    if System.Environment.ProcessorCount < 2 then f ()
+    else
+        let t = System.Threading.Tasks.Task.Run f
+        if t.Wait ms then t.Result else failwith "timed out: the site is re-binding forever"
+
+[<Fact>]
+let ``a null argument to an F# function member binds, and does not re-bind forever`` () =
+    let h = box (Holders())
+    within 5000 (fun () -> (dlr { return h?Label("x") } : string)) |> should equal "x"
+    within 5000 (fun () -> (dlr { return h?Label(null) } : string)) |> should equal "null"            // an untyped null is obj: fits a string domain
+    within 5000 (fun () -> (dlr { return h?Label(null: string) } : string)) |> should equal "null"
+    within 5000 (fun () -> (dlr { return h?Label("y") } : string)) |> should equal "y"                // the site keeps both rules
+    let label = box (fun (s: string) -> if isNull s then "null" else s)
+    within 5000 (fun () -> (dlr { return label |> Dlr.call (null: string) } : string)) |> should equal "null"
+    within 5000 (fun () -> (dlr { return label |> Dlr.call null } : string)) |> should equal "null"
+
+[<Fact>]
+let ``a unit-typed variable as the argument means no arguments`` () =
+    let w = box (Widget())
+    let args = ()
+    (dlr { return w?Describe(args) } : string) |> should equal "described"
+    let f = box (fun () -> 42)
+    within 5000 (fun () -> (dlr { return f |> Dlr.call args } : int)) |> should equal 42
