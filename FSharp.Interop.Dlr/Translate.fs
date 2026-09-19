@@ -697,11 +697,11 @@ module internal Translate =
 
         /// Variables bound inside the expression being rewritten are left alone; anything else
         /// that is not the builder comes from the closure or the enclosing member.
-        let isCaptured (bound: Set<Var>) (v: Var) = not (bound.Contains v) && v.Type <> builderType
+        let isCaptured (bound: Set<Var>) (v: Var) = not (bound.Contains v) && v.Type <> block.BuilderType
 
         let isBuilder (receiver: Expr option) =
             match receiver with
-            | Some r -> r.Type = builderType
+            | Some r -> r.Type = block.BuilderType
             | None -> false
 
         /// Builder calls and marker operations go to their sections; everything else is generic

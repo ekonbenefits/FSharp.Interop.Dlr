@@ -354,6 +354,12 @@ module DelegateFunction =
             let ga = funcType.GetGenericArguments()
             Activator.CreateInstance(typedefof<TupledDelegateFunction<_, _>>.MakeGenericType(ga.[0], ga.[1]), [| box d |])
 
+    /// `Make` as a method, for the expression tree of a bound call to name it.
+    let makeMethod : MethodInfo =
+        match <@ Make typeof<obj> null @> with
+        | Patterns.Call(_, mi, _) -> mi
+        | _ -> failwith "unreachable"
+
 /// A delegate over an F# function (`FunctionAdapters`, in Adapters.fs): per (function type,
 /// delegate type) a factory emitted once as IL — `new Adapter(f)` and the delegate constructor
 /// over its `Invoke` — so a conversion costs an allocation, not `Delegate.CreateDelegate`'s
@@ -472,7 +478,7 @@ module internal OptionalArguments =
         match domainsOf with
         | Some(domains, _, result) when domains.Length = paramTypes.Length && List.forall2 (fun (d: Type) (p: Type) -> d = p) domains paramTypes
                                           && (invoke.ReturnType = result || (invoke.ReturnType = typeof<Void> && result = typeof<unit>)) ->
-            let make = typeof<TupledDelegateFunction<obj, obj>>.Assembly.GetType("FSharp.Interop.Dlr.DelegateFunction").GetMethod("Make")
+            let make = DelegateFunction.makeMethod
             Some(Expression.Convert(Expression.Call(make, Expression.Constant funcType, Expression.Convert(a.Expression, typeof<Delegate>)), funcType) :> Expression)
         | _ -> None
 
