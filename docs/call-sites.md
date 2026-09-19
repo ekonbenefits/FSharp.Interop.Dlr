@@ -72,7 +72,10 @@ delegate per name list (target, the fixed arguments, the named values as `obj[]`
 delegate type, so the call is a typed `Invoke`. A lookup compares the pairs' names against the
 entries in place (a site sees few name lists) and allocates nothing but the values array; a
 miss is a `Compile()` (once). At `Capacity` (64) entries it clears. Measured ~130 ns a call
-against ~25 for `Dlr.named`. Only with a literal member name and static type arguments.
+against ~25 for `Dlr.named`. With a computed member name or run-time type arguments, their
+expressions are evaluated in the block's scope and passed into the per-name-list delegate as
+parameters, where the operation is a `keyedSiteCore` of its own: a delegate per name list (few),
+sites per member name inside it (many, no `Compile()`) — each cost where it belongs.
 
 ## Sites hoisted into locals
 

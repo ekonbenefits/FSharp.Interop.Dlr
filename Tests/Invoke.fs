@@ -264,7 +264,16 @@ let ``namedOf: a constructor, a static overload set, Dlr.apply on a TryInvoke ob
     List.ofSeq r.Log |> should equal [ "invoke self(2 args)" ]
 
 [<Fact>]
-let ``namedOf: with a computed name or run-time type arguments is a translation error`` () =
+let ``namedOf: with a computed member name, and with run-time type arguments`` () =
+    // Both from data: the function named in config with the keyword arguments from config.
     let w = box (Widget())
-    let name = "Add"
-    (fun () -> (dlr { return (?) w name (Dlr.namedOf [ "a", box 1; "b", box 2 ]) } : int) |> ignore) |> should throw typeof<DlrTranslationException>
+    let call (name: string) (kw: (string * obj) list) : string = dlr { return (?) w name (Dlr.namedOf kw) }
+    call "Greet" [ "name", box "Jay"; "greeting", box "Hi" ] |> should equal "Hi, Jay"
+    call "Greet" [ "greeting", box "Yo"; "name", box "Ann" ] |> should equal "Yo, Ann"       // another name list, same member
+    let add (name: string) (kw: (string * obj) list) : int = dlr { return (?) w name (Dlr.namedOf kw) }
+    add "Add" [ "b", box 2; "a", box 1 ] |> should equal 3
+    for i in 1 .. 20 do
+        call "Greet" [ "name", box (string i); "greeting", box "N" ] |> should equal ("N, " + string i)
+        add "Add" [ "a", box i; "b", box i ] |> should equal (i + i)
+    let ts = [ typeof<int64> ]
+    (dlr { return w?Echo(Dlr.typeArgsOf ts, Dlr.namedOf [ "x", box 42L ]) } : int64) |> should equal 42L

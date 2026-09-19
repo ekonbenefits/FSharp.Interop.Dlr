@@ -90,6 +90,9 @@ let ``Python module functions, positional and keyword arguments`` () =
     let kwargs = [ "punct", box "?"; "greeting", box "yo" ]
     (dlr { return m?greet("jay", Dlr.namedOf kwargs) } : string) |> should equal "yo jay?"
     (dlr { return m?greet("jay", Dlr.namedOf [ "greeting", box "hi" ]) } : string) |> should equal "hi jay!"
+    // The function name from data too.
+    let fname = "greet"
+    (dlr { return (?) m fname ("jay", Dlr.namedOf kwargs) } : string) |> should equal "yo jay?"
 
 [<Fact>]
 let ``Python objects: attributes, methods, defaults, repr`` () =
