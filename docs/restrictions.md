@@ -13,6 +13,9 @@ Same binder, same limits — each pinned by a test in `Tests/Restrictions.fs`:
   call it there.
 - **Accessibility is the calling type's**: `private` binds only inside the declaring type,
   `internal` anywhere in the assembly. F# `private` compiles to IL `internal`.
+- **A block cannot live in an `inline` function or member** — the function is expanded into
+  every caller, taking the block's values with it and leaving its body behind; the analyzer
+  reports it (`DLR004`). Not a C# restriction (C# has no `inline`), but the same family.
 - **No compile-time checking**: a misspelt member or wrong arity is a `RuntimeBinderException`
   at the call.
 - **Target and result are `obj`**, so value types box there; arguments do not. `byref` and

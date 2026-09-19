@@ -75,6 +75,9 @@ let ``values the optimizer inlines instead of capturing still resolve`` () =
     (dlr { return w?Add(five, five) } : int) |> should equal 10
     (dlr { return w?Text(nothing) } : string) |> should equal "string"
     (dlr { return w?Greet(greeting (), "you") } : string) |> should equal "Hi, you"
+    // A lambda applied on the spot is beta-reduced the same way: its parameter is the argument.
+    (fun (k: int) -> (dlr { return w?Add(k, 1) } : int)) 41 |> should equal 42
+    (fun (a: int) (b: string) -> (dlr { return w?Greet(b, string a) } : string)) 7 "Hi" |> should equal "Hi, 7"
 
 [<Fact>]
 let ``clear then a call recompiles`` () =

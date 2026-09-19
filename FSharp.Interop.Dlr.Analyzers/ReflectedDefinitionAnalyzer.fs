@@ -19,6 +19,12 @@ let OutsideCode = "DLR002"
 [<Literal>]
 let SharedLineCode = "DLR003"
 
+/// A `dlr { }` inside an `inline` function or member: the function is expanded into each caller,
+/// so the block's container is built there with the caller's values (a constant has no field at
+/// all) and its body is not where the reflected definition says. It cannot work.
+[<Literal>]
+let InlineCode = "DLR004"
+
 let private isReflectedDefinition (attributes: seq<FSharpAttribute>) =
     attributes
     |> Seq.exists (fun a ->
@@ -77,6 +83,32 @@ type private Finding =
     { Block: range
       /// The function or member the compiler stores a definition for, for the message; None for module-level code.
       Binding: FSharpMemberOrFunctionOrValue option }
+
+/// Every `dlr.Run(...)` in an `inline` function or member, with the binding.
+let rec private inInline (decls: FSharpImplementationFileDeclaration list) : (range * FSharpMemberOrFunctionOrValue) list =
+    decls
+    |> List.collect (fun decl ->
+        match decl with
+        | FSharpImplementationFileDeclaration.Entity(_, subDecls) -> inInline subDecls
+        | FSharpImplementationFileDeclaration.MemberOrFunctionOrValue(mfv, _, body) ->
+            let isInline =
+                try mfv.InlineAnnotation = FSharpInlineAnnotation.AlwaysInline || mfv.InlineAnnotation = FSharpInlineAnnotation.AggressiveInline
+                with _ -> false
+            if isInline then runCalls body |> List.map (fun r -> r, mfv) else []
+        | FSharpImplementationFileDeclaration.InitAction _ -> [])
+
+let private analyzeInline (typedTree: FSharpImplementationFileContents option) : Message list =
+    match typedTree with
+    | None -> []
+    | Some contents ->
+        inInline contents.Declarations
+        |> List.map (fun (m, mfv) ->
+            { Type = "dlr { } in an inline function"
+              Message = sprintf "dlr { } inside the inline function or member '%s' cannot work: the function is expanded into every caller, where the block's captured values are inlined away and its body is not where the reflected definition says. Remove 'inline', or move the block into a function that is not inline." mfv.DisplayName
+              Code = InlineCode
+              Severity = Severity.Error
+              Range = m
+              Fixes = [] })
 
 let rec private findInDeclarations (reflected: bool) (decls: FSharpImplementationFileDeclaration list) : Finding list =
     decls
@@ -172,6 +204,7 @@ let private analyzeSharedLines (typedTree: FSharpImplementationFileContents opti
 let private analyze (tree: ParsedInput) (typedTree: FSharpImplementationFileContents option) : Message list =
     analyzeOutside typedTree
     @ analyzeSharedLines typedTree
+    @ analyzeInline typedTree
     @ match typedTree with
       | None -> []
       | Some contents ->

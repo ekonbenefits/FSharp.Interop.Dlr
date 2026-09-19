@@ -13,6 +13,7 @@ code is reported without a fix: move it into a function.
 | `DLR001` | Error | a `dlr { }` with no `[<ReflectedDefinition>]` on its enclosing function/member, module or type |
 | `DLR002` | Error | a `?` operator or `Dlr.*` marker used outside any `dlr { }` (it is only ever quoted; executed, it throws `InvalidOperationException`) |
 | `DLR003` | Error | two or more `dlr { }` blocks starting on one source line (a block is found by the line of its `Run` call; the first call raises `DlrTranslationException`) |
+| `DLR004` | Error | a `dlr { }` inside an `inline` function or member: the function is expanded into every caller, where the block's captured values are inlined away and its body is not where the reflected definition says; remove `inline` or move the block out |
 
 ## Setup
 
