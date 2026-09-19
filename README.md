@@ -94,6 +94,12 @@ type Report(data: obj) =
     member _.Total: decimal = dlr { return data?Total }
 ```
 
+Why not have the compiler quote the block itself, and skip the attribute? Tried, and
+[scrapped](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/60): a quotation literal
+costs ~7 µs per evaluation, and a quotation carries no calling type, so the binder could not reach
+`internal` types or F# `private` members. Only the closure (what `dlr` keys on) and the attribute
+on the member know where a block sits.
+
 Without it, the first call raises a `DlrTranslationException` that says so. The
 [`FSharp.Interop.Dlr.Analyzers`](FSharp.Interop.Dlr.Analyzers/README.md) package reports it at
 build time instead (`DLR001`, with a fix), reports a `?` or `Dlr.*` used outside any block
