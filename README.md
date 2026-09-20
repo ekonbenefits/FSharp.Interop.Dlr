@@ -1,7 +1,7 @@
 # FSharp.Interop.Dlr
 
 [![CI](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml/badge.svg)](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml)
-[![Tests](https://img.shields.io/badge/tests-191%20passed-brightgreen.svg?style=flat)](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml)
+[![Tests](https://img.shields.io/badge/tests-270%20passed-brightgreen.svg?style=flat)](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml)
 [![Line coverage](https://img.shields.io/badge/line%20coverage-93%25-brightgreen.svg?style=flat)](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml)
 [![Branch coverage](https://img.shields.io/badge/branch%20coverage-87%25-green.svg?style=flat)](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](License.txt)
@@ -33,15 +33,14 @@ let demo (w: obj) (root: obj) =
     n, s, v, name, depth
 ```
 
-Targets `netstandard2.0` and `net10.0`; needs FSharp.Core ≥ 10.1 at run time (and Microsoft.CSharp
-on netstandard2.0) — its expression converter is the first that handles a block's statements. Any
-compiler can reference that package; on an older SDK, set the `FSharp.Core` package version in the
-app. Experimental. The suite also runs against real dynamic targets — Newtonsoft `JObject`,
+Targets `netstandard2.0` and `net10.0`; depends on FSharp.Core ≥ 10.1.201 — its expression
+converter is the first that handles a block's statements. Any compiler can reference that
+package; on an older SDK, set the `FSharp.Core` package version in the app. Experimental. The suite also runs against real dynamic targets — Newtonsoft `JObject`,
 Python.NET, Dapper rows over SQLite, ClearScript V8 — and on browser-wasm.
 
 ## Scope
 
-`dlr { }` is C# `dynamic` for F#, and the scope follows from that in three steps:
+`dlr { }` is C# `dynamic` for F#, and the scope follows from that in four steps:
 
 1. **Parity with C# `dynamic`.** Everything C# can write with a `dynamic` operand has a spelling
    here — member get/set/invoke, indexers, operators, conversions, named and generic arguments,
@@ -107,8 +106,8 @@ Without the attribute the first call raises a `DlrTranslationException` that say
 [analyzer package](FSharp.Interop.Dlr.Analyzers/README.md) reports it at build time instead
 (`DLR001`, with a fix), along with a marker used outside any block (`DLR002`), two blocks on
 one line (`DLR003`), a block in an `inline` function (`DLR004`: it fails in Release, where
-the function is expanded into its callers) and an argument marker such as `Dlr.named` out of
-its place (`DLR005`). Why the block is not simply quoted by the compiler, sparing the attribute:
+the function is expanded into its callers) and a marker out of its place inside a block, such as
+`Dlr.named` anywhere but in a call's arguments (`DLR005`). Why the block is not simply quoted by the compiler, sparing the attribute:
 tried and [scrapped](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/60) — a quotation
 literal costs ~7 µs per evaluation and carries no calling type, so `internal` members would not
 bind.
@@ -124,7 +123,7 @@ The common forms; [docs/syntax.md](docs/syntax.md) has every one, with what each
 | --- | --- |
 | `x?Name` | get, converted to the inferred type |
 | `x?Name(a, b)` · `x?Name()` | call; arguments keep their static types, `box a` dispatches on the runtime type |
-| `x?Name(a, Dlr.named {\| p = v \|})` · `Dlr.namedOf kw` · `Dlr.argsOf xs` | named arguments, from a record or from data; positional ones from data |
+| `x?Name(a, Dlr.named {\| p = v \|})` · `Dlr.namedOf kw` · `Dlr.argsOf xs` | named arguments, as a record literal or from data; positional ones from data |
 | `x?Name <- v` | set |
 | `x \|> Dlr.item i` · `x \|> Dlr.setItem (i, j) v` | indexers |
 | `x \|> Dlr.get "Name"` · `Dlr.invoke "Name" (a, b)` · `Dlr.set "Name" v` | the same three with the target last, for pipelines |
@@ -132,9 +131,11 @@ The common forms; [docs/syntax.md](docs/syntax.md) has every one, with what each
 | `Dlr.cast<T> x` · `Dlr.implicit x` | explicit / implicit conversion |
 | `Dlr.Static<T>.Overloads?Name(a)` · `Dlr.new'<T>(a)` | static overload / constructor chosen by the arguments' runtime types |
 | `let f: int -> int -> int = dlr { return x?Add }` | a member read as an F# function |
-| `Dlr.call f (a, b)` · `f \|> Dlr.apply (a, b)` · `Dlr.call f` typed `A -> R` | invoke the value itself; read as a function, it is one |
+| `Dlr.call f (a, b)` · `Dlr.call f` typed `A -> R` | invoke the value itself, the `?` of values; read as a function, it is one |
+| `f \|> Dlr.apply (a, b)` | the same, target last for pipelines |
 
-A member name may be a variable (`(?) x name`), and so may the type-argument list
+A target need not be `obj`: `let w = Widget()` then `w?Count` upcasts it and binds on the runtime
+type as `box w` would. A member name may be a variable (`(?) x name`), and so may the type-argument list
 (`Dlr.typeArgsOf ts`); each distinct value gets its own call sites, cached per site. Around the
 markers, ordinary F#: `let`, `let rec`, `let mutable`, `use`, `if`, `match`, `for`, `while`,
 `try`, lambdas, `sprintf`. A `RuntimeBinderException` can be caught inside the block.

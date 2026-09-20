@@ -2,9 +2,12 @@
 
 Every form a block accepts, and what each binds to. The README has the common ones.
 
-A member name, or the type-argument list of `Dlr.typeArgsOf`, may be a variable: the site then
-creates its call sites per distinct name/types on first use (kept up to 256 keys, then cleared),
-and a repeated key costs a dictionary lookup.
+A target is any value; one that is not `obj` is upcast and binds on its runtime type, as `box x`
+would. A member name, or the type-argument list of `Dlr.typeArgsOf`, may be a variable: the site
+then creates its call sites per distinct name/types on first use (kept up to 256 keys, then
+cleared), and a repeated key costs a dictionary lookup. `DlrCache.clear()` drops every compiled
+block (for a host that unloads plugins; the next call recompiles), `DlrCache.count()` says how
+many there are.
 
 | Syntax | Binder |
 | --- | --- |
@@ -21,11 +24,11 @@ and a repeated key costs a dictionary lookup.
 | `x \|> Dlr.invoke "Name" (a, b)` | InvokeMember, target last |
 | `x \|> Dlr.set "Name" v` | SetMember, target last |
 | `x \|> Dlr.addAssign "Name" v`, `x \|> Dlr.subtractAssign "Name" v` | C#'s `+=` / `-=`: an IsEvent site picks the event accessor (`add_` / `remove_`) or read-modify-write |
-| `Dlr.call x (a, b)`, `Dlr.call x ()`, `(x \|> Dlr.call) (a, b)` | Invoke the object itself — a delegate, a callable dynamic object, or an F# function value — the `?` of values: applied, it invokes, like `(x?Name)(a, b)` |
+| `Dlr.call x (a, b)`, `Dlr.call x ()`, `(x \|> Dlr.call) (a, b)` | Invoke the object itself — a delegate, a callable dynamic object, or an F# function value — the `?` of values: applied, it invokes, like `(x?Name)(a, b)`. Target first, as `?` is; the pipe form is `Dlr.apply` |
 | `x \|> Dlr.apply (a, b)`, `x \|> Dlr.apply ()` | Invoke the object itself, target last for pipelines: the value's `Dlr.invoke` |
 | `Dlr.call x` typed `A -> B -> R` | the target itself as that function, as `x?Name` typed so is the member: curried any arity, tupled up to five, `unit -> R` invokes with no arguments; a non-callable fails at the first application; an F# function of exactly that type is returned as it is. At a non-function type it is a translation error — a value read as a type is `Dlr.implicit` |
 | `Dlr.Static<T>.Overloads?Name(a)`, `Dlr.Static<T>.Overloads \|> Dlr.invoke "Name" (a)` | a static overload set as the target, C#'s `T.Name(dynamicArg)`: the overload is chosen by the arguments' runtime types (multiple dispatch). Calls only — a static property is `T.P` in plain F# |
-| `Dlr.new'<T>(a, b)`, `Dlr.new'<T>()` | InvokeConstructor, C#'s `new T(dynamicArg)`: the constructor overload is chosen by the arguments' runtime types (multiple dispatch); up to eight arguments, `Dlr.named` allowed |
+| `Dlr.new'<T>(a, b)`, `Dlr.new'<T>()`, `Dlr.new'<T> args` | InvokeConstructor, C#'s `new T(dynamicArg)`: the constructor overload is chosen by the arguments' runtime types (multiple dispatch). Arguments follow the member-call rules — a tuple variable is several, `Dlr.named`, `Dlr.namedOf` and `Dlr.argsOf` allowed; up to eight written out, any number through `Dlr.argsOf` |
 | `x \|> Dlr.item i`, `x \|> Dlr.item (i, j)`, `x \|> Dlr.setItem (i, j) v` | GetIndex / SetIndex, target last; a tuple is several indexes |
 | `?+? ?-? ?*? ?/? ?%? ?&&&? ?\|\|\|? ?^^^? ?<<<? ?>>>?` | BinaryOperation, then Convert |
 | `?=? ?<>? ?<? ?>? ?<=? ?>=?` | BinaryOperation, then Convert to `bool` |

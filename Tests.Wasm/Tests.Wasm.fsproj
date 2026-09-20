@@ -36,6 +36,8 @@
     <Compile Include="..\Tests\Fixtures.fs" Link="Fixtures.fs" />
     <Compile Include="..\Tests\Members.fs" Link="Members.fs" />
     <Compile Include="..\Tests\Invoke.fs" Link="Invoke.fs" />
+    <Compile Include="..\Tests\TypeArgs.fs" Link="TypeArgs.fs" />
+    <Compile Include="..\Tests\ArgsFromData.fs" Link="ArgsFromData.fs" />
     <Compile Include="..\Tests\Set.fs" Link="Set.fs" />
     <Compile Include="..\Tests\Operators.fs" Link="Operators.fs" />
     <Compile Include="..\Tests\Index.fs" Link="Index.fs" />
@@ -45,6 +47,7 @@
     <Compile Include="..\Tests\DynamicObjects.fs" Link="DynamicObjects.fs" />
     <Compile Include="..\Tests\TryBlocks.fs" Link="TryBlocks.fs" />
     <Compile Include="..\Tests\Unary.fs" Link="Unary.fs" />
+    <Compile Include="..\Tests\Conversions.fs" Link="Conversions.fs" />
     <Compile Include="..\Tests\Nesting.fs" Link="Nesting.fs" />
     <Compile Include="..\Tests\Errors.fs" Link="Errors.fs" />
     <Compile Include="..\Tests\ComputedNames.fs" Link="ComputedNames.fs" />
@@ -52,6 +55,7 @@
     <Compile Include="..\Tests\CompoundAssign.fs" Link="CompoundAssign.fs" />
     <Compile Include="..\Tests\Restrictions.fs" Link="Restrictions.fs" />
     <Compile Include="..\Tests\FunctionMembers.fs" Link="FunctionMembers.fs" />
+    <Compile Include="..\Tests\Call.fs" Link="Call.fs" />
     <Compile Include="..\Tests\Polymorphic.fs" Link="Polymorphic.fs" />
     <Compile Include="..\Tests\Constructors.fs" />
     <Compile Include="..\Tests\Mutables.fs" />

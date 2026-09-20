@@ -32,6 +32,17 @@ let ``typed, no, named and tupled arguments`` () =
     count |> should equal 3
 
 [<Fact>]
+let ``a tuple in a variable is several arguments, as for a member call`` () =
+    let args = ("k", 2)
+    let h: Handler = dlr { return Dlr.new'<Handler> args }
+    h.Detail |> should equal "k:2"
+    let make (args: string * int) : Handler = dlr { return Dlr.new'<Handler> args }
+    (make ("m", 3)).Detail |> should equal "m:3"
+    // `box t` passes the tuple as one argument, as for a member call: here the obj constructor.
+    let boxed: Handler = dlr { return Dlr.new'<Handler>(box args) }
+    boxed.Kind |> should equal "obj"
+
+[<Fact>]
 let ``no matching constructor is a binder error`` () =
     (fun () -> (dlr { return Dlr.new'<Handler>(1, 2, 3) } : Handler) |> ignore) |> should throw typeof<RuntimeBinderException>
     (fun () -> (dlr { return Dlr.new'<Handler>(box 1, "x") } : Handler) |> ignore) |> should throw typeof<RuntimeBinderException>

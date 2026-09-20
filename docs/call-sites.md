@@ -91,7 +91,7 @@ call (`site.Target` and the `site` argument), so a LINQ `ExpressionVisitor` (`Si
 binding the sites its body uses to variables assigned once at entry; a use is a local read. Per
 lambda, because a variable captured by a nested lambda would be a `StrongBox` read, no better than
 the constant; on the LINQ tree, because FSharp.Core below 10.1 converts a quotation `Let` into a
-nested lambda invocation, an order of magnitude slower (the floor is 10.1 for the same
+nested lambda invocation, an order of magnitude slower (the floor is 10.1.201 for the same
 converter's `Sequential`/`PropertySet` support). Hoisting takes a member call from well over C#
 `dynamic`'s cost to a few nanoseconds above it; the rest is the block's entry
 ([pipeline](pipeline.md)), whose by-reference reader is wrapped around the hoisted lambda after
