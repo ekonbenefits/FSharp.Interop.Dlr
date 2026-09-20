@@ -20,23 +20,36 @@ module internal Discover =
     /// per type: later blocks in the same type find their body without decoding again.
     let private reflectedCache = ConcurrentDictionary<Type, (MethodBase * Expr) list>()
 
-    /// A stored quotation that FSharp.Core cannot decode (some compiler-generated members, e.g. a
-    /// [<CLIEvent>] accessor, have one) is not this block's, so it is skipped rather than fatal.
+    /// Members whose stored quotation FSharp.Core could not decode, per type: some
+    /// compiler-generated members have one (a [<CLIEvent>] accessor), and so can a member of the
+    /// user's whose body FSharp.Core refuses (`typeof<System.Void>` in it). Neither is fatal here
+    /// — the block may be elsewhere — but when no body is found, the failure is the likely reason.
+    let private undecodable = ConcurrentDictionary<Type, (MethodBase * exn) list>()
+
     let private tryReflected (m: MethodBase) =
-        try Expr.TryGetReflectedDefinition m with _ -> None
+        try Choice1Of2(Expr.TryGetReflectedDefinition m) with e -> Choice2Of2 e
 
     let rec private reflected (t: Type) : (MethodBase * Expr) list =
         reflectedCache.GetOrAdd(t, fun t ->
-            [ for m in t.GetMethods all do
-                  match tryReflected m with
-                  | Some q -> yield (m :> MethodBase), q
-                  | None -> ()
-              for c in t.GetConstructors all do
-                  match tryReflected c with
-                  | Some q -> yield (c :> MethodBase), q
-                  | None -> ()
-              for n in t.GetNestedTypes all do
-                  yield! reflected n ])
+            let failures = ResizeArray()
+            let found =
+                [ for m in Seq.append (t.GetMethods all |> Seq.cast<MethodBase>) (t.GetConstructors all |> Seq.cast<MethodBase>) do
+                      match tryReflected m with
+                      | Choice1Of2(Some q) -> yield m, q
+                      | Choice1Of2 None -> ()
+                      | Choice2Of2 e -> failures.Add((m, e))
+                  for n in t.GetNestedTypes all do
+                      yield! reflected n ]
+            if failures.Count > 0 then undecodable.[t] <- List.ofSeq failures
+            found)
+
+    /// The decode failures recorded for `types` and their nested types, for the not-found message.
+    let rec private failuresIn (types: seq<Type>) : (MethodBase * exn) list =
+        [ for t in types do
+              match undecodable.TryGetValue t with
+              | true, fs -> yield! fs
+              | _ -> ()
+              yield! failuresIn (t.GetNestedTypes all) ]
 
     /// Every `builder.Run(builder.Delay(fun () -> body), file, line)` in `e` at this file and line.
     let rec private runsAt (builderType: Type) (file: string) (line: int) (e: Expr) : Expr list =
@@ -92,12 +105,16 @@ module internal Discover =
             |> Seq.collect reflected
             |> Seq.collect (fun (m, q) -> runsAt builderType file line q |> List.map (fun b -> m, q, b))
             |> List.ofSeq
+        let searched = ResizeArray<Type>()
         let matches =
+            searched.Add holder
             match search [ holder ] with
             | [] ->
                 // A member of a type declared in a namespace gets its closures nested in the file's
                 // <StartupCode$…> class, not in the type: fall back to the whole assembly.
-                closureType.Assembly.GetTypes() |> Seq.filter (fun t -> not t.IsNested) |> search
+                let all = closureType.Assembly.GetTypes() |> Seq.filter (fun t -> not t.IsNested) |> List.ofSeq
+                searched.AddRange all
+                search all
             | found -> found
         match matches with
         | [ m, memberBody, body ] ->
@@ -106,16 +123,22 @@ module internal Discover =
                 | inst when obj.ReferenceEquals(inst, m) -> m, memberBody, body
                 | inst ->
                     match tryReflected inst with
-                    | Some q ->
+                    | Choice1Of2(Some q) ->
                         match runsAt builderType file line q with
                         | [ b ] -> inst, q, b
                         | _ -> m, memberBody, body
-                    | None -> m, memberBody, body
+                    | _ -> m, memberBody, body
             { Context = m.DeclaringType; MemberBody = memberBody; Body = body }
         | [] ->
+            // A member with the attribute whose quotation would not decode is the other reason a
+            // body is not found; which member holds the block is not known, so both are said.
+            let undecoded =
+                match failuresIn searched with
+                | (m, e) :: _ -> sprintf " Or the block is in %s.%s, whose reflected definition could not be decoded (%s): its body has something a quotation cannot hold." m.DeclaringType.Name m.Name e.Message
+                | [] -> ""
             raise (DlrTranslationException(
-                    sprintf "dlr { } at %s:%d needs [<ReflectedDefinition>] on the function or member that contains it, so its body can be compiled (closure %s in %s). Put the attribute on that one binding, not the whole module, unless everything in the module can be quoted."
-                        file line closureType.Name holder.FullName))
+                    sprintf "dlr { } at %s:%d needs [<ReflectedDefinition>] on the function or member that contains it, so its body can be compiled (closure %s in %s). Put the attribute on that one binding, not the whole module, unless everything in the module can be quoted.%s"
+                        file line closureType.Name holder.FullName undecoded))
         | many ->
             raise (DlrTranslationException(
                     sprintf "%d dlr { } blocks share %s:%d; put each dlr { } on its own line." many.Length file line))

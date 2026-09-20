@@ -127,3 +127,25 @@ let ``argsOf: two counts alternate at one site; Dlr.apply, a constructor, a stat
     (fun () -> (dlr { return w?Add(Dlr.argsOf xs, Dlr.argsOf xs) } : int) |> ignore) |> should throw typeof<DlrTranslationException>
     (fun () -> (dlr { return w?Add(Dlr.namedOf [ "b", box 2 ], Dlr.argsOf xs) } : int) |> ignore) |> should throw typeof<DlrTranslationException>
     // fsharpanalyzer: ignore-region-end DLR005
+
+[<Fact>]
+let ``a null or empty name from data is an argument error, not a positional slot`` () =
+    let w: obj = Widget()
+    let add (kw: (string * obj) list) : int = dlr { return w?Add(Dlr.namedOf kw) }
+    (fun () -> add [ "", box 1; "b", box 2 ] |> ignore) |> should throw typeof<ArgumentException>
+    (fun () -> add [ "a", box 1; null, box 2 ] |> ignore) |> should throw typeof<ArgumentNullException>
+    (fun () -> add (Unchecked.defaultof<_>) |> ignore) |> should throw typeof<ArgumentNullException>
+    // The empty name does not match the positional slots of an argsOf shape already compiled at the site.
+    let mixed (xs: obj list) (kw: (string * obj) list) : int = dlr { return w?Add(Dlr.argsOf xs, Dlr.namedOf kw) }
+    mixed [ box 1; box 2 ] [] |> should equal 3
+    (fun () -> mixed [] [ "", box 1; "", box 2 ] |> ignore) |> should throw typeof<ArgumentException>
+    let name (ts: Type list) : string = dlr { return w?TypeName(Dlr.typeArgsOf ts) }
+    (fun () -> name [ null ] |> ignore) |> should throw typeof<ArgumentException>
+    (fun () -> name (Unchecked.defaultof<_>) |> ignore) |> should throw typeof<ArgumentNullException>
+    let read (n: string) : obj = dlr { return (?) w n }
+    (fun () -> read null |> ignore) |> should throw typeof<ArgumentNullException>
+    // The site is unharmed.
+    add [ "a", box 1; "b", box 2 ] |> should equal 3
+    name [ typeof<int> ] |> should equal "Int32"
+    read "Count" |> should equal (box 3)
+

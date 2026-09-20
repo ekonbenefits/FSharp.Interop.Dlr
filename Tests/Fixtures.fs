@@ -50,6 +50,12 @@ type Widget() =
         // A dlr block inside Widget itself: the binder context is Widget, so private members bind.
         dlr { return o?Secret }
 
+/// Parameters no quotation can hold, so not [<ReflectedDefinition>]: byref cannot cross a
+/// dynamic operation; a Span is reached from an array through C#'s implicit conversion.
+type Unquotable() =
+    member _.SpanLength(s: Span<int>) = s.Length
+    member _.ByRef(x: byref<int>) = x <- x + 1
+
 /// A real CLR event, for the IsEvent branch of += / -=. Not [<ReflectedDefinition>]: the
 /// [<CLIEvent>] accessor's stored quotation is one FSharp.Core cannot decode.
 type Clicker() =

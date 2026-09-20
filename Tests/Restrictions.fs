@@ -65,6 +65,11 @@ let ``the result is obj so a value type comes back boxed; arguments keep their s
     (dlr { return o?Pick(box n) } : string) |> should equal "int"
     let s = "5"
     (dlr { return o?Pick(s) } : string) |> should equal "string"
+    // byref cannot cross; a Span parameter is reached from an array through C#'s implicit conversion.
+    let u = box (Unquotable())
+    let x = 1
+    (fun () -> dlr { u?ByRef(x) }) |> should throw typeof<RuntimeBinderException>
+    (dlr { return u?SpanLength([| 1; 2; 3 |]) } : int) |> should equal 3
 
 [<Fact>]
 let ``generic type arguments must be inferable or given`` () =

@@ -5,7 +5,12 @@ Every form a block accepts, and what each binds to. The README has the common on
 A target is any value; one that is not `obj` is upcast and binds on its runtime type, as `box x`
 would. A member name, or the type-argument list of `Dlr.typeArgsOf`, may be a variable: the site
 then creates its call sites per distinct name/types on first use (kept up to 256 keys, then
-cleared), and a repeated key costs a dictionary lookup. `DlrCache.clear()` drops every compiled
+cleared), and a repeated key costs a dictionary lookup. That is for a name chosen by
+configuration, a small set; for keys from data, where the target indexes (`Dlr.item key`), index
+— C#'s binder keeps every distinct name it has bound, for the life of the process
+([caches](caches.md#bounds)). A call evaluates its target first, then its arguments left to
+right as C# does, each once, also where a `Dlr.named` record, a splat list, a tuple or a
+computed name is involved; a bind failure comes after the arguments have run. `DlrCache.clear()` drops every compiled
 block (for a host that unloads plugins; the next call recompiles), `DlrCache.count()` says how
 many there are.
 
