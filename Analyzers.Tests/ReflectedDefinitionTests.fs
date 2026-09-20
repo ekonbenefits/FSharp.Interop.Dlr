@@ -328,3 +328,59 @@ module Impl =
     messages |> List.filter (fun m -> m.Contains "only meaningful as an argument") |> List.length |> should equal 3
     (msgs |> List.filter (fun m -> m.Code <> ReflectedDefinitionAnalyzer.ArgumentMarkerCode)) |> should equal []
 
+[<Fact>]
+let ``a named record variable, Overloads off the target, and Dlr.call at a non-function type are reported`` () =
+    let msgs =
+        run """
+module Impl =
+    let w = box 1
+    let opts = {| p = 2 |}
+    [<ReflectedDefinition>]
+    let fine () : int =
+        let a: int = dlr { return Dlr.Static<int>.Overloads?Parse("1") }
+        let b: int = dlr { return Dlr.Static<int>.Overloads |> Dlr.invoke "Parse" "1" }
+        let c: int = dlr { return Dlr.invoke "Parse" "1" Dlr.Static<int>.Overloads }
+        let d: int = dlr { return (Dlr.Static<int>.Overloads |> Dlr.get "Parse") "1" }
+        let e: int = dlr { return Dlr.get "Parse" Dlr.Static<int>.Overloads "1" }
+        let f: int = dlr { return Dlr.call w (1, 2) }
+        let g: int -> int = dlr { return Dlr.call w }
+        let h: int = dlr { return (w |> Dlr.call) 1 }
+        let i: int = dlr { return w?M(Dlr.named {| p = 2 |}) }
+        a + b + c + d + e + f + g 1 + h + i
+    [<ReflectedDefinition>]
+    let wrong () : int =
+        let a: int = dlr { return w?M(Dlr.named opts) }                          // a record in a variable
+        let b: int = dlr { return Dlr.Static<int>.Overloads?MaxValue }          // a static get
+        let c: int = dlr { return Dlr.Static<int>.Overloads |> Dlr.item 0 }     // a static index
+        let d: int = dlr { return Dlr.call w }                                  // read at int
+        let e: int = dlr { return w |> Dlr.call }                               // piped, read at int
+        let f: obj = dlr { return box Dlr.Static<int>.Overloads }              // not a target at all
+        let g: bool = dlr { return w?Equals(Dlr.Static<int>.Overloads) }        // an argument, not the target
+        let h: bool = dlr { return w |> Dlr.invoke "Equals" Dlr.Static<int>.Overloads }
+        let i: bool = dlr { return (w |> Dlr.get "Equals") Dlr.Static<int>.Overloads }
+        let j: bool = dlr { return Dlr.Static<int>.Overloads?Equals(Dlr.Static<int>.Overloads) }   // the target is fine, the argument is not
+        a + b + c + d + e + f.GetHashCode() + (if g && h && i && j then 1 else 0)
+"""
+    let out = msgs |> List.filter (fun m -> m.Code = ReflectedDefinitionAnalyzer.ArgumentMarkerCode)
+    let lines = out |> List.map (fun m -> m.Range.StartLine) |> List.sort
+    let first = List.head lines
+    lines |> should equal [ for i in 0 .. 9 -> first + i ]
+    let messages = out |> List.map (fun m -> m.Message)
+    messages |> List.filter (fun m -> m.Contains "record literal") |> List.length |> should equal 1
+    messages |> List.filter (fun m -> m.Contains "target of a call") |> List.length |> should equal 7
+    messages |> List.filter (fun m -> m.Contains "non-function type") |> List.length |> should equal 2
+    (msgs |> List.filter (fun m -> m.Code <> ReflectedDefinitionAnalyzer.ArgumentMarkerCode)) |> should equal []
+
+[<Fact>]
+let ``outside-a-block messages name markers as the run time does`` () =
+    let msgs =
+        run """
+module Impl =
+    let w = box 1
+    let a : int = w?Count
+    let b : int = w |> Dlr.get "Count"
+    let c = Dlr.Static<int>.Overloads
+"""
+        |> outside
+    msgs |> List.map (fun m -> m.Message.Substring(0, m.Message.IndexOf " is only")) |> should equal [ "'?'"; "'Dlr.get'"; "'Dlr.Static<T>.Overloads'" ]
+

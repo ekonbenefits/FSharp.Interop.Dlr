@@ -1,7 +1,8 @@
 # The same restrictions as C# `dynamic`, and where it goes beyond
 
 
-Same binder, same limits — each pinned by a test in `Tests/Restrictions.fs`:
+Same binder, same limits — each pinned by a test in `Tests/Restrictions.fs` (the `inline` one by
+the analyzer's tests; NativeAOT by the assembly's own `IsAotCompatible=false`, not a test):
 
 - **Extension methods** are not found; the binder sees only the target's own members.
 - **Static members** cannot be reached through an instance; static *calls* have their own target,
@@ -20,8 +21,13 @@ Same binder, same limits — each pinned by a test in `Tests/Restrictions.fs`:
   has no `inline`), but the same family.
 - **No compile-time checking**: a misspelt member or wrong arity is a `RuntimeBinderException`
   at the call.
-- **Target and result are `obj`**, so value types box there; arguments do not. `byref` and
-  `Span` cannot cross a dynamic operation.
+- **Target and result are `obj`** (a typed target is upcast; the result converts to the inferred
+  type), so value types box there; arguments do not. `byref` and `Span` cannot cross a dynamic
+  operation.
+- **`Dlr.named` takes the record literal itself** — the names are read from the quotation, so a
+  record held in a variable is a translation error (the analyzer reports it); names from data
+  are `Dlr.namedOf`. `Dlr.Static<T>.Overloads` is a call target only, and `Dlr.call x` is read
+  at a function type or applied; each other use is a translation error the analyzer reports.
 - **Generic type arguments** must be inferable from the arguments, or given explicitly —
   `Dlr.typeArgs<A, B>()` or `Dlr.typeArgsOf [ … ]`, whose list may even be a run-time value.
 - **`inline` members with a member constraint** (`^T: (member Name: string)`) are found but

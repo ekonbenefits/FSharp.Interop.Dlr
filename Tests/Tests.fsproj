@@ -66,6 +66,8 @@
     <Compile Include="Fixtures.fs" />
     <Compile Include="Members.fs" />
     <Compile Include="Invoke.fs" />
+    <Compile Include="TypeArgs.fs" />
+    <Compile Include="ArgsFromData.fs" />
     <Compile Include="Set.fs" />
     <Compile Include="Operators.fs" />
     <Compile Include="Index.fs" />
@@ -75,6 +77,7 @@
     <Compile Include="DynamicObjects.fs" />
     <Compile Include="TryBlocks.fs" />
     <Compile Include="Unary.fs" />
+    <Compile Include="Conversions.fs" />
     <Compile Include="Nesting.fs" />
     <Compile Include="Errors.fs" />
     <Compile Include="ComputedNames.fs" />
@@ -82,6 +85,7 @@
     <Compile Include="CompoundAssign.fs" />
     <Compile Include="Restrictions.fs" />
     <Compile Include="FunctionMembers.fs" />
+    <Compile Include="Call.fs" />
     <Compile Include="Polymorphic.fs" />
     <Compile Include="Constructors.fs" />
     <Compile Include="Mutables.fs" />

@@ -14,6 +14,17 @@ let ``get member converts to inferred type`` () =
     count |> should equal 3
 
 [<Fact>]
+let ``a typed target is upcast and binds on its runtime type, as box would`` () =
+    let w = Widget()
+    let count: int = dlr { return w?Count }
+    count |> should equal 3
+    let b: Holders = Derived()
+    let kind: string = dlr { return (Classifier())?Kind(b) }        // the target's static type does not matter...
+    kind |> should equal "holders"                                 // ...the argument's does, as always
+    let name (t: Widget) : string = dlr { return t?Name }
+    name (Widget()) |> should equal "widget"
+
+[<Fact>]
 let ``get member as obj needs no conversion`` () =
     let w: obj = Widget()
     let name: obj = dlr { return w?Name }

@@ -1,4 +1,5 @@
-/// One test per bullet of the README's "The same restrictions as C# dynamic".
+/// One test per bullet of docs/restrictions.md: the restrictions shared with C# `dynamic`, and the
+/// places it goes beyond C# (`inline` is pinned by the analyzer's tests, NativeAOT by the assembly's `IsAotCompatible=false`).
 [<ReflectedDefinition>]
 module Tests.Restrictions
 

@@ -72,7 +72,7 @@ nested delegates (loop and try bodies), and the copy costs nothing measurable, w
 
 Specified F#: the computation-expression desugaring, caller-info arguments, `[<ReflectedDefinition>]`
 (the quotation is taken before inlining, so the block is still `Run(Delay(fun () -> …))` in it),
-resumable code and `__stateMachine` (FS-1087), `LeafExpressionConverter` (FSharp.Core ≥ 10.1:
+resumable code and `__stateMachine` (FS-1087), `LeafExpressionConverter` (FSharp.Core ≥ 10.1.201:
 the first whose converter takes `Sequential`, `PropertySet`, `VarSet` and `FieldSet`, and
 converts a `Let` without a nested lambda). Not specified — read by `Translate.Captures` and
 `Discover`:

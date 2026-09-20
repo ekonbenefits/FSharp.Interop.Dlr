@@ -11,7 +11,7 @@ open Microsoft.FSharp.Linq.RuntimeHelpers
 open System.Runtime.CompilerServices
 
 /// <summary>The state machine's data slot; the builder's <c>Return</c> writes it so the value stays live in the compiled machine. Never read.</summary>
-[<Struct; NoComparison; NoEquality>]
+[<Struct; NoComparison; NoEquality; System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type DlrData<'T> =
     [<DefaultValue(false)>]
     val mutable Result: 'T
@@ -572,7 +572,7 @@ module internal Translate =
             let args =
                 [ for a in argExprs do
                     match a with
-                    | TypeArgs _ -> unsupported "Dlr.typeArgs anywhere but as the first argument of a member call (a value invoked with Dlr.call / Dlr.apply takes no type arguments)" a
+                    | TypeArgs _ -> unsupported "Dlr.typeArgs anywhere but as the first argument of a member call (a value invoked with Dlr.call / Dlr.apply or a constructor takes no type arguments)" a
                     | NamedOf _ | ArgsOf _ -> unsupported "Dlr.namedOf / Dlr.argsOf here (they go in the arguments of a member call, Dlr.call / Dlr.apply, or Dlr.new')" a
                     | NamedRecord(lets, fields) ->
                         bindings.AddRange lets
@@ -853,12 +853,19 @@ module internal Translate =
                 |> Some
             | New(t, argExprs) ->
                 // The site is typed `T` itself (the binder types a constructor's result as `T`,
-                // which an obj-typed site rejects for a struct), so no Convert.
-                match namedOfCall block rewriteIn bound (Expr.Value(null, typeof<obj>)) argExprs e.Type false (fun _ args -> Binders.invokeConstructor context t args) with
-                | Some call -> Some call
+                // which an obj-typed site rejects for a struct), so no Convert. One argument of a
+                // tuple type is several, as for a member call: F# picks the one-argument overload
+                // for `Dlr.new'<T> args` and coerces the tuple.
+                let tupleBindings, argExprs =
+                    match argExprs with
+                    | [ single ] -> splitArgs single
+                    | many -> [], many
+                let bound' = withTuple bound tupleBindings
+                match namedOfCall block rewriteIn bound' (Expr.Value(null, typeof<obj>)) argExprs e.Type false (fun _ args -> Binders.invokeConstructor context t args) with
+                | Some call -> call |> bind bound tupleBindings |> Some
                 | None ->
-                    let bindings, args = argList bound argExprs
-                    Binders.invokeConstructor context t args |> bind bound bindings |> Some
+                    let bindings, args = argList bound' argExprs
+                    Binders.invokeConstructor context t args |> bind bound' bindings |> bind bound tupleBindings |> Some
             // The value's `?`: applied, a call; read at a function type, the target as that function.
             | Application(EtaReduced(Op opCall [ Unboxed target ]), argExpr)
             | Op opApply [ argExpr; Unboxed target ] ->

@@ -49,6 +49,8 @@ let ``BCL statics, and F# private statics from the same assembly`` () =
 [<Fact>]
 let ``a miss is the binder's error; anything but a call is a translation error`` () =
     (fun () -> (dlr { return Dlr.Static<Renderer>.Overloads?Nope() } : string) |> ignore) |> should throw typeof<RuntimeBinderException>
+    // The analyzer reports each of these at build time (DLR005); this pins the run-time error behind it.
+    // fsharpanalyzer: ignore-region-start DLR005
     (fun () -> (dlr { return Dlr.Static<Renderer>.Overloads?Scale } : float) |> ignore) |> should throw typeof<DlrTranslationException>
     (fun () -> dlr { Dlr.Static<Renderer>.Overloads?Scale <- 2.0 }) |> should throw typeof<DlrTranslationException>
     (fun () -> dlr { Dlr.Static<Renderer>.Overloads |> Dlr.addAssign "Scale" 1.0 }) |> should throw typeof<DlrTranslationException>
@@ -58,3 +60,4 @@ let ``a miss is the binder's error; anything but a call is a translation error``
     // Anywhere but in target position: a translation error, not the outside-a-block one at run time.
     (fun () -> (dlr { let s = Dlr.Static<Renderer>.Overloads in return s?Draw(box 3) } : string) |> ignore) |> should throw typeof<DlrTranslationException>
     (fun () -> (dlr { return (box 1)?Equals(Dlr.Static<Renderer>.Overloads) } : bool) |> ignore) |> should throw typeof<DlrTranslationException>
+    // fsharpanalyzer: ignore-region-end DLR005

@@ -71,3 +71,10 @@ let ``unsupported quotation node is reported`` () =
         } |> ignore)
     |> should throw typeof<DlrTranslationException>
 
+[<Fact>]
+let ``two blocks on one line are detected`` () =
+    let w = box (Widget())
+    let go () =
+        // fsharpanalyzer: ignore-line-next DLR003
+        let a: int = dlr { return w?Count } in let b: string = dlr { return w?Name } in (a, b)
+    (fun () -> go () |> ignore) |> should throw typeof<DlrTranslationException>

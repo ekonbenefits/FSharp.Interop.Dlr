@@ -28,8 +28,10 @@ let InlineCode = "DLR004"
 
 /// An argument marker (`Dlr.named`, `Dlr.namedOf`, `Dlr.argsOf`, `Dlr.typeArgs`, `Dlr.typeArgsOf`) anywhere
 /// but as an argument of a call — a member call, `Dlr.invoke`, `Dlr.call` / `Dlr.apply`,
-/// `Dlr.new'` — or misplaced there: type arguments not first, `namedOf` twice in one call.
-/// Each is a DlrTranslationException at the block's first call.
+/// `Dlr.new'` — or misplaced there: type arguments not first, `namedOf` twice in one call;
+/// `Dlr.named` on a record in a variable; `Dlr.Static<T>.Overloads` anywhere but as a call's
+/// target; `Dlr.call x` read at a non-function type. Each is a DlrTranslationException at the
+/// block's first call.
 [<Literal>]
 let ArgumentMarkerCode = "DLR005"
 
@@ -77,13 +79,20 @@ let private isMarker (mfv: FSharpMemberOrFunctionOrValue) =
     | name when name.StartsWith "FSharp.Interop.Dlr.DlrModule." -> true   // the Dlr module's types: Dlr.Static<'T> (not DlrCache, DlrRuntime…)
     | _ -> false
 
-/// Marker uses that are not inside a `dlr.Run(...)` subtree: range and display name. Structural
+/// A marker's name as the run-time outside-a-block message prints it: `?`, `Dlr.get`,
+/// `Dlr.Static<T>.Overloads`.
+let private markerName (mfv: FSharpMemberOrFunctionOrValue) =
+    if mfv.CompiledName.StartsWith "op_" then mfv.DisplayName.Trim([| '('; ')'; ' ' |])
+    elif mfv.DisplayName = "Overloads" then "Dlr.Static<T>.Overloads"
+    else "Dlr." + mfv.DisplayName
+
+/// Marker uses that are not inside a `dlr.Run(...)` subtree: range and name. Structural
 /// rather than by range, since the synthesized `Run` call's range does not span the block body.
 /// The outermost marker of a nested use (`Dlr.item (x |> Dlr.get "A") 0`) is reported once.
 let rec private markersOutsideRun (e: FSharpExpr) : (range * string) list =
     match e with
     | FSharpExprPatterns.Call(_, mfv, _, _, _) when isDlrRun mfv -> []
-    | FSharpExprPatterns.Call(_, mfv, _, _, _) when isMarker mfv -> [ e.Range, mfv.DisplayName ]
+    | FSharpExprPatterns.Call(_, mfv, _, _, _) when isMarker mfv -> [ e.Range, markerName mfv ]
     | _ -> e.ImmediateSubExpressions |> List.collect markersOutsideRun
 
 /// A block with no reflected definition around it, and the declaration-level binding it sits in.
@@ -229,6 +238,85 @@ let private misplacedMarkers (block: FSharpExpr) : (range * string) list =
         markers
         |> List.filter (fun (m, _) -> not (placed m))
         |> List.map (fun (m, mfv) -> m.Range, sprintf "Dlr.%s is only meaningful as an argument of a call (a member call, Dlr.invoke, Dlr.call / Dlr.apply, Dlr.new'); here it would raise DlrTranslationException at the block's first call." mfv.DisplayName)
+    // `Dlr.named` takes the record literal itself: the names are read from the quotation, so a
+    // record held in a variable is a translation error.
+    let namedNotLiteral =
+        markers
+        |> List.choose (fun (m, mfv) ->
+            match m with
+            | FSharpExprPatterns.Call(_, _, _, _, [ arg ]) when mfv.DisplayName = "named" ->
+                // A literal of several fields is let-bound field by field (evaluation order),
+                // as the translator also peels.
+                let rec peel (a: FSharpExpr) = match a with FSharpExprPatterns.Let(_, body) -> peel body | a -> a
+                match peel (resolve arg) with
+                | FSharpExprPatterns.NewAnonRecord _ | FSharpExprPatterns.NewRecord _ -> None
+                | _ -> Some(m.Range, "Dlr.named takes a record literal written in the call, Dlr.named {| p = 2 |}: the argument names are read from the block's quotation, so a record held in a variable would raise DlrTranslationException at the block's first call. For names from data use Dlr.namedOf.")
+            | _ -> None)
+    // `Dlr.Static<T>.Overloads` is a call target only: C#'s binder has no static member get, set
+    // or index, and plain F# already has those (`T.P`).
+    let isOverloads (e: FSharpExpr) = match e with FSharpExprPatterns.Call(_, mfv, _, _, _) when isMarker mfv && mfv.DisplayName = "Overloads" -> true | _ -> false
+    /// A call form seen from its outermost expression: the marker at its head, its own
+    /// arguments, the lambdas passed (an eta-expanded partial application) and the arguments
+    /// applied along the way, innermost first (applications and pipes), which fill those lambdas.
+    let rec describe (f: FSharpExpr) : (FSharpMemberOrFunctionOrValue * FSharpExpr list * int * FSharpExpr list) option =
+        match f with
+        | FSharpExprPatterns.Call(_, mfv, _, _, args) when isMarker mfv -> Some(mfv, args, 0, [])
+        | FSharpExprPatterns.Call(_, mfv, _, _, [ x; g ]) when mfv.CompiledName = "op_PipeRight" -> describe g |> Option.map (fun (m, a, l, applied) -> m, a, l, applied @ [ x ])
+        | FSharpExprPatterns.Call(_, mfv, _, _, [ g; x ]) when mfv.CompiledName = "op_PipeLeft" -> describe g |> Option.map (fun (m, a, l, applied) -> m, a, l, applied @ [ x ])
+        | FSharpExprPatterns.Application(g, _, args) -> describe g |> Option.map (fun (m, a, l, applied) -> m, a, l, applied @ args)
+        | FSharpExprPatterns.Lambda(_, body) -> describe body |> Option.map (fun (m, a, l, applied) -> m, a, l + 1, applied)
+        | FSharpExprPatterns.Coerce(_, inner) -> describe inner
+        | FSharpExprPatterns.Let(_, body) -> describe body
+        | _ -> None
+    let placedStatics =
+        exprs
+        |> List.choose (fun e ->
+            match describe e with
+            | Some(mfv, args, lambdas, applied) ->
+                // The target parameter: first of `?`, last of `Dlr.get` / `Dlr.invoke`. Written
+                // direct it is in the marker's own arguments; eta-expanded, the applied ones.
+                let index = if mfv.CompiledName = "op_Dynamic" then 0 elif mfv.CompiledName = "get" then 1 elif mfv.CompiledName = "invoke" then 2 else -1
+                let target = if index < 0 then None elif lambdas > 0 then List.tryItem index applied else List.tryItem index args
+                // `Dlr.invoke` is a call as it is; `?` / `Dlr.get` only once applied to arguments
+                // beyond the eta-expansion's own parameters, else they read a member.
+                let isCall = mfv.CompiledName = "invoke" || applied.Length > lambdas
+                match target with
+                | Some t when isCall && isOverloads t -> Some t
+                | _ -> None
+            | None -> None)
+    let staticsOutOfPlace =
+        exprs
+        |> List.filter isOverloads
+        |> List.filter (fun o -> not (placedStatics |> List.exists (fun p -> Range.equals p.Range o.Range)))
+        |> List.map (fun o -> o.Range, "Dlr.Static<T>.Overloads is only meaningful as the target of a call, Dlr.Static<T>.Overloads?M(…) or |> Dlr.invoke \"M\" args: C#'s binder has no static member get, set or index, and a static property is T.P in plain F#. Here it would raise DlrTranslationException at the block's first call.")
+    // `Dlr.call x` read at a non-function type: the translator has no meaning for it. Applied,
+    // it is a call (the typed tree's type of an over-applied call is not its function type, so
+    // the application is what tells).
+    let appliedCalls =
+        exprs
+        |> List.collect (fun e ->
+            match e with
+            | FSharpExprPatterns.Application(f, _, _) ->
+                let rec calls (f: FSharpExpr) =
+                    match f with
+                    | FSharpExprPatterns.Call(_, mfv, _, _, _) when isMarker mfv && mfv.CompiledName = "call" -> [ f ]
+                    | FSharpExprPatterns.Call(_, mfv, _, _, [ _; g ]) when mfv.CompiledName = "op_PipeRight" -> calls g
+                    | FSharpExprPatterns.Call(_, mfv, _, _, [ g; _ ]) when mfv.CompiledName = "op_PipeLeft" -> calls g
+                    | FSharpExprPatterns.Application(g, _, _) -> calls g
+                    | FSharpExprPatterns.Lambda(_, body) -> calls body
+                    | FSharpExprPatterns.Coerce(_, inner) -> calls inner
+                    | FSharpExprPatterns.Let(_, body) -> calls body
+                    | _ -> []
+                calls f
+            | _ -> [])
+    let callNotFunction =
+        exprs
+        |> List.choose (fun e ->
+            match e with
+            | FSharpExprPatterns.Call(_, mfv, _, _, [ _ ]) when isMarker mfv && mfv.CompiledName = "call" && not e.Type.IsFunctionType && not e.Type.IsGenericParameter
+                                                                  && not (appliedCalls |> List.exists (fun a -> Range.equals a.Range e.Range)) ->
+                Some(e.Range, "Dlr.call read at a non-function type would raise DlrTranslationException at the block's first call: a value read as a type is Dlr.implicit; to invoke, apply it, Dlr.call x (a, b), or read it at a function type.")
+            | _ -> None)
     let perList =
         argumentLists
         |> List.collect (fun (args, isMember) ->
@@ -257,7 +345,7 @@ let private misplacedMarkers (block: FSharpExpr) : (range * string) list =
                         else None
                     | _ -> None)
             twice @ afterNamed @ typeArgs)
-    outOfPlace @ perList
+    outOfPlace @ namedNotLiteral @ staticsOutOfPlace @ callNotFunction @ perList
 
 /// The outermost `dlr.Run(...)` subtrees of `e`.
 let rec private blocksIn (e: FSharpExpr) : FSharpExpr list =
