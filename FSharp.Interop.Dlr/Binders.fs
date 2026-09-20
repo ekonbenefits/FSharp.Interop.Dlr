@@ -69,11 +69,24 @@ module internal Accessibility =
         || (isFamilyAndAssembly && sameAssembly context declaring && derived context declaring)
         || (isPrivate && within context declaring)
 
+    /// Whether the type itself can be named from `context`, by the same rule at each nesting
+    /// level: C# `dynamic` binds against an inaccessible runtime type (an `internal` class of
+    /// another assembly, an anonymous type) as its nearest accessible base, so a public member
+    /// of such a type is not found either.
+    let rec private typeVisible (context: Type) (t: Type) =
+        if isNull t then true
+        elif t.IsNested then
+            accessible context t.DeclaringType (t.IsNestedPublic, t.IsNestedAssembly, t.IsNestedFamily, t.IsNestedFamORAssem, t.IsNestedFamANDAssem, t.IsNestedPrivate)
+            && typeVisible context t.DeclaringType
+        else t.IsPublic || sameAssembly context t
+
     let method' (context: Type) (m: MethodBase) =
-        accessible context m.DeclaringType (m.IsPublic, m.IsAssembly, m.IsFamily, m.IsFamilyOrAssembly, m.IsFamilyAndAssembly, m.IsPrivate)
+        typeVisible context m.DeclaringType
+        && accessible context m.DeclaringType (m.IsPublic, m.IsAssembly, m.IsFamily, m.IsFamilyOrAssembly, m.IsFamilyAndAssembly, m.IsPrivate)
 
     let field (context: Type) (f: FieldInfo) =
-        accessible context f.DeclaringType (f.IsPublic, f.IsAssembly, f.IsFamily, f.IsFamilyOrAssembly, f.IsFamilyAndAssembly, f.IsPrivate)
+        typeVisible context f.DeclaringType
+        && accessible context f.DeclaringType (f.IsPublic, f.IsAssembly, f.IsFamily, f.IsFamilyOrAssembly, f.IsFamilyAndAssembly, f.IsPrivate)
 
     let all = BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance
 

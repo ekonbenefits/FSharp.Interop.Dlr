@@ -104,5 +104,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\FSharp.Interop.Dlr\FSharp.Interop.Dlr.fsproj" />
+    <ProjectReference Include="CSharp\Tests.CSharp.csproj" />
   </ItemGroup>
 </Project>

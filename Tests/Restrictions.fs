@@ -123,3 +123,25 @@ let ``inline members bind, but a member constraint has no run-time form`` () =
     (dlr { return m?Twice(Vec 1.5) } : Vec).X |> should equal 3.0
     // A member constraint is compiled to a throw: the binder finds the method, the body cannot run.
     (fun () -> (dlr { return m?NameOf(Widget()) } : string) |> ignore) |> should throw typeof<System.NotSupportedException>
+
+[<Fact>]
+let ``a public member of a type the calling type cannot see is not found, as in C#`` () =
+    // C# dynamic binds an inaccessible runtime type (another assembly's `internal` class, an
+    // anonymous type) as its nearest accessible base: the library's own rules — a member read as
+    // a function, a function-valued field, F# optional parameters — see no more than that.
+    let hidden = Tests.CSharp.Make.Hidden()
+    (fun () -> (dlr { return hidden?Value } : int) |> ignore) |> should throw typeof<RuntimeBinderException>
+    (fun () -> (dlr { return hidden?Value } : unit -> int) () |> ignore) |> should throw typeof<RuntimeBinderException>   // a function read binds when applied
+    (fun () -> (dlr { return hidden?Fn(1) } : int) |> ignore) |> should throw typeof<RuntimeBinderException>
+    (fun () -> (dlr { return hidden?Plain(2) } : int) |> ignore) |> should throw typeof<RuntimeBinderException>
+    (fun () -> (dlr { return hidden?Opt(2) } : int) |> ignore) |> should throw typeof<RuntimeBinderException>
+    let anonymous = Tests.CSharp.Make.Anonymous()
+    (fun () -> (dlr { return anonymous?X } : unit -> int) () |> ignore) |> should throw typeof<RuntimeBinderException>
+    (fun () -> (dlr { return anonymous?Fn(1) } : int) |> ignore) |> should throw typeof<RuntimeBinderException>
+    // The same members on a public class bind, through every path.
+    let shown = Tests.CSharp.Make.Shown()
+    (dlr { return shown?Value } : int) |> should equal 7
+    (dlr { return shown?Value } : unit -> int) () |> should equal 7
+    (dlr { return shown?Fn(1) } : int) |> should equal 2
+    (dlr { return shown?Plain(2) } : int) |> should equal 3
+    (dlr { return shown?Opt(2) } : int) |> should equal 3
