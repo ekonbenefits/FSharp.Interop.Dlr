@@ -161,6 +161,11 @@ let ``the target is evaluated first, then the arguments left to right, each once
     let s (name: string) = log.Add name; name
     orderOf (fun () -> (dlr { return Dlr.new'<Handler>(Dlr.named {| name = s "name"; count = n "count" |}) } : Handler) |> ignore)
     |> should equal [ "name"; "count" ]
+    // A mutable read is not hoisted past an argument that assigns it.
+    let mutable m = 1
+    let r: obj = Recorder()
+    let seen: string = dlr { return r?Call(m, Dlr.named {| second = (m <- 5; m); first = 0 |}) }
+    seen |> should equal "1|0|5"
 
 [<Fact>]
 let ``a tuple in a variable is several arguments, as in F#'s own method calls`` () =

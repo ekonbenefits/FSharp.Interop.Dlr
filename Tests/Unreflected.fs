@@ -11,3 +11,4 @@ let ``dlr without ReflectedDefinition reports what is missing`` () =
     let ex = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> (dlr { return w?Count } : int) |> ignore)
     ex.Message |> should haveSubstring "[<ReflectedDefinition>] on the function or member that contains it"
     ex.Message |> should haveSubstring "not the whole module"
+    ex.Message |> should not' (haveSubstring "could not be decoded")     // Undecodable.withVoid is elsewhere in this assembly

@@ -131,11 +131,12 @@ module internal Discover =
             { Context = m.DeclaringType; MemberBody = memberBody; Body = body }
         | [] ->
             // A member with the attribute whose quotation would not decode is the other reason a
-            // body is not found; which member holds the block is not known, so both are said.
+            // body is not found — when it is the member the closure belongs to: the compiler
+            // names a block's closure `<member>@<line>`.
             let undecoded =
-                match failuresIn searched with
-                | (m, e) :: _ -> sprintf " Or the block is in %s.%s, whose reflected definition could not be decoded (%s): its body has something a quotation cannot hold." m.DeclaringType.Name m.Name e.Message
-                | [] -> ""
+                match failuresIn searched |> List.tryFind (fun (m, _) -> closureType.Name.StartsWith(m.Name + "@")) with
+                | Some(m, e) -> sprintf " The block is in %s.%s, whose reflected definition could not be decoded (%s): its body has something a quotation cannot hold." m.DeclaringType.Name m.Name e.Message
+                | None -> ""
             raise (DlrTranslationException(
                     sprintf "dlr { } at %s:%d needs [<ReflectedDefinition>] on the function or member that contains it, so its body can be compiled (closure %s in %s). Put the attribute on that one binding, not the whole module, unless everything in the module can be quoted.%s"
                         file line closureType.Name holder.FullName undecoded))

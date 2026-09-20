@@ -244,12 +244,17 @@ module internal Translate =
             [ v, e ], [ for i in 0 .. FSharpType.GetTupleElements(e.Type).Length - 1 -> Expr.TupleGet(Expr.Var v, i) ]
         | single -> [], [ single ]
 
-    /// Whether evaluating `e` has no effect and no order to keep: a variable, a literal, a lambda,
-    /// a tuple or coercion of such. Anything else is bound in source order by `sequenced`.
+    /// Whether evaluating `e` has no effect and no order to keep: an immutable variable, a
+    /// literal, a lambda, a read-only field, a tuple or coercion of such. A mutable (a captured
+    /// `let mutable`, a mutable field) is not: an argument may assign it. Anything else is bound
+    /// in source order by `sequenced`.
     let rec private isPure (e: Expr) =
         match e with
-        | Var _ | Value _ | Lambda _ | StaticTarget _ | FieldGet(None, _) -> true
-        | Coerce(inner, _) | TupleGet(inner, _) | FieldGet(Some inner, _) -> isPure inner
+        | Var v -> not v.IsMutable
+        | Value _ | Lambda _ | StaticTarget _ -> true
+        | FieldGet(None, f) -> f.IsInitOnly || f.IsLiteral
+        | FieldGet(Some inner, f) -> f.IsInitOnly && isPure inner
+        | Coerce(inner, _) | TupleGet(inner, _) -> isPure inner
         | NewTuple items -> List.forall isPure items
         | _ -> false
 
