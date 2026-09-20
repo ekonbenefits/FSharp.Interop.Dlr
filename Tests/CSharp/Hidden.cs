@@ -20,9 +20,17 @@ namespace Tests.CSharp
         public int Opt(int x, int step = 1) => x + step;
     }
 
+    /// <summary>A public generic: visible only when its argument is.</summary>
+    public class Box<T>
+    {
+        public int Value => 7;
+    }
+
     public static class Make
     {
         public static object Hidden() => new Hidden();
+        public static object BoxOfHidden() => new Box<Hidden>();
+        public static object BoxOfInt() => new Box<int>();
         public static object Shown() => new Shown();
         /// <summary>An anonymous type: internal to its assembly.</summary>
         public static object Anonymous() => new { X = 7, Fn = new Func<int, int>(x => x * 2) };

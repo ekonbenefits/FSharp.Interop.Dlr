@@ -128,7 +128,8 @@ let ``inline members bind, but a member constraint has no run-time form`` () =
 let ``a public member of a type the calling type cannot see is not found, as in C#`` () =
     // C# dynamic binds an inaccessible runtime type (another assembly's `internal` class, an
     // anonymous type) as its nearest accessible base: the library's own rules — a member read as
-    // a function, a function-valued field, F# optional parameters — see no more than that.
+    // a function, a function-valued field, a method as C#'s error suggestion — see no more than
+    // that. (`Opt` has a C# default parameter, not an F# optional one: C#'s path both ways.)
     let hidden = Tests.CSharp.Make.Hidden()
     (fun () -> (dlr { return hidden?Value } : int) |> ignore) |> should throw typeof<RuntimeBinderException>
     (fun () -> (dlr { return hidden?Value } : unit -> int) () |> ignore) |> should throw typeof<RuntimeBinderException>   // a function read binds when applied
@@ -138,6 +139,16 @@ let ``a public member of a type the calling type cannot see is not found, as in 
     let anonymous = Tests.CSharp.Make.Anonymous()
     (fun () -> (dlr { return anonymous?X } : unit -> int) () |> ignore) |> should throw typeof<RuntimeBinderException>
     (fun () -> (dlr { return anonymous?Fn(1) } : int) |> ignore) |> should throw typeof<RuntimeBinderException>
+    // A public generic constructed over a hidden type is hidden too; over int it is not.
+    let boxed = Tests.CSharp.Make.BoxOfHidden()
+    (fun () -> (dlr { return boxed?Value } : unit -> int) () |> ignore) |> should throw typeof<RuntimeBinderException>
+    let boxOfInt = Tests.CSharp.Make.BoxOfInt()
+    (dlr { return boxOfInt?Value } : unit -> int) () |> should equal 7
+    // An internal type whose assembly opens its internals to this one is visible, as to C#.
+    let opened = Tests.CSharp.Ivt.Make.Opened()
+    (dlr { return opened?Value } : unit -> int) () |> should equal 7
+    (dlr { return opened?Fn(1) } : int) |> should equal 2
+    (dlr { return opened?Plain(2) } : int) |> should equal 3
     // The same members on a public class bind, through every path.
     let shown = Tests.CSharp.Make.Shown()
     (dlr { return shown?Value } : int) |> should equal 7

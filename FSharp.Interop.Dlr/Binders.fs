@@ -52,7 +52,17 @@ module DlrRuntime =
 /// internal ones (which is what F# `private` compiles to) from the same assembly; private ones
 /// from inside the declaring type. Our own reflection lookups apply the same rule.
 module internal Accessibility =
-    let private sameAssembly (context: Type) (declaring: Type) = context.Assembly = declaring.Assembly
+    /// Whether `declaring`'s assembly opens its internals to `context`'s: the same one, or one
+    /// it names in an [<InternalsVisibleTo>] (the C# binder honours that too). Per pair, cached.
+    let private opensTo = System.Collections.Concurrent.ConcurrentDictionary<struct (Reflection.Assembly * Reflection.Assembly), bool>()
+    let private sameAssembly (context: Type) (declaring: Type) =
+        let c, d = context.Assembly, declaring.Assembly
+        c = d
+        || opensTo.GetOrAdd(struct (d, c), fun _ ->
+            let name = c.GetName().Name
+            d.GetCustomAttributes(typeof<System.Runtime.CompilerServices.InternalsVisibleToAttribute>, false)
+            |> Seq.cast<System.Runtime.CompilerServices.InternalsVisibleToAttribute>
+            |> Seq.exists (fun a -> let n = a.AssemblyName in (match n.IndexOf ',' with -1 -> n | i -> n.Substring(0, i)).Trim() = name))
     let rec private within (context: Type) (declaring: Type) =
         not (isNull context) && (context = declaring || (context.IsNested && within context.DeclaringType declaring))
     let rec private derived (context: Type) (declaring: Type) =
@@ -75,6 +85,9 @@ module internal Accessibility =
     /// of such a type is not found either.
     let rec private typeVisible (context: Type) (t: Type) =
         if isNull t then true
+        // A constructed generic is as visible as its arguments (`List<Hidden>` is not).
+        elif t.IsConstructedGenericType then
+            typeVisible context (t.GetGenericTypeDefinition()) && (t.GetGenericArguments() |> Array.forall (typeVisible context))
         elif t.IsNested then
             accessible context t.DeclaringType (t.IsNestedPublic, t.IsNestedAssembly, t.IsNestedFamily, t.IsNestedFamORAssem, t.IsNestedFamANDAssem, t.IsNestedPrivate)
             && typeVisible context t.DeclaringType
