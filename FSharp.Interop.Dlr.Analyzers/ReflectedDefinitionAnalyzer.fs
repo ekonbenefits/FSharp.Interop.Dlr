@@ -255,28 +255,35 @@ let private misplacedMarkers (block: FSharpExpr) : (range * string) list =
     // `Dlr.Static<T>.Overloads` is a call target only: C#'s binder has no static member get, set
     // or index, and plain F# already has those (`T.P`).
     let isOverloads (e: FSharpExpr) = match e with FSharpExprPatterns.Call(_, mfv, _, _, _) when isMarker mfv && mfv.DisplayName = "Overloads" -> true | _ -> false
-    /// A call form seen from its outermost expression: the marker at its head, the lambdas
-    /// passed (an eta-expanded partial application), the arguments applied along the way
-    /// (applications and pipes), and the `Overloads` uses met in argument position.
-    let rec describe (f: FSharpExpr) lambdas applied (statics: FSharpExpr list) : (FSharpMemberOrFunctionOrValue * int * int * FSharpExpr list) option =
+    /// A call form seen from its outermost expression: the marker at its head, its own
+    /// arguments, the lambdas passed (an eta-expanded partial application) and the arguments
+    /// applied along the way, innermost first (applications and pipes), which fill those lambdas.
+    let rec describe (f: FSharpExpr) : (FSharpMemberOrFunctionOrValue * FSharpExpr list * int * FSharpExpr list) option =
         match f with
-        | FSharpExprPatterns.Call(_, mfv, _, _, args) when isMarker mfv -> Some(mfv, lambdas, applied, statics @ (args |> List.filter isOverloads))
-        | FSharpExprPatterns.Call(_, mfv, _, _, [ x; g ]) when mfv.CompiledName = "op_PipeRight" -> describe g lambdas (applied + 1) (statics @ (if isOverloads x then [ x ] else []))
-        | FSharpExprPatterns.Call(_, mfv, _, _, [ g; x ]) when mfv.CompiledName = "op_PipeLeft" -> describe g lambdas (applied + 1) (statics @ (if isOverloads x then [ x ] else []))
-        | FSharpExprPatterns.Application(g, _, args) -> describe g lambdas (applied + args.Length) (statics @ (args |> List.filter isOverloads))
-        | FSharpExprPatterns.Lambda(_, body) -> describe body (lambdas + 1) applied statics
-        | FSharpExprPatterns.Coerce(_, inner) -> describe inner lambdas applied statics
-        | FSharpExprPatterns.Let(_, body) -> describe body lambdas applied statics
+        | FSharpExprPatterns.Call(_, mfv, _, _, args) when isMarker mfv -> Some(mfv, args, 0, [])
+        | FSharpExprPatterns.Call(_, mfv, _, _, [ x; g ]) when mfv.CompiledName = "op_PipeRight" -> describe g |> Option.map (fun (m, a, l, applied) -> m, a, l, applied @ [ x ])
+        | FSharpExprPatterns.Call(_, mfv, _, _, [ g; x ]) when mfv.CompiledName = "op_PipeLeft" -> describe g |> Option.map (fun (m, a, l, applied) -> m, a, l, applied @ [ x ])
+        | FSharpExprPatterns.Application(g, _, args) -> describe g |> Option.map (fun (m, a, l, applied) -> m, a, l, applied @ args)
+        | FSharpExprPatterns.Lambda(_, body) -> describe body |> Option.map (fun (m, a, l, applied) -> m, a, l + 1, applied)
+        | FSharpExprPatterns.Coerce(_, inner) -> describe inner
+        | FSharpExprPatterns.Let(_, body) -> describe body
         | _ -> None
     let placedStatics =
         exprs
-        |> List.collect (fun e ->
-            match describe e 0 0 [] with
-            // `Dlr.invoke` is a call as it is; `?` / `Dlr.get` only once applied to arguments
-            // (more applied than the eta-expansion's own parameters), else they read a member.
-            | Some(mfv, _, _, statics) when mfv.CompiledName = "invoke" -> statics
-            | Some(mfv, lambdas, applied, statics) when (mfv.CompiledName = "op_Dynamic" || mfv.CompiledName = "get") && applied > lambdas -> statics
-            | _ -> [])
+        |> List.choose (fun e ->
+            match describe e with
+            | Some(mfv, args, lambdas, applied) ->
+                // The target parameter: first of `?`, last of `Dlr.get` / `Dlr.invoke`. Written
+                // direct it is in the marker's own arguments; eta-expanded, the applied ones.
+                let index = if mfv.CompiledName = "op_Dynamic" then 0 elif mfv.CompiledName = "get" then 1 elif mfv.CompiledName = "invoke" then 2 else -1
+                let target = if index < 0 then None elif lambdas > 0 then List.tryItem index applied else List.tryItem index args
+                // `Dlr.invoke` is a call as it is; `?` / `Dlr.get` only once applied to arguments
+                // beyond the eta-expansion's own parameters, else they read a member.
+                let isCall = mfv.CompiledName = "invoke" || applied.Length > lambdas
+                match target with
+                | Some t when isCall && isOverloads t -> Some t
+                | _ -> None
+            | None -> None)
     let staticsOutOfPlace =
         exprs
         |> List.filter isOverloads

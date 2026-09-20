@@ -355,15 +355,19 @@ module Impl =
         let d: int = dlr { return Dlr.call w }                                  // read at int
         let e: int = dlr { return w |> Dlr.call }                               // piped, read at int
         let f: obj = dlr { return box Dlr.Static<int>.Overloads }              // not a target at all
-        a + b + c + d + e + f.GetHashCode()
+        let g: bool = dlr { return w?Equals(Dlr.Static<int>.Overloads) }        // an argument, not the target
+        let h: bool = dlr { return w |> Dlr.invoke "Equals" Dlr.Static<int>.Overloads }
+        let i: bool = dlr { return (w |> Dlr.get "Equals") Dlr.Static<int>.Overloads }
+        let j: bool = dlr { return Dlr.Static<int>.Overloads?Equals(Dlr.Static<int>.Overloads) }   // the target is fine, the argument is not
+        a + b + c + d + e + f.GetHashCode() + (if g && h && i && j then 1 else 0)
 """
     let out = msgs |> List.filter (fun m -> m.Code = ReflectedDefinitionAnalyzer.ArgumentMarkerCode)
     let lines = out |> List.map (fun m -> m.Range.StartLine) |> List.sort
     let first = List.head lines
-    lines |> should equal [ for i in 0 .. 5 -> first + i ]
+    lines |> should equal [ for i in 0 .. 9 -> first + i ]
     let messages = out |> List.map (fun m -> m.Message)
     messages |> List.filter (fun m -> m.Contains "record literal") |> List.length |> should equal 1
-    messages |> List.filter (fun m -> m.Contains "target of a call") |> List.length |> should equal 3
+    messages |> List.filter (fun m -> m.Contains "target of a call") |> List.length |> should equal 7
     messages |> List.filter (fun m -> m.Contains "non-function type") |> List.length |> should equal 2
     (msgs |> List.filter (fun m -> m.Code <> ReflectedDefinitionAnalyzer.ArgumentMarkerCode)) |> should equal []
 
