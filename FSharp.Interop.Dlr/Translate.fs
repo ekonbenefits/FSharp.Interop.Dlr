@@ -519,6 +519,11 @@ module internal Translate =
     let private asUnit (e: Expr) =
         if e.Type = typeof<unit> then Expr.Sequential(e, Expr.Value(())) else e
 
+    /// A `unit`-typed call or application — possibly a void method, which the converter cannot
+    /// use as a value — as opposed to `()` or a unit-typed variable.
+    let private isUnitCall (e: Expr) =
+        e.Type = typeof<unit> && (match e with Call _ | Application _ -> true | _ -> false)
+
     /// On Mono's browser-wasm runtime a nested lambda that captures nothing loses its arguments
     /// when invoked (see DlrRuntime); one that captures is fine. So there, a nested delegate
     /// body is made to capture the block's closure parameter, which costs nothing elsewhere.
@@ -641,6 +646,8 @@ module internal Translate =
         let private valueArg (rewriteIn: Rewrite) bound (value: Expr) =
             match value with
             | Value _ -> Binders.constant (Binders.typedArg value)
+            // A unit-valued expression (a void call, `ignore x`) as a value: run, then `()`.
+            | _ when value.Type = typeof<unit> -> Binders.typedArg (Expr.Sequential(rewriteIn bound value, Expr.Value(())))
             | _ -> Binders.typedArg (rewriteIn bound value)
 
         let private argList (rewriteIn: Rewrite) bound (argExprs: Expr list) =
@@ -1089,6 +1096,14 @@ module internal Translate =
                 let inner = allVars |> List.fold (fun b v -> Set.add v b) bound
                 Expr.NewDelegate(t, allVars, capturing block (asUnit (rewriteIn inner body)))
             | ShapeLambda(v, lambdaBody) -> Expr.Lambda(v, capturing block (asUnit (rewriteIn (bound.Add v) lambdaBody)))
+            // A void call where a `unit` value is expected (`ignore (list.Add x)`, `f (list.Add x)`):
+            // the converter has no value for it, so run it, then `()`.
+            | Call(receiver, mi, args) when args |> List.exists isUnitCall ->
+                let args' = args |> List.map (fun a -> if isUnitCall a then asUnit (rewrite a) else rewrite a)
+                match receiver with
+                | Some r -> Expr.Call(rewrite r, mi, args')
+                | None -> Expr.Call(mi, args')
+            | Application(f, arg) when isUnitCall arg -> Expr.Application(rewrite f, asUnit (rewrite arg))
             | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map rewrite args)
 
         let delegateType = typedefof<Func<_, _>>.MakeGenericType(closure.Type, resultType)

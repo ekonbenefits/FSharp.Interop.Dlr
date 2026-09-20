@@ -197,8 +197,14 @@ let ``a unit-valued argument expression is evaluated and passes no argument`` ()
     dlr { o?Touch(ignore (count "ignored")) }
     let touched: string = dlr { return o?Describe((o?Touch() : unit)) } // a unit-typed dynamic call
     touched |> should equal "described"
-    w.Touched |> should equal 3
-    List.ofSeq log |> should equal [ "tick"; "tick"; "tick"; "ignored" ]
+    // A void call in a value position: a tuple element, inside `ignore`, a closure's argument.
+    let picked: string = dlr { return o?Pick(Holders.Tick log, 1) }
+    picked |> should equal "unit"
+    dlr { o?Touch(ignore (log.Add "void")) }
+    let sameAs (u: unit) = u
+    dlr { o?Touch(sameAs (log.Add "applied")) }
+    w.Touched |> should equal 5
+    List.ofSeq log |> should equal [ "tick"; "tick"; "tick"; "ignored"; "tick"; "void"; "applied" ]
 
 [<Fact>]
 let ``a tuple in a variable is several arguments, as in F#'s own method calls`` () =

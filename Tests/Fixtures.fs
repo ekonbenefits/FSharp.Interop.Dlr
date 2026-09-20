@@ -15,6 +15,7 @@ type Widget() =
     member _.Pick(_: int) = "int"
     member _.Pick(_: obj) = "obj"
     member _.Pick(_: string) = "string"
+    member _.Pick(_: unit, _: int) = "unit"
     member _.Add(a: int, b: int) = a + b
     member _.Greet(greeting: string, name: string) = greeting + ", " + name
     member _.Bump(count: int, [<Optional; DefaultParameterValue(1)>] step: int) = count + step
