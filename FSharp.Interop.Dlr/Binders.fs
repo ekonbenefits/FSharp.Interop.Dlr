@@ -936,6 +936,15 @@ type SiteCache<'Key when 'Key: equality>(template: 'Key -> Expr) =
                 match entries.TryGetValue key with
                 | true, sites -> sites
                 | _ ->
+                    // A key from data: a null name or type is an argument error here, not a
+                    // NullReferenceException from inside the binder.
+                    match box key with
+                    | :? (string * Type list) as k ->
+                        let name, types = k
+                        if isNull name then nullArg "a computed member name is null"
+                        if isNull (box types) then nullArg "Dlr.typeArgsOf: the list is null"
+                        if types |> List.exists isNull then invalidArg "types" "Dlr.typeArgsOf: a type in the list is null"
+                    | _ -> ()
                     if entries.Count >= SiteCache<'Key>.Capacity then entries.Clear()
                     let sites = Array.ofList (SiteCache<'Key>.Sites(template key))
                     entries.[key] <- sites
@@ -971,7 +980,8 @@ type NamedOfCache(compile: string list -> Delegate) =
         let rec named (pairs: (string * obj) list) i =
             match pairs with
             | [] -> i = names.Length
-            | (n, _) :: rest -> i < names.Length && String.Equals(n, names.[i]) && named rest (i + 1)
+            // An empty name is the positional marker in `names`: a pair never matches one.
+            | (n, _) :: rest -> i < names.Length && not (String.IsNullOrEmpty n) && String.Equals(n, names.[i]) && named rest (i + 1)
         match positionals positional 0 with
         | Some i -> named pairs i
         | None -> false
@@ -994,6 +1004,10 @@ type NamedOfCache(compile: string list -> Delegate) =
                 match current |> Array.tryFind (fun (struct (names, _)) -> NamedOfCache.Matches(names, positional, pairs)) with
                 | Some(struct (_, d)) -> d
                 | None ->
+                    // Names from data: a null or empty one would be taken for a positional slot.
+                    for (n, _) in pairs do
+                        if isNull n then nullArg "Dlr.namedOf: an argument name is null"
+                        if n.Length = 0 then invalidArg "pairs" "Dlr.namedOf: an argument name is empty (positional arguments from data are Dlr.argsOf)"
                     let names = (positional |> List.map (fun _ -> "")) @ (pairs |> List.map fst)
                     let d = compile names
                     let kept = if current.Length >= NamedOfCache.Capacity then [||] else current

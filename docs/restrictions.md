@@ -22,8 +22,9 @@ the analyzer's tests; NativeAOT by the assembly's own `IsAotCompatible=false`, n
 - **No compile-time checking**: a misspelt member or wrong arity is a `RuntimeBinderException`
   at the call.
 - **Target and result are `obj`** (a typed target is upcast; the result converts to the inferred
-  type), so value types box there; arguments do not. `byref` and `Span` cannot cross a dynamic
-  operation.
+  type), so value types box there; arguments do not. `byref` / `inref` / `outref` cannot cross a
+  dynamic operation (an `int[]` does reach a `Span<int>` parameter, through the implicit
+  conversion, as in C#).
 - **`Dlr.named` takes the record literal itself** — the names are read from the quotation, so a
   record held in a variable is a translation error (the analyzer reports it); names from data
   are `Dlr.namedOf`. `Dlr.Static<T>.Overloads` is a call target only, and `Dlr.call x` is read

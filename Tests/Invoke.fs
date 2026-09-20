@@ -134,6 +134,40 @@ let ``a null literal picks the reference overload`` () =
     (dlr { return w?Text(null) } : string) |> should equal "string"
 
 [<Fact>]
+let ``the target is evaluated first, then the arguments left to right, each once`` () =
+    // C#'s order, kept where the translator hoists something ahead of the call: a Dlr.named
+    // record's temporaries (fields out of alphabetical order), a Dlr.namedOf / argsOf list, a
+    // tuple, a computed name.
+    let log = ResizeArray<string>()
+    let t () = log.Add "target"; box (Recorder())
+    let p () = log.Add "p"; 1
+    let n (name: string) = log.Add name; 2
+    let orderOf (run: unit -> unit) = log.Clear(); run (); List.ofSeq log
+    orderOf (fun () -> (dlr { return (t ())?Call(p (), Dlr.named {| second = n "second"; first = n "first" |}) } : string) |> ignore)
+    |> should equal [ "target"; "p"; "second"; "first" ]
+    orderOf (fun () -> (dlr { return (t ())?Call(p (), Dlr.namedOf (log.Add "kw"; [ "second", box 2 ])) } : string) |> ignore)
+    |> should equal [ "target"; "p"; "kw" ]
+    orderOf (fun () -> (dlr { return (t ())?Call(Dlr.argsOf (log.Add "xs"; [ box 1 ]), p ()) } : string) |> ignore)
+    |> should equal [ "target"; "xs"; "p" ]
+    let w = Widget()
+    let make () = log.Add "tuple"; (1, 2)
+    orderOf (fun () -> (dlr { return (log.Add "target"; box w)?Add(make ()) } : int) |> ignore)
+    |> should equal [ "target"; "tuple" ]
+    let name () = log.Add "name"; "Call"
+    orderOf (fun () -> (dlr { return (?) (t ()) (name ()) (p (), Dlr.named {| second = n "second"; first = n "first" |}) } : string) |> ignore)
+    |> should equal [ "target"; "name"; "p"; "second"; "first" ]
+    orderOf (fun () -> (dlr { return (t ()) |> Dlr.apply (p (), Dlr.namedOf (log.Add "kw"; [ "second", box 2 ])) } : string) |> ignore)
+    |> should equal [ "target"; "p"; "kw" ]
+    let s (name: string) = log.Add name; name
+    orderOf (fun () -> (dlr { return Dlr.new'<Handler>(Dlr.named {| name = s "name"; count = n "count" |}) } : Handler) |> ignore)
+    |> should equal [ "name"; "count" ]
+    // A mutable read is not hoisted past an argument that assigns it.
+    let mutable m = 1
+    let r: obj = Recorder()
+    let seen: string = dlr { return r?Call(m, Dlr.named {| second = (m <- 5; m); first = 0 |}) }
+    seen |> should equal "1|0|5"
+
+[<Fact>]
 let ``a tuple in a variable is several arguments, as in F#'s own method calls`` () =
     let w: obj = Widget()
     let args = (40, 2)

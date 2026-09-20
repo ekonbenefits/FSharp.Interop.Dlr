@@ -99,6 +99,7 @@
     <Compile Include="FSharpInBlocks.fs" />
     <Compile Include="RulesEverywhere.fs" />
     <Compile Include="Unreflected.fs" />
+    <Compile Include="Undecodable.fs" />   <!-- not in Tests.Wasm: Mono asserts on the Void quotation -->
   </ItemGroup>
 
   <ItemGroup>

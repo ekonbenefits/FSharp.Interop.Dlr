@@ -244,6 +244,63 @@ module internal Translate =
             [ v, e ], [ for i in 0 .. FSharpType.GetTupleElements(e.Type).Length - 1 -> Expr.TupleGet(Expr.Var v, i) ]
         | single -> [], [ single ]
 
+    /// Whether evaluating `e` has no effect and no order to keep: an immutable variable, a
+    /// literal, a lambda, a read-only field, a tuple or coercion of such. A mutable (a captured
+    /// `let mutable`, a mutable field) is not: an argument may assign it. Anything else is bound
+    /// in source order by `sequenced`.
+    let rec private isPure (e: Expr) =
+        match e with
+        | Var v -> not v.IsMutable
+        | Value _ | Lambda _ | StaticTarget _ -> true
+        | FieldGet(None, f) -> f.IsInitOnly || f.IsLiteral
+        | FieldGet(Some inner, f) -> f.IsInitOnly && isPure inner
+        | Coerce(inner, _) | TupleGet(inner, _) -> isPure inner
+        | NewTuple items -> List.forall isPure items
+        | _ -> false
+
+    /// Whether a form's arguments make it hoist something ahead of its site call: a `Dlr.named`
+    /// record's field temporaries, a splat list, a tuple bound by `splitArgs`.
+    let private hoists (tupleBindings: (Var * Expr) list) (argExprs: Expr list) =
+        not tupleBindings.IsEmpty
+        || argExprs |> List.exists (fun a -> match a with NamedOf _ | ArgsOf _ -> true | NamedRecord(lets, _) -> not lets.IsEmpty | _ -> false)
+
+    /// C#'s evaluation order — the target, then the arguments left to right — kept where a form
+    /// hoists something ahead of its site call (`hoists`), which would otherwise run first:
+    /// every impure expression is bound to a variable in source order, so the hoisted ones take
+    /// their own place. The tuple of `splitArgs` goes after the target, where the arguments are;
+    /// a computed name or type list (`keys`) between the target and the arguments, where
+    /// `(?) x name args` writes them. Returns the bindings, the variables to add to the bound
+    /// set, and the target, keys and arguments rewritten over the variables.
+    let private sequenced (target: Expr option) (keys: Expr list) (tupleBindings: (Var * Expr) list) (argExprs: Expr list) =
+        let bindings = ResizeArray<Var * Expr>()
+        let place (name: string) (e: Expr) =
+            if isPure e then e
+            else
+                let v = Var(name, e.Type)
+                bindings.Add((v, e))
+                Expr.Var v
+        let target' = target |> Option.map (place "target")
+        let keys' = keys |> List.mapi (fun i k -> place (sprintf "key%d" i) k)
+        bindings.AddRange tupleBindings
+        let args' =
+            argExprs |> List.mapi (fun i a ->
+                match a with
+                // The record's temporaries at the record's place; the record itself then holds
+                // only variables and pure values.
+                | NamedRecord(lets, _) when not lets.IsEmpty ->
+                    let rec strip (e: Expr) =
+                        match e with
+                        | Let(_, _, body) -> strip body
+                        | Call(None, mi, [ inner ]) -> Expr.Call(mi, [ strip inner ])
+                        | e -> e
+                    bindings.AddRange lets
+                    strip a
+                | NamedRecord _ -> a
+                | Call(None, mi, [ list ]) when isSplat a -> Expr.Call(mi, [ place (sprintf "list%d" i) list ])
+                | a -> place (sprintf "arg%d" i) a)
+        let bound = bindings |> Seq.map fst |> Set.ofSeq
+        List.ofSeq bindings, bound, target', keys', args'
+
     /// The definition of a let-bound variable somewhere in `e` (quotation Vars are identity-based,
     /// so shadowing is not a concern).
     let rec private letDefinition (v: Var) (e: Expr) : Expr option =
@@ -807,28 +864,36 @@ module internal Translate =
             match e with
             | MemberOp(InvokeMember(target, nameExpr, argExpr)) ->
                 let tupleBindings, argExprs = splitArgs argExpr
-                let bound' = withTuple bound tupleBindings
                 let typeArgs, argExprs =
                     match argExprs with
                     | TypeArgs spec :: rest -> spec, rest
                     | args -> StaticTypes [], args
+                // A computed name / type list is evaluated by the keyed site ahead of the call,
+                // so it too is sequenced when impure.
+                let keys = [ (match nameExpr with Literal _ -> None | k -> Some k); (match typeArgs with RuntimeTypes k -> Some k | _ -> None) ] |> List.choose id
+                let ordered = hoists tupleBindings argExprs || keys |> List.exists (fun k -> not (isPure k))
+                let bindings, bound', target, nameExpr, typeArgs, argExprs =
+                    if ordered then
+                        let bindings, vars, target', keys', argExprs' = sequenced (Some target) keys tupleBindings argExprs
+                        let nameExpr', keys' = (match nameExpr with Literal _ -> nameExpr, keys' | _ -> List.head keys', List.tail keys')
+                        let typeArgs' = (match typeArgs with RuntimeTypes _ -> RuntimeTypes(List.head keys') | t -> t)
+                        bindings, Set.union bound vars, target'.Value, nameExpr', typeArgs', argExprs'
+                    else tupleBindings, withTuple bound tupleBindings, target, nameExpr, typeArgs, argExprs
                 let discard = e.Type = typeof<unit>
                 let hasNamedOf = argExprs |> List.exists isSplat
                 match nameExpr, typeArgs with
                 | Literal name, StaticTypes ts when hasNamedOf ->
                     (namedOfCall block rewriteIn bound' target argExprs e.Type discard (fun t args -> Binders.invokeMemberOrApply context (string name) ts discard t args)).Value
-                    |> bind bound tupleBindings
                 | Literal name, StaticTypes ts ->
-                    let bindings, args = argList bound' argExprs
-                    Binders.invokeMemberOrApply context (string name) ts discard (targetArg bound target) args |> finish discard e.Type |> bind bound' bindings |> bind bound tupleBindings
+                    let argBindings, args = argList bound' argExprs
+                    Binders.invokeMemberOrApply context (string name) ts discard (targetArg bound' target) args |> finish discard e.Type |> bind bound' argBindings
                 | _ when hasNamedOf ->
                     (namedOfCallKeyed block rewriteIn bound' target argExprs e.Type discard (Some(keySpec rewriteIn bound' nameExpr typeArgs)) (fun key t args ->
                         keyedSiteCore block key t args typeof<obj> (fun name ts targetArg args -> Binders.invokeMemberOrApply context name ts discard targetArg args))).Value
-                    |> bind bound tupleBindings
                 | _ ->
                     keyedSite block rewriteIn bound' nameExpr typeArgs target argExprs e.Type (fun name ts targetArg args ->
                         Binders.invokeMemberOrApply context name ts discard targetArg args)
-                    |> bind bound tupleBindings
+                |> bind bound bindings
                 |> Some
             | MemberOp(GetMember(target, nameExpr)) when FSharpType.IsFunction e.Type ->
                 // Read as an F# function: a curried invoker of the member (method, delegate or F#
@@ -860,23 +925,31 @@ module internal Translate =
                     match argExprs with
                     | [ single ] -> splitArgs single
                     | many -> [], many
-                let bound' = withTuple bound tupleBindings
+                let bindings, bound', argExprs =
+                    if hoists tupleBindings argExprs then
+                        let bindings, vars, _, _, argExprs' = sequenced None [] tupleBindings argExprs
+                        bindings, Set.union bound vars, argExprs'
+                    else tupleBindings, withTuple bound tupleBindings, argExprs
                 match namedOfCall block rewriteIn bound' (Expr.Value(null, typeof<obj>)) argExprs e.Type false (fun _ args -> Binders.invokeConstructor context t args) with
-                | Some call -> call |> bind bound tupleBindings |> Some
+                | Some call -> call |> bind bound bindings |> Some
                 | None ->
-                    let bindings, args = argList bound' argExprs
-                    Binders.invokeConstructor context t args |> bind bound' bindings |> bind bound tupleBindings |> Some
+                    let argBindings, args = argList bound' argExprs
+                    Binders.invokeConstructor context t args |> bind bound' argBindings |> bind bound bindings |> Some
             // The value's `?`: applied, a call; read at a function type, the target as that function.
             | Application(EtaReduced(Op opCall [ Unboxed target ]), argExpr)
             | Op opApply [ argExpr; Unboxed target ] ->
                 let discard = e.Type = typeof<unit>
                 let tupleBindings, argExprs = splitArgs argExpr
-                let bound' = withTuple bound tupleBindings
+                let bindings, bound', target, argExprs =
+                    if hoists tupleBindings argExprs then
+                        let bindings, vars, target', _, argExprs' = sequenced (Some target) [] tupleBindings argExprs
+                        bindings, Set.union bound vars, target'.Value, argExprs'
+                    else tupleBindings, withTuple bound tupleBindings, target, argExprs
                 match namedOfCall block rewriteIn bound' target argExprs e.Type discard (fun t args -> Binders.invokeOrApply context discard t args) with
-                | Some call -> call |> bind bound tupleBindings |> Some
+                | Some call -> call |> bind bound bindings |> Some
                 | None ->
-                    let bindings, args = argList bound' argExprs
-                    Binders.invokeOrApply context discard (targetArg bound target) args |> finish discard e.Type |> bind bound' bindings |> bind bound tupleBindings |> Some
+                    let argBindings, args = argList bound' argExprs
+                    Binders.invokeOrApply context discard (targetArg bound' target) args |> finish discard e.Type |> bind bound' argBindings |> bind bound bindings |> Some
             | Op opCall [ Unboxed target ] when FSharpType.IsFunction e.Type ->
                 Binders.functionTarget context e.Type (targetArg bound target) |> Some
             | Op opCall [ _ ] ->

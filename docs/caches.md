@@ -59,7 +59,19 @@ that delegate and goes with it.
   generic member; how each is reached is in the [pipeline](pipeline.md)).
 - reflected definitions: one list per type that has had a block looked up in it.
 - `SiteCache`: 256 keys per site, then it clears and refills; concurrent misses are admitted
-  under a lock so the bound holds.
+  under a lock so the bound holds. `NamedOfCache`: 64 argument shapes per site (a flat array
+  scanned in place, hence the smaller number; #87).
+- What these do **not** bound — the computed case only, a literal name or type list being one
+  key for ever: Microsoft.CSharp's own symbol table. The first bind of a name against a type
+  loads that type's members of that name, for every type in the target's hierarchy, and keeps
+  them for the life of the process (~300 B and ~0.3 ms per name per type); a `DynamicObject`
+  pays it too, since its meta-object computes C#'s fallback eagerly. This is C# `dynamic`'s
+  behaviour with a name from data, and there is no API to clear it. So a stream of distinct
+  member names (`(?) x name`) or type lists (`Dlr.typeArgsOf ts`) from untrusted data grows the
+  process without bound: allow-list them, or where the target indexes by key (JObject, Python
+  dicts, Dapper rows, script objects) use `x |> Dlr.item key` — one member name, `Item`, however
+  many keys. A distinct positional count in `Dlr.argsOf` is dearer still (a new site arity and
+  an interned binder, ~150 KB, permanent; #90).
 - conversion factories: one per (function type, delegate type) pair that has been converted.
 - The DLR's rule caches: the DLR's own policy (a polymorphic cache per site, with a global
   fallback past a handful of rules).

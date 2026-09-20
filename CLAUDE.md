@@ -37,7 +37,31 @@ dotnet build Tests.Wasm -c Release && (cd Tests.Wasm/bin/Release/net10.0-browser
 - Tests: AnyUnit xunit style, `[<Fact>]` + FsUnit `should`; test modules are
   `[<ReflectedDefinition>]`; `Tests.Wasm` links the same files, so add new test files to both
   fsproj files. Tests needing real threads skip with `AnyUnit.IgnoreException` when
-  `ProcessorCount < 2` (wasm) rather than passing vacuously.
+  `ProcessorCount < 2` (wasm) rather than passing vacuously. Two styles: *usage* tests read
+  like real code — `let w: obj = Widget()`, a named typed `let` per result with the assertion
+  on its own line, or a function taking the target (`Members`, `Invoke`, the real-target files);
+  *boundary* tests are one case per line, `(dlr { … } : T) |> should equal v` (`Restrictions`,
+  `Delegates`, `Operators`). A fixture no quotation can hold (a `byref` member) goes in a
+  non-reflected type (`Unquotable`); a member whose stored quotation FSharp.Core cannot decode
+  (`typeof<System.Void>`) stays out of `Tests.Wasm` entirely — Mono asserts and the whole
+  process dies (`Tests/Undecodable.fs`).
+- Translator forms that hoist a binding ahead of the site call (a `Dlr.named` record's
+  temporaries, a splat list, a tuple, a computed key) go through `sequenced` in `Translate.fs`,
+  or C#'s order (target, then arguments left to right) breaks silently; the order test in
+  `Tests/Invoke.fs` covers only the forms that exist. A cache keyed by a run-time value
+  validates the key on the miss path only (`SiteCache.Get`, `NamedOfCache.Get`): the hit path
+  stays allocation-free.
+- Analyzer: `Analyzers.Tests` type-checks its sources against a stand-in copy of the `Dlr`
+  API in its prelude, so a new `Dlr` member goes there too. Typed-tree shapes to know: an
+  over-applied call's `Call` node `.Type` is not its function type (tell an application
+  structurally); a multi-field anonymous record literal arrives let-bound; `Dlr.new'`
+  arguments arrive `Coerce`d to `obj`; a piped partial application is an eta-expanded lambda
+  chain (`head`/`describe` in `ReflectedDefinitionAnalyzer.fs` descend those).
+- Translation errors: a `DlrTranslationException` is a shape the translator rejects, and that
+  shape is visible in the typed tree, so every new one gets an analyzer check (DLR005 for a
+  marker out of place, or a new code) unless the analyzer genuinely cannot see it — say why
+  in the PR if not. The test that pins the run-time error carries a `fsharpanalyzer: ignore`
+  comment saying the analyzer reports it at build time (`Tests/StaticOverloads.fs` is the shape).
 - Markers: `[<MethodImpl(NoInlining)>]`, throw outside a block, and every one is in the
   `Errors.fs` outside-a-block test. New `Dlr` members are analyzer markers automatically; types
   in the `Dlr` module (`DlrModule` to FCS) too — never widen the analyzer's prefix past
