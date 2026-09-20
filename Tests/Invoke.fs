@@ -168,8 +168,9 @@ let ``the target is evaluated first, then the arguments left to right, each once
     seen |> should equal "1|0|5"
 
 [<Fact>]
-let ``a struct-typed target expression with a splat argument`` () =
-    // F# eta-expands the call with the tuple's elements re-bound; the translator folds it back.
+let ``a typed target with a splat argument`` () =
+    // A target whose static type is not obj with a tuple of arguments: F# eta-expands the call
+    // with the tuple's elements re-bound; the translator folds it back.
     let today () = DateTime(2020, 1, 1)
     let empty: obj list = []
     let next: DateTime = dlr { return (today ())?AddDays(1.0, Dlr.argsOf empty) }
@@ -177,6 +178,9 @@ let ``a struct-typed target expression with a splat argument`` () =
     let kw: (string * obj) list = []
     let same: DateTime = dlr { return (today ())?AddDays(1.0, Dlr.namedOf kw) }
     same |> should equal (DateTime(2020, 1, 2))
+    let w = Widget()                                                    // a class-typed variable, the same shape
+    let sum: int = dlr { return w?Add(40, Dlr.argsOf [ box 2 ]) }
+    sum |> should equal 42
 
 [<Fact>]
 let ``a unit-valued argument expression is evaluated and passes no argument`` () =
@@ -184,11 +188,17 @@ let ``a unit-valued argument expression is evaluated and passes no argument`` ()
     let o: obj = w
     let log = ResizeArray<string>()
     let tick () = log.Add "tick"
-    let described: string = dlr { return o?Describe(tick ()) }
+    let described: string = dlr { return o?Describe(tick ()) }           // a closure: converts to an Invoke returning unit
     described |> should equal "described"
     dlr { o?Touch(tick ()) }
-    w.Touched |> should equal 1
-    List.ofSeq log |> should equal [ "tick"; "tick" ]
+    let ticked: string = dlr { return o?Describe(Holders.Tick log) }     // a static method: a void call
+    ticked |> should equal "described"
+    let count (s: string) = log.Add s; log.Count
+    dlr { o?Touch(ignore (count "ignored")) }
+    let touched: string = dlr { return o?Describe((o?Touch() : unit)) } // a unit-typed dynamic call
+    touched |> should equal "described"
+    w.Touched |> should equal 3
+    List.ofSeq log |> should equal [ "tick"; "tick"; "tick"; "ignored" ]
 
 [<Fact>]
 let ``a tuple in a variable is several arguments, as in F#'s own method calls`` () =

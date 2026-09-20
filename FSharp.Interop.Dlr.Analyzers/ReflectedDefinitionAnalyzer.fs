@@ -177,8 +177,9 @@ let rec private appliesLet (v: FSharpMemberOrFunctionOrValue) (body: FSharpExpr)
 let rec private head (f: FSharpExpr) (lambdas: int) : (FSharpMemberOrFunctionOrValue * int) option =
     match f with
     | FSharpExprPatterns.Call(_, mfv, _, _, _) when isMarker mfv -> Some(mfv, lambdas)
-    // The tupled eta-expansion of a call on a struct-typed target expression: `let clo = (f ())?M
-    // in fun tupledArg -> let a0 = tupledArg.0 in … clo (a0, …)`; the head is the let's value.
+    // The tupled eta-expansion of a call with a tuple of arguments on a target whose static type
+    // is not `obj`: `let clo = (f ())?M in fun tupledArg -> let a0 = tupledArg.0 in … clo (a0, …)`;
+    // the head is the let's value.
     | FSharpExprPatterns.Let((v, value, _), FSharpExprPatterns.Lambda(_, body)) when appliesLet v body -> head value lambdas
     | FSharpExprPatterns.Call(_, mfv, _, _, [ _; g ]) when mfv.CompiledName = "op_PipeRight" -> head g lambdas
     | FSharpExprPatterns.Call(_, mfv, _, _, [ g; _ ]) when mfv.CompiledName = "op_PipeLeft" -> head g lambdas

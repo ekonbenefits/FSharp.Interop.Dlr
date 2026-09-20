@@ -77,6 +77,8 @@ type Holders() =
     member val AsFunction: int -> int = (fun x -> x + 1) with get, set
     member val Label: string -> string = (fun s -> if isNull s then "null" else s) with get
     member _.Item with get (i: int) = i * 10
+    /// A void method, for a unit-valued argument expression that is not a closure call.
+    static member Tick(log: ResizeArray<string>) = log.Add "tick"
     /// F# private: IL internal, reachable from this assembly's context, as the binder allows.
     member private _.Hidden = fun (x: int) -> x - 1
     member private _.BumpHidden(count: int, ?step: int) = count + defaultArg step 100
