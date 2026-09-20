@@ -55,4 +55,4 @@ dotnet build Tests.Wasm -c Release && (cd Tests.Wasm/bin/Release/net10.0-browser
   (`System.Reflection.Emit.Lightweight` is referenced for it).
 - Copilot: one automatic review per new PR, none on later pushes; never request one while
   waiting (15–20 min); address via `check-review`, verifying each claim with a test first.
-- Commit only when asked. Issues are the backlog; the API decisions above came from them.
+- Issues are the backlog; the API decisions above came from them.
