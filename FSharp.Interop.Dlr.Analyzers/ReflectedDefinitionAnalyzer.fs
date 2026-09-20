@@ -163,12 +163,24 @@ let rec private findInDeclarations (reflected: bool) (decls: FSharpImplementatio
 let private isArgumentMarker (mfv: FSharpMemberOrFunctionOrValue) =
     isMarker mfv && (match mfv.DisplayName with "named" | "namedOf" | "argsOf" | "typeArgs" | "typeArgsOf" -> true | _ -> false)
 
+/// Whether `body` ends in an application of the let-bound `v` (through the `let ai = tupledArg.i`
+/// re-bindings of the tupled eta-expansion).
+let rec private appliesLet (v: FSharpMemberOrFunctionOrValue) (body: FSharpExpr) =
+    match body with
+    | FSharpExprPatterns.Let(_, rest) -> appliesLet v rest
+    | FSharpExprPatterns.Application(FSharpExprPatterns.Value v', _, _) -> v'.IsEffectivelySameAs v
+    | _ -> false
+
 /// The marker a function expression is headed by, descending through pipes, lambdas (a partial
 /// application of `Dlr.invoke` is an eta-expanded lambda chain), coercions and lets — with the
 /// number of lambdas passed, since an applied argument maps to a lambda parameter.
 let rec private head (f: FSharpExpr) (lambdas: int) : (FSharpMemberOrFunctionOrValue * int) option =
     match f with
     | FSharpExprPatterns.Call(_, mfv, _, _, _) when isMarker mfv -> Some(mfv, lambdas)
+    // The tupled eta-expansion of a call with a tuple of arguments on a target whose static type
+    // is not `obj`: `let clo = (f ())?M in fun tupledArg -> let a0 = tupledArg.0 in … clo (a0, …)`;
+    // the head is the let's value.
+    | FSharpExprPatterns.Let((v, value, _), FSharpExprPatterns.Lambda(_, body)) when appliesLet v body -> head value lambdas
     | FSharpExprPatterns.Call(_, mfv, _, _, [ _; g ]) when mfv.CompiledName = "op_PipeRight" -> head g lambdas
     | FSharpExprPatterns.Call(_, mfv, _, _, [ g; _ ]) when mfv.CompiledName = "op_PipeLeft" -> head g lambdas
     | FSharpExprPatterns.Application(g, _, _) -> head g lambdas

@@ -207,6 +207,19 @@ module internal Translate =
         | Let(v, value, Lambda(x, Application(Var v', Var x'))) when v = v' && x = x' -> value
         | _ -> e
 
+    /// `let a0 = x.0 in … let an = x.n in v (a0, …, an)`: the lambda body of the tupled
+    /// eta-expansion the compiler makes of a call with a tuple of arguments on a target whose
+    /// static type is not `obj` — a struct or class expression, a typed variable — (`let clo =
+    /// (f ())?M in fun tupledArg -> …` applied to the tuple).
+    let private retuples (v: Var) (x: Var) (body: Expr) =
+        let rec peel (elements: Var list) (e: Expr) =
+            match e with
+            | Let(a, TupleGet(Var x', i), rest) when x' = x && i = elements.Length -> peel (elements @ [ a ]) rest
+            | Application(Var v', NewTuple items) when v' = v ->
+                items.Length = elements.Length && List.forall2 (fun (item: Expr) (a: Var) -> item = Expr.Var a) items elements
+            | _ -> false
+        peel [] body
+
     /// One of the member operations, whichever way it was spelled: `x?Name` / `(?) x name` /
     /// `Dlr.get name x`, those applied to arguments (`x?Name(a)`, `(Dlr.get name x)(a)`) or
     /// `Dlr.invoke name a x`, and `x?Name <- v` / `Dlr.set name v x`. Target, name
@@ -238,6 +251,9 @@ module internal Translate =
         // no arguments, and nothing to evaluate.
         | Value(_, t) when t = typeof<unit> -> [], []
         | Var v when v.Type = typeof<unit> -> [], []
+        // A unit-valued expression: evaluated for its effect, and no arguments. A void call
+        // cannot be let-bound (the converter has no value for it), so `()` follows it.
+        | e when e.Type = typeof<unit> -> [ Var("effect", typeof<unit>), Expr.Sequential(e, Expr.Value(())) ], []
         | NewTuple items -> [], items
         | _ when FSharpType.IsTuple e.Type && not e.Type.IsValueType ->
             let v = Var("args", e.Type)
@@ -408,6 +424,9 @@ module internal Translate =
         match e with
         | Op pipeRight [ x; f ] -> applied f x
         | Op pipeLeft [ f; x ] -> applied f x
+        // The tupled eta-expansion of a member call: back to the member applied to the tuple,
+        // before the tuple would be let-bound under the lambda and its markers lost.
+        | Application(Let(v, value, Lambda(x, body)), arg) when retuples v x body -> applied value arg
         | Application(f, x) -> applied f x
         // A `let` of a literal or an immutable variable is inlined; a snapshot of a mutable
         // (`let y = n` with `n` mutable) is not, since `n` may change before `y` is used.
@@ -499,6 +518,11 @@ module internal Translate =
     /// of the block; end it with the unit constant so the tree has a `Unit` value.
     let private asUnit (e: Expr) =
         if e.Type = typeof<unit> then Expr.Sequential(e, Expr.Value(())) else e
+
+    /// A `unit`-typed call or application — possibly a void method, which the converter cannot
+    /// use as a value — as opposed to `()` or a unit-typed variable.
+    let private isUnitCall (e: Expr) =
+        e.Type = typeof<unit> && (match e with Call _ | Application _ -> true | _ -> false)
 
     /// On Mono's browser-wasm runtime a nested lambda that captures nothing loses its arguments
     /// when invoked (see DlrRuntime); one that captures is fine. So there, a nested delegate
@@ -622,6 +646,8 @@ module internal Translate =
         let private valueArg (rewriteIn: Rewrite) bound (value: Expr) =
             match value with
             | Value _ -> Binders.constant (Binders.typedArg value)
+            // A unit-valued expression (a void call, `ignore x`) as a value: run, then `()`.
+            | _ when value.Type = typeof<unit> -> Binders.typedArg (Expr.Sequential(rewriteIn bound value, Expr.Value(())))
             | _ -> Binders.typedArg (rewriteIn bound value)
 
         let private argList (rewriteIn: Rewrite) bound (argExprs: Expr list) =
@@ -1070,6 +1096,14 @@ module internal Translate =
                 let inner = allVars |> List.fold (fun b v -> Set.add v b) bound
                 Expr.NewDelegate(t, allVars, capturing block (asUnit (rewriteIn inner body)))
             | ShapeLambda(v, lambdaBody) -> Expr.Lambda(v, capturing block (asUnit (rewriteIn (bound.Add v) lambdaBody)))
+            // A void call where a `unit` value is expected (`ignore (list.Add x)`, `f (list.Add x)`):
+            // the converter has no value for it, so run it, then `()`.
+            | Call(receiver, mi, args) when args |> List.exists isUnitCall ->
+                let args' = args |> List.map (fun a -> if isUnitCall a then asUnit (rewrite a) else rewrite a)
+                match receiver with
+                | Some r -> Expr.Call(rewrite r, mi, args')
+                | None -> Expr.Call(mi, args')
+            | Application(f, arg) when isUnitCall arg -> Expr.Application(rewrite f, asUnit (rewrite arg))
             | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map rewrite args)
 
         let delegateType = typedefof<Func<_, _>>.MakeGenericType(closure.Type, resultType)

@@ -15,6 +15,7 @@ type Widget() =
     member _.Pick(_: int) = "int"
     member _.Pick(_: obj) = "obj"
     member _.Pick(_: string) = "string"
+    member _.Pick(_: unit, _: int) = "unit"
     member _.Add(a: int, b: int) = a + b
     member _.Greet(greeting: string, name: string) = greeting + ", " + name
     member _.Bump(count: int, [<Optional; DefaultParameterValue(1)>] step: int) = count + step
@@ -77,6 +78,8 @@ type Holders() =
     member val AsFunction: int -> int = (fun x -> x + 1) with get, set
     member val Label: string -> string = (fun s -> if isNull s then "null" else s) with get
     member _.Item with get (i: int) = i * 10
+    /// A void method, for a unit-valued argument expression that is not a closure call.
+    static member Tick(log: ResizeArray<string>) = log.Add "tick"
     /// F# private: IL internal, reachable from this assembly's context, as the binder allows.
     member private _.Hidden = fun (x: int) -> x - 1
     member private _.BumpHidden(count: int, ?step: int) = count + defaultArg step 100

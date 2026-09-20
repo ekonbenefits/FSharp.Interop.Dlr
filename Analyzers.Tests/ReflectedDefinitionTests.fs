@@ -302,7 +302,8 @@ module Impl =
         let g: int = dlr { return (w |> Dlr.get "M") (Dlr.named {| p = 2 |}) }
         let h: int = dlr { return Dlr.get "M" w (Dlr.typeArgsOf ts, Dlr.named {| p = 2 |}) }
         let i: int = dlr { return w?M(1, Dlr.argsOf xs, Dlr.named {| p = 2 |}, Dlr.namedOf kw) }
-        a + b + c + d + e + f + g + h + i
+        let j: int = dlr { return (System.DateTime.Now)?AddDays(1.0, Dlr.argsOf xs) }   // a struct-typed target expression: the tupled eta-expansion
+        a + b + c + d + e + f + g + h + i + j
     [<ReflectedDefinition>]
     let wrong () : int =
         let a: int = dlr { return w?M(Dlr.namedOf kw, Dlr.namedOf kw) }          // twice
