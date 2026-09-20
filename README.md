@@ -106,8 +106,9 @@ Without the attribute the first call raises a `DlrTranslationException` that say
 [analyzer package](FSharp.Interop.Dlr.Analyzers/README.md) reports it at build time instead
 (`DLR001`, with a fix), along with a marker used outside any block (`DLR002`), two blocks on
 one line (`DLR003`), a block in an `inline` function (`DLR004`: it fails in Release, where
-the function is expanded into its callers) and a marker out of its place inside a block, such as
-`Dlr.named` anywhere but in a call's arguments (`DLR005`). Why the block is not simply quoted by the compiler, sparing the attribute:
+the function is expanded into its callers) a marker out of its place inside a block, such as
+`Dlr.named` anywhere but in a call's arguments (`DLR005`), and a member whose reflected
+definition FSharp.Core cannot decode (`DLR006`: it holds `typeof<System.Void>`). Why the block is not simply quoted by the compiler, sparing the attribute:
 tried and [scrapped](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/60) — a quotation
 literal costs ~7 µs per evaluation and carries no calling type, so `internal` members would not
 bind.

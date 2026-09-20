@@ -35,6 +35,13 @@ let InlineCode = "DLR004"
 [<Literal>]
 let ArgumentMarkerCode = "DLR005"
 
+/// A function or member holding a `dlr { }` whose reflected definition FSharp.Core will not
+/// decode: it compiles and stores the quotation, but reading it back throws, and every block in
+/// the member then fails at run time (named as such by the not-found error). Known cause:
+/// `typeof<System.Void>` (the only spelling of `System.Void` F# allows).
+[<Literal>]
+let UndecodableCode = "DLR006"
+
 let private isReflectedDefinition (attributes: seq<FSharpAttribute>) =
     attributes
     |> Seq.exists (fun a ->
@@ -452,6 +459,53 @@ let private analyzeSharedLines (typedTree: FSharpImplementationFileContents opti
                       Range = r
                       Fixes = [] }))
 
+/// Whether `t` is `System.Void` or has it among its type arguments, at any depth.
+let rec private mentionsVoid (t: FSharpType) =
+    try
+        (t.HasTypeDefinition && t.TypeDefinition.TryFullName = Some "System.Void")
+        || (t.HasTypeDefinition && t.GenericArguments |> Seq.exists mentionsVoid)
+        || (t.IsFunctionType && t.GenericArguments |> Seq.exists mentionsVoid)
+        || (t.IsTupleType && t.GenericArguments |> Seq.exists mentionsVoid)
+    with _ -> false
+
+/// The expressions in `e` that put `System.Void` in a type argument: `typeof<System.Void>`
+/// (a call with that type argument) or a value of a type built over it.
+let rec private voidUses (e: FSharpExpr) : range list =
+    let own =
+        match e with
+        | FSharpExprPatterns.Call(_, _, _, typeArgs, _) when typeArgs |> List.exists mentionsVoid -> [ e.Range ]
+        | _ -> if mentionsVoid e.Type then [ e.Range ] else []
+    own @ (e.ImmediateSubExpressions |> List.collect voidUses)
+
+/// Declaration-level members that hold a block and whose body mentions `System.Void` as a type
+/// argument: the block(s) and the member, with the first offending use.
+let rec private undecodableIn (decls: FSharpImplementationFileDeclaration list) : (range * FSharpMemberOrFunctionOrValue * range) list =
+    decls
+    |> List.collect (fun decl ->
+        match decl with
+        | FSharpImplementationFileDeclaration.Entity(_, sub) -> undecodableIn sub
+        | FSharpImplementationFileDeclaration.MemberOrFunctionOrValue(mfv, _, body) ->
+            match blocksIn body with
+            | [] -> []
+            | blocks ->
+                match voidUses body with
+                | [] -> []
+                | use' :: _ -> [ for b in blocks -> b.Range, mfv, use' ]
+        | FSharpImplementationFileDeclaration.InitAction _ -> [])
+
+let private analyzeUndecodable (typedTree: FSharpImplementationFileContents option) : Message list =
+    match typedTree with
+    | None -> []
+    | Some contents ->
+        undecodableIn contents.Declarations
+        |> List.map (fun (block, mfv, use') ->
+            { Type = "dlr { } in a member whose reflected definition will not decode"
+              Message = sprintf "dlr { } inside '%s' fails at run time: the member's reflected definition holds typeof<System.Void> (line %d), which FSharp.Core cannot decode, so no block in it finds its body. Use typeof<unit>, or move the block or the typeof into another function." mfv.DisplayName use'.StartLine
+              Code = UndecodableCode
+              Severity = Severity.Error
+              Range = block
+              Fixes = [] })
+
 let private analyze (tree: ParsedInput) (typedTree: FSharpImplementationFileContents option) : Message list =
     let inline' = analyzeInline typedTree
     // A block DLR004 refuses gets no DLR001 as well: the add-the-attribute fix would not help it.
@@ -460,6 +514,7 @@ let private analyze (tree: ParsedInput) (typedTree: FSharpImplementationFileCont
     @ analyzeSharedLines typedTree
     @ inline'
     @ analyzeArgumentMarkers typedTree
+    @ analyzeUndecodable typedTree
     @ match typedTree with
       | None -> []
       | Some contents ->
