@@ -384,3 +384,35 @@ module Impl =
         |> outside
     msgs |> List.map (fun m -> m.Message.Substring(0, m.Message.IndexOf " is only")) |> should equal [ "'?'"; "'Dlr.get'"; "'Dlr.Static<T>.Overloads'" ]
 
+[<Fact>]
+let ``a member holding a block that uses System.Void as a type argument is reported`` () =
+    let msgs =
+        run """
+module Impl =
+    let w = box 1
+    [<ReflectedDefinition>]
+    let withVoid () : int =
+        let t = typeof<System.Void>
+        ignore t
+        dlr { return w?Count }
+    [<ReflectedDefinition>]
+    let twoBlocks () : int =
+        let a: int = dlr { return w?Count }
+        ignore typeof<System.Void>
+        let b: int = dlr { return w?Count }
+        a + b
+    [<ReflectedDefinition>]
+    let fine () : int =
+        let t = typeof<unit>
+        ignore t
+        dlr { return w?Count }
+    let noBlock () = typeof<System.Void>
+"""
+    let out = msgs |> List.filter (fun m -> m.Code = ReflectedDefinitionAnalyzer.UndecodableCode)
+    out.Length |> should equal 3                                                  // one per block
+    out |> List.forall (fun m -> m.Severity = Severity.Error) |> should equal true
+    Assert.messageContains "'withVoid'" out.[0] |> should equal true
+    Assert.messageContains "'twoBlocks'" out.[1] |> should equal true
+    Assert.messageContains "'twoBlocks'" out.[2] |> should equal true
+    (msgs |> List.filter (fun m -> m.Code <> ReflectedDefinitionAnalyzer.UndecodableCode)) |> should equal []
+

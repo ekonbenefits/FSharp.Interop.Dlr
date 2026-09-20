@@ -8,10 +8,12 @@ open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
 
 // The attribute is there, but FSharp.Core refuses to decode a quotation holding `typeof<System.Void>`.
+// The analyzer reports it at build time (DLR006); this pins the run-time error behind it.
 [<ReflectedDefinition>]
 let private withVoid (w: obj) : int =
     let t = typeof<System.Void>
     ignore t
+    // fsharpanalyzer: ignore-line-next DLR006
     dlr { return w?Count }
 
 [<Fact>]

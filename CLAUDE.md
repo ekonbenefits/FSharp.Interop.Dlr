@@ -43,8 +43,8 @@ dotnet build Tests.Wasm -c Release && (cd Tests.Wasm/bin/Release/net10.0-browser
   *boundary* tests are one case per line, `(dlr { … } : T) |> should equal v` (`Restrictions`,
   `Delegates`, `Operators`). A fixture no quotation can hold (a `byref` member) goes in a
   non-reflected type (`Unquotable`); a member whose stored quotation FSharp.Core cannot decode
-  (`typeof<System.Void>`) stays out of `Tests.Wasm` entirely — Mono asserts and the whole
-  process dies (`Tests/Undecodable.fs`).
+  (`typeof<System.Void>`, DLR006) stays out of `Tests.Wasm` entirely — Mono asserts and the
+  whole process dies (`Tests/Undecodable.fs`).
 - Translator forms that hoist a binding ahead of the site call (a `Dlr.named` record's
   temporaries, a splat list, a tuple, a computed key) go through `sequenced` in `Translate.fs`,
   or C#'s order (target, then arguments left to right) breaks silently; the order test in
