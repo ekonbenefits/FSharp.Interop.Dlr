@@ -168,6 +168,29 @@ let ``the target is evaluated first, then the arguments left to right, each once
     seen |> should equal "1|0|5"
 
 [<Fact>]
+let ``a struct-typed target expression with a splat argument`` () =
+    // F# eta-expands the call with the tuple's elements re-bound; the translator folds it back.
+    let today () = DateTime(2020, 1, 1)
+    let empty: obj list = []
+    let next: DateTime = dlr { return (today ())?AddDays(1.0, Dlr.argsOf empty) }
+    next |> should equal (DateTime(2020, 1, 2))
+    let kw: (string * obj) list = []
+    let same: DateTime = dlr { return (today ())?AddDays(1.0, Dlr.namedOf kw) }
+    same |> should equal (DateTime(2020, 1, 2))
+
+[<Fact>]
+let ``a unit-valued argument expression is evaluated and passes no argument`` () =
+    let w = Widget()
+    let o: obj = w
+    let log = ResizeArray<string>()
+    let tick () = log.Add "tick"
+    let described: string = dlr { return o?Describe(tick ()) }
+    described |> should equal "described"
+    dlr { o?Touch(tick ()) }
+    w.Touched |> should equal 1
+    List.ofSeq log |> should equal [ "tick"; "tick" ]
+
+[<Fact>]
 let ``a tuple in a variable is several arguments, as in F#'s own method calls`` () =
     let w: obj = Widget()
     let args = (40, 2)

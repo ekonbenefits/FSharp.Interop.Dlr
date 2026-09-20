@@ -207,6 +207,18 @@ module internal Translate =
         | Let(v, value, Lambda(x, Application(Var v', Var x'))) when v = v' && x = x' -> value
         | _ -> e
 
+    /// `let a0 = x.0 in … let an = x.n in v (a0, …, an)`: the lambda body of the tupled
+    /// eta-expansion the compiler makes of a call on a struct-typed target expression with a
+    /// tuple of arguments (`let clo = (f ())?M in fun tupledArg -> …` applied to the tuple).
+    let private retuples (v: Var) (x: Var) (body: Expr) =
+        let rec peel (elements: Var list) (e: Expr) =
+            match e with
+            | Let(a, TupleGet(Var x', i), rest) when x' = x && i = elements.Length -> peel (elements @ [ a ]) rest
+            | Application(Var v', NewTuple items) when v' = v ->
+                items.Length = elements.Length && List.forall2 (fun (item: Expr) (a: Var) -> item = Expr.Var a) items elements
+            | _ -> false
+        peel [] body
+
     /// One of the member operations, whichever way it was spelled: `x?Name` / `(?) x name` /
     /// `Dlr.get name x`, those applied to arguments (`x?Name(a)`, `(Dlr.get name x)(a)`) or
     /// `Dlr.invoke name a x`, and `x?Name <- v` / `Dlr.set name v x`. Target, name
@@ -238,6 +250,8 @@ module internal Translate =
         // no arguments, and nothing to evaluate.
         | Value(_, t) when t = typeof<unit> -> [], []
         | Var v when v.Type = typeof<unit> -> [], []
+        // A unit-valued expression: evaluated for its effect, and no arguments.
+        | e when e.Type = typeof<unit> -> [ Var("effect", typeof<unit>), e ], []
         | NewTuple items -> [], items
         | _ when FSharpType.IsTuple e.Type && not e.Type.IsValueType ->
             let v = Var("args", e.Type)
@@ -408,6 +422,9 @@ module internal Translate =
         match e with
         | Op pipeRight [ x; f ] -> applied f x
         | Op pipeLeft [ f; x ] -> applied f x
+        // The tupled eta-expansion of a member call: back to the member applied to the tuple,
+        // before the tuple would be let-bound under the lambda and its markers lost.
+        | Application(Let(v, value, Lambda(x, body)), arg) when retuples v x body -> applied value arg
         | Application(f, x) -> applied f x
         // A `let` of a literal or an immutable variable is inlined; a snapshot of a mutable
         // (`let y = n` with `n` mutable) is not, since `n` may change before `y` is used.
