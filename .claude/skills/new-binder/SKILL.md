@@ -60,7 +60,11 @@ Minimum set for a binder change:
 - A type that has the CLR operator/member C# already handles — proves our rule does not
   shadow it.
 - The failure: what still throws (`RuntimeBinderException`) or is a `DlrTranslationException`,
-  with a message assertion.
+  with a message assertion. A new `DlrTranslationException` also gets an analyzer check
+  (`FSharp.Interop.Dlr.Analyzers/ReflectedDefinitionAnalyzer.fs`, `misplacedMarkers` for DLR005,
+  with a test in `Analyzers.Tests`) — the shape it rejects is in the typed tree, so the build can
+  report it; the run-time test then carries `// fsharpanalyzer: ignore-line-next DLR005`. Only
+  a shape the typed tree cannot show (a run-time value) is exempt; say so in the PR.
 - If a restriction in `docs/restrictions.md` is lifted, delete its pin in `Tests/Restrictions.fs`.
 
 Gate: `dotnet test -c Debug`, `dotnet test -c Release` (optimizer inlining differs), and the

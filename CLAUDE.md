@@ -38,6 +38,11 @@ dotnet build Tests.Wasm -c Release && (cd Tests.Wasm/bin/Release/net10.0-browser
   `[<ReflectedDefinition>]`; `Tests.Wasm` links the same files, so add new test files to both
   fsproj files. Tests needing real threads skip with `AnyUnit.IgnoreException` when
   `ProcessorCount < 2` (wasm) rather than passing vacuously.
+- Translation errors: a `DlrTranslationException` is a shape the translator rejects, and that
+  shape is visible in the typed tree, so every new one gets an analyzer check (DLR005 for a
+  marker out of place, or a new code) unless the analyzer genuinely cannot see it — say why
+  in the PR if not. The test that pins the run-time error carries a `fsharpanalyzer: ignore`
+  comment saying the analyzer reports it at build time (`Tests/StaticOverloads.fs` is the shape).
 - Markers: `[<MethodImpl(NoInlining)>]`, throw outside a block, and every one is in the
   `Errors.fs` outside-a-block test. New `Dlr` members are analyzer markers automatically; types
   in the `Dlr` module (`DlrModule` to FCS) too — never widen the analyzer's prefix past
