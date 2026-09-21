@@ -62,7 +62,7 @@ type Dlr =
     static member named: record: 'T -> Named<'T>
     /// <summary>Named arguments whose names are run-time values — keyword arguments from data: <c>plt?plot(xs, ys, Dlr.namedOf kwargs)</c> with <c>kwargs: (string * obj) list</c>. Values dispatch on their runtime types. The call is compiled once per distinct name list at the site (bounded), then cached; combines with positional arguments, <c>Dlr.named</c>, a computed member name and <c>Dlr.typeArgsOf</c>.</summary>
     static member namedOf: args: (string * obj) list -> Named<(string * obj) list>
-    /// <summary>Positional arguments whose count is a run-time value — Python's <c>*args</c>: <c>m?f(Dlr.argsOf args, Dlr.namedOf kwargs)</c> is <c>f(*args, **kwargs)</c>. Values dispatch on their runtime types; compiled once per distinct count (and name list) at the site, like <c>Dlr.namedOf</c>; combines with fixed arguments before or after it and with <c>Dlr.named</c> / <c>Dlr.namedOf</c> after it. At most 64 values (<c>NamedOfCache.MaxPositional</c>): a distinct count is a call-site shape kept for the life of the process, and a collection that could be long is one argument, not many.</summary>
+    /// <summary>Positional arguments whose count is a run-time value — Python's <c>*args</c>: <c>m?f(Dlr.argsOf args, Dlr.namedOf kwargs)</c> is <c>f(*args, **kwargs)</c>. Values dispatch on their runtime types; compiled once per distinct count (and name list) at the site, like <c>Dlr.namedOf</c>; combines with fixed arguments before or after it and with <c>Dlr.named</c> / <c>Dlr.namedOf</c> after it. At most 64 values (<c>NamedOfCache.MaxPositional</c>; docs/syntax.md says why).</summary>
     static member argsOf: args: obj list -> Named<obj list>
     /// <summary>Dynamic indexer get, target last: <c>x |&gt; Dlr.item i</c>, <c>x |&gt; Dlr.item (i, j)</c> (a tuple, literal or in a variable, is several indexes, as a tuple is several arguments in a member call; a struct tuple is one); the element type is inferred from use.</summary>
     static member item: indexes: 'TIndexes -> target: obj -> 'T
@@ -110,7 +110,7 @@ type Dlr =
     static member subtractAssign: name: string -> value: 'TValue -> target: obj -> unit
     /// <summary>Pipe-friendly member set: <c>x |> Dlr.set "Name" value</c>.</summary>
     static member set: name: string -> value: 'TValue -> target: obj -> unit
-    /// <summary>Pipe-friendly invocation: <c>x |> Dlr.invoke "Add" (1, 2)</c>, <c>x |> Dlr.invoke "Touch" ()</c>; the arguments follow the same rules as <c>x?Add(1, 2)</c>, including <c>Dlr.named</c> and <c>Dlr.typeArgs</c>.</summary>
+    /// <summary>Pipe-friendly invocation: <c>x |> Dlr.invoke "Add" (1, 2)</c>, <c>x |> Dlr.invoke "Touch" ()</c>; the arguments follow the same rules as <c>x?Add(1, 2)</c>, including <c>Dlr.named</c>, <c>Dlr.namedOf</c>, <c>Dlr.argsOf</c> and <c>Dlr.typeArgs</c>.</summary>
     static member invoke: name: string -> args: 'TArgs -> target: obj -> 'T
     /// <summary>Implicit conversion of a value to the type inferred from use (widening, <c>op_Implicit</c>, <c>TryConvert</c>): <c>let n: int64 = dlr { return Dlr.implicit x }</c>.</summary>
     static member implicit: value: obj -> 'T

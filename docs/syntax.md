@@ -6,13 +6,15 @@ A target is any value; one that is not `obj` is upcast and binds on its runtime 
 would. A member name, or the type-argument list of `Dlr.typeArgsOf`, may be a variable: the site
 then creates its call sites per distinct name/types on first use (kept up to 256 keys, then
 cleared), and a repeated key costs a dictionary lookup. That is for a name chosen by
-configuration, a small set; for keys from data, where the target indexes (`Dlr.item key`), index
-— C#'s binder keeps every distinct name it has bound, for the life of the process
-([caches](caches.md#bounds)). A call evaluates its target first, then its arguments left to
-right as C# does, each once, also where a `Dlr.named` record, a splat list, a tuple or a
-computed name is involved; a bind failure comes after the arguments have run. `DlrCache.clear()` drops every compiled
-block (for a host that unloads plugins; the next call recompiles), `DlrCache.count()` says how
-many there are.
+configuration, a small set; a name from data grows C#'s own symbol table for the life of the
+process — index by key instead, `x |> Dlr.item key` ([caches](caches.md#bounds)).
+
+A call evaluates its target first, then its arguments left to right, each once, as C# does —
+also where a `Dlr.named` record, a splat list, a tuple or a computed name is involved; a bind
+failure comes after the arguments have run.
+
+`DlrCache.clear()` drops every compiled block (for a host that unloads plugins; the next call
+recompiles), `DlrCache.count()` says how many there are.
 
 | Syntax | Binder |
 | --- | --- |
@@ -25,7 +27,7 @@ many there are.
 | `x?Name` typed `A -> B -> R` | a curried F# function that invokes the member when fully applied — a method, a delegate or an F# function alike — so `let add: int -> int -> int = dlr { return w?Add }`, then `add 1 2` or `add 1` partially; `A * B -> R` calls with a tuple; `unit -> R` reads a property or calls a parameterless method |
 | `x?Name <- v` | SetMember |
 | `(?) x name`, `((?) x name)(a)`, `(?<-) x name v` | the same three as plain function applications |
-| `x \|> Dlr.get "Name"` | GetMember, target last, for pipelines; applied to arguments it invokes, like `?` |
+| `x \|> Dlr.get "Name"`, `(x \|> Dlr.get "Add") (1, 2)` | GetMember, target last, for pipelines; applied to arguments it invokes, like `?` |
 | `x \|> Dlr.invoke "Name" (a, b)` | InvokeMember, target last |
 | `x \|> Dlr.set "Name" v` | SetMember, target last |
 | `x \|> Dlr.addAssign "Name" v`, `x \|> Dlr.subtractAssign "Name" v` | C#'s `+=` / `-=`: an IsEvent site picks the event accessor (`add_` / `remove_`) or read-modify-write |

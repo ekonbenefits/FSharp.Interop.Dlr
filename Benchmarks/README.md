@@ -10,8 +10,9 @@ BenchmarkDotNet over the library's hot paths, next to what they replace.
 ```
 
 `docs` (add `short` for a quick pass) writes two things: `docs/benchmarks.md` — comparison tables,
-the same operation done each way (static, cached reflection, FSharp.Interop.Dynamic, C# `dynamic`,
-`dlr { }`), laid out in `Program.fs`'s `writeDocs` — and the README's short table between its
+the same operation done each way (static, C# `dynamic`, `dlr { }`, cached reflection,
+FSharp.Interop.Dynamic — roughly fastest to slowest; a dash is a cell with nothing to time,
+footnoted), laid out in `Program.fs`'s `writeDocs` — and the README's short table between its
 `<!-- benchmarks:start/end -->` markers, from `readmeRows`. Raw BenchmarkDotNet output is in
 `BenchmarkDotNet.Artifacts/results/`. Numbers are steady state: every block is bound and compiled during warm-up, so a
 row is the per-call cost of the compiled block, its sites' cached rules and the operation itself.
@@ -20,9 +21,8 @@ itself — see `Tests/HotPath.fs`).
 
 `Benchmarks/CSharp` holds the C# `dynamic` equivalents (`dynamic d = o; d.Count`, …) as static
 methods the F# suites call, so they appear in the same tables: the same binders and site rules,
-minus the block's fixed cost (the state machine, its cache slot, the delegate invoke), which is the gap to close.
+minus the block's fixed cost (the state machine, its cache slot, the delegate invoke) — the
+few-nanosecond gap `docs/pipeline.md` explains.
 
-Suites: `Core` — baselines (static, cached reflection, FSharp.Interop.Dynamic, C# `dynamic`) against `dlr`
-get/call/set, a loop, a computed name, an F# function member, an omitted optional parameter, a
-lambda for a `Func` parameter, static overloads, a constructor, structural `?=?`. `Targets` —
-`JObject` and `ExpandoObject` reads against `JObject`'s own typed access.
+Suites: `Core` — the rows of `docs/benchmarks.md`'s first three tables, each way it can be
+done; `Targets` — `JObject` and `ExpandoObject` reads against `JObject`'s own typed access.

@@ -1,8 +1,9 @@
 # The same restrictions as C# `dynamic`, and where it goes beyond
 
 
-Same binder, same limits — each pinned by a test in `Tests/Restrictions.fs` (the `inline` one by
-the analyzer's tests; NativeAOT by the assembly's own `IsAotCompatible=false`, not a test):
+Same binder, same limits — each pinned by a test in `Tests/Restrictions.fs` (accessibility's
+protected cases in `Tests/FunctionMembers.fs`; the `inline` one by the analyzer's tests; NativeAOT
+by the assembly's own `IsAotCompatible=false`, not a test):
 
 - **Extension methods** are not found; the binder sees only the target's own members.
 - **Static members** cannot be reached through an instance; static *calls* have their own target,
@@ -12,7 +13,7 @@ the analyzer's tests; NativeAOT by the assembly's own `IsAotCompatible=false`, n
   every interface implementation is explicit, so `o?Dispose()` on an F# `IDisposable` fails
   unless the type also exposes the member; cast to the interface statically (`o :?> IFoo`) and
   call it there.
-- **Accessibility is the calling type's**: `private` binds only inside the declaring type,
+- **Accessibility is C#'s, from the calling type**: `private` binds only inside the declaring type,
   `internal` anywhere in the assembly, `protected` from a derived type through a receiver of
   that type (C#'s qualifier rule). F# `private` compiles to IL `internal`. The declaring
   type counts too: a public member of a type the calling type cannot see — another assembly's

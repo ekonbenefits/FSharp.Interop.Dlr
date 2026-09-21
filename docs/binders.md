@@ -71,10 +71,10 @@ argument, the static type of a typed one — matching the site's own argument ru
 fits any reference-type domain whatever its static type (an untyped `null` is `obj`), and the
 rule carries an instance restriction for it — a type restriction can never hold for null, and a
 rule that fails its own test makes the DLR re-bind forever. Our reflection
-lookups (function members, optional-parameter methods) apply the C# binder's accessibility rule
-from the same context type: public always, internal from the same assembly (F# `private` is IL
-internal), private from inside the declaring type. Named or generic calls use C#'s binder
-unchanged. A member read as `… -> unit` is invoked through a void, result-discarded site.
+lookups (function members, optional-parameter methods, constructors, static overloads) apply the
+same accessibility rule as C#'s binder, from the same context type — [restrictions](restrictions.md)
+states it; `Accessibility` in `Binders.fs` applies it, to the member and to its declaring type at
+every nesting level. Named or generic calls use C#'s binder unchanged. A member read as `… -> unit` is invoked through a void, result-discarded site.
 
 ## The reflection fallback
 

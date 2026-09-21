@@ -17,7 +17,7 @@ emitted as a placeholder whose types are all plain — `WideSite.Invoke(site: Ca
 delegateType: Type, args: obj[])` — and the LINQ `SiteHoister` in `Translate.fs`, which visits
 every tree after conversion anyway, rewrites it into the typed `Expression.Invoke` on the site's
 `Target`, unboxing each argument back to its parameter type. The same tree as a narrow site gets,
-one step later; nothing changes for sites of up to 14 arguments. Every compiled tree goes
+one step later, on every runtime, not only wasm; nothing changes for sites of up to 14 arguments. Every compiled tree goes
 through the hoister, the per-key templates of a computed name included. The per-key delegates of a
 computed name or a `Dlr.namedOf` shape use the same idea one level up: past `Func`'s arity they
 are a `Func<obj[], obj>` over the parameters packed at the call and unpacked inside
@@ -37,7 +37,8 @@ Decided once per site (`Binders.Arg`):
 | `Dlr.namedOf` value | `obj` | `NamedArgument` with the run-time name (see below) |
 
 The binder context (accessibility) is the type declaring the member that contains the block —
-what C# passes as the calling class. Results come back as `obj` and go through a second,
+what C# passes as the calling class; what that lets through is in [restrictions](restrictions.md)
+and [binders](binders.md). Results come back as `obj` and go through a second,
 `Convert` site to the inferred type (skipped for `obj`; a `unit` invocation uses a `ResultDiscarded`
 void site, a `unit` read or operator just drops the value).
 
@@ -89,8 +90,9 @@ arguments are the trailing ones (the binder's `CallInfo` names the last argument
 positional after `namedOf` is a translation error. A lookup compares the pairs' names with the last
 two shapes served (a site that repeats or alternates shapes hits there), else hashes them in
 place for a dictionary, allocating nothing but the values array; a miss is a `Compile()` (once). At
-`Capacity` (256, as `SiteCache`) entries it clears. Measured ~32 ns a call
-against ~12 for `Dlr.named` and ~8 for C#'s named arguments (`docs/benchmarks.md`). With a
+`Capacity` (256, as `SiteCache`) entries it clears. The cost is the
+`Dlr.namedOf` / `Dlr.argsOf` rows of [benchmarks](benchmarks.md), against `Dlr.named` and C#'s
+named arguments. With a
 computed member name or run-time type arguments, their
 expressions are evaluated in the block's scope and passed into the per-name-list delegate as
 parameters, where the operation is a `keyedSiteCore` of its own: a delegate per name list (few),
