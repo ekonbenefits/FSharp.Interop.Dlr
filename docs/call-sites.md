@@ -10,6 +10,18 @@ static field per `dynamic` operation. The delegate type is `Func<CallSite, targe
 past `Func`'s arity. `Binders.siteCall` emits `site.Target.Invoke(site, target, args…)` as a
 quotation `Call` node; the site's polymorphic rule cache does the rest at run time.
 
+Past 16 type parameters (14 arguments) that delegate type is emitted at run time, and a
+quotation must not name it: FSharp.Core's `Expr.Call` checks ask the type's assembly
+`ReflectionOnly`, which Mono's browser runtime has not implemented. So a wide site's call is
+emitted as a placeholder whose types are all plain — `WideSite.Invoke(site: CallSite,
+delegateType: Type, args: obj[])` — and the LINQ `SiteHoister` in `Translate.fs`, which visits
+every tree after conversion anyway, rewrites it into the typed `Expression.Invoke` on the site's
+`Target`, unboxing each argument back to its parameter type. The same tree as a narrow site gets,
+one step later; nothing changes for sites of up to 14 arguments. The per-key delegates of a
+computed name or a `Dlr.namedOf` shape use the same idea one level up: past `Func`'s arity they
+are a `Func<obj[], obj>` over the parameters packed at the call and unpacked inside
+(`lambdaOver` / `packArguments`).
+
 ## Argument typing
 
 Decided once per site (`Binders.Arg`):
