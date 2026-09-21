@@ -156,11 +156,53 @@ let ``argsOf takes at most 64 values: a longer collection is one argument`` () =
     let sum (xs: obj list) : int = dlr { return w?SumAll(Dlr.argsOf xs) }
     let ex = AnyUnit.Run.Assert.Current.Throws<ArgumentException>(fun () -> sum [ for i in 1 .. 65 -> box i ] |> ignore)
     ex.Message |> should haveSubstring "at most 64"
-    // A call site past 14 arguments uses an emitted delegate type, on which FSharp.Core's quotation
-    // checks call Assembly.ReflectionOnly — not implemented on browser-wasm (docs/restrictions.md, #103).
-    if System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture = System.Runtime.InteropServices.Architecture.Wasm then
-        raise (AnyUnit.IgnoreException "a call site past 14 arguments: FSharp.Core calls Assembly.ReflectionOnly on the emitted delegate type, not implemented on browser-wasm")
     sum [ for i in 1 .. 64 -> box i ] |> should equal (64 * 65 / 2)
+    sum [ for i in 1 .. 15 -> box i ] |> should equal 120                 // the first wide arity: 15 arguments
+
+let private fifteen = [ for i in 1 .. 15 -> box i ]
+
+[<Fact>]
+let ``wide site: written out, and a void one`` () =
+    let w = Widget()
+    let o: obj = w
+    (dlr { return o?SumAll(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15) } : int) |> should equal 120
+    dlr { o?Touch15(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15) }
+    w.Touched |> should equal 120
+
+[<Fact>]
+let ``wide site: a computed name`` () =
+    let w: obj = Widget()
+    let named (name: string) (xs: obj list) : int = dlr { return (?) w name (Dlr.argsOf xs) }
+    named "SumAll" fifteen |> should equal 120
+
+[<Fact>]
+let ``wide site: Dlr.invoke, a static overload set, Dlr.apply`` () =
+    let w: obj = Widget()
+    (dlr { return w |> Dlr.invoke "SumAll" (Dlr.argsOf fifteen) } : int) |> should equal 120
+    (dlr { return Dlr.Static<Statics>.Overloads?SumAll(Dlr.argsOf fifteen) } : int) |> should equal 120
+    let f = box (fun (a: int) (b: int) (c: int) (d: int) (e: int) (f: int) (g: int) (h: int) (i: int) (j: int) (k: int) (l: int) (m: int) (n: int) (o: int) -> a + b + c + d + e + f + g + h + i + j + k + l + m + n + o)
+    (dlr { return f |> Dlr.apply (Dlr.argsOf fifteen) } : int) |> should equal 120
+
+[<Fact>]
+let ``wide site: a miss and a callee's exception arrive as themselves, through a computed name too`` () =
+    // The typed call, not DynamicInvoke: no TargetInvocationException around either.
+    let w: obj = Widget()
+    let fourteen = [ for i in 1 .. 14 -> box i ]
+    let fifteen = [ for i in 1 .. 15 -> box i ]
+    let named (name: string) (xs: obj list) : int = dlr { return (?) w name (Dlr.argsOf xs) }
+    for xs in [ fourteen; fifteen ] do
+        (fun () -> named "NoSuch" xs |> ignore) |> should throw typeof<RuntimeBinderException>
+        (fun () -> named "ThrowAll" xs |> ignore) |> should throw typeof<InvalidOperationException>
+        (fun () -> (dlr { return w?ThrowAll(Dlr.argsOf xs) } : int) |> ignore) |> should throw typeof<InvalidOperationException>
+    (fun () -> (dlr { return w?ThrowAll(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15) } : int) |> ignore) |> should throw typeof<InvalidOperationException>
+
+[<Fact>]
+let ``wide site: fourteen written out plus a splat, plain and with a computed name`` () =
+    let w: obj = Widget()
+    let rest = [ box 15 ]
+    (dlr { return w?SumAll(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, Dlr.argsOf rest) } : int) |> should equal 120
+    let named (name: string) (xs: obj list) : int = dlr { return (?) w name (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, Dlr.argsOf xs) }
+    named "SumAll" rest |> should equal 120
     // The array itself is one argument to the params parameter, however long.
     let all: int = dlr { return w?SumAll([| 1 .. 1000 |]) }
     all |> should equal (1000 * 1001 / 2)

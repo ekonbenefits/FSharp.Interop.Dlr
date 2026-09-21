@@ -473,6 +473,30 @@ module internal Translate =
                     var :> Expression
             | _ -> node :> Expression
 
+        /// A wide site's placeholder (`Binders.WideSite`) becomes the typed `Invoke` on the site's
+        /// `Target`: the delegate type from the placeholder's constant, each argument unboxed
+        /// back to the parameter type it was boxed from.
+        override this.VisitMethodCall(node: MethodCallExpression) : Expression =
+            if node.Method.DeclaringType = typeof<Binders.WideSite> then
+                let site = this.Visit node.Arguments.[0]
+                let delegateType = (node.Arguments.[1] :?> ConstantExpression).Value :?> Type
+                let parameters = delegateType.GetMethod("Invoke").GetParameters()
+                let elements = (node.Arguments.[2] :?> NewArrayExpression).Expressions
+                let args =
+                    [ for i in 0 .. elements.Count - 1 ->
+                        let wanted = parameters.[i + 1].ParameterType
+                        match this.Visit elements.[i] with
+                        | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert && u.Type = typeof<obj> && u.Operand.Type = wanted -> u.Operand
+                        | e when e.Type = wanted -> e
+                        | e -> Expression.Convert(e, wanted) :> Expression ]
+                let siteType = typedefof<CallSite<_>>.MakeGenericType delegateType
+                let target = Expression.Field(Expression.Convert(site, siteType), "Target")
+                let invoke = Expression.Invoke(target, (Expression.Convert(site, typeof<CallSite>) :> Expression) :: args)
+                if node.Method.Name = "InvokeVoid" then invoke :> Expression
+                elif invoke.Type = typeof<obj> then invoke :> Expression
+                else Expression.Convert(invoke, typeof<obj>) :> Expression
+            else base.VisitMethodCall node
+
     let private onWasm =
         string System.Runtime.InteropServices.RuntimeInformation.OSArchitecture = "Wasm"   // no Architecture.Wasm on netstandard2.0
 
@@ -682,6 +706,29 @@ module internal Translate =
         /// key) or an expression evaluated per call in the scope the site is emitted in.
         type KeySpec = Choice<string, Expr> * Choice<Type list, Expr>
 
+        /// A delegate over `parameters` returning obj, compiled once per site: a `Func<…>` while
+        /// its arity allows; past that the delegate type would be emitted at run time, which a
+        /// quotation must not name (see `Binders.WideSite`), so it is a `Func<obj[], obj>` over the
+        /// parameters packed (`packArguments` at the call) and unpacked to their types inside.
+        let private isWide (parameters: Var list) = parameters.Length + 1 > 17   // Func's 17 type parameters, the result among them
+        let private delegateTypeOver (parameters: Var list) =
+            if isWide parameters then typeof<Func<obj[], obj>>
+            else Expression.GetDelegateType(Array.ofList ([ for v in parameters -> v.Type ] @ [ typeof<obj> ]))
+        let private lambdaOver (parameters: Var list) (body: Expr) =
+            if not (isWide parameters) then Expr.NewDelegate(delegateTypeOver parameters, parameters, body)
+            else
+                let packed = Var("packed", typeof<obj[]>)
+                let atArg = typeof<NamedOfCache>.GetMethod("At")
+                let unpacked =
+                    List.foldBack (fun (i, v: Var) (inner: Expr) ->
+                        let element = Expr.Call(atArg, [ Expr.Var packed; Expr.Value i ])
+                        Expr.Let(v, (if v.Type = typeof<obj> then element else Expr.Coerce(element, v.Type)), inner))
+                        (List.indexed parameters) body
+                Expr.NewDelegate(typeof<Func<obj[], obj>>, [ packed ], unpacked)
+        let private packArguments (parameters: Var list) (arguments: Expr list) =
+            if not (isWide parameters) then arguments
+            else [ Expr.NewArray(typeof<obj>, [ for a in arguments -> if a.Type = typeof<obj> then a else Expr.Coerce(a, typeof<obj>) ]) ]
+
         /// An operation whose binder inputs — the member name, the type arguments, or both — are
         /// only known at run time: the operation's delegate is compiled once here with its call
         /// sites as parameters (lifted from a template built for a placeholder key), and a
@@ -709,7 +756,9 @@ module internal Translate =
                 | Choice2Of2 e -> [], e
             let placeholder = template (placeholderName, placeholderTypes)
             let sites = SiteCache<string * Type list>.Sites placeholder
-            let siteVars = sites |> List.mapi (fun i s -> s, Var(sprintf "site%d" i, s.GetType()))
+            // A wide site's type names an emitted delegate type: keep it out of the quotation (see
+            // `Binders.WideSite`) by typing the parameter as the base `CallSite`.
+            let siteVars = sites |> List.mapi (fun i s -> s, Var(sprintf "site%d" i, (let t = s.GetType() in if t.GetGenericArguments().[0].Assembly.IsDynamic then typeof<CallSite> else t)))
             let rec lift (e: Expr) =
                 match e with
                 | Value(v, _) when (v :? CallSite) ->
@@ -720,23 +769,25 @@ module internal Translate =
                 | ShapeLambda(v, body) -> Expr.Lambda(v, lift body)
                 | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map lift args)
             let body = lift placeholder
-            let delegateType =
-                Expression.GetDelegateType(Array.ofList ([ for _, v in siteVars -> v.Type ] @ targetVar.Type :: [ for v in argVars -> v.Type ] @ [ typeof<obj> ]))
             // A discarded result is a void site: the delegate still returns obj, so hand back null.
             let boxed =
                 if body.Type = typeof<obj> then body
                 elif body.Type = typeof<unit> || body.Type = typeof<Void> then Expr.Sequential(body, Expr.Value(null, typeof<obj>))
                 else Expr.Coerce(body, typeof<obj>)
-            let lambda = Expr.NewDelegate(delegateType, [ for _, v in siteVars -> v ] @ targetVar :: argVars, boxed)
-            let compiled = (LeafExpressionConverter.QuotationToExpression lambda :?> LambdaExpression).Compile()
+            let parameters = [ for _, v in siteVars -> v ] @ targetVar :: argVars
             let cache = SiteCache<string * Type list>(template)
             let cacheType = typeof<SiteCache<string * Type list>>
             let sitesVar = Var("sites", typeof<CallSite[]>)
             let at = cacheType.GetMethod("At")
             let siteArgs = siteVars |> List.mapi (fun i (_, v) -> Expr.Coerce(Expr.Call(at, [ Expr.Var sitesVar; Expr.Value i ]), v.Type))
-            let call =
-                Expr.Let(sitesVar, Expr.Call(Expr.Value(cache, cacheType), cacheType.GetMethod("Get"), [ Expr.NewTuple [ nameE; typesE ] ]),
-                         Expr.Call(Expr.Value(compiled, delegateType), delegateType.GetMethod("Invoke"), siteArgs @ targetInfo.Expr :: [ for a in argInfos -> a.Expr ]))
+            let arguments = siteArgs @ targetInfo.Expr :: [ for a in argInfos -> a.Expr ]
+            let delegateType = delegateTypeOver parameters
+            // Through the hoister like every compiled tree: a wide site's placeholder in the template
+            // is rewritten there (its site arrives as a parameter, which the rewrite converts).
+            let linq = LeafExpressionConverter.QuotationToExpression (lambdaOver parameters boxed) :?> LambdaExpression
+            let compiled = (SiteHoister().Visit linq :?> LambdaExpression).Compile()
+            let invocation = Expr.Call(Expr.Value(compiled, delegateType), delegateType.GetMethod("Invoke"), packArguments parameters arguments)
+            let call = Expr.Let(sitesVar, Expr.Call(Expr.Value(cache, cacheType), cacheType.GetMethod("Get"), [ Expr.NewTuple [ nameE; typesE ] ]), invocation)
             if FSharpType.IsFunction resultType then Expr.Coerce(call, resultType) else block.Convert resultType call
 
         /// The key of a computed name / run-time type arguments, its expressions rewritten in
@@ -802,7 +853,8 @@ module internal Translate =
                         List.map fst vars, List.map snd vars, Some((nameE, typesE): KeySpec)
                 // One delegate type for every key at this site: the names change the sites inside,
                 // not the parameters, so the call is a typed Invoke, not DynamicInvoke.
-                let delegateType = Expression.GetDelegateType(Array.ofList (targetVar.Type :: [ for v in fixedVars -> v.Type ] @ [ for v in keyVars -> v.Type ] @ [ typeof<obj[]>; typeof<obj> ]))
+                let parameters = targetVar :: fixedVars @ keyVars @ [ valuesVar ]
+                let delegateType = delegateTypeOver parameters
                 let compile (names: string list) : Delegate =
                     let fixed' = List.map2 (fun (info: Binders.Arg) (v: Var) -> { info with Expr = Expr.Var v }) fixedInfos fixedVars
                     // `fixedInfos` are grouped per source argument (a Dlr.named record is several):
@@ -825,8 +877,7 @@ module internal Translate =
                         if body.Type = typeof<obj> then body
                         elif body.Type = typeof<unit> || body.Type = typeof<Void> then Expr.Sequential(body, Expr.Value(null, typeof<obj>))
                         else Expr.Coerce(body, typeof<obj>)
-                    let lambda = Expr.NewDelegate(delegateType, targetVar :: fixedVars @ keyVars @ [ valuesVar ], boxed)
-                    let linq = LeafExpressionConverter.QuotationToExpression lambda :?> LambdaExpression
+                    let linq = LeafExpressionConverter.QuotationToExpression (lambdaOver parameters boxed) :?> LambdaExpression
                     (SiteHoister().Visit linq :?> LambdaExpression).Compile()
                 let cache = NamedOfCache(compile)
                 let cacheType = typeof<NamedOfCache>
@@ -838,7 +889,7 @@ module internal Translate =
                     Expr.Let(positionalVar, rewriteIn bound positionalExpr,
                       Expr.Let(pairsVar, rewriteIn bound pairsExpr,
                         Expr.Let(delegateVar, Expr.Coerce(Expr.Call(Expr.Value(cache, cacheType), cacheType.GetMethod("Get"), [ Expr.Var positionalVar; Expr.Var pairsVar ]), delegateType),
-                            Expr.Call(Expr.Var delegateVar, delegateType.GetMethod("Invoke"), targetInfo.Expr :: [ for a in fixedInfos -> a.Expr ] @ keyExprs @ [ values ]))))
+                            Expr.Call(Expr.Var delegateVar, delegateType.GetMethod("Invoke"), packArguments parameters (targetInfo.Expr :: [ for a in fixedInfos -> a.Expr ] @ keyExprs @ [ values ])))))
                 (if discard then Expr.Sequential(call, Expr.Value(())) else block.Convert resultType call)
                 |> bind rewriteIn bound bindings
                 |> Some

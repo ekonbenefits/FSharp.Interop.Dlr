@@ -45,6 +45,9 @@ type Widget() =
     member _.Text(_: string) = "string"
     member _.Sum6(a: int, b: int, c: int, d: int, e: int, f: int) = a + b + c + d + e + f
     member _.SumAll([<ParamArray>] xs: int[]) = Array.sum xs
+    member _.ThrowAll([<ParamArray>] xs: int[]) : int = raise (InvalidOperationException(sprintf "%d" xs.Length))
+    member this.Touch15(a: int, b: int, c: int, d: int, e: int, f: int, g: int, h: int, i: int, j: int, k: int, l: int, m: int, n: int, o: int) =
+        this.Touched <- this.Touched + a + b + c + d + e + f + g + h + i + j + k + l + m + n + o
     member _.Text(_: int) = "int"
     member val Ratio = 2.75 with get, set
     member private _.Secret = "hidden"
@@ -298,6 +301,7 @@ type Renderer private () =
 // delegate members and delegate values.
 type Statics private () =
     static member BumpF(count: int, ?step: int) = count + defaultArg step 1
+    static member SumAll([<ParamArray>] xs: int[]) = Array.sum xs
     static member Run(f: Func<int, int>) = f.Invoke 21
     static member Apply(x: int, f: int -> int) = f x
 type Ctor(count: int, ?step: int) =
