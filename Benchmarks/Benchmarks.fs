@@ -50,6 +50,21 @@ type Core() =
     [<Benchmark(Baseline = true, Description = "static w.Add(i, 1)")>]
     member _.StaticCall() = i <- i + 1; w.Add(i, 1)
 
+    [<Benchmark(Description = "static w.Name <- v")>]
+    member _.StaticSet() = w.Name <- "n"
+
+    [<Benchmark(Description = "static loop of 100 calls (whole loop)")>]
+    member _.StaticLoop() =
+        let mutable s = 0
+        for x in items do s <- s + w.Add(x, 1)
+        s
+
+    [<Benchmark(Description = "reflection: loop of 100 cached MethodInfo.Invoke (whole loop)")>]
+    member _.ReflectionLoop() =
+        let mutable s = 0
+        for x in items do s <- s + (addMethod.Invoke(w, [| box x; box 1 |]) :?> int)
+        s
+
     [<Benchmark(Description = "reflection: cached PropertyInfo.GetValue")>]
     member _.ReflectionGet() = countProperty.GetValue(w) :?> int
 

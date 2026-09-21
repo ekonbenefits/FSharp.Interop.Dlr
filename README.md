@@ -173,6 +173,6 @@ FSharp.Interop.Dynamic. `Benchmarks/bench.sh docs` regenerates this table and th
 <!-- benchmarks:start -->
 | ns per call | static | C# `dynamic` | **`dlr { }`** | reflection (cached) | FSharp.Interop.Dynamic |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| method call `w.Add(i, 1)` | 1.2 | 7.5 | **11.6** | 35.9 | 7,586 |
-| property get `w.Count` | 0 | 6.8 | **10.8** | 12.6 | 4,076 |
+| method call `w.Add(i, 1)` | 1.2 | 7.4 | **11.5** | 36.1 | 7,501 |
+| property get `w.Count` | 0 | 6.8 | **10.9** | 12.5 | 3,989 |
 <!-- benchmarks:end -->
