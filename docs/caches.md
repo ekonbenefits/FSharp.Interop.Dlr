@@ -61,8 +61,10 @@ that delegate and goes with it.
 - `SiteCache` and `NamedOfCache`: 256 keys per site, then they clear and refill; concurrent
   misses are admitted under a lock so the bound holds. Both lookups cost the same at any size
   (a dictionary; a hash of the names computed in place, behind a compare with the last two
-  shapes served — 8 ns repeating a shape, ~20 ns alternating two, ~25 ns anywhere else), so the
-  number is a memory bound on a site that fills it, measured (Release, arm64): a `SiteCache`
+  shapes served — ~10 ns repeating a shape, ~15 ns alternating two, ~40–50 ns for any other
+  pattern at any size, allocating nothing; the scan it replaced cost ~8 ns per entry walked, so a
+  site rotating fewer than about six shapes was ~20 ns faster before and everything else is
+  equal or better), so the number is a memory bound on a site that fills it, measured (Release, arm64): a `SiteCache`
   entry — a site and its rule cache — is ~6.5 KB, so a full site holds ~1.6 MB; a
   `NamedOfCache` entry — the shape's compiled delegate at one arity — ~13 KB, a full site
   ~3.5 MB. A site that reaches either is one keyed by data (below), which the docs steer to

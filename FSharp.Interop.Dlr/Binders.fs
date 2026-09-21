@@ -1040,23 +1040,32 @@ type NamedOfCache(compile: string list -> Delegate) =
         h
 
     /// Whether an entry's names are the shape of these arguments: `positional.Length` empty
-    /// names, then the pairs' names in order.
+    /// names, then the pairs' names in order. Loops, no closures: the hit path allocates nothing.
     static member private Matches(names: string[], positional: obj list, pairs: (string * obj) list) =
-        let rec positionals (ps: obj list) i =
-            match ps with
-            | [] -> Some i
-            | _ :: rest -> if i < names.Length && names.[i].Length = 0 then positionals rest (i + 1) else None
-        let rec named (pairs: (string * obj) list) i =
-            match pairs with
-            | [] -> i = names.Length
+        let mutable i = 0
+        let mutable ok = true
+        let mutable ps = positional
+        while ok && not ps.IsEmpty do
+            if i < names.Length && names.[i].Length = 0 then i <- i + 1; ps <- ps.Tail
+            else ok <- false
+        let mutable rest = pairs
+        while ok && not rest.IsEmpty do
+            let (n, _) = rest.Head
             // An empty name is the positional marker in `names`: a pair never matches one.
-            | (n, _) :: rest -> i < names.Length && not (String.IsNullOrEmpty n) && String.Equals(n, names.[i]) && named rest (i + 1)
-        match positionals positional 0 with
-        | Some i -> named pairs i
-        | None -> false
+            if i < names.Length && not (String.IsNullOrEmpty n) && String.Equals(n, names.[i]) then i <- i + 1; rest <- rest.Tail
+            else ok <- false
+        ok && i = names.Length
 
-    static member private Find(bucket: NamedOfEntry list, positional, pairs) =
-        bucket |> List.tryFind (fun e -> NamedOfCache.Matches(e.Names, positional, pairs))
+    /// The entry of this shape in a bucket, or null: a loop, no closure, no option, so the hash
+    /// path allocates nothing.
+    static member private Find(bucket: NamedOfEntry list, hash: int, positional: obj list, pairs: (string * obj) list) : NamedOfEntry =
+        let mutable rest = bucket
+        let mutable found : NamedOfEntry = null
+        while isNull found && not rest.IsEmpty do
+            let e = rest.Head
+            if e.Hash = hash && NamedOfCache.Matches(e.Names, positional, pairs) then found <- e
+            rest <- rest.Tail
+        found
 
     /// The delegate for these arguments' shape.
     member this.Get(positional: obj list, pairs: (string * obj) list) : Delegate =
@@ -1069,36 +1078,34 @@ type NamedOfCache(compile: string list -> Delegate) =
         let p = previous
         if not (isNull p) && NamedOfCache.Matches(p.Names, positional, pairs) then previous <- l; last <- p; p.Delegate
         else
-            let hash = NamedOfCache.HashOf(positional, pairs)
-            let serve (e: NamedOfEntry) = previous <- last; last <- e; e.Delegate
-            let hit =
-                match entries.TryGetValue hash with
-                | true, bucket -> NamedOfCache.Find(bucket, positional, pairs)
-                | _ -> None
-            match hit with
-            | Some e -> serve e
-            | None ->
-                lock this (fun () ->
-                    let current = entries
-                    match (match current.TryGetValue hash with | true, b -> NamedOfCache.Find(b, positional, pairs) | _ -> None) with
-                    | Some e -> serve e
-                    | None ->
-                        // Names from data: a null or empty one would be taken for a positional slot.
-                        for (n, _) in pairs do
-                            if isNull n then nullArg "Dlr.namedOf: an argument name is null"
-                            if n.Length = 0 then invalidArg "pairs" "Dlr.namedOf: an argument name is empty (positional arguments from data are Dlr.argsOf)"
-                        let positionalCount = List.length positional
-                        if positionalCount > NamedOfCache.MaxPositional then
-                            invalidArg "positional" (sprintf "Dlr.argsOf: %d positional arguments; at most %d. Each distinct count is a call-site shape compiled and kept for the life of the process, so a collection that could be long is one argument (an array to a params parameter, a list), not many." positionalCount NamedOfCache.MaxPositional)
-                        let names = (positional |> List.map (fun _ -> "")) @ (pairs |> List.map fst)
-                        let e = NamedOfEntry(Array.ofList names, hash, compile names)
-                        let next =
-                            if count >= NamedOfCache.Capacity then (count <- 0; System.Collections.Generic.Dictionary())
-                            else System.Collections.Generic.Dictionary(current)
-                        next.[hash] <- e :: (match next.TryGetValue hash with | true, b -> b | _ -> [])
-                        count <- count + 1
-                        entries <- next
-                        serve e)
+        let hash = NamedOfCache.HashOf(positional, pairs)
+        let mutable bucket = Unchecked.defaultof<NamedOfEntry list>   // out parameter: no tuple
+        let hit = if entries.TryGetValue(hash, &bucket) then NamedOfCache.Find(bucket, hash, positional, pairs) else null
+        if not (isNull hit) then previous <- last; last <- hit; hit.Delegate
+        else
+            lock this (fun () ->
+                let current = entries
+                let again = match current.TryGetValue hash with | true, b -> NamedOfCache.Find(b, hash, positional, pairs) | _ -> null
+                if not (isNull again) then previous <- last; last <- again; again.Delegate
+                else
+                    // Names from data: a null or empty one would be taken for a positional slot.
+                    for (n, _) in pairs do
+                        if isNull n then nullArg "Dlr.namedOf: an argument name is null"
+                        if n.Length = 0 then invalidArg "pairs" "Dlr.namedOf: an argument name is empty (positional arguments from data are Dlr.argsOf)"
+                    let positionalCount = List.length positional
+                    if positionalCount > NamedOfCache.MaxPositional then
+                        invalidArg "positional" (sprintf "Dlr.argsOf: %d positional arguments; at most %d. Each distinct count is a call-site shape compiled and kept for the life of the process, so a collection that could be long is one argument (an array to a params parameter, a list), not many." positionalCount NamedOfCache.MaxPositional)
+                    let names = (positional |> List.map (fun _ -> "")) @ (pairs |> List.map fst)
+                    let e = NamedOfEntry(Array.ofList names, hash, compile names)
+                    let next =
+                        if count >= NamedOfCache.Capacity then (count <- 0; System.Collections.Generic.Dictionary())
+                        else System.Collections.Generic.Dictionary(current)
+                    next.[hash] <- e :: (match next.TryGetValue hash with | true, b -> b | _ -> [])
+                    count <- count + 1
+                    entries <- next
+                    previous <- last
+                    last <- e
+                    e.Delegate)
 
     /// The splatted values, positional then named, for the quotation.
     static member Values(positional: obj list, pairs: (string * obj) list) : obj[] =
