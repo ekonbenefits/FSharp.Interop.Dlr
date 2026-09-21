@@ -71,7 +71,7 @@ that delegate and goes with it.
   process without bound: allow-list them, or where the target indexes by key (JObject, Python
   dicts, Dapper rows, script objects) use `x |> Dlr.item key` — one member name, `Item`, however
   many keys. A distinct positional count in `Dlr.argsOf` is dearer still (a new site arity and
-  an interned binder, ~150 KB, permanent), so `Dlr.argsOf` takes at most 64 values
+  an interned binder, ~100 KB and ~8 ms in Release, permanent), so `Dlr.argsOf` takes at most 64 values
   (`NamedOfCache.MaxPositional`): a count from data is then bounded, as a C# call site's arity
   is bounded by its source.
 - conversion factories: one per (function type, delegate type) pair that has been converted.
