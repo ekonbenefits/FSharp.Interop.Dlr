@@ -34,6 +34,7 @@
   <ItemGroup>
     <Compile Include="..\Tests\AssemblyInfo.fs" Link="AssemblyInfo.fs" />
     <Compile Include="..\Tests\Fixtures.fs" Link="Fixtures.fs" />
+    <Compile Include="..\Tests\Readme.fs" Link="Readme.fs" />
     <Compile Include="..\Tests\Members.fs" Link="Members.fs" />
     <Compile Include="..\Tests\Invoke.fs" Link="Invoke.fs" />
     <Compile Include="..\Tests\TypeArgs.fs" Link="TypeArgs.fs" />
