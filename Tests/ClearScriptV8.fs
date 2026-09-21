@@ -11,6 +11,7 @@ open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
 open Microsoft.ClearScript
 open Microsoft.ClearScript.V8
+open Microsoft.ClearScript.JavaScript
 open Microsoft.CSharp.RuntimeBinder
 
 let private engine =
@@ -24,6 +25,7 @@ let private engine =
                 var makeAdder = n => x => x + n;
                 var numbers = [10, 20, 30];
                 class Point { constructor(x, y) { this.x = x; this.y = y; } scaled(k = 2) { return new Point(this.x * k, this.y * k); } }
+                var api = { fetchUser: async (id) => ({ id, name: "ada" }) };
             """)
             Some e
          with _ -> None)
@@ -105,6 +107,22 @@ let ``sets add properties; undefined and null both cross over`` () =
     let missing: obj = dlr { return w?notThere }                               // JS undefined: ClearScript's Undefined value
     (missing :? Undefined) |> should equal true
     (fun () -> (dlr { return w?notThere } : int) |> ignore) |> should throw typeof<RuntimeBinderException>
+
+[<Fact>]
+let ``a JS promise: the call is dynamic, the await is ClearScript's ToTask, the result dynamic again`` () =
+    // A promise has no GetAwaiter; ClearScript's bridge is an extension method, invisible to any
+    // dynamic binder (C#'s too), so it is called statically between two blocks.
+    let e = require ()
+    let api = e.Evaluate "api"
+    let t =
+        task {
+            let promise: obj = dlr { return api?fetchUser(7) }
+            let! user = JavaScriptExtensions.ToTask promise
+            let name: string = dlr { return user?name }
+            let id: int = dlr { return user?id }
+            return name, id
+        }
+    t.Result |> should equal ("ada", 7)
 
 [<Fact>]
 let ``one site serves a JS object, a JObject and an Expando`` () =

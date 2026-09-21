@@ -1,6 +1,7 @@
 [<ReflectedDefinition>]
 module Tests.Nesting
 
+open System.Threading.Tasks
 open FSharp.Interop.Dlr
 open AnyUnit.Run
 open AnyUnit.Run.Attributes
@@ -45,6 +46,38 @@ let ``dlr inside task and async that complete synchronously`` () =
     // where RunSynchronously would block the only thread.
     let a = async { return (dlr { return w?Add(1, 2) } : int) }
     (Async.StartImmediateAsTask a).Result |> should equal 3
+
+// Awaiting a dynamic call: the block is synchronous and returns what the member returns,
+// converted to the awaitable type named; the builder awaits that as it would any other.
+[<Fact>]
+let ``a block's result is awaited in task at the type named; an unknown result type as Task then ?Result`` () =
+    let svc: obj = Service()
+    let t =
+        task {
+            let! a = (dlr { return svc?GetAsync(20) } : Task<int>)
+            let pending: Task = dlr { return svc?GetAsync(21) }
+            do! pending
+            let b: int = dlr { return pending?Result }
+            do! (dlr { return svc?RunAsync() } : Task)
+            let! c = (dlr { return svc?GetValueTask(41) } : ValueTask<int>)
+            return a, b, c
+        }
+    t.Result |> should equal (40, 42, 42)
+
+[<Fact>]
+let ``a block's result is awaited in async, an F# Async member directly`` () =
+    let svc: obj = Service()
+    let a =
+        async {
+            let! a = (dlr { return svc?GetAsync(20) } : Task<int>) |> Async.AwaitTask
+            let pending: Task = dlr { return svc?GetAsync(21) }
+            do! Async.AwaitTask pending
+            let b: int = dlr { return pending?Result }
+            let! c = (dlr { return svc?GetValueTask(41) } : ValueTask<int>).AsTask() |> Async.AwaitTask
+            let! d = (dlr { return svc?FetchAsync(1) } : Async<int>)
+            return a, b, c, d
+        }
+    (Async.StartImmediateAsTask a).Result |> should equal (40, 42, 42, 101)
 
 [<Fact>]
 let ``nested dlr blocks on separate lines share the outer site`` () =

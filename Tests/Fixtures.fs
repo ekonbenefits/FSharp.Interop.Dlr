@@ -3,6 +3,7 @@ namespace Tests
 open System
 open System.Collections.Generic
 open System.Dynamic
+open System.Threading.Tasks
 open System.Runtime.InteropServices
 open FSharp.Interop.Dlr
 
@@ -54,6 +55,19 @@ type Widget() =
     member _.PeekSecretFromOutside(o: obj) : string =
         // A dlr block inside Widget itself: the binder context is Widget, so private members bind.
         dlr { return o?Secret }
+
+/// Asynchronous members: a block returns what they return, converted to the awaitable type named.
+type Service() =
+    member _.GetAsync(x: int) : Task<int> = Task.FromResult(x * 2)
+    member _.RunAsync() : Task = Task.CompletedTask
+    member _.GetValueTask(x: int) : ValueTask<int> = ValueTask<int>(x + 1)
+    member _.FetchAsync(x: int) : Async<int> = async { return x + 100 }
+
+/// A mutable struct: through a dynamic operation it is a boxed copy, as through C# dynamic.
+[<Struct>]
+type Tally =
+    val mutable Count: int
+    member this.Bump() = this.Count <- this.Count + 1
 
 /// Parameters no quotation can hold, so not [<ReflectedDefinition>]: byref cannot cross a
 /// dynamic operation; a Span is reached from an array through C#'s implicit conversion.

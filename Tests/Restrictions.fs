@@ -125,7 +125,21 @@ let ``inline members bind, but a member constraint has no run-time form`` () =
     (fun () -> (dlr { return m?NameOf(Widget()) } : string) |> ignore) |> should throw typeof<System.NotSupportedException>
 
 [<Fact>]
-let ``a public member of a type the calling type cannot see is not found, as in C#`` () =
+let ``a struct target is a boxed copy, and a Nullable target erases to its value, as through C# dynamic`` () =
+    // The box is what the call mutates; the variable is untouched (C#: `dynamic d = s; d.Bump()`).
+    let mutable tally = Tally()
+    let boxed = box tally
+    dlr { boxed?Bump() }
+    dlr { boxed?Bump() }
+    (boxed :?> Tally).Count |> should equal 2
+    tally.Count |> should equal 0
+    // A boxed Nullable<int> is a boxed int or null: there is no HasValue or Value to find.
+    let some: obj = box (System.Nullable 5)
+    let none: obj = box (System.Nullable<int>())
+    (fun () -> (dlr { return some?HasValue } : bool) |> ignore) |> should throw typeof<RuntimeBinderException>
+    (dlr { return Dlr.implicit some } : int) |> should equal 5
+    isNull none |> should equal true
+
     // C# dynamic binds an inaccessible runtime type (another assembly's `internal` class, an
     // anonymous type) as its nearest accessible base: the library's own rules — a member read as
     // a function, a function-valued field, a method as C#'s error suggestion — see no more than
