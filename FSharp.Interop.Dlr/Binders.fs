@@ -1009,7 +1009,7 @@ type NamedOfCache(compile: string list -> Delegate) =
     static member val Capacity = 64 with get, set
 
     /// The most positional arguments `Dlr.argsOf` accepts. Each distinct count is a new call-site
-    /// arity — a delegate type (past 16 parameters, one emitted into a non-collectible dynamic
+    /// arity — a delegate type (past Func's 17 type parameters, one emitted into a non-collectible dynamic
     /// assembly), a binder Microsoft.CSharp interns for the life of the process, a `Compile()` —
     /// so a count from data must not be unbounded, as a C# call site's arity is fixed by its
     /// source. A collection that could be long is one argument, not many.
@@ -1143,7 +1143,7 @@ module internal Binders =
         let siteType = typedefof<CallSite<_>>.MakeGenericType delegateType
         Expr.Value(siteType.GetMethod("Create").Invoke(null, [| box binder |]), siteType)
 
-    /// Past 16 type parameters (14 arguments) a site's delegate is a type emitted at run time,
+    /// Past Func's 17 type parameters (15 arguments and up) a site's delegate is a type emitted at run time,
     /// which must not be named in a quotation: FSharp.Core's checks ask its assembly
     /// `ReflectionOnly`, unimplemented on browser-wasm. Such a call is written as one of these
     /// placeholders — every type in it a plain one — and the LINQ `SiteHoister` in Translate
@@ -1164,7 +1164,8 @@ module internal Binders =
         let siteValue = match siteExpr with FSharp.Quotations.Patterns.Value(v, _) -> v | _ -> null
         let siteType = siteExpr.Type
         let delegateType = siteType.GetGenericArguments().[0]
-        if args.Length + 2 <= 16 then
+        // `args` holds the target too: CallSite + args + result within Func's 17 type parameters.
+        if args.Length + 2 <= 17 then
             let target = Expr.FieldGet(siteExpr, siteType.GetField("Target"))
             Expr.Call(target, delegateType.GetMethod("Invoke"), siteExpr :: [ for a in args -> a.Expr ])
         else

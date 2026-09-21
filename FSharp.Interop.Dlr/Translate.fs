@@ -710,7 +710,7 @@ module internal Translate =
         /// its arity allows; past that the delegate type would be emitted at run time, which a
         /// quotation must not name (see `Binders.WideSite`), so it is a `Func<obj[], obj>` over the
         /// parameters packed (`packArguments` at the call) and unpacked to their types inside.
-        let private isWide (parameters: Var list) = parameters.Length + 1 > 16
+        let private isWide (parameters: Var list) = parameters.Length + 1 > 17   // Func's 17 type parameters, the result among them
         let private delegateTypeOver (parameters: Var list) =
             if isWide parameters then typeof<Func<obj[], obj>>
             else Expression.GetDelegateType(Array.ofList ([ for v in parameters -> v.Type ] @ [ typeof<obj> ]))
@@ -782,7 +782,10 @@ module internal Translate =
             let siteArgs = siteVars |> List.mapi (fun i (_, v) -> Expr.Coerce(Expr.Call(at, [ Expr.Var sitesVar; Expr.Value i ]), v.Type))
             let arguments = siteArgs @ targetInfo.Expr :: [ for a in argInfos -> a.Expr ]
             let delegateType = delegateTypeOver parameters
-            let compiled = (LeafExpressionConverter.QuotationToExpression (lambdaOver parameters boxed) :?> LambdaExpression).Compile()
+            // Through the hoister like every compiled tree: a wide site's placeholder in the template
+            // is rewritten there (its site arrives as a parameter, which the rewrite converts).
+            let linq = LeafExpressionConverter.QuotationToExpression (lambdaOver parameters boxed) :?> LambdaExpression
+            let compiled = (SiteHoister().Visit linq :?> LambdaExpression).Compile()
             let invocation = Expr.Call(Expr.Value(compiled, delegateType), delegateType.GetMethod("Invoke"), packArguments parameters arguments)
             let call = Expr.Let(sitesVar, Expr.Call(Expr.Value(cache, cacheType), cacheType.GetMethod("Get"), [ Expr.NewTuple [ nameE; typesE ] ]), invocation)
             if FSharpType.IsFunction resultType then Expr.Coerce(call, resultType) else block.Convert resultType call

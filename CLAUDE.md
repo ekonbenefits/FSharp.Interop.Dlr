@@ -77,7 +77,7 @@ dotnet build Tests.Wasm -c Release && (cd Tests.Wasm/bin/Release/net10.0-browser
 - wasm: a nested non-capturing lambda loses its arguments on Mono's interpreter, and
   `FuncConvert` wrappers do too; `capturing` in `Translate.fs` and the typed wrappers in
   `Binders.fs` exist for that — do not "simplify" them away. A delegate type emitted at run
-  time (a site or per-key delegate past 16 type parameters, i.e. 14 arguments) must never be
+  time (a site or per-key delegate past `Func`'s 17 type parameters, i.e. 15 arguments and up) must never be
   named in a quotation: FSharp.Core's checks call `Assembly.ReflectionOnly` on it, unimplemented
   on Mono wasm — `Binders.WideSite` (a placeholder the LINQ `SiteHoister` rewrites) and the
   packed `Func<obj[], obj>` of `lambdaOver` in `Translate.fs` exist for that.

@@ -184,6 +184,19 @@ let ``wide site: Dlr.invoke, a static overload set, Dlr.apply`` () =
     (dlr { return f |> Dlr.apply (Dlr.argsOf fifteen) } : int) |> should equal 120
 
 [<Fact>]
+let ``wide site: a miss and a callee's exception arrive as themselves, through a computed name too`` () =
+    // The typed call, not DynamicInvoke: no TargetInvocationException around either.
+    let w: obj = Widget()
+    let fourteen = [ for i in 1 .. 14 -> box i ]
+    let fifteen = [ for i in 1 .. 15 -> box i ]
+    let named (name: string) (xs: obj list) : int = dlr { return (?) w name (Dlr.argsOf xs) }
+    for xs in [ fourteen; fifteen ] do
+        (fun () -> named "NoSuch" xs |> ignore) |> should throw typeof<RuntimeBinderException>
+        (fun () -> named "ThrowAll" xs |> ignore) |> should throw typeof<InvalidOperationException>
+        (fun () -> (dlr { return w?ThrowAll(Dlr.argsOf xs) } : int) |> ignore) |> should throw typeof<InvalidOperationException>
+    (fun () -> (dlr { return w?ThrowAll(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15) } : int) |> ignore) |> should throw typeof<InvalidOperationException>
+
+[<Fact>]
 let ``wide site: fourteen written out plus a splat, plain and with a computed name`` () =
     let w: obj = Widget()
     let rest = [ box 15 ]
