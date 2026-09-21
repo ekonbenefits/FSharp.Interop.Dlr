@@ -58,7 +58,10 @@ runs in Debug and in Release.
 
 Every `dlr { }` desugars to `Run(Delay(fun () -> …))` in one expression, which the compiler
 builds the machine for — with one exception it takes silently, no FS3511: a block whose
-function-typed result is applied on the spot, `(dlr { return x?Add } : int -> int -> int) 1 2`.
+function-typed result is applied on the spot, `(dlr { return x?Add } : int -> int -> int) 1 2`
+(partially, or through `|>` / `<|`, counts: the optimizer pushes the application into both
+branches of `Run`'s `if __useResumableCode`, and the compiler's state-machine recognizer then no
+longer sees the `if` at the top, so it emits the `else` branch with no diagnostic).
 That goes to the `else` branch in Release too, with the `Delay` wrapper inlined: the delegate's
 target is the closure itself when the block captures a value, and null — a static method on the
 closure class — when it captures nothing, in which case `DlrRun.Closure` compiles from that

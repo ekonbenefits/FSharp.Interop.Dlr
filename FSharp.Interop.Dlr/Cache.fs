@@ -137,6 +137,21 @@ type internal Sites<'T> private () =
     static member Get(builder: obj, closure: obj, file: string, line: int) : Func<obj, 'T> =
         Sites<'T>.Get(builder, closure.GetType(), file, line)
 
+    /// The closure class of a static resumable-code delegate (no target): the class its method
+    /// lives in. `Delegate.Method` resolves a MethodInfo per call (~130 ns on a delegate the
+    /// compiler allocates per call), so the last delegate seen is compared first — a static
+    /// delegate's equality is its method pointer, so a re-entered block hits.
+    static member val private lastCode : Delegate = null with get, set
+    static member val private lastCodeType : Type = null with get, set
+    static member ClosureTypeOf(code: Delegate) : Type =
+        let last = Sites<'T>.lastCode
+        if not (isNull last) && last.Equals code then Sites<'T>.lastCodeType
+        else
+            let t = code.Method.DeclaringType
+            Sites<'T>.lastCode <- code
+            Sites<'T>.lastCodeType <- t
+            t
+
     /// By closure type: `closureType` is the block's Delay closure class, or for a capture-free
     /// block left with a static delegate (see `DlrRun.Closure`) the class its `Invoke` lives in.
     static member Get(builder: obj, closureType: Type, file: string, line: int) : Func<obj, 'T> =
@@ -171,7 +186,7 @@ type DlrRun =
             // the block capturing nothing, inlined its Delay closure into a static delegate whose
             // method lives in the closure class. Nothing to read at a call: compile from that
             // class and pass no closure.
-            let closureType = code.Method.DeclaringType
+            let closureType = Sites<'T>.ClosureTypeOf code
             if isNull closureType || closureType.Assembly = typeof<DlrRun>.Assembly then
                 raise (DlrTranslationException(sprintf "dlr { } at %s:%d has no state machine and no closure to compile from (the builder's members called by hand?); write the block as dlr { … }." file line))
             Sites<'T>.Get(builder, closureType, file, line).Invoke null
