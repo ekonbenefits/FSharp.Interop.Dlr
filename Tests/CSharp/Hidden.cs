@@ -38,8 +38,20 @@ namespace Tests.CSharp
         protected object MakeNested() => new NestedProtected();
     }
 
+    /// <summary>Protected instance members, for C#'s qualifier rule; a protected static, which has none.</summary>
+    public class Outer<T>
+    {
+        protected int P => 5;
+        protected Func<int, int> Q = x => x + 5;
+        protected static int S => 6;
+    }
+
+    public class SiblingOfInt : Outer<int> { }
+
     public static class Make
     {
+        public static object OuterOfInt() => new Outer<int>();
+        public static object OuterOfString() => new Outer<string>();
         public static object Hidden() => new Hidden();
         public static object BoxOfHidden() => new Box<Hidden>();
         public static object BoxOfInt() => new Box<int>();

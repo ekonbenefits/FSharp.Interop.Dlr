@@ -73,15 +73,23 @@ module internal Accessibility =
         let rec bases (t: Type) = not (isNull t) && (definition t = d || bases t.BaseType)
         not (isNull context) && (bases context || (context.IsNested && derived context.DeclaringType declaring))
 
-    /// The C# rule: public; internal from the assembly; protected from a derived type; protected
-    /// internal from either; private protected from a derived type in the assembly; private from
-    /// inside the declaring type (including nested types).
-    let private accessible (context: Type) (declaring: Type) (isPublic, isAssembly, isFamily, isFamilyOrAssembly, isFamilyAndAssembly, isPrivate) =
+    /// C#'s qualifier rule for a protected instance member: the receiver's type is the context
+    /// (or an enclosing type) or a subclass of it — not the base, nor a sibling derived type.
+    /// No receiver (a static member, a nested type) has no such rule.
+    let rec private qualifies (context: Type) (receiver: Type) =
+        isNull receiver || (not (isNull context) && (context.IsAssignableFrom receiver || (context.IsNested && qualifies context.DeclaringType receiver)))
+
+    /// The C# rule: public; internal from the assembly; protected from a derived type, through
+    /// a receiver of that type; protected internal from either; private protected from a
+    /// derived type in the assembly; private from inside the declaring type (including nested
+    /// types).
+    let private accessible (context: Type) (declaring: Type) (receiver: Type) (isPublic, isAssembly, isFamily, isFamilyOrAssembly, isFamilyAndAssembly, isPrivate) =
+        let family () = derived context declaring && qualifies context receiver
         isPublic
         || (isAssembly && sameAssembly context declaring)
-        || (isFamily && derived context declaring)
-        || (isFamilyOrAssembly && (sameAssembly context declaring || derived context declaring))
-        || (isFamilyAndAssembly && sameAssembly context declaring && derived context declaring)
+        || (isFamily && family ())
+        || (isFamilyOrAssembly && (sameAssembly context declaring || family ()))
+        || (isFamilyAndAssembly && sameAssembly context declaring && family ())
         || (isPrivate && within context declaring)
 
     /// Whether the type itself can be named from `context`, by the same rule at each nesting
@@ -94,17 +102,18 @@ module internal Accessibility =
         elif t.IsConstructedGenericType then
             typeVisible context (t.GetGenericTypeDefinition()) && (t.GetGenericArguments() |> Array.forall (typeVisible context))
         elif t.IsNested then
-            accessible context t.DeclaringType (t.IsNestedPublic, t.IsNestedAssembly, t.IsNestedFamily, t.IsNestedFamORAssem, t.IsNestedFamANDAssem, t.IsNestedPrivate)
+            accessible context t.DeclaringType null (t.IsNestedPublic, t.IsNestedAssembly, t.IsNestedFamily, t.IsNestedFamORAssem, t.IsNestedFamANDAssem, t.IsNestedPrivate)
             && typeVisible context t.DeclaringType
         else t.IsPublic || sameAssembly context t
 
-    let method' (context: Type) (m: MethodBase) =
+    /// `receiver` is the target's runtime type for an instance member (the qualifier rule).
+    let method' (context: Type) (receiver: Type) (m: MethodBase) =
         typeVisible context m.DeclaringType
-        && accessible context m.DeclaringType (m.IsPublic, m.IsAssembly, m.IsFamily, m.IsFamilyOrAssembly, m.IsFamilyAndAssembly, m.IsPrivate)
+        && accessible context m.DeclaringType (if m.IsStatic then null else receiver) (m.IsPublic, m.IsAssembly, m.IsFamily, m.IsFamilyOrAssembly, m.IsFamilyAndAssembly, m.IsPrivate)
 
-    let field (context: Type) (f: FieldInfo) =
+    let field (context: Type) (receiver: Type) (f: FieldInfo) =
         typeVisible context f.DeclaringType
-        && accessible context f.DeclaringType (f.IsPublic, f.IsAssembly, f.IsFamily, f.IsFamilyOrAssembly, f.IsFamilyAndAssembly, f.IsPrivate)
+        && accessible context f.DeclaringType (if f.IsStatic then null else receiver) (f.IsPublic, f.IsAssembly, f.IsFamily, f.IsFamilyOrAssembly, f.IsFamilyAndAssembly, f.IsPrivate)
 
     let all = BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance
 
@@ -275,11 +284,11 @@ module internal FunctionShapes =
             t.GetProperties(Accessibility.all)
             |> Array.tryFind (fun p ->
                 p.Name = name && p.GetIndexParameters().Length = 0
-                && (let g = p.GetGetMethod(true) in not (isNull g) && Accessibility.method' context g))
+                && (let g = p.GetGetMethod(true) in not (isNull g) && Accessibility.method' context t g))
         match property with
         | Some p -> Some(p.PropertyType, Expression.Property(self, p) :> Expression)
         | None ->
-            match t.GetFields(Accessibility.all) |> Array.tryFind (fun f -> f.Name = name && Accessibility.field context f) with
+            match t.GetFields(Accessibility.all) |> Array.tryFind (fun f -> f.Name = name && Accessibility.field context t f) with
             | None -> None
             | Some f -> Some(f.FieldType, Expression.Field(self, f) :> Expression)
 
@@ -566,7 +575,7 @@ module internal OptionalArguments =
     let hasAbstractDelegateSlot (context: Type) (t: Type) (name: string) (args: DynamicMetaObject[]) =
         t.GetMethods(Accessibility.all)
         |> Array.exists (fun m ->
-            m.Name = name && Accessibility.method' context m
+            m.Name = name && Accessibility.method' context t m
             && (let ps = m.GetParameters()
                 ps.Length >= args.Length
                 && Array.exists2 (fun (p: ParameterInfo) (a: DynamicMetaObject) -> isAbstractDelegate p.ParameterType && (FunctionShapes.domains a.LimitType).IsSome) (Array.sub ps 0 args.Length) args))
@@ -615,7 +624,7 @@ module internal OptionalArguments =
     let tryCall (context: Type) (t: Type) (name: string) (target: DynamicMetaObject) (args: DynamicMetaObject[]) : DynamicMetaObject option =
         let candidates =
             t.GetMethods(Accessibility.all)
-            |> Array.filter (fun m -> m.Name = name && not m.IsGenericMethodDefinition && Accessibility.method' context m)
+            |> Array.filter (fun m -> m.Name = name && not m.IsGenericMethodDefinition && Accessibility.method' context t m)
             |> Array.map (fun m -> m :> MethodBase)
         let self = Expression.Convert(target.Expression, t)
         tryInvoke candidates (fun m ps -> Expression.Call(self, m :?> MethodInfo, ps) :> Expression) target (BindingRestrictions.GetTypeRestriction(target.Expression, t)) args
@@ -624,7 +633,7 @@ module internal OptionalArguments =
     let tryStaticCall (context: Type) (t: Type) (name: string) (target: DynamicMetaObject) (args: DynamicMetaObject[]) : DynamicMetaObject option =
         let candidates =
             t.GetMethods(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Static ||| BindingFlags.FlattenHierarchy)
-            |> Array.filter (fun m -> m.Name = name && not m.IsGenericMethodDefinition && Accessibility.method' context m)
+            |> Array.filter (fun m -> m.Name = name && not m.IsGenericMethodDefinition && Accessibility.method' context null m)
             |> Array.map (fun m -> m :> MethodBase)
         tryInvoke candidates (fun m ps -> Expression.Call(m :?> MethodInfo, ps) :> Expression) target (BindingRestrictions.GetInstanceRestriction(target.Expression, target.Value)) args
 
@@ -632,7 +641,7 @@ module internal OptionalArguments =
     let tryConstruct (context: Type) (t: Type) (target: DynamicMetaObject) (args: DynamicMetaObject[]) : DynamicMetaObject option =
         let candidates =
             t.GetConstructors(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance)
-            |> Array.filter (fun c -> Accessibility.method' context c)
+            |> Array.filter (fun c -> Accessibility.method' context null c)
             |> Array.map (fun c -> c :> MethodBase)
         tryInvoke candidates (fun c ps -> Expression.New(c :?> ConstructorInfo, ps) :> Expression) target (BindingRestrictions.GetInstanceRestriction(target.Expression, target.Value)) args
 
@@ -762,7 +771,7 @@ type FSharpInvokeMemberBinder(context: Type, name: string, csharp: InvokeMemberB
                     Some(DynamicMetaObject(nested, restrictions))
                 | None -> None)
         let hasMethod =
-            t.GetMethods(Accessibility.all) |> Array.exists (fun m -> m.Name = name && Accessibility.method' context m)
+            t.GetMethods(Accessibility.all) |> Array.exists (fun m -> m.Name = name && Accessibility.method' context t m)
         let allValues = target.HasValue && (args |> Array.forall (fun a -> a.HasValue))
         match direct with
         | Some rule when not hasMethod -> rule
