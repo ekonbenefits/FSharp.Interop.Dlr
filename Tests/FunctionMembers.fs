@@ -94,6 +94,18 @@ let ``a member read as a function type is a curried invoker of it`` () =
     addTupled (40, 2) |> should equal 42
 
 [<Fact>]
+let ``a function-typed result applied on the spot, with nothing captured`` () =
+    // The compiler takes the non-resumable path for this shape without a warning and, the block
+    // capturing nothing, leaves a static delegate: the library compiles from its closure class.
+    (dlr { return Fixtures.plainWidget?Count } : unit -> int) () |> should equal 3
+    (dlr { return Fixtures.plainWidget?Add } : int -> int -> int) 40 2 |> should equal 42
+    (dlr { return (Widget() :> obj)?Describe } : unit -> string) () |> should equal "described"
+    let mk () = box (Widget())                                           // a local function is not a captured value either
+    (dlr { return (mk ())?Count } : unit -> int) () |> should equal 3
+    let w: obj = Widget()                                                // a captured value: the closure itself
+    (dlr { return w?Count } : unit -> int) () |> should equal 3
+
+[<Fact>]
 let ``a curried invoker supports partial application and converts its result`` () =
     let w: obj = Widget()
     let add: int -> int -> int64 = dlr { return w?Add }

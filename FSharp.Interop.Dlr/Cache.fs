@@ -135,7 +135,11 @@ type internal Sites<'T> private () =
     static do lock DlrCache.onClear (fun () -> DlrCache.onClear.Add(fun () -> sites.Clear(); last <- null))
 
     static member Get(builder: obj, closure: obj, file: string, line: int) : Func<obj, 'T> =
-        let closureType = closure.GetType()
+        Sites<'T>.Get(builder, closure.GetType(), file, line)
+
+    /// By closure type: `closureType` is the block's Delay closure class, or for a capture-free
+    /// block left with a static delegate (see `DlrRun.Closure`) the class its `Invoke` lives in.
+    static member Get(builder: obj, closureType: Type, file: string, line: int) : Func<obj, 'T> =
         let generation = Volatile.Read &DlrCache.generation
         let hit = last
         if not (isNull hit) && obj.ReferenceEquals(hit.ClosureType, closureType) && hit.Generation = generation then hit.Func
@@ -162,8 +166,15 @@ type DlrRun =
     static member Closure<'T>(builder: obj, code: ResumableCode<DlrData<'T>, 'T>, file: string, line: int) : 'T =
         let target = code.Target
         if isNull target then
-            // An optimized build inlined the Delay closure and left a static delegate: only a
-            // site the compiler could not turn into a state machine (FS3511) gets here.
-            raise (DlrTranslationException(sprintf "dlr { } at %s:%d could not be compiled as a state machine (the compiler reported FS3511 at the site) and left no closure to compile from; write the block as dlr { … } rather than calling the builder's members directly." file line))
+            // An optimized build took the non-resumable path without a warning — a block whose
+            // function-typed result is applied on the spot, `(dlr { … } : unit -> R) ()` — and,
+            // the block capturing nothing, inlined its Delay closure into a static delegate whose
+            // method lives in the closure class. Nothing to read at a call: compile from that
+            // class and pass no closure.
+            let closureType = code.Method.DeclaringType
+            if isNull closureType || closureType.Assembly = typeof<DlrRun>.Assembly then
+                raise (DlrTranslationException(sprintf "dlr { } at %s:%d has no state machine and no closure to compile from (the builder's members called by hand?); write the block as dlr { … }." file line))
+            Sites<'T>.Get(builder, closureType, file, line).Invoke null
+        else
         let closure = Delayed<'T>.Of target
         Sites<'T>.Get(builder, closure, file, line).Invoke closure

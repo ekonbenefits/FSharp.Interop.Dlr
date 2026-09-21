@@ -57,10 +57,14 @@ is the closure allocation, `GetType()` and a field read. Both paths are exercise
 runs in Debug and in Release.
 
 Every `dlr { }` desugars to `Run(Delay(fun () -> …))` in one expression, which the compiler
-always builds the machine for; nothing the syntax produces reaches the `else` branch in
-Release. (Only the builder's members called by hand with the `Delay` result bound or passed
-separately do — FS3501/FS3511 from the compiler, and a `DlrTranslationException` from
-`Discover`, which finds no body at the call — and nobody writes that.)
+builds the machine for — with one exception it takes silently, no FS3511: a block whose
+function-typed result is applied on the spot, `(dlr { return x?Add } : int -> int -> int) 1 2`.
+That goes to the `else` branch in Release too, with the `Delay` wrapper inlined: the delegate's
+target is the closure itself when the block captures a value, and null — a static method on the
+closure class — when it captures nothing, in which case `DlrRun.Closure` compiles from that
+class (`code.Method.DeclaringType`) and passes no closure. (The builder's members called by
+hand with the `Delay` result bound or passed separately are the other way in — FS3501/FS3511
+from the compiler — and nobody writes that.)
 
 ## One call on the hot path
 
