@@ -6,6 +6,8 @@
 [![Branch coverage](https://img.shields.io/badge/branch%20coverage-87%25-green.svg?style=flat)](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](License.txt)
 
+Experimental: not on NuGet yet, and the spelling of the API may still change.
+
 **C#'s `dynamic`, for F#.** Inside a `dlr { }` block, `x?Name`, `x?Name(a, b)` and `x?Name <- v`
 compile to what C# emits for `d.Name`, `d.Name(a, b)` and `d.Name = v` on a `dynamic`: one
 Microsoft.CSharp call site per operation, created once, dispatching on the target's runtime type.
@@ -16,29 +18,46 @@ allocates nothing itself (the numbers are under [Measured](#measured)).
 
 ```fsharp
 open FSharp.Interop.Dlr
+open Newtonsoft.Json.Linq
 
+/// An order as Newtonsoft parsed it, and the pricing plugin the host loaded — both `obj`.
 [<ReflectedDefinition>]                       // on the function that holds the blocks (see below)
-let demo (w: obj) (root: obj) =
-    let n: int = dlr { return w?Count }                                           // get + convert
-    let s: string = dlr { return w?Greet("Hi", Dlr.named {| name = "Jay" |}) }   // call, named arg
-    dlr { w?Count <- 9 }                                                          // set
-    let v: int = dlr { return w |> Dlr.item (1, 2) }                              // index
-    let name: string = dlr { return root |> Dlr.get "Child" |> Dlr.get "Name" }   // pipelines
-    let depth: int =                                                              // recursion
+let invoice (order: obj) (pricing: obj) =
+    let customer: string = dlr { return order?customer?name }
+    let city: string = dlr { return order?customer?address?city }
+    let first: decimal = dlr { return order?lines |> Dlr.item 0 |> Dlr.get "price" }
+    let total: decimal = dlr { return pricing?Total(order?lines, Dlr.named {| currency = "EUR" |}) }
+    dlr { order?status <- "invoiced" }
+    let discount: decimal =
         dlr {
-            let rec depth (node: obj) : int =
-                if isNull node then 0 else 1 + depth node?Child
-            return depth root
+            let mutable sum = 0m
+            for line in (order?lines : JArray) do sum <- sum + (line?price : decimal)
+            return pricing?Discount(customer, sum)
         }
-    n, s, v, name, depth
+    customer, city, first, total, discount
 ```
+
+Chained gets converted to the inferred type, an index and a get in a pipeline, a call with a named
+argument, a set, a loop, one block's result feeding another — each `dlr { }` a few nanoseconds
+after its first call. The recursive step can be dynamic too:
+
+```fsharp
+[<ReflectedDefinition>]
+let depth (root: obj) : int =
+    dlr {
+        let rec depth (node: obj) : int = if isNull node then 0 else 1 + depth node?child
+        return depth root
+    }
+```
+
+Both run as written in `Tests/Readme.fs`; every form is in [docs/syntax.md](docs/syntax.md).
 
 Targets `netstandard2.0` and `net10.0`; depends on FSharp.Core ≥ 10.1.201 — its expression
 converter is the first that handles a block's statements (any compiler can reference that
 package; on an older SDK, set the `FSharp.Core` package version in the app).
 
-Experimental. The suite also runs against real dynamic targets — Newtonsoft `JObject`,
-Python.NET, Dapper rows over SQLite, ClearScript V8 — and on browser-wasm.
+The suite also runs against real dynamic targets — Newtonsoft `JObject`, Python.NET, Dapper rows
+over SQLite, ClearScript V8 — and on browser-wasm.
 
 ## Scope
 

@@ -64,6 +64,7 @@
   <ItemGroup>
     <Compile Include="AssemblyInfo.fs" />
     <Compile Include="Fixtures.fs" />
+    <Compile Include="Readme.fs" />
     <Compile Include="Members.fs" />
     <Compile Include="Invoke.fs" />
     <Compile Include="TypeArgs.fs" />
