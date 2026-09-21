@@ -159,6 +159,9 @@ type Meters(value: int) =
     static member op_Implicit(n: int) : Meters = Meters(n)
 
 module Fixtures =
+    /// A module-level target: a block over it captures nothing.
+    let plainWidget: obj = Widget()
+
     let expando (pairs: (string * obj) list) =
         let e = ExpandoObject()
         let d = e :> IDictionary<string, obj>

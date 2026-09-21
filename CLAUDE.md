@@ -32,7 +32,10 @@ dotnet build Tests.Wasm -c Release && (cd Tests.Wasm/bin/Release/net10.0-browser
   type keys `Machines<'SM, 'T>`; in Debug `__useResumableCode` is false and `DlrRun.Closure`
   unwraps the Delay closure (field `delayed` of the delegate's target) into the closure path.
   Both paths must stay correct — the suite runs in both. Every `dlr { }` compiles statically in
-  Release; FS3511 arises only from the builder's members called by hand with the `Delay`
+  Release except one shape the compiler declines silently (no FS3511): a function-typed result
+  applied on the spot, `(dlr { … } : unit -> R) ()`, which takes the closure path — with a
+  null delegate target when nothing is captured (`DlrRun.Closure` compiles from the closure
+  class). FS3511 itself arises only from the builder's members called by hand with the `Delay`
   result bound or passed separately, which nobody writes.
 - Tests: AnyUnit xunit style, `[<Fact>]` + FsUnit `should`; test modules are
   `[<ReflectedDefinition>]`; `Tests.Wasm` links the same files, so add new test files to both
