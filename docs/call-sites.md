@@ -86,9 +86,10 @@ compiled delegate per shape — the ordered names, an empty name standing for a 
 splatted values as one `obj[]`, all of one delegate type, so the call is a typed `Invoke`. The
 compiled call keeps the source order of fixed arguments and the positional splat; named
 arguments are the trailing ones (the binder's `CallInfo` names the last arguments), so a
-positional after `namedOf` is a translation error. A lookup compares the pairs' names against the
-entries in place (a site sees few name lists) and allocates nothing but the values array; a
-miss is a `Compile()` (once). At `Capacity` (64) entries it clears. Measured ~32 ns a call
+positional after `namedOf` is a translation error. A lookup compares the pairs' names with the last
+two shapes served (a site that repeats or alternates shapes hits there), else hashes them in
+place for a dictionary, allocating nothing but the values array; a miss is a `Compile()` (once). At
+`Capacity` (256, as `SiteCache`) entries it clears. Measured ~32 ns a call
 against ~12 for `Dlr.named` and ~8 for C#'s named arguments (`docs/benchmarks.md`). With a
 computed member name or run-time type arguments, their
 expressions are evaluated in the block's scope and passed into the per-name-list delegate as
