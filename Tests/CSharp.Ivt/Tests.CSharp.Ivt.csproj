@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Like Tests.CSharp, but opening its internals to the test assemblies: an internal type
+       reached through [InternalsVisibleTo] is accessible, as C#'s binder also holds. -->
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0</TargetFrameworks>
+    <IsPackable>false</IsPackable>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

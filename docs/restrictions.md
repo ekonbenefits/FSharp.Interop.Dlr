@@ -13,7 +13,11 @@ the analyzer's tests; NativeAOT by the assembly's own `IsAotCompatible=false`, n
   unless the type also exposes the member; cast to the interface statically (`o :?> IFoo`) and
   call it there.
 - **Accessibility is the calling type's**: `private` binds only inside the declaring type,
-  `internal` anywhere in the assembly. F# `private` compiles to IL `internal`.
+  `internal` anywhere in the assembly. F# `private` compiles to IL `internal`. The declaring
+  type counts too: a public member of a type the calling type cannot see — another assembly's
+  `internal` class, an anonymous type, a public generic over such a type — is not found,
+  through the library's own rules as through C#'s binder; `[InternalsVisibleTo]` opens it, as
+  for C#.
 - **A block cannot live in an `inline` function or member** — in Release the function is
   expanded into every caller, taking the block's values with it and leaving its body behind (a
   Debug build calls it as a method, so it only appears to work); the analyzer reports it

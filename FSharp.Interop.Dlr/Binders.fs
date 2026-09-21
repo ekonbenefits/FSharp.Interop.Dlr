@@ -52,7 +52,17 @@ module DlrRuntime =
 /// internal ones (which is what F# `private` compiles to) from the same assembly; private ones
 /// from inside the declaring type. Our own reflection lookups apply the same rule.
 module internal Accessibility =
-    let private sameAssembly (context: Type) (declaring: Type) = context.Assembly = declaring.Assembly
+    /// Whether `declaring`'s assembly opens its internals to `context`'s: the same one, or one
+    /// it names in an [<InternalsVisibleTo>] (the C# binder honours that too). Per pair, cached.
+    let private opensTo = System.Collections.Concurrent.ConcurrentDictionary<struct (Reflection.Assembly * Reflection.Assembly), bool>()
+    let private sameAssembly (context: Type) (declaring: Type) =
+        let c, d = context.Assembly, declaring.Assembly
+        c = d
+        || opensTo.GetOrAdd(struct (d, c), fun _ ->
+            let name = c.GetName().Name
+            d.GetCustomAttributes(typeof<System.Runtime.CompilerServices.InternalsVisibleToAttribute>, false)
+            |> Seq.cast<System.Runtime.CompilerServices.InternalsVisibleToAttribute>
+            |> Seq.exists (fun a -> let n = a.AssemblyName in (match n.IndexOf ',' with -1 -> n | i -> n.Substring(0, i)).Trim() = name))
     let rec private within (context: Type) (declaring: Type) =
         not (isNull context) && (context = declaring || (context.IsNested && within context.DeclaringType declaring))
     let rec private derived (context: Type) (declaring: Type) =
@@ -69,11 +79,27 @@ module internal Accessibility =
         || (isFamilyAndAssembly && sameAssembly context declaring && derived context declaring)
         || (isPrivate && within context declaring)
 
+    /// Whether the type itself can be named from `context`, by the same rule at each nesting
+    /// level: C# `dynamic` binds against an inaccessible runtime type (an `internal` class of
+    /// another assembly, an anonymous type) as its nearest accessible base, so a public member
+    /// of such a type is not found either.
+    let rec private typeVisible (context: Type) (t: Type) =
+        if isNull t then true
+        // A constructed generic is as visible as its arguments (`List<Hidden>` is not).
+        elif t.IsConstructedGenericType then
+            typeVisible context (t.GetGenericTypeDefinition()) && (t.GetGenericArguments() |> Array.forall (typeVisible context))
+        elif t.IsNested then
+            accessible context t.DeclaringType (t.IsNestedPublic, t.IsNestedAssembly, t.IsNestedFamily, t.IsNestedFamORAssem, t.IsNestedFamANDAssem, t.IsNestedPrivate)
+            && typeVisible context t.DeclaringType
+        else t.IsPublic || sameAssembly context t
+
     let method' (context: Type) (m: MethodBase) =
-        accessible context m.DeclaringType (m.IsPublic, m.IsAssembly, m.IsFamily, m.IsFamilyOrAssembly, m.IsFamilyAndAssembly, m.IsPrivate)
+        typeVisible context m.DeclaringType
+        && accessible context m.DeclaringType (m.IsPublic, m.IsAssembly, m.IsFamily, m.IsFamilyOrAssembly, m.IsFamilyAndAssembly, m.IsPrivate)
 
     let field (context: Type) (f: FieldInfo) =
-        accessible context f.DeclaringType (f.IsPublic, f.IsAssembly, f.IsFamily, f.IsFamilyOrAssembly, f.IsFamilyAndAssembly, f.IsPrivate)
+        typeVisible context f.DeclaringType
+        && accessible context f.DeclaringType (f.IsPublic, f.IsAssembly, f.IsFamily, f.IsFamilyOrAssembly, f.IsFamilyAndAssembly, f.IsPrivate)
 
     let all = BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance
 

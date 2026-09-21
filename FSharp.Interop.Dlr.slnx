@@ -4,5 +4,7 @@
   <Project Path="Benchmarks/CSharp/Benchmarks.CSharp.csproj" />
   <Project Path="FSharp.Interop.Dlr.Analyzers/FSharp.Interop.Dlr.Analyzers.fsproj" />
   <Project Path="FSharp.Interop.Dlr/FSharp.Interop.Dlr.fsproj" />
+  <Project Path="Tests/CSharp.Ivt/Tests.CSharp.Ivt.csproj" />
+  <Project Path="Tests/CSharp/Tests.CSharp.csproj" />
   <Project Path="Tests/Tests.fsproj" />
 </Solution>
