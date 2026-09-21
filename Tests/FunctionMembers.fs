@@ -254,6 +254,36 @@ let ``a protected member binds from a derived context`` () =
     let d = Derived()
     d.CallFamily(d) |> should equal 15
 
+/// Derives from a generic outer whose protected nested type declares the members.
+type DerivedG() =
+    inherit Tests.CSharp.GOuter<int>()
+    // F# lets a protected call be made only outside the closure the block compiles to.
+    member this.ReadNested() : int = let nested = this.MakeNested() in (dlr { return nested?Value } : unit -> int) ()
+    member this.CallNested() : int = let nested = this.MakeNested() in dlr { return nested?Fn(1) }
+
+/// Derives from Outer<int>: protected members bind through a receiver of this type only.
+type DerivedOfInt() =
+    inherit Tests.CSharp.Outer<int>()
+    member this.ReadP(o: obj) : int = (dlr { return o?P } : unit -> int) ()
+    member this.CallQ(o: obj) : int = dlr { return o?Q(1) }
+    member this.Self = box this
+
+[<Fact>]
+let ``a protected instance member binds only through a receiver of the derived context's type, as in C#`` () =
+    let d = DerivedOfInt()
+    d.ReadP d.Self |> should equal 5
+    d.CallQ d.Self |> should equal 6
+    // The base itself, another instantiation of it, a sibling derived type: C#'s qualifier rule.
+    for receiver in [ Tests.CSharp.Make.OuterOfInt(); Tests.CSharp.Make.OuterOfString(); box (Tests.CSharp.SiblingOfInt()) ] do
+        (fun () -> d.ReadP receiver |> ignore) |> should throw typeof<RuntimeBinderException>
+        (fun () -> d.CallQ receiver |> ignore) |> should throw typeof<RuntimeBinderException>
+
+[<Fact>]
+let ``a protected type nested in a generic outer is visible from a derived context`` () =
+    let d = DerivedG()
+    d.ReadNested() |> should equal 7
+    d.CallNested() |> should equal 2
+
 [<Fact>]
 let ``calling an F# function member has no arity limit`` () =
     let h = box (Holders())

@@ -26,8 +26,32 @@ namespace Tests.CSharp
         public int Value => 7;
     }
 
+    /// <summary>A generic outer with a protected nested type: its DeclaringType is the open <c>GOuter&lt;T&gt;</c>.</summary>
+    public class GOuter<T>
+    {
+        protected class NestedProtected
+        {
+            public int Value => 7;
+            public Func<int, int> Fn = x => x * 2;
+        }
+
+        protected object MakeNested() => new NestedProtected();
+    }
+
+    /// <summary>Protected instance members, for C#'s qualifier rule; a protected static, which has none.</summary>
+    public class Outer<T>
+    {
+        protected int P => 5;
+        protected Func<int, int> Q = x => x + 5;
+        protected static int S => 6;
+    }
+
+    public class SiblingOfInt : Outer<int> { }
+
     public static class Make
     {
+        public static object OuterOfInt() => new Outer<int>();
+        public static object OuterOfString() => new Outer<string>();
         public static object Hidden() => new Hidden();
         public static object BoxOfHidden() => new Box<Hidden>();
         public static object BoxOfInt() => new Box<int>();
