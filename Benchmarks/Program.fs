@@ -51,7 +51,12 @@ let private comparison (results: Collections.Generic.IDictionary<string, string 
 let private footnotes =
     [ "1", "FSharp.Interop.Dynamic has no conversion from an F# function to a delegate parameter."
       "2", "the typed API has no single form here: a chain is two casts, an `ExpandoObject` is an `IDictionary`."
-      "3", "FSharp.Interop.Dynamic fails on a `JObject` member: its result conversion asks the `JValue` to convert to `object`, which Newtonsoft refuses (\"Can not convert from System.Int64 to System.Object\")." ]
+      "3", "FSharp.Interop.Dynamic fails on a `JObject` member: its result conversion asks the `JValue` to convert to `object`, which Newtonsoft refuses (\"Can not convert from System.Int64 to System.Object\")."
+      "4", "neither C#'s binder nor Dynamitey invokes an F# function value held in a member."
+      "5", "an F# optional parameter is an `FSharpOption` with no `[Optional]`: C#'s binder and Dynamitey need it passed."
+      "6", "no spelling for a constructor chosen by an argument's runtime type outside `dlr`."
+      "7", "C# has no spelling with a run-time member name or argument names, nor for invoking a value read as an F# function."
+      "8", "FSharp.Interop.Dynamic takes its arguments as a tuple; a list of unknown length has no form." ]
 
 /// `docs`: run every suite and write docs/benchmarks.md (comparisons) and the README's "Measured"
 /// table (`readmeRows`), between its markers.
@@ -98,17 +103,17 @@ let private writeDocs (short: bool) =
                      "a lambda for a `Func` parameter (C#: a `Func` literal; dlr: an F# lambda in the block)", [ "CSharpRunFunc"; "FunctionToDelegate"; "^1" ]
                      "named arguments `d.Add(b: 1, a: i)`", [ "CSharpNamedArgs"; "NamedArgs"; "DynamicNamedArgs" ] ]
           yield! comparison r "Where the forms differ"
-                   "Each column does what its language offers here: C# `dynamic` has no spelling for calling an F# function value held in a member or for omitting an F# optional parameter, and its `==` on records is reference equality, so those cells are not like for like."
-                   [ "C# `dynamic`"; "`dlr { }`" ]
-                   [ "F# function member `w?Fn(1, 2)`", [ ""; "FunctionMember" ]
-                     "optional parameter omitted `w?Bump(1)`", [ ""; "OptionalOmitted" ]
-                     "record `==` (C#: reference; dlr: structural)", [ "CSharpEquals"; "StructuralEquals" ]
-                     "constructor chosen by an argument's runtime type", [ ""; "Construct" ]
-                     "member name from a variable, alternating between two", [ ""; "ComputedName" ]
-                     "keyword arguments from data, `Dlr.namedOf kwargs` (compiled once per name list)", [ ""; "NamedOf" ]
-                     "positional arguments from data, `Dlr.argsOf args` (compiled once per count)", [ ""; "ArgsOf" ]
-                     "`Dlr.namedOf`, two name lists alternating", [ ""; "NamedOfAlternating" ]
-                     "a value read as an F# function, `Dlr.call f : int -> int -> int`, then applied", [ ""; "CallAsFunction" ] ]
+                   "Each column does what its language offers here, so the cells are not always like for like: `==` on records is reference equality for C# `dynamic` and FSharp.Interop.Dynamic, structural for `dlr { }`; FSharp.Interop.Dynamic's `!?f` invokes a value where `dlr` reads it as a function first; a dash is a form that language has no spelling for, footnoted."
+                   [ "C# `dynamic`"; "`dlr { }`"; "FSharp.Interop.Dynamic" ]
+                   [ "F# function member `w?Fn(1, 2)`", [ "^4"; "FunctionMember"; "^4" ]
+                     "optional parameter omitted `w?Bump(1)`", [ "^5"; "OptionalOmitted"; "^5" ]
+                     "record `==` (structural only for `dlr`)", [ "CSharpEquals"; "StructuralEquals"; "DynamicEquals" ]
+                     "constructor chosen by an argument's runtime type", [ "^6"; "Construct"; "^6" ]
+                     "member name from a variable, alternating between two", [ "^7"; "ComputedName"; "DynamicComputedName" ]
+                     "keyword arguments from data (`Dlr.namedOf kwargs`; `Dyn.namedArg` pairs)", [ "^7"; "NamedOf"; "DynamicNamedOf" ]
+                     "positional arguments from data, `Dlr.argsOf args`", [ "^7"; "ArgsOf"; "^8" ]
+                     "keyword arguments from data, two name lists alternating", [ "^7"; "NamedOfAlternating"; "DynamicNamedOfAlternating" ]
+                     "a value read as an F# function, `Dlr.call f : int -> int -> int`, then applied (`!?f (1, 2)`, which takes a tupled function, not a curried one)", [ "^7"; "CallAsFunction"; "DynamicInvokeFunction" ] ]
           yield "## Real targets"
           yield ""
           yield! comparison r "Newtonsoft.Json `JObject` and `ExpandoObject`" "" [ "typed API"; "C# `dynamic`"; "`dlr { }`"; "FSharp.Interop.Dynamic" ]

@@ -37,6 +37,7 @@ type Core() =
     let args = [ box 2; box 1 ]
     let kwargsOther = [ "a", box 2; "b", box 1 ]
     let adder2 = box (fun (a: int) (b: int) -> a + b)
+    let adderTupled = box (fun (a: int, b: int) -> a + b)
     let one, two, three = box 1, box 2, box 3
     let dictionary = box (Collections.Generic.Dictionary<string, int>(dict [ "a", 1 ]))
     let adder = box (Func<int, int>(fun x -> x + 1))
@@ -140,6 +141,30 @@ type Core() =
 
     [<Benchmark(Description = "C# dynamic implicit conversion (long)d")>]
     member _.CSharpConvert() = CSharpDynamic.Convert three
+
+    // --- FSharp.Interop.Dynamic, where the forms differ -----------------------------------
+    [<Benchmark(Description = "FSharp.Interop.Dynamic record ?=? record")>]
+    member _.DynamicEquals() =
+        let a, b = box { X = 1; Y = 2 }, box { X = 1; Y = 2 }
+        FSharp.Interop.Dynamic.Operators.op_QmarkEqualsQmark a b   // reference equality, as C#
+
+    [<Benchmark(Description = "FSharp.Interop.Dynamic (?) o name, alternating")>]
+    member _.DynamicComputedName() : obj = i <- i + 1; let n = names.[i % 2] in FSharp.Interop.Dynamic.TopLevelOperators.op_Dynamic o n
+
+    [<Benchmark(Description = "FSharp.Interop.Dynamic Dyn.namedArg from a list")>]
+    member _.DynamicNamedOf() : int =
+        let named = kwargs |> List.map (fun (n, v) -> FSharp.Interop.Dynamic.Dyn.namedArg n v)
+        (FSharp.Interop.Dynamic.TopLevelOperators.op_Dynamic o "Add" (named.[0], named.[1]) : int)
+
+    [<Benchmark(Description = "FSharp.Interop.Dynamic Dyn.namedArg, two lists alternating")>]
+    member _.DynamicNamedOfAlternating() : int =
+        i <- i + 1
+        let named = (if i % 2 = 0 then kwargs else kwargsOther) |> List.map (fun (n, v) -> FSharp.Interop.Dynamic.Dyn.namedArg n v)
+        (FSharp.Interop.Dynamic.TopLevelOperators.op_Dynamic o "Add" (named.[0], named.[1]) : int)
+
+    // `!?` invokes a delegate or a tupled F# function; a curried one is "not a delegate" to Dynamitey.
+    [<Benchmark(Description = "FSharp.Interop.Dynamic !?f (1, 2) on a tupled F# function value")>]
+    member _.DynamicInvokeFunction() : int = (FSharp.Interop.Dynamic.TopLevelOperators.op_BangQmark adderTupled (1, 2) : int)
 
     [<Benchmark(Description = "C# dynamic record == record")>]
     member _.CSharpEquals() =
