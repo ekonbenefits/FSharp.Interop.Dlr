@@ -999,14 +999,29 @@ type SiteCache<'Key when 'Key: equality>(template: 'Key -> Expr) =
 /// whole delegate is per key, not only its sites; bounded like `SiteCache`. The delegate takes
 /// the target, the fixed arguments and the splatted values as one `obj[]` (positional, then
 /// named).
+/// One compiled `NamedOfCache` shape: its names (an empty name per positional), their hash, the delegate.
+[<AllowNullLiteral; System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+type NamedOfEntry(names: string[], hash: int, d: Delegate) =
+    member _.Names = names
+    member _.Hash = hash
+    member _.Delegate = d
+
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type NamedOfCache(compile: string list -> Delegate) =
-    /// The entries, few per site in practice, scanned in place: a lookup compares the pairs'
-    /// names against each entry's and allocates nothing. Replaced whole under the lock on a miss.
-    let mutable entries : struct (string[] * Delegate)[] = [||]
+    /// The entries by the hash of their names, an immutable snapshot replaced whole under the
+    /// lock on a miss, so a lookup reads it without locking; the hash is computed in place from
+    /// the argument lists, so a lookup allocates nothing.
+    let mutable entries : System.Collections.Generic.Dictionary<int, NamedOfEntry list> = System.Collections.Generic.Dictionary()
+    let mutable count = 0
+    /// The last two shapes served: a site that repeats or alternates shapes hits here in one or
+    /// two name compares, whatever the capacity.
+    let mutable last : NamedOfEntry = null
+    let mutable previous : NamedOfEntry = null
 
-    /// Entries kept per cache before it is cleared: a miss is a `Compile()`.
-    static member val Capacity = 64 with get, set
+    /// Entries kept per cache before it is cleared: a miss is a `Compile()`. The lookup is a
+    /// hash, so hits cost the same at any size; the bound is memory on a site that fills it
+    /// (a shape is ~13 KB at one arity: 256 is ~3.5 MB), the same 256 as `SiteCache`.
+    static member val Capacity = 256 with get, set
 
     /// The most positional arguments `Dlr.argsOf` accepts. Each distinct count is a new call-site
     /// arity — a delegate type (past Func's 17 type parameters, one emitted into a non-collectible dynamic
@@ -1015,7 +1030,14 @@ type NamedOfCache(compile: string list -> Delegate) =
     /// source. A collection that could be long is one argument, not many.
     static member val MaxPositional = 64 with get, set
 
-    member _.Count = entries.Length
+    member _.Count = count
+
+    /// The hash of a shape: the positional count, then each name in order.
+    static member private HashOf(positional: obj list, pairs: (string * obj) list) =
+        let mutable h = 17
+        for _ in positional do h <- h * 31
+        for (n, _) in pairs do h <- h * 31 + (if isNull n then 0 else n.GetHashCode())
+        h
 
     /// Whether an entry's names are the shape of these arguments: `positional.Length` empty
     /// names, then the pairs' names in order.
@@ -1033,36 +1055,50 @@ type NamedOfCache(compile: string list -> Delegate) =
         | Some i -> named pairs i
         | None -> false
 
+    static member private Find(bucket: NamedOfEntry list, positional, pairs) =
+        bucket |> List.tryFind (fun e -> NamedOfCache.Matches(e.Names, positional, pairs))
+
     /// The delegate for these arguments' shape.
     member this.Get(positional: obj list, pairs: (string * obj) list) : Delegate =
         if isNull (box positional) then nullArg "Dlr.argsOf: the list is null"
         if isNull (box pairs) then nullArg "Dlr.namedOf: the list is null"
-        let snapshot = entries
-        let mutable found = null
-        let mutable i = 0
-        while isNull found && i < snapshot.Length do
-            let struct (names, d) = snapshot.[i]
-            if NamedOfCache.Matches(names, positional, pairs) then found <- d
-            i <- i + 1
-        if not (isNull found) then found
+        // The last two shapes served, compared by name first: cheaper than hashing the names.
+        let l = last
+        if not (isNull l) && NamedOfCache.Matches(l.Names, positional, pairs) then l.Delegate
         else
-            lock this (fun () ->
-                let current = entries
-                match current |> Array.tryFind (fun (struct (names, _)) -> NamedOfCache.Matches(names, positional, pairs)) with
-                | Some(struct (_, d)) -> d
-                | None ->
-                    // Names from data: a null or empty one would be taken for a positional slot.
-                    for (n, _) in pairs do
-                        if isNull n then nullArg "Dlr.namedOf: an argument name is null"
-                        if n.Length = 0 then invalidArg "pairs" "Dlr.namedOf: an argument name is empty (positional arguments from data are Dlr.argsOf)"
-                    let count = List.length positional
-                    if count > NamedOfCache.MaxPositional then
-                        invalidArg "positional" (sprintf "Dlr.argsOf: %d positional arguments; at most %d. Each distinct count is a call-site shape compiled and kept for the life of the process, so a collection that could be long is one argument (an array to a params parameter, a list), not many." count NamedOfCache.MaxPositional)
-                    let names = (positional |> List.map (fun _ -> "")) @ (pairs |> List.map fst)
-                    let d = compile names
-                    let kept = if current.Length >= NamedOfCache.Capacity then [||] else current
-                    entries <- Array.append kept [| struct (Array.ofList names, d) |]
-                    d)
+        let p = previous
+        if not (isNull p) && NamedOfCache.Matches(p.Names, positional, pairs) then previous <- l; last <- p; p.Delegate
+        else
+            let hash = NamedOfCache.HashOf(positional, pairs)
+            let serve (e: NamedOfEntry) = previous <- last; last <- e; e.Delegate
+            let hit =
+                match entries.TryGetValue hash with
+                | true, bucket -> NamedOfCache.Find(bucket, positional, pairs)
+                | _ -> None
+            match hit with
+            | Some e -> serve e
+            | None ->
+                lock this (fun () ->
+                    let current = entries
+                    match (match current.TryGetValue hash with | true, b -> NamedOfCache.Find(b, positional, pairs) | _ -> None) with
+                    | Some e -> serve e
+                    | None ->
+                        // Names from data: a null or empty one would be taken for a positional slot.
+                        for (n, _) in pairs do
+                            if isNull n then nullArg "Dlr.namedOf: an argument name is null"
+                            if n.Length = 0 then invalidArg "pairs" "Dlr.namedOf: an argument name is empty (positional arguments from data are Dlr.argsOf)"
+                        let positionalCount = List.length positional
+                        if positionalCount > NamedOfCache.MaxPositional then
+                            invalidArg "positional" (sprintf "Dlr.argsOf: %d positional arguments; at most %d. Each distinct count is a call-site shape compiled and kept for the life of the process, so a collection that could be long is one argument (an array to a params parameter, a list), not many." positionalCount NamedOfCache.MaxPositional)
+                        let names = (positional |> List.map (fun _ -> "")) @ (pairs |> List.map fst)
+                        let e = NamedOfEntry(Array.ofList names, hash, compile names)
+                        let next =
+                            if count >= NamedOfCache.Capacity then (count <- 0; System.Collections.Generic.Dictionary())
+                            else System.Collections.Generic.Dictionary(current)
+                        next.[hash] <- e :: (match next.TryGetValue hash with | true, b -> b | _ -> [])
+                        count <- count + 1
+                        entries <- next
+                        serve e)
 
     /// The splatted values, positional then named, for the quotation.
     static member Values(positional: obj list, pairs: (string * obj) list) : obj[] =

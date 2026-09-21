@@ -11,7 +11,7 @@ Where every piece of state lives, what keys it, and how long it lasts. Part of
 | `Delayed<'T>` | per result type (fallback path): the resumable-code delegate's target type — the builder's `Delay` lambda, one class per `'T` | a compiled reader of its `delayed` field (the identity when the optimizer inlined the lambda and the target is the closure itself), so a call pays a type compare and a delegate invoke, not reflection; other target types go to a dictionary; the library's own wrapper without that field is an error, not the identity | process | `Cache.fs` |
 | reflected definitions | declaring `Type` (module or class) | every `(MethodBase, Expr)` with a reflected definition on it and its nested types | process | `Discover.fs` |
 | `SiteCache<'Key>` | `string * Type list` — the member name and the explicit type arguments; whichever is static is a constant in the key | the operation's `CallSite[]` for that key | per site (a constant in the compiled tree); at `Capacity` (256) entries it clears and refills | `Binders.fs`, for `(?) x name` with a variable name |
-| `NamedOfCache` | the argument shape: names in order, an empty name for a positional (`Dlr.argsOf`) | the operation compiled for that shape (one delegate type per site) | per site; at `Capacity` (64) entries it clears | `Binders.fs`, for `Dlr.argsOf` / `Dlr.namedOf` |
+| `NamedOfCache` | the argument shape: names in order, an empty name for a positional (`Dlr.argsOf`) | the operation compiled for that shape (one delegate type per site) | per site; the last two shapes served, then a hash of the names; at `Capacity` (256) entries it clears | `Binders.fs`, for `Dlr.argsOf` / `Dlr.namedOf` |
 | `FunctionConversions.conversions`, `DelegateConversions.makers` | (function type, delegate type) | the emitted factory that adapts one to the other | process; bounded by the program's types | `Binders.fs` |
 | DLR rule cache | runtime types (restrictions) | the bound rule | per `CallSite<_>` | inside each site, owned by the DLR |
 
@@ -58,9 +58,15 @@ that delegate and goes with it.
 - `DlrCache`, `Machines<'SM,'T>` and `Sites<'T>`: one entry per block (per instantiation of a
   generic member; how each is reached is in the [pipeline](pipeline.md)).
 - reflected definitions: one list per type that has had a block looked up in it.
-- `SiteCache`: 256 keys per site, then it clears and refills; concurrent misses are admitted
-  under a lock so the bound holds. `NamedOfCache`: 64 argument shapes per site (a flat array
-  scanned in place, hence the smaller number; #87).
+- `SiteCache` and `NamedOfCache`: 256 keys per site, then they clear and refill; concurrent
+  misses are admitted under a lock so the bound holds. Both lookups cost the same at any size
+  (a dictionary; a hash of the names computed in place, behind a compare with the last two
+  shapes served — 8 ns repeating a shape, ~20 ns alternating two, ~25 ns anywhere else), so the
+  number is a memory bound on a site that fills it, measured (Release, arm64): a `SiteCache`
+  entry — a site and its rule cache — is ~6.5 KB, so a full site holds ~1.6 MB; a
+  `NamedOfCache` entry — the shape's compiled delegate at one arity — ~13 KB, a full site
+  ~3.5 MB. A site that reaches either is one keyed by data (below), which the docs steer to
+  `Dlr.item`; the numbers are settable (`Capacity`) for a host that knows its working set.
 - What these do **not** bound — the computed case only, a literal name or type list being one
   key for ever: Microsoft.CSharp's own symbol table. The first bind of a name against a type
   loads that type's members of that name, for every type in the target's hierarchy, and keeps
