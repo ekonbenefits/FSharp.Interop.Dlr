@@ -30,6 +30,7 @@ type Core() =
     let items = [ 1 .. 100 ]
     let itemList = Collections.Generic.List<int>(items)
     let countProperty = typeof<Widget>.GetProperty("Count")
+    let nameProperty = typeof<Widget>.GetProperty("Name")
     let addMethod = typeof<Widget>.GetMethod("Add")
     let names = [| "Count"; "Name" |]
     let kwargs = [ "b", box 1; "a", box 2 ]
@@ -49,11 +50,32 @@ type Core() =
     [<Benchmark(Baseline = true, Description = "static w.Add(i, 1)")>]
     member _.StaticCall() = i <- i + 1; w.Add(i, 1)
 
+    [<Benchmark(Description = "static w.Name <- v")>]
+    member _.StaticSet() = w.Name <- "n"
+
+    [<Benchmark(Description = "static loop of 100 calls (whole loop)")>]
+    member _.StaticLoop() =
+        let mutable s = 0
+        for x in items do s <- s + w.Add(x, 1)
+        s
+
+    [<Benchmark(Description = "reflection: loop of 100 cached MethodInfo.Invoke (whole loop)")>]
+    member _.ReflectionLoop() =
+        let mutable s = 0
+        for x in items do s <- s + (addMethod.Invoke(w, [| box x; box 1 |]) :?> int)
+        s
+
     [<Benchmark(Description = "reflection: cached PropertyInfo.GetValue")>]
     member _.ReflectionGet() = countProperty.GetValue(w) :?> int
 
     [<Benchmark(Description = "reflection: cached MethodInfo.Invoke")>]
     member _.ReflectionCall() = i <- i + 1; addMethod.Invoke(w, [| box i; box 1 |]) :?> int
+
+    [<Benchmark(Description = "reflection: cached PropertyInfo.SetValue")>]
+    member _.ReflectionSet() = nameProperty.SetValue(w, "n")
+
+    [<Benchmark(Description = "FSharp.Interop.Dynamic w?Add(Dyn.namedArg …)")>]
+    member _.DynamicNamedArgs() = i <- i + 1; (FSharp.Interop.Dynamic.TopLevelOperators.op_Dynamic o "Add" (FSharp.Interop.Dynamic.Dyn.namedArg "b" (box 1), FSharp.Interop.Dynamic.Dyn.namedArg "a" (box i)) : int)
 
     [<Benchmark(Description = "FSharp.Interop.Dynamic w?Count")>]
     member _.DynamicGet() = (FSharp.Interop.Dynamic.TopLevelOperators.op_Dynamic o "Count" : int)
