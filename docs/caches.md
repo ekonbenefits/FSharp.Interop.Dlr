@@ -23,21 +23,26 @@ flowchart LR
         DC["DlrCache<br/>container Type → Compiled"]
         M["Machines&lt;'SM,'T&gt;<br/>one typed slot per machine type,<br/>generation-stamped"]
         S["Sites&lt;'T&gt; (fallback)<br/>typed mirror + last hit,<br/>generation-stamped"]
+        DL["Delayed&lt;'T&gt;<br/>Delay-wrapper reader per result type"]
         RD["reflected definitions<br/>declaring Type → (MethodBase, Expr) list"]
         CV["conversion factories<br/>(function type, delegate type)"]
     end
     subgraph delegate["inside one compiled delegate (collected with it)"]
         CS["CallSites<br/>Expression.Constant, hoisted to locals"]
         SC["SiteCache<br/>(name, types) → CallSite[]<br/>capacity 256"]
+        NC["NamedOfCache<br/>argument shape → compiled delegate<br/>capacity 256"]
         RC["DLR rule cache<br/>per site, per runtime type"]
     end
 
     M -- miss --> DC
     S -- miss --> DC
+    S -. "reads the closure through" .-> DL
     DC -- miss --> RD
     DC -- "compiles into" --> CS
     DC -- "for a computed name" --> SC
+    DC -- "for namedOf / argsOf" --> NC
     SC --> CS
+    NC --> CS
     CS --> RC
     RC -. "function ↔ delegate arguments" .-> CV
 
@@ -62,9 +67,8 @@ that delegate and goes with it.
   misses are admitted under a lock so the bound holds. Both lookups cost the same at any size
   (a dictionary; a hash of the names computed in place, behind a compare with the last two
   shapes served — ~10 ns repeating a shape, ~15 ns alternating two, ~40–50 ns for any other
-  pattern at any size, allocating nothing; the scan it replaced cost ~8 ns per entry walked, so a
-  site rotating fewer than about six shapes was ~20 ns faster before and everything else is
-  equal or better), so the number is a memory bound on a site that fills it, measured (Release, arm64): a `SiteCache`
+  pattern at any size, allocating nothing), so the number is a memory bound on a site that fills
+  it, measured (Release, arm64): a `SiteCache`
   entry — a site and its rule cache — is ~6.5 KB, so a full site holds ~1.6 MB; a
   `NamedOfCache` entry — the shape's compiled delegate at one arity — ~13 KB, a full site
   ~3.5 MB. A site that reaches either is one keyed by data (below), which the docs steer to

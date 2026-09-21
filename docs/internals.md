@@ -1,7 +1,8 @@
 # Internals
 
-What a `dlr { }` block turns into at run time, and where every piece of state lives. The README
-covers usage; these pages are for reading or changing the library.
+What a `dlr { }` block turns into at run time, and where every piece of state lives. Usage is the
+README, [syntax](syntax.md) and [restrictions](restrictions.md); these pages are for reading or
+changing the library.
 
 ```mermaid
 flowchart LR
@@ -17,8 +18,9 @@ flowchart LR
 - [**Caches**](caches.md) — every cache, its key, value and lifetime; how they relate and what
   `DlrCache.clear()` touches; the bounds.
 - [**Call sites**](call-sites.md) — one `CallSite` per operation, the argument flags, the site
-  for each piece of syntax, `SiteCache` for computed names and runtime type arguments, and why
-  the sites are hoisted into locals.
+  for each piece of syntax, `SiteCache` for computed names and runtime type arguments,
+  `NamedOfCache` for `Dlr.namedOf` / `Dlr.argsOf` shapes, wide sites past 14 arguments (and
+  wasm), and why the sites are hoisted into locals.
 - [**Binders**](binders.md) — the F#-aware binders: the decision flow (ours before C#'s only
   where C# would bind wrongly), invocation of F# function values, optional parameters, the
   function ↔ delegate conversions, structural comparison.

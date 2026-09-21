@@ -14,8 +14,16 @@ code is reported without a fix: move it into a function.
 | `DLR002` | Error | a `?` operator or `Dlr.*` marker used outside any `dlr { }` (it is only ever quoted; executed, it throws `InvalidOperationException`) |
 | `DLR003` | Error | two or more `dlr { }` blocks starting on one source line (a block is found by the line of its `Run` call; the first call raises `DlrTranslationException`) |
 | `DLR004` | Error | a `dlr { }` inside an `inline` function or member (declaration-level or a local `let inline`): in Release the function is expanded into every caller, where the block's captured values are inlined away and its body is not where the reflected definition says — a Debug build calls it as a method, so it only appears to work there; remove `inline` or move the block out. A block DLR004 refuses gets no DLR001 |
-| `DLR005` | Error | a marker out of place inside a block, each a `DlrTranslationException` at the block's first call: an argument marker — `Dlr.named`, `Dlr.namedOf`, `Dlr.argsOf`, `Dlr.typeArgs`, `Dlr.typeArgsOf` — anywhere but as an argument of a call (a member call, `Dlr.invoke`, `Dlr.call` / `Dlr.apply`, `Dlr.new'`), `Dlr.typeArgs`/`typeArgsOf` not first, `Dlr.typeArgs`/`typeArgsOf` on `Dlr.call` / `Dlr.apply` / `Dlr.new'` (a value or constructor call takes none), `Dlr.namedOf` / `Dlr.argsOf` twice in one call, a positional argument after `Dlr.namedOf`, `Dlr.named` on a record in a variable rather than the literal (names from data are `Dlr.namedOf`), `Dlr.Static<T>.Overloads` anywhere but as the target of a call, or `Dlr.call x` read at a non-function type |
+| `DLR005` | Error | a marker out of place inside a block — each a `DlrTranslationException` at the block's first call; the cases are listed below the table |
 | `DLR006` | Error | a `dlr { }` in a function or member whose reflected definition FSharp.Core will not decode — it holds `typeof<System.Void>` — so every block in it fails at run time with the not-found error naming the member |
+
+`DLR005` reports: an argument marker — `Dlr.named`, `Dlr.namedOf`, `Dlr.argsOf`, `Dlr.typeArgs`,
+`Dlr.typeArgsOf` — anywhere but as an argument of a call (a member call, `Dlr.invoke`, `Dlr.call` /
+`Dlr.apply`, `Dlr.new'`); `Dlr.typeArgs` / `typeArgsOf` not first, or on `Dlr.call` / `Dlr.apply` /
+`Dlr.new'` (a value or constructor call takes none); `Dlr.namedOf` or `Dlr.argsOf` twice in one
+call; a positional argument after `Dlr.namedOf`; `Dlr.named` on a record in a variable rather
+than the literal (names from data are `Dlr.namedOf`); `Dlr.Static<T>.Overloads` anywhere but as
+the target of a call; `Dlr.call x` read at a non-function type.
 
 ## Setup
 

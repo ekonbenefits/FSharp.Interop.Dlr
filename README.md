@@ -34,8 +34,10 @@ let demo (w: obj) (root: obj) =
 ```
 
 Targets `netstandard2.0` and `net10.0`; depends on FSharp.Core ≥ 10.1.201 — its expression
-converter is the first that handles a block's statements. Any compiler can reference that
-package; on an older SDK, set the `FSharp.Core` package version in the app. Experimental. The suite also runs against real dynamic targets — Newtonsoft `JObject`,
+converter is the first that handles a block's statements (any compiler can reference that
+package; on an older SDK, set the `FSharp.Core` package version in the app).
+
+Experimental. The suite also runs against real dynamic targets — Newtonsoft `JObject`,
 Python.NET, Dapper rows over SQLite, ClearScript V8 — and on browser-wasm.
 
 ## Scope
@@ -96,17 +98,16 @@ type Report(data: obj) =
     member _.Total: decimal = dlr { return data?Total }
 ```
 
-Put it on that one binding, not the module. The attribute makes the compiler store a quotation
-of everything under it, and ordinary F# often has no quotation form — inner generic functions,
-`byref`s, `Span` — so a module-wide attribute breaks unrelated code. (A type- or module-level
-attribute is fine when everything inside is quotable.) If the function around a block cannot be
+On the function or member. A module- or type-level attribute also works, but it stores a
+quotation of everything under it, and ordinary F# often has no quotation form — inner generic
+functions, `byref`s, `Span` — so prefer the binding. If the function around a block cannot be
 quoted, move the block into the smallest function that can.
 
 Without the attribute the first call raises a `DlrTranslationException` that says so; the
 [analyzer package](FSharp.Interop.Dlr.Analyzers/README.md) reports it at build time instead
 (`DLR001`, with a fix), along with a marker used outside any block (`DLR002`), two blocks on
 one line (`DLR003`), a block in an `inline` function (`DLR004`: it fails in Release, where
-the function is expanded into its callers) a marker out of its place inside a block, such as
+the function is expanded into its callers), a marker out of its place inside a block, such as
 `Dlr.named` anywhere but in a call's arguments (`DLR005`), and a member whose reflected
 definition FSharp.Core cannot decode (`DLR006`: it holds `typeof<System.Void>`). Why the block is not simply quoted by the compiler, sparing the attribute:
 tried and [scrapped](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/60) — a quotation
@@ -151,13 +152,9 @@ its fields hold the values. On the first call the body is found in the enclosing
 [`CallSite` per operation](docs/call-sites.md) baked in as a constant, and compiled to a delegate
 over the machine, cached in a [static slot per machine type](docs/caches.md), so a call is a
 field read and an invoke: no closure, no `GetType()`, no lookup. The few nanoseconds left over
-C# `dynamic` are that invoke — C# emits its site call inline in the caller; a library cannot —
-so closing them would take compiler or source-generator support, not a faster cache
-([pipeline](docs/pipeline.md#one-call-on-the-hot-path)). (Where the compiler does not build the
-machine — Debug builds — the `Delay` closure plays the same role, keyed by its type:
-[the fallback](docs/pipeline.md#from-source-to-delegate).) Invocation sites use C#'s binder
-wrapped in [one that also applies F# function values](docs/binders.md), as DLR rules per runtime
-type.
+C# `dynamic` are that invoke ([pipeline](docs/pipeline.md#one-call-on-the-hot-path) says why
+they stay). Invocation sites use C#'s binder wrapped in
+[one that also applies F# function values](docs/binders.md), as DLR rules per runtime type.
 
 [docs/internals.md](docs/internals.md) indexes the full picture: every cache, every site and its
 argument flags, the F#-aware binders, and what the translator assumes about the compiler.

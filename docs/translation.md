@@ -67,6 +67,11 @@ nested delegates (loop and try bodies), and the copy costs nothing measurable, w
   and means what `box x` means: an `obj` argument, dispatched on the runtime type. A reference
   tuple in argument position is several arguments (bound once, split with `TupleGet`), as in F#'s
   own method calls; a struct tuple is one value.
+- **Evaluation order** is C#'s — the target, then the arguments left to right, each once. Where
+  a form hoists something ahead of the site call (a `Dlr.named` record's field temporaries, a
+  `namedOf` / `argsOf` list, a splat tuple, a computed name), `sequenced` binds every impure
+  expression to a variable in source order first, so the hoisted ones take their own place;
+  plain calls are untouched. A mutable read counts as impure.
 
 ## What the compiler is assumed to do
 
@@ -91,5 +96,5 @@ converts a `Let` without a nested lambda). Not specified — read by `Translate.
   `NoInlining` so their arguments stay live and are hoisted into the machine.
 
 A change in any of these raises `DlrTranslationException` on the first call at a site; nothing
-binds silently wrong. CI builds with the .NET 8, 9 and 10 SDKs in Debug and Release, at the
-FSharp.Core floor and on the latest release.
+binds silently wrong. CI builds with the .NET 10 SDK, Debug and Release, on Linux and Windows (net48
+there too), at the FSharp.Core floor and on the latest release, and on browser-wasm.

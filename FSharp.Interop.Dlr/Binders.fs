@@ -48,9 +48,11 @@ module DlrRuntime =
             | null -> ()
             | d -> (d :?> IDisposable).Dispose()
 
-/// The accessibility rule the C# binder applies from its context type: public members always;
-/// internal ones (which is what F# `private` compiles to) from the same assembly; private ones
-/// from inside the declaring type. Our own reflection lookups apply the same rule.
+/// The accessibility rule the C# binder applies from its context type — public; internal from the
+/// assembly or one it names in [<InternalsVisibleTo>] (F# `private` compiles to internal);
+/// protected from a derived type, through a receiver of that type; private from inside the
+/// declaring type — for a member and for its declaring type at every nesting level (a constructed
+/// generic is as visible as its arguments). Our own reflection lookups apply the same rule.
 module internal Accessibility =
     /// Whether `declaring`'s assembly opens its internals to `context`'s: the same one, or one
     /// it names in an [<InternalsVisibleTo>] (the C# binder honours that too). Per pair, cached.

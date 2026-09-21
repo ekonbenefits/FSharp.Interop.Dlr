@@ -96,8 +96,8 @@ over C# `dynamic`'s `d.Add(i, 1)`, with no allocation but the box of a value res
 box C# pays): what remains of the block's entry is the machine's construction, the slot read
 and the invoke; the site call itself is C#'s. (The closure path — the Debug fallback — roughly
 doubles the entry with the closure allocation, `GetType()` and the compare. A `Func<'SM, 'T>`
-taking the struct by value instead of the `inref` reader measured several times slower than
-the reader, in the spike on issue #70.)
+taking the struct by value instead of the `inref` reader measured slower —
+[translation](translation.md) has the number.)
 
 What is left over C# is the entry path itself, which measured alone (no site) accounts for the
 whole gap, and it is one delegate hop more than C# has: C# emits the site call inline in the
