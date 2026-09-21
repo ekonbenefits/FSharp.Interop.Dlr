@@ -171,8 +171,8 @@ FSharp.Interop.Dynamic. `Benchmarks/bench.sh docs` regenerates this table and th
 [docs/benchmarks.md](docs/benchmarks.md) (every suite, allocations, real targets).
 
 <!-- benchmarks:start -->
-| ns per call | static | C# `dynamic` | `dlr { }` | reflection (cached) | FSharp.Interop.Dynamic |
+| ns per call | static | C# `dynamic` | **`dlr { }`** | reflection (cached) | FSharp.Interop.Dynamic |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| method call `w.Add(i, 1)` | 1.2 | 7.5 | 11.6 | 35.7 | 7,575 |
-| property get `w.Count` | 0 | 6.7 | 10.9 | 12.1 | 3,936 |
+| method call `w.Add(i, 1)` | 1.2 | 7.5 | **11.6** | 35.9 | 7,586 |
+| property get `w.Count` | 0 | 6.8 | **10.8** | 12.6 | 4,076 |
 <!-- benchmarks:end -->

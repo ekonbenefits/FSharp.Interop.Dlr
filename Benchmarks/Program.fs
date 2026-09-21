@@ -44,8 +44,16 @@ let private comparison (results: Collections.Generic.IDictionary<string, string 
           yield ""
       yield "| | " + String.concat " | " approaches + " |"
       yield "| --- |" + String.concat "" [ for _ in approaches -> " ---: |" ]
-      for (label, methods) in rows -> "| " + label + " | " + String.concat " | " [ for m in methods -> if m = "" then "—" else cell results m ] + " |"
+      for (label, methods) in rows -> "| " + label + " | " + String.concat " | " [ for m in methods -> if m = "" then "—" elif m.StartsWith "^" then "—[^" + m.Substring 1 + "]" else cell results m ] + " |"
       yield "" ]
+
+/// The dashes, each with its reason, as Markdown footnotes; a cell names its note as `^n`.
+let private footnotes =
+    [ "1", "nothing to time: a static property set is a field store, and a static loop is the same call a hundred times."
+      "2", "a reflection loop is the call row a hundred times over."
+      "3", "FSharp.Interop.Dynamic has no conversion from an F# function to a delegate parameter."
+      "4", "the typed API has no single form here: a chain is two casts, an `ExpandoObject` is an `IDictionary`."
+      "5", "FSharp.Interop.Dynamic fails on a `JObject` member: its result conversion asks the `JValue` to convert to `object`, which Newtonsoft refuses (\"Can not convert from System.Int64 to System.Object\")." ]
 
 /// `docs`: run every suite and write docs/benchmarks.md (comparisons) and the README's "Measured"
 /// table (`readmeRows`), between its markers.
@@ -71,8 +79,7 @@ let private writeDocs (short: bool) =
           yield "The same operation is done each way it can be — statically, as C# `dynamic` (the same"
           yield "Microsoft.CSharp binders, the compiler's own call sites), in a `dlr { }`, through cached"
           yield "reflection, and with FSharp.Interop.Dynamic 6.0 — the columns ordered roughly fastest to"
-          yield "slowest. A dash means that column has no form for the row here, or the row is not the same"
-          yield "operation there — nothing more."
+          yield "slowest. A dash is a cell with nothing to time, footnoted with why."
           yield ""
           yield env
           yield ""
@@ -81,16 +88,16 @@ let private writeDocs (short: bool) =
           yield! comparison r "Members" "" [ "static"; "C# `dynamic`"; "`dlr { }`"; "reflection (cached)"; "FSharp.Interop.Dynamic" ]
                    [ "property get `w.Count`", [ "StaticGet"; "CSharpGet"; "Get"; "ReflectionGet"; "DynamicGet" ]
                      "method call `w.Add(i, 1)`", [ "StaticCall"; "CSharpCall"; "Call"; "ReflectionCall"; "DynamicCall" ]
-                     "property set `w.Name <- v`", [ ""; "CSharpSet"; "Set"; ""; "DynamicSet" ]
-                     "100 method calls in one loop — the whole loop, so ÷100 per call", [ ""; "CSharpLoop"; "Loop"; ""; "DynamicLoop" ] ]
+                     "property set `w.Name <- v`", [ "^1"; "CSharpSet"; "Set"; "ReflectionSet"; "DynamicSet" ]
+                     "100 method calls in one loop — the whole loop, so ÷100 per call", [ "^1"; "CSharpLoop"; "Loop"; "^2"; "DynamicLoop" ] ]
           yield! comparison r "Operators, indexers, delegates, conversions" "" [ "C# `dynamic`"; "`dlr { }`"; "FSharp.Interop.Dynamic" ]
                    [ "`a + b` on boxed ints", [ "CSharpAdd"; "Add"; "DynamicAdd" ]
                      "indexer `d[\"a\"]` on a dictionary", [ "CSharpIndex"; "Index"; "DynamicIndex" ]
                      "invoke a delegate value with 20", [ "CSharpInvokeDelegate"; "InvokeDelegate"; "DynamicInvokeDelegate" ]
                      "implicit conversion of a boxed int to int64", [ "CSharpConvert"; "Convert"; "DynamicConvert" ]
                      "static method chosen by an argument's runtime type", [ "CSharpStaticOverloads"; "StaticOverloads"; "DynamicStatic" ]
-                     "a lambda for a `Func` parameter (C#: a `Func` literal; dlr: an F# lambda in the block)", [ "CSharpRunFunc"; "FunctionToDelegate"; "" ]
-                     "named arguments `d.Add(b: 1, a: i)`", [ "CSharpNamedArgs"; "NamedArgs"; "" ] ]
+                     "a lambda for a `Func` parameter (C#: a `Func` literal; dlr: an F# lambda in the block)", [ "CSharpRunFunc"; "FunctionToDelegate"; "^3" ]
+                     "named arguments `d.Add(b: 1, a: i)`", [ "CSharpNamedArgs"; "NamedArgs"; "DynamicNamedArgs" ] ]
           yield! comparison r "Where the forms differ"
                    "Each column does what its language offers here: C# `dynamic` has no spelling for calling an F# function value held in a member or for omitting an F# optional parameter, and its `==` on records is reference equality, so those cells are not like for like."
                    [ "C# `dynamic`"; "`dlr { }`" ]
@@ -106,11 +113,13 @@ let private writeDocs (short: bool) =
           yield "## Real targets"
           yield ""
           yield! comparison r "Newtonsoft.Json `JObject` and `ExpandoObject`" "" [ "typed API"; "C# `dynamic`"; "`dlr { }`"; "FSharp.Interop.Dynamic" ]
-                   [ "`JObject` `j.count`", [ "JObjectStatic"; "CSharpJObjectGet"; "JObjectGet"; "" ]
-                     "`JObject` `j.owner.name`", [ ""; "CSharpJObjectChain"; "JObjectChain"; "" ]
-                     "`ExpandoObject` `e.count`", [ ""; "CSharpExpandoGet"; "ExpandoGet"; "DynamicExpandoGet" ] ]
+                   [ "`JObject` `j.count`", [ "JObjectStatic"; "CSharpJObjectGet"; "JObjectGet"; "^5" ]
+                     "`JObject` `j.owner.name`", [ "^4"; "CSharpJObjectChain"; "JObjectChain"; "^5" ]
+                     "`ExpandoObject` `e.count`", [ "^4"; "CSharpExpandoGet"; "ExpandoGet"; "DynamicExpandoGet" ] ]
           yield "Allocation per call is the box for a value-typed result — the same box C# `dynamic` pays — and"
-          yield "nothing for the block itself (a struct state machine) — see `Tests/HotPath.fs`. `Benchmarks/README.md` explains the suites." ]
+          yield "nothing for the block itself (a struct state machine) — see `Tests/HotPath.fs`. `Benchmarks/README.md` explains the suites."
+          yield ""
+          for (n, text) in footnotes -> "[^" + n + "]: " + text ]
         |> String.concat "\n"
     File.WriteAllText(Path.Combine(root, "docs", "benchmarks.md"), full + "\n")
     let readmePath = Path.Combine(root, "README.md")

@@ -5,8 +5,7 @@ compiled during warm-up, so a cell is the steady-state cost of one call and what
 The same operation is done each way it can be — statically, as C# `dynamic` (the same
 Microsoft.CSharp binders, the compiler's own call sites), in a `dlr { }`, through cached
 reflection, and with FSharp.Interop.Dynamic 6.0 — the columns ordered roughly fastest to
-slowest. A dash means that column has no form for the row here, or the row is not the same
-operation there — nothing more.
+slowest. A dash is a cell with nothing to time, footnoted with why.
 
 BenchmarkDotNet v0.15.8, macOS 27.0 (26A428) [Darwin 27.0.0]  
 Apple M1 Pro, 1 CPU, 10 logical and 10 physical cores  
@@ -18,22 +17,22 @@ Apple M1 Pro, 1 CPU, 10 logical and 10 physical cores
 
 | | static | C# `dynamic` | `dlr { }` | reflection (cached) | FSharp.Interop.Dynamic |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| property get `w.Count` | 0 ns | 6.7 ns / 24 B | 10.9 ns / 24 B | 12.1 ns / 24 B | 3,936 ns / 1552 B |
-| method call `w.Add(i, 1)` | 1.2 ns | 7.5 ns / 24 B | 11.6 ns / 24 B | 35.7 ns / 112 B | 7,575 ns / 3809 B |
-| property set `w.Name <- v` | — | 3.6 ns | 6.6 ns | — | 73.1 ns / 168 B |
-| 100 method calls in one loop — the whole loop, so ÷100 per call | — | 795.7 ns / 2400 B | 1,601 ns / 2672 B | — | 752,966 ns / 380852 B |
+| property get `w.Count` | 0 ns | 6.8 ns / 24 B | 10.8 ns / 24 B | 12.6 ns / 24 B | 4,076 ns / 1552 B |
+| method call `w.Add(i, 1)` | 1.2 ns | 7.5 ns / 24 B | 11.6 ns / 24 B | 35.9 ns / 112 B | 7,586 ns / 3809 B |
+| property set `w.Name <- v` | —[^1] | 3.6 ns | 6.6 ns | 13.7 ns | 75.1 ns / 168 B |
+| 100 method calls in one loop — the whole loop, so ÷100 per call | —[^1] | 786.7 ns / 2400 B | 1,571 ns / 2672 B | —[^2] | 811,151 ns / 380852 B |
 
 ### Operators, indexers, delegates, conversions
 
 | | C# `dynamic` | `dlr { }` | FSharp.Interop.Dynamic |
 | --- | ---: | ---: | ---: |
-| `a + b` on boxed ints | 7.7 ns / 24 B | 12 ns / 24 B | 6.8 ns / 24 B |
-| indexer `d["a"]` on a dictionary | 13.2 ns / 24 B | 17.9 ns / 24 B | 4,122 ns / 1992 B |
-| invoke a delegate value with 20 | 7.8 ns / 24 B | 12.1 ns / 24 B | 7,221 ns / 3440 B |
-| implicit conversion of a boxed int to int64 | 3.1 ns | 5.5 ns | 346.8 ns / 432 B |
-| static method chosen by an argument's runtime type | 7 ns / 24 B | 11.3 ns / 24 B | 7,284 ns / 3488 B |
-| a lambda for a `Func` parameter (C#: a `Func` literal; dlr: an F# lambda in the block) | 9.3 ns / 24 B | 304.1 ns / 200 B | — |
-| named arguments `d.Add(b: 1, a: i)` | 7.4 ns / 24 B | 11.7 ns / 24 B | — |
+| `a + b` on boxed ints | 7.6 ns / 24 B | 11.8 ns / 24 B | 6.9 ns / 24 B |
+| indexer `d["a"]` on a dictionary | 13 ns / 24 B | 17.7 ns / 24 B | 4,129 ns / 1992 B |
+| invoke a delegate value with 20 | 8.1 ns / 24 B | 12.1 ns / 24 B | 7,212 ns / 3440 B |
+| implicit conversion of a boxed int to int64 | 3.1 ns | 5.7 ns | 345.6 ns / 432 B |
+| static method chosen by an argument's runtime type | 7.3 ns / 24 B | 11.2 ns / 24 B | 7,205 ns / 3488 B |
+| a lambda for a `Func` parameter (C#: a `Func` literal; dlr: an F# lambda in the block) | 9.3 ns / 24 B | 301.6 ns / 200 B | —[^3] |
+| named arguments `d.Add(b: 1, a: i)` | 7.5 ns / 24 B | 11.5 ns / 24 B | 7,570 ns / 3881 B |
 
 ### Where the forms differ
 
@@ -41,15 +40,15 @@ Each column does what its language offers here: C# `dynamic` has no spelling for
 
 | | C# `dynamic` | `dlr { }` |
 | --- | ---: | ---: |
-| F# function member `w?Fn(1, 2)` | — | 18.1 ns / 48 B |
-| optional parameter omitted `w?Bump(1)` | — | 11 ns / 24 B |
-| record `==` (C#: reference; dlr: structural) | 14.5 ns / 72 B | 29.9 ns / 72 B |
-| constructor chosen by an argument's runtime type | — | 9.9 ns / 32 B |
-| member name from a variable, alternating between two | — | 54.6 ns / 44 B |
-| keyword arguments from data, `Dlr.namedOf kwargs` (compiled once per name list) | — | 35.9 ns / 64 B |
-| positional arguments from data, `Dlr.argsOf args` (compiled once per count) | — | 34.1 ns / 64 B |
-| `Dlr.namedOf`, two name lists alternating | — | 44.6 ns / 64 B |
-| a value read as an F# function, `Dlr.call f : int -> int -> int`, then applied | — | 34.9 ns / 88 B |
+| F# function member `w?Fn(1, 2)` | — | 18 ns / 48 B |
+| optional parameter omitted `w?Bump(1)` | — | 11.4 ns / 24 B |
+| record `==` (C#: reference; dlr: structural) | 14.5 ns / 72 B | 29.8 ns / 72 B |
+| constructor chosen by an argument's runtime type | — | 9.5 ns / 32 B |
+| member name from a variable, alternating between two | — | 54.7 ns / 44 B |
+| keyword arguments from data, `Dlr.namedOf kwargs` (compiled once per name list) | — | 35.1 ns / 64 B |
+| positional arguments from data, `Dlr.argsOf args` (compiled once per count) | — | 33.9 ns / 64 B |
+| `Dlr.namedOf`, two name lists alternating | — | 44.7 ns / 64 B |
+| a value read as an F# function, `Dlr.call f : int -> int -> int`, then applied | — | 35.1 ns / 88 B |
 
 ## Real targets
 
@@ -57,9 +56,15 @@ Each column does what its language offers here: C# `dynamic` has no spelling for
 
 | | typed API | C# `dynamic` | `dlr { }` | FSharp.Interop.Dynamic |
 | --- | ---: | ---: | ---: | ---: |
-| `JObject` `j.count` | 12.4 ns | 45.8 ns / 24 B | 47.4 ns / 24 B | — |
-| `JObject` `j.owner.name` | — | 47 ns | 52.3 ns | — |
-| `ExpandoObject` `e.count` | — | 5.7 ns | 9.4 ns | 4,053 ns / 1528 B |
+| `JObject` `j.count` | 12.3 ns | 44.2 ns / 24 B | 47.2 ns / 24 B | —[^5] |
+| `JObject` `j.owner.name` | —[^4] | 47 ns | 51.5 ns | —[^5] |
+| `ExpandoObject` `e.count` | —[^4] | 5.7 ns | 9.5 ns | 4,014 ns / 1528 B |
 
 Allocation per call is the box for a value-typed result — the same box C# `dynamic` pays — and
 nothing for the block itself (a struct state machine) — see `Tests/HotPath.fs`. `Benchmarks/README.md` explains the suites.
+
+[^1]: nothing to time: a static property set is a field store, and a static loop is the same call a hundred times.
+[^2]: a reflection loop is the call row a hundred times over.
+[^3]: FSharp.Interop.Dynamic has no conversion from an F# function to a delegate parameter.
+[^4]: the typed API has no single form here: a chain is two casts, an `ExpandoObject` is an `IDictionary`.
+[^5]: FSharp.Interop.Dynamic fails on a `JObject` member: its result conversion asks the `JValue` to convert to `object`, which Newtonsoft refuses ("Can not convert from System.Int64 to System.Object").
