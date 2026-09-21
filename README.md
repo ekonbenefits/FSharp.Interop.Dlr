@@ -6,6 +6,8 @@
 [![Branch coverage](https://img.shields.io/badge/branch%20coverage-87%25-green.svg?style=flat)](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](License.txt)
 
+Experimental: not on NuGet yet, and the spelling of the API may still change.
+
 **C#'s `dynamic`, for F#.** Inside a `dlr { }` block, `x?Name`, `x?Name(a, b)` and `x?Name <- v`
 compile to what C# emits for `d.Name`, `d.Name(a, b)` and `d.Name = v` on a `dynamic`: one
 Microsoft.CSharp call site per operation, created once, dispatching on the target's runtime type.
@@ -54,8 +56,8 @@ Targets `netstandard2.0` and `net10.0`; depends on FSharp.Core ≥ 10.1.201 — 
 converter is the first that handles a block's statements (any compiler can reference that
 package; on an older SDK, set the `FSharp.Core` package version in the app).
 
-Experimental. The suite also runs against real dynamic targets — Newtonsoft `JObject`,
-Python.NET, Dapper rows over SQLite, ClearScript V8 — and on browser-wasm.
+The suite also runs against real dynamic targets — Newtonsoft `JObject`, Python.NET, Dapper rows
+over SQLite, ClearScript V8 — and on browser-wasm.
 
 ## Scope
 
