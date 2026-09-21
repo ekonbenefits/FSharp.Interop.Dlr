@@ -30,7 +30,10 @@ by the assembly's own `IsAotCompatible=false`, not a test):
 - **Target and result are `obj`** (a typed target is upcast; the result converts to the inferred
   type), so value types box there; arguments do not. `byref` / `inref` / `outref` cannot cross a
   dynamic operation (an `int[]` does reach a `Span<int>` parameter, through the implicit
-  conversion, as in C#).
+  conversion, as in C#). Two consequences C# `dynamic` users know: a **struct target is a boxed
+  copy**, so a mutating call through the box leaves the variable untouched; and a
+  **`Nullable<T>` target erases** — the box holds a `T` or is `null`, so there is no `HasValue`
+  or `Value` to find (the value reads as `T`).
 - **`Dlr.named` takes the record literal itself** — the names are read from the quotation, so a
   record held in a variable is a translation error (the analyzer reports it); names from data
   are `Dlr.namedOf`. `Dlr.Static<T>.Overloads` is a call target only, and `Dlr.call x` is read

@@ -42,6 +42,7 @@ recompiles), `DlrCache.count()` says how many there are.
 | `Dlr.neg x`, `Dlr.not x`, `Dlr.complement x` | UnaryOperation, then Convert |
 | `Dlr.cast<T> x` | explicit Convert (a C# cast) |
 | `Dlr.implicit x` | implicit Convert to the inferred type: widening, `op_Implicit`, `TryConvert` |
+| `let! r = (dlr { return x?GetAsync(1) } : Task<int>)` | awaiting a dynamic call: a block is synchronous and returns what the member returns, converted to the awaitable type named — `Task<T>`, `Task`, `ValueTask<T>`, an F# `Async<'T>` — which `task { }` or `async { }` awaits as any other (`Async.AwaitTask` where F# needs it). A result type not known: `let t: Task = dlr { … }`, `do! t`, then `t?Result`. C# awaits the `dynamic` itself by binding the awaiter pattern at run time; naming the type here is the typed, faster spelling; an awaitable of unknown, non-`Task` type has no spelling yet (#110). A JS promise from ClearScript is bridged by its `JavaScriptExtensions.ToTask` — an extension method, so a static call between two blocks (`Tests/ClearScriptV8.fs`) |
 
 Around them, ordinary F#: `let`, `let rec`, `use`, `if`, `for`, `while`, `try … with`,
 `try … finally`, `let mutable` (inside the block or captured from outside, assigned anywhere in
