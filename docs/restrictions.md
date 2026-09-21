@@ -39,6 +39,10 @@ the analyzer's tests; NativeAOT by the assembly's own `IsAotCompatible=false`, n
 - **`inline` members with a member constraint** (`^T: (member Name: string)`) are found but
   throw `NotSupportedException` when called: their body only exists at inlining sites.
   Operator constraints (`v + v`) are fine, they resolve at run time.
+- **Browser-wasm: at most 14 arguments per call.** A call site's delegate is a `Func<CallSite,
+  target, args…, result>`; past 16 type parameters `Expression.GetDelegateType` emits a delegate
+  type at run time, which Mono's browser runtime has no Reflection.Emit for
+  (`NotImplementedException`). On a JIT runtime any count up to the `Dlr.argsOf` cap works.
 - **No NativeAOT, no trimming.** The runtime binder, `LambdaExpression.Compile()` and the
   reflection that finds bodies and the captured variables' fields all need a JIT; the assembly is marked
   `IsAotCompatible=false` / `IsTrimmable=false`. Interpreted (non-AOT) browser-wasm works, and CI
