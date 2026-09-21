@@ -254,6 +254,19 @@ let ``a protected member binds from a derived context`` () =
     let d = Derived()
     d.CallFamily(d) |> should equal 15
 
+/// Derives from a generic outer whose protected nested type declares the members.
+type DerivedG() =
+    inherit Tests.CSharp.GOuter<int>()
+    // F# lets a protected call be made only outside the closure the block compiles to.
+    member this.ReadNested() : int = let nested = this.MakeNested() in (dlr { return nested?Value } : unit -> int) ()
+    member this.CallNested() : int = let nested = this.MakeNested() in dlr { return nested?Fn(1) }
+
+[<Fact>]
+let ``a protected type nested in a generic outer is visible from a derived context`` () =
+    let d = DerivedG()
+    d.ReadNested() |> should equal 7
+    d.CallNested() |> should equal 2
+
 [<Fact>]
 let ``calling an F# function member has no arity limit`` () =
     let h = box (Holders())

@@ -63,10 +63,15 @@ module internal Accessibility =
             d.GetCustomAttributes(typeof<System.Runtime.CompilerServices.InternalsVisibleToAttribute>, false)
             |> Seq.cast<System.Runtime.CompilerServices.InternalsVisibleToAttribute>
             |> Seq.exists (fun a -> let n = a.AssemblyName in (match n.IndexOf ',' with -1 -> n | i -> n.Substring(0, i)).Trim() = name))
+    /// A generic type by its definition: a type nested in `Outer<T>` has the open `Outer<T>` as
+    /// its DeclaringType, which no constructed `Outer<int>` is assignable to.
+    let private definition (t: Type) = if t.IsGenericType && not t.IsGenericTypeDefinition then t.GetGenericTypeDefinition() else t
     let rec private within (context: Type) (declaring: Type) =
-        not (isNull context) && (context = declaring || (context.IsNested && within context.DeclaringType declaring))
+        not (isNull context) && (definition context = definition declaring || (context.IsNested && within context.DeclaringType declaring))
     let rec private derived (context: Type) (declaring: Type) =
-        not (isNull context) && (declaring.IsAssignableFrom context || (context.IsNested && derived context.DeclaringType declaring))
+        let d = definition declaring
+        let rec bases (t: Type) = not (isNull t) && (definition t = d || bases t.BaseType)
+        not (isNull context) && (bases context || (context.IsNested && derived context.DeclaringType declaring))
 
     /// The C# rule: public; internal from the assembly; protected from a derived type; protected
     /// internal from either; private protected from a derived type in the assembly; private from
