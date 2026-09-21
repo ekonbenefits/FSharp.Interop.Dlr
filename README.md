@@ -164,18 +164,15 @@ argument flags, the F#-aware binders, and what the translator assumes about the 
 
 ## Measured
 
-`Benchmarks/` is a BenchmarkDotNet project over these paths and their alternatives; `./bench.sh docs`
-regenerates this table and the full [docs/benchmarks.md](docs/benchmarks.md) (every suite, C#
-`dynamic` and other targets alongside). Release, net10.0, Apple Silicon, steady state:
+The same call each way it can be made, steady state (Release, net10.0, Apple Silicon): a `dlr { }`
+call costs a few nanoseconds over C# `dynamic` — the same Microsoft.CSharp call sites, reached
+through a struct state machine — and orders of magnitude under the reflection-based
+FSharp.Interop.Dynamic. `Benchmarks/bench.sh docs` regenerates this table and the full
+[docs/benchmarks.md](docs/benchmarks.md) (every suite, allocations, real targets).
 
 <!-- benchmarks:start -->
-| | ns/call |
-| --- | ---: |
-| static w.Add(i, 1) | 1.2 |
-| reflection: cached MethodInfo.Invoke | 35.8 |
-| FSharp.Interop.Dynamic w?Add(i, 1) | 7,586 |
-| C# dynamic d.Add(i, 1) | 7.4 |
-| dlr w?Add(i, 1) | 11.7 |
-| dlr w?Count | 10.8 |
-| dlr loop of 100 calls, one site (whole loop) | 1,574 |
+| ns per call | static | C# `dynamic` | `dlr { }` | reflection (cached) | FSharp.Interop.Dynamic |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| method call `w.Add(i, 1)` | 1.2 | 7.5 | 11.6 | 35.7 | 7,575 |
+| property get `w.Count` | 0 | 6.7 | 10.9 | 12.1 | 3,936 |
 <!-- benchmarks:end -->
