@@ -18,19 +18,20 @@ allocates nothing itself (the numbers are under [Measured](#measured)).
 open FSharp.Interop.Dlr
 
 [<ReflectedDefinition>]                       // on the function that holds the blocks (see below)
-let demo (w: obj) (root: obj) =
+let demo (w: obj) (root: obj) (field: string) =
     let n: int = dlr { return w?Count }                                           // get + convert
     let s: string = dlr { return w?Greet("Hi", Dlr.named {| name = "Jay" |}) }   // call, named arg
     dlr { w?Count <- 9 }                                                          // set
     let v: int = dlr { return w |> Dlr.item (1, 2) }                              // index
-    let name: string = dlr { return root |> Dlr.get "Child" |> Dlr.get "Name" }   // pipelines
+    let name: string = dlr { return root?Child?Name }                             // chained gets
+    let picked: obj = dlr { return root?Child |> Dlr.get field }                  // a name from a variable, piped
     let depth: int =                                                              // recursion
         dlr {
             let rec depth (node: obj) : int =
                 if isNull node then 0 else 1 + depth node?Child
             return depth root
         }
-    n, s, v, name, depth
+    n, s, v, name, picked, depth
 ```
 
 Targets `netstandard2.0` and `net10.0`; depends on FSharp.Core ≥ 10.1.201 — its expression
