@@ -149,3 +149,18 @@ let ``a null or empty name from data is an argument error, not a positional slot
     name [ typeof<int> ] |> should equal "Int32"
     read "Count" |> should equal (box 3)
 
+
+[<Fact>]
+let ``argsOf takes at most 64 values: a longer collection is one argument`` () =
+    let w: obj = Widget()
+    let sum (xs: obj list) : int = dlr { return w?SumAll(Dlr.argsOf xs) }
+    let ex = AnyUnit.Run.Assert.Current.Throws<ArgumentException>(fun () -> sum [ for i in 1 .. 65 -> box i ] |> ignore)
+    ex.Message |> should haveSubstring "at most 64"
+    // A call site past 14 arguments uses an emitted delegate type, on which FSharp.Core's quotation
+    // checks call Assembly.ReflectionOnly — not implemented on browser-wasm (docs/restrictions.md, #103).
+    if System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture = System.Runtime.InteropServices.Architecture.Wasm then
+        raise (AnyUnit.IgnoreException "a call site past 14 arguments: FSharp.Core calls Assembly.ReflectionOnly on the emitted delegate type, not implemented on browser-wasm")
+    sum [ for i in 1 .. 64 -> box i ] |> should equal (64 * 65 / 2)
+    // The array itself is one argument to the params parameter, however long.
+    let all: int = dlr { return w?SumAll([| 1 .. 1000 |]) }
+    all |> should equal (1000 * 1001 / 2)

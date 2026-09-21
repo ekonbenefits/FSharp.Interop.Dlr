@@ -1008,6 +1008,13 @@ type NamedOfCache(compile: string list -> Delegate) =
     /// Entries kept per cache before it is cleared: a miss is a `Compile()`.
     static member val Capacity = 64 with get, set
 
+    /// The most positional arguments `Dlr.argsOf` accepts. Each distinct count is a new call-site
+    /// arity — a delegate type (past 16 parameters, one emitted into a non-collectible dynamic
+    /// assembly), a binder Microsoft.CSharp interns for the life of the process, a `Compile()` —
+    /// so a count from data must not be unbounded, as a C# call site's arity is fixed by its
+    /// source. A collection that could be long is one argument, not many.
+    static member val MaxPositional = 64 with get, set
+
     member _.Count = entries.Length
 
     /// Whether an entry's names are the shape of these arguments: `positional.Length` empty
@@ -1048,6 +1055,9 @@ type NamedOfCache(compile: string list -> Delegate) =
                     for (n, _) in pairs do
                         if isNull n then nullArg "Dlr.namedOf: an argument name is null"
                         if n.Length = 0 then invalidArg "pairs" "Dlr.namedOf: an argument name is empty (positional arguments from data are Dlr.argsOf)"
+                    let count = List.length positional
+                    if count > NamedOfCache.MaxPositional then
+                        invalidArg "positional" (sprintf "Dlr.argsOf: %d positional arguments; at most %d. Each distinct count is a call-site shape compiled and kept for the life of the process, so a collection that could be long is one argument (an array to a params parameter, a list), not many." count NamedOfCache.MaxPositional)
                     let names = (positional |> List.map (fun _ -> "")) @ (pairs |> List.map fst)
                     let d = compile names
                     let kept = if current.Length >= NamedOfCache.Capacity then [||] else current
