@@ -1137,7 +1137,7 @@ module internal Translate =
                 // A delegate literal's lambda is the delegate itself, not an F# function: keep it
                 // whole (on wasm, made capturing: see `capturing`). The quotation may give the
                 // parameters as nested lambdas in the body rather than in `vars`.
-                let n = t.GetMethod("Invoke").GetParameters().Length
+                let n = (DelegateMembers.invokeOf t).GetParameters().Length
                 let rec peel k (e: Expr) acc =
                     match e with
                     | Lambda(v, b) when k > 0 -> peel (k - 1) b (v :: acc)
@@ -1145,7 +1145,9 @@ module internal Translate =
                 let peeled, body = peel (n - vars.Length) delegateBody []
                 let allVars = vars @ peeled
                 let inner = allVars |> List.fold (fun b v -> Set.add v b) bound
-                Expr.NewDelegate(t, allVars, capturing block (asUnit (rewriteIn inner body)))
+                let literal = Expr.NewDelegate(t, allVars, capturing block (asUnit (rewriteIn inner body)))
+                // Re-wrapped so `.Method` is the delegate type's own `Invoke` (see `DelegateLiteral`).
+                Expr.Call(typedefof<DelegateLiteral<_>>.MakeGenericType(t).GetMethod("Over"), [ literal ])
             | ShapeLambda(v, lambdaBody) -> Expr.Lambda(v, capturing block (asUnit (rewriteIn (bound.Add v) lambdaBody)))
             // A void call where a `unit` value is expected (`ignore (list.Add x)`, `f (list.Add x)`):
             // the converter has no value for it, so run it, then `()`.

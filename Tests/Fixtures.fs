@@ -159,7 +159,7 @@ type Caller() =
         match binder.Name, value with
         | "onEvent", (:? Delegate as d) -> this.Handler <- d; true
         | _ -> false
-    override this.TrySetIndex(_, indexes, value) =
+    override this.TrySetIndex(_, _, value) =
         match value with
         | :? Delegate as d -> this.Handler <- d; true
         | _ -> false
@@ -305,6 +305,9 @@ type Inlines() =
     member inline _.Twice(v: ^T) : ^T = v + v
     member inline _.NameOf(v: ^T when ^T: (member Name: string)) : string = (^T: (member Name: string) v)
 
+/// F# compiles a delegate's `Invoke` at the type's own accessibility, so this one's is not public.
+type internal InternalHandler = delegate of int -> int
+
 // Delegate and F# function parameters, for the conversions C# does not do (F# lambda -> Func,
 // Func -> F# function) at a dynamic call.
 type Callbacks() =
@@ -320,6 +323,8 @@ type Callbacks() =
     member _.Pick(_: int, s: string) = "string:" + s
     member _.Six(f: Func<int, int, int, int, int, int, int>) = f.Invoke(1, 2, 3, 4, 5, 6)
     member _.Six'(f: int -> int -> int -> int -> int -> int -> int) = f 1 2 3 4 5 6
+    member _.Keep(f: Func<int, int>) = f
+    member internal _.KeepInternal(f: InternalHandler) = f
     member _.Raw(d: Delegate) = d.GetType().Name                 // WinForms' Control.Invoke(Delegate) shape
     member _.Marshal(d: Delegate) = d.DynamicInvoke() |> string   // and how it uses it
 

@@ -421,6 +421,45 @@ module DelegateFunction =
         | Patterns.Call(_, mi, _) -> mi
         | _ -> failwith "unreachable"
 
+/// A delegate type's own members. F# compiles a delegate at the *type's* accessibility, so an
+/// `internal` delegate has a non-public `Invoke` and constructor where C#'s stay public; asking for
+/// the public one gives null and a null-reference error far from the cause.
+module internal DelegateMembers =
+    let private flags = BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic
+    let invokeOf (delegateType: Type) : MethodInfo = delegateType.GetMethod("Invoke", flags)
+    let constructorOf (delegateType: Type) : ConstructorInfo =
+        delegateType.GetConstructor(flags, null, [| typeof<obj>; typeof<nativeint> |], null)
+
+
+/// A delegate literal written inside a block (`w?Each(Action<string>(fun s -> …))`) compiles with
+/// the block, as a `DynamicMethod` delegate whose `.Method` has a hidden `Closure` first parameter;
+/// a consumer marshalling by `.Method` (NLua, some event-wiring helpers) sees `(Closure, string)`
+/// and refuses it. `Over` re-wraps it on the delegate type's own `Invoke`, so `.Method` is honest and
+/// `.Target` the inner delegate — one indirection per call — through a factory emitted once per
+/// delegate type (`dup; ldvirtftn Invoke; newobj`), or `Delegate.CreateDelegate` where dynamic code is not
+/// supported. The seam's past-sixteen-parameter conversion, a compiled lambda too, goes through
+/// it as well. Public: compiled blocks call `Over`.
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+type DelegateLiteral<'D when 'D :> Delegate> private () =
+    static let factory : Func<'D, 'D> =
+        let delegateType = typeof<'D>
+        let invoke = DelegateMembers.invokeOf delegateType
+        try
+            // `skipVisibility` covers a non-public `Invoke` or constructor (an F# `internal` delegate).
+            let dm = System.Reflection.Emit.DynamicMethod("rewrap", delegateType, [| delegateType |], delegateType.Module, true)
+            let il = dm.GetILGenerator()
+            il.Emit(System.Reflection.Emit.OpCodes.Ldarg_0)
+            il.Emit(System.Reflection.Emit.OpCodes.Dup)
+            il.Emit(System.Reflection.Emit.OpCodes.Ldvirtftn, invoke)   // `Invoke` is virtual; the JIT accepts only `dup; ldvirtftn` before `newobj` here
+            il.Emit(System.Reflection.Emit.OpCodes.Newobj, DelegateMembers.constructorOf delegateType)
+            il.Emit(System.Reflection.Emit.OpCodes.Ret)
+            dm.CreateDelegate(typeof<Func<'D, 'D>>) :?> Func<'D, 'D>
+        // Any failure to emit, not only the documented ones: a poisoned static initializer would
+        // be permanent for this delegate type, and the fallback is correct by construction.
+        with _ -> Func<'D, 'D>(fun inner -> Delegate.CreateDelegate(delegateType, inner, invoke) :?> 'D)
+
+    static member Over(inner: 'D) : 'D = factory.Invoke inner
+
 /// A delegate over an F# function (`FunctionAdapters`, in Adapters.fs): per (function type,
 /// delegate type) a factory emitted once as IL — `new Adapter(f)` and the delegate constructor
 /// over its `Invoke` — so a conversion costs an allocation, not `Delegate.CreateDelegate`'s
@@ -483,7 +522,8 @@ module FunctionConversions =
                                 if isVoid then Expression.Block(typeof<Void>, [| call |]) :> Expression
                                 else Expression.Convert(call, invoke.ReturnType) :> Expression
                             let inner = Expression.Lambda(delegateType, body, parameters)
-                            Expression.Lambda<Func<obj, Delegate>>(Expression.Convert(inner, typeof<Delegate>), fParam).Compile())
+                            let honest = Expression.Call(typedefof<DelegateLiteral<_>>.MakeGenericType(delegateType).GetMethod("Over"), inner)
+                            Expression.Lambda<Func<obj, Delegate>>(Expression.Convert(honest, typeof<Delegate>), fParam).Compile())
                 | None -> None
             conversions.[struct (funcType, delegateType)] <- conversion
             conversion
@@ -499,7 +539,6 @@ module FunctionConversions =
         match <@ Make typeof<obj> null @> with
         | Patterns.Call(_, mi, _) -> mi
         | _ -> failwith "unreachable"
-
 
 /// F# optional parameters (`?arg`) compile to `FSharpOption<'T>` parameters carrying
 /// `[<OptionalArgument>]` and nothing the C# binder recognises, so it can neither omit them nor,
