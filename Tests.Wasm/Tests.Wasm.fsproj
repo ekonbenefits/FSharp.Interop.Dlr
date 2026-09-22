@@ -61,6 +61,7 @@
     <Compile Include="..\Tests\Constructors.fs" />
     <Compile Include="..\Tests\Mutables.fs" />
     <Compile Include="..\Tests\Delegates.fs" />
+    <Compile Include="..\Tests\Adapters.fs" />
     <Compile Include="..\Tests\StaticOverloads.fs" />
     <Compile Include="..\Tests\JsonNet.fs" Link="JsonNet.fs" />
     <Compile Include="..\Tests\HotPath.fs" Link="HotPath.fs" />
