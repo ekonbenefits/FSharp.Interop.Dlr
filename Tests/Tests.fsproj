@@ -25,6 +25,8 @@
          skips itself when no Python runtime is found). -->
     <PackageReference Include="Newtonsoft.Json" />
     <PackageReference Include="pythonnet" Condition="'$(TargetFramework)' != 'net48'" />
+    <!-- IronPython 3: the DLR's own language, pure managed. -->
+    <PackageReference Include="IronPython" Condition="'$(TargetFramework)' != 'net48'" />
     <PackageReference Include="Dapper" Condition="'$(TargetFramework)' != 'net48'" />
     <PackageReference Include="Microsoft.Data.Sqlite" Condition="'$(TargetFramework)' != 'net48'" />
     <!-- ClearScript V8: JS objects as dynamic. Native V8 per platform; the test skips itself if
@@ -95,6 +97,7 @@
     <Compile Include="StaticOverloads.fs" />
     <Compile Include="JsonNet.fs" />
     <Compile Include="PythonNet.fs" Condition="'$(TargetFramework)' != 'net48'" />
+    <Compile Include="IronPython.fs" Condition="'$(TargetFramework)' != 'net48'" />
     <Compile Include="DapperRows.fs" Condition="'$(TargetFramework)' != 'net48'" />
     <Compile Include="HotPath.fs" />
     <Compile Include="ClearScriptV8.fs" Condition="'$(TargetFramework)' != 'net48'" />
