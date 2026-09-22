@@ -56,20 +56,26 @@ let ``FunctionAdapters: curried and tupled, result and unit, 0 to 16 parameters`
                 let def = nested functionAdapters name arity
                 if isNull def then failwithf "%s`%d is missing" name arity
                 let resultType = if unitResult then typeof<unit> else typeof<int>
-                let finish (xs: int list) = if unitResult then box () else box (List.sum xs)
+                // Every variant records what reached it, so a Unit adapter that never calls through fails too.
+                let finish (xs: int list) = Bodies.Hits.AddRange xs; if unitResult then box () else box (List.sum xs)
                 let fn: obj =
                     if n = 0 then FSharpValue.MakeFunction(FSharpType.MakeFunctionType(typeof<unit>, resultType), fun _ -> finish [])
                     elif tupled then
                         let tupleType = FSharpType.MakeTupleType(ints n)
                         FSharpValue.MakeFunction(FSharpType.MakeFunctionType(tupleType, resultType), fun t -> finish [ for v in FSharpValue.GetTupleFields t -> unbox<int> v ])
                     else curried [] n resultType finish
+                // Invoke's parameters are 'T1 … 'Tn in order on the open definition: a signature with
+                // two swapped (and a body to match) would sum the same ints yet mis-bind a real delegate.
+                [| for p in def.GetMethod("Invoke").GetParameters() -> p.ParameterType.Name |] |> should equal [| for i in 1 .. n -> "T" + string i |]
                 let closed = if arity = 0 then def else def.MakeGenericType(Array.append (ints n) (if unitResult then [||] else [| typeof<int> |]))
                 let adapter = Activator.CreateInstance(closed, [| fn |])
                 let m = closed.GetMethod("Invoke")
-                m.GetParameters().Length |> should equal n
-                (m.ReturnType = (if unitResult then typeof<Void> else typeof<int>)) |> should equal true
+                (name, m.GetParameters().Length) |> should equal (name, n)
+                (name, m.ReturnType) |> should equal (name, (if unitResult then typeof<Void> else typeof<int>))
+                Bodies.Hits.Clear()
                 let r = invoke adapter [| for i in 1 .. n -> box i |]
-                if not unitResult then (r :?> int) |> should equal (triangle n)
+                (name, Seq.sum Bodies.Hits) |> should equal (name, triangle n)
+                if not unitResult then (name, r :?> int) |> should equal (name, triangle n)
 
 // --- DelegateFunctions: a delegate presented as an F# function ------------------------------
 
@@ -83,7 +89,8 @@ let ``DelegateFunctions: Func and Action, curried and tupled, 0 to 5 parameters`
                 let name = (if tupled then "Tupled" else "") + (if isAction then "Action" else "Func") + string n
                 let def = nested delegateFunctions name (n + 1)       // 'T1 … 'Tn and 'R
                 if isNull def then failwithf "%s`%d is missing" name (n + 1)
-                let closed = def.MakeGenericType(Array.append (ints n) [| typeof<int> |])
+                // 'R is unit for an Action, as the library instantiates it.
+                let closed = def.MakeGenericType(Array.append (ints n) [| (if isAction then typeof<unit> else typeof<int>) |])
                 let delegateType =
                     if isAction then (if n = 0 then typeof<Action> else Type.GetType("System.Action`" + string n).MakeGenericType(ints n))
                     else Type.GetType("System.Func`" + string (n + 1)).MakeGenericType(Array.append (ints n) [| typeof<int> |])
@@ -99,5 +106,5 @@ let ``DelegateFunctions: Func and Action, curried and tupled, 0 to 5 parameters`
                         let mutable cur = f
                         for i in 1 .. n do cur <- cur.GetType().GetMethod("Invoke", [| typeof<int> |]).Invoke(cur, [| box i |])
                         cur
-                if isAction then Seq.sum Bodies.Hits |> should equal (triangle n)
-                else (result :?> int) |> should equal (triangle n)
+                if isAction then (name, Seq.sum Bodies.Hits) |> should equal (name, triangle n)
+                else (name, result :?> int) |> should equal (name, triangle n)
