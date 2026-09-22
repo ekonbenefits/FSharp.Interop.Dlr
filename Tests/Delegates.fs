@@ -35,6 +35,14 @@ let ``a delegate is converted to an F# function parameter`` () =
     (dlr { return o?Six'(Func<int, int, int, int, int, int, int>(fun a b c d e f -> a + b + c + d + e + f)) } : int) |> should equal 21
 
 [<Fact>]
+let ``a tupled F# function reaches a delegate parameter past the adapter classes`` () =
+    let o = box (Callbacks())
+    // Seventeen parameters: no adapter class, so the conversion applies the function itself and
+    // builds its (nested) tuple.
+    let sum: int = dlr { return o?Wide(fun (a: int, b: int, c: int, d: int, e: int, f: int, g: int, h: int, i: int, j: int, k: int, l: int, m: int, n: int, o: int, p: int, q: int) -> a + b + c + d + e + f + g + h + i + j + k + l + m + n + o + p + q) }
+    sum |> should equal 153
+
+[<Fact>]
 let ``a delegate literal in a block reports its own signature through .Method`` () =
     let o = box (Callbacks())
     let mutable captured = 0

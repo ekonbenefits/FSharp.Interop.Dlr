@@ -210,6 +210,16 @@ module internal FunctionShapes =
                 let ds, r = chain ga.[1] [ ga.[0] ]
                 Some(ds, false, r)
 
+    /// The tuple of these values. Past seven elements a CLR tuple nests — `Tuple<a … g, Tuple<h, …>>`
+    /// — and the flattened element list has no constructor, so build each rest tuple in turn.
+    let rec private newTuple (tupleType: Type) (values: Expression list) : Expression =
+        let ctor, rest = FSharp.Reflection.FSharpValue.PreComputeTupleConstructorInfo tupleType
+        match rest with
+        | None -> Expression.New(ctor, values) :> Expression
+        | Some restType ->
+            let head, tail = List.splitAt (ctor.GetParameters().Length - 1) values
+            Expression.New(ctor, head @ [ newTuple restType tail ]) :> Expression
+
     /// The call applying `read` (an expression whose value is of `funcType`) with `args`, boxed,
     /// if the shape fits: `unit -> R` for no arguments, `A -> R` for one, and for more either a
     /// tuple domain of that size or a curried chain of that depth.
@@ -231,7 +241,7 @@ module internal FunctionShapes =
                     if FSharp.Reflection.FSharpType.IsTuple domain then
                         let es = List.ofArray (FSharp.Reflection.FSharpType.GetTupleElements domain)
                         if es.Length = n && List.forall2 fitsArg es args then
-                            let tuple = Expression.New(domain.GetConstructor(Array.ofList es), List.map2 convertTo es args)
+                            let tuple = newTuple domain (List.map2 convertTo es args)
                             Some(boxed (invoke f ft tuple))
                         else None
                     else None
