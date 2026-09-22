@@ -140,7 +140,9 @@ marshalling by `.Method` (NLua does) sees `(Closure, string)` and refuses it. Th
 each in `DelegateLiteral<'D>.Over`, a delegate of the same type over the inner one's `Invoke`
 (emitted IL, or `CreateDelegate`), so `.Method` is the delegate type's own `Invoke` and
 `.Target` the inner delegate: an allocation and one indirection per call, about 20 ns on the
-block, for delegate literals inside blocks only (`Tests/Delegates.fs`, and NLua's `each`).
+block, for delegate literals inside blocks — and for the seam's own past-sixteen-parameter
+conversion, the one shape it builds as a compiled lambda rather than an adapter class
+(`Tests/Delegates.fs`; NLua's `each` and its seventeen-argument `wide`).
 
 Cost: a converted argument (either direction) makes a bound call several times the cost of one
 whose arguments need no conversion — the adapter allocation and the second delegate hop — and

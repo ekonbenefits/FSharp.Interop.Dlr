@@ -75,6 +75,7 @@ let private lua =
                 function widget:size(t) return #t end
                 function widget:each(f) for _, v in ipairs(self.tags) do f(v) end end
                 function widget:map(f) return f(self.count) end
+                function widget:wide(f) return f(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17) end
                 function makeAdder(n) return function (x) return x + n end end
                 function two() return 1, 2 end
                 function none() end
@@ -136,6 +137,12 @@ let ``an F# function passed to Lua is called from Lua`` () =
     let literal = ResizeArray<string>()
     dlr { w?each(System.Action<string>(fun tag -> literal.Add tag)) }     // a delegate literal: NLua reads its .Method, which names the real parameters
     List.ofSeq literal |> should equal [ "a"; "b" ]
+    // Past sixteen parameters no Func fits, so the delegate type and its body are both made at
+    // run time; Lua still reads a plain seventeen-parameter .Method.
+    let wide: int64 =
+        dlr { return w?wide(fun (a: int64) b c d e f g h i j k l m n o p (q: int64) ->
+                                a + b + c + d + e + f + g + h + i + j + k + l + m + n + o + p + q) }
+    wide |> should equal 153L
 
 [<Fact; ReflectedDefinition>]
 let ``arrays index from one; fields set, add, and nil crosses as null`` () =
