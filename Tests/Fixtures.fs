@@ -113,6 +113,7 @@ type Holders() =
     member _.Five = fun (a: int) (b: int) (c: int) (d: int) (e: int) -> a + b + c + d + e
     member _.Six = fun (a: int) (b: int) (c: int) (d: int) (e: int) (f: int) -> a * b * c * d * e * f
     member _.SixTupled = fun (a: int, b: int, c: int, d: int, e: int, f: int) -> a + b + c + d + e + f
+    member _.EightTupled = fun (a: int, b: int, c: int, d: int, e: int, f: int, g: int, h: int) -> a + b + c + d + e + f + g + h
     member _.Eight = fun (a: int) (b: int) (c: int) (d: int) (e: int) (f: int) (g: int) (h: int) -> a + b + c + d + e + f + g + h
     member _.RevealOptional(o: obj) : int = dlr { return o?BumpHidden(1) }
 

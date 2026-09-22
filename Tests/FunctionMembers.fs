@@ -291,6 +291,7 @@ let ``calling an F# function member has no arity limit`` () =
     (dlr { return h?Six(1, 2, 3, 4, 5, 6) } : int) |> should equal 720
     (dlr { return h?SixTupled(1, 2, 3, 4, 5, 6) } : int) |> should equal 21
     (dlr { return h?Eight(1, 2, 3, 4, 5, 6, 7, 8) } : int) |> should equal 36
+    (dlr { return h?EightTupled(1, 2, 3, 4, 5, 6, 7, 8) } : int) |> should equal 36   // past seven the CLR tuple nests
     let six = box (fun (a: int) (b: int) (c: int) (d: int) (e: int) (f: int) -> a + b + c + d + e + f)
     (dlr { return six |> Dlr.apply (1, 1, 1, 1, 1, 1) } : int) |> should equal 6
 
