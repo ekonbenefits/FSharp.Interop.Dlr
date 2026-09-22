@@ -50,8 +50,8 @@ by the assembly's own `IsAotCompatible=false`, not a test):
 
 ## Five places it goes beyond C#
 
-The first four are binder rules for what C# would have failed or got wrong, so nothing C# binds
-correctly changes. The argument rules (optional parameters,
+The seam ([binders](binders.md)): the first four are binder rules for what C# would have failed
+or got wrong when handed an F# value, so nothing C# binds correctly changes. The argument rules (optional parameters,
 function/delegate conversion) apply to every kind of call: instance and static methods,
 constructors, delegate-typed members and delegate values.
 

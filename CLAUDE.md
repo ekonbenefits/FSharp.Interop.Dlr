@@ -72,8 +72,10 @@ dotnet build Tests.Wasm -c Release && (cd Tests.Wasm/bin/Release/net10.0-browser
 - No lambda-form API; `Dlr.cast` is conversion only (explicit interfaces: static cast); no
   static property/field/event access — `Dlr.Static<T>.Overloads` is for calls only, a static
   property is `T.P` in plain F#.
-- Binder rules go before C#'s only where C# would bind *wrongly* rather than fail (structural
-  `==`, a `Delegate`-typed slot); otherwise ours is C#'s error suggestion. See `new-binder`.
+- The F# binder rules are the *seam*: F# values C#'s binder never sees from C# code (function
+  values, `FSharpOption` optionals, structural equality). A rule goes before C#'s only where C#
+  would bind *wrongly* rather than fail (structural `==`, a `Delegate`-typed slot); otherwise
+  ours is C#'s error suggestion. Nothing C# binds correctly changes. See `new-binder`.
 - wasm: a nested non-capturing lambda loses its arguments on Mono's interpreter, and
   `FuncConvert` wrappers do too; `capturing` in `Translate.fs` and the typed wrappers in
   `Binders.fs` exist for that — do not "simplify" them away. A delegate type emitted at run
