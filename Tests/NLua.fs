@@ -2,9 +2,9 @@
 /// `f.Call(args)` — late-bound by string, with nothing for a binder to see. Twenty lines of
 /// `DynamicObject` make them meta-objects, and every form below reads as it does on ClearScript or
 /// IronPython. The pattern for any such API: answer the binder's hooks with the API's own calls,
-/// wrapping values on the way out and unwrapping them on the way in. Its limit: a callback into
-/// Lua is a delegate built outside the block (an F# function is not callable from Lua). Skipped
-/// where NLua's native Lua cannot load. (The adapter has out-parameters, so the attribute goes on
+/// wrapping values on the way out and unwrapping them on the way in; an F# function handed to
+/// Lua arrives as a delegate, which Lua can call, by the seam's rule for meta-object targets.
+/// Skipped where NLua's native Lua cannot load. (The adapter has out-parameters, so the attribute goes on
 /// the facts, not the module.)
 module Tests.NLua
 
@@ -73,6 +73,8 @@ let private lua =
                 function widget:add(a, b) return a + b end
                 widget.plain = function (a) return a end
                 function widget:size(t) return #t end
+                function widget:each(f) for _, v in ipairs(self.tags) do f(v) end end
+                function widget:map(f) return f(self.count) end
                 function makeAdder(n) return function (x) return x + n end end
                 function two() return 1, 2 end
                 function none() end
@@ -122,6 +124,15 @@ let ``methods with self, functions as values, closures, multiple returns`` () =
     let none = global' "none"
     let nothing: obj = dlr { return none |> Dlr.apply () }        // no returns: null, as a nil
     isNull nothing |> should equal true
+
+[<Fact; ReflectedDefinition>]
+let ``an F# function passed to Lua is called from Lua`` () =
+    let w = global' "widget"
+    let seen = ResizeArray<string>()
+    dlr { w?each(fun (tag: string) -> seen.Add tag) }             // string -> unit: an Action<string> Lua can call
+    List.ofSeq seen |> should equal [ "a"; "b" ]
+    let doubled: int64 = dlr { return w?map(fun (n: int64) -> n * 2L) }
+    doubled |> should equal 6L
 
 [<Fact; ReflectedDefinition>]
 let ``arrays index from one; fields set, add, and nil crosses as null`` () =

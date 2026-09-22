@@ -26,6 +26,7 @@ let private engine =
                 var numbers = [10, 20, 30];
                 class Point { constructor(x, y) { this.x = x; this.y = y; } scaled(k = 2) { return new Point(this.x * k, this.y * k); } }
                 var api = { fetchUser: async (id) => ({ id, name: "ada" }) };
+                var events = { handler: null, fire: function (x) { return this.handler(x); } };
             """)
             Some e
          with _ -> None)
@@ -123,6 +124,18 @@ let ``a JS promise: the call is dynamic, the await is ClearScript's ToTask, the 
             return name, id
         }
     t.Result |> should equal ("ada", 7)
+
+[<Fact>]
+let ``an F# function passed to JS is called from JS; one set as a handler fires`` () =
+    let e = require ()
+    let numbers = e.Evaluate "[10, 20, 30]"                      // fresh: another fact writes to `numbers`
+    let seen = ResizeArray<int>()
+    dlr { numbers?forEach(fun (n: int) -> seen.Add n) }          // int -> unit: an Action<int> for Array.prototype.forEach
+    List.ofSeq seen |> should equal [ 10; 20; 30 ]
+    let events = e.Evaluate "events"
+    dlr { events?handler <- fun (x: int) -> x * 2 }              // int -> int: a Func<int, int> stored, then called by JS
+    let fired: int = dlr { return events?fire(21) }
+    fired |> should equal 42
 
 [<Fact>]
 let ``one site serves a JS object, a JObject and an Expando`` () =

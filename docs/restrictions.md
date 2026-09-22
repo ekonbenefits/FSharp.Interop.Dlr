@@ -62,7 +62,11 @@ constructors, delegate-typed members and delegate values.
 - **An F# function fits a delegate parameter, and a delegate fits a function parameter**:
   `x?Each(items, fun i -> …)` against an `Action<int>`, `x?Apply(3, Func<int, int>(…))` against
   an `int -> int` — the conversions F# does at a static call. C#'s binder sees an `FSharpFunc`
-  and a `Func` as unrelated types.
+  and a `Func` as unrelated types. And **an F# function handed to a dynamic object** — a script
+  host's object, a `DynamicObject` — arrives as the delegate of its own signature (`int -> unit`
+  an `Action<int>`), as an argument (`arr?forEach(fun n -> …)`) or a value set on it
+  (`el?onclick <- fun () -> …`), since every meta-object understands delegates and none an
+  `FSharpFunc`; there is no parameter type to drive it, so the function's own does.
 - **F# optional parameters (`?arg`) can be omitted**: omitted ones are `None`, bare values become
   `Some`. C#'s binder cannot omit them (they are `FSharpOption<'T>` parameters with no `[Optional]`
   metadata).
