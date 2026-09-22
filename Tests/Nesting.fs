@@ -3,8 +3,7 @@ module Tests.Nesting
 
 open System.Threading.Tasks
 open FSharp.Interop.Dlr
-open AnyUnit.Run
-open AnyUnit.Run.Attributes
+open AnyUnit                        // TestCapabilities and RequiresCapability, since 1.3.0
 open AnyUnit.Style.Xunit
 open AnyUnit.Style.FsUnit
 

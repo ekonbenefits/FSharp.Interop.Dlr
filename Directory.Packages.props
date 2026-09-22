@@ -12,9 +12,9 @@
     <PackageVersion Include="FSharp.Core" Version="10.1.201" />
     <PackageVersion Include="Microsoft.CSharp" Version="4.7.0" />
     <PackageVersion Include="System.Reflection.Emit.Lightweight" Version="4.7.0" />
-    <PackageVersion Include="AnyUnit.TestingPlatform" Version="1.2.2" />
-    <PackageVersion Include="AnyUnit.Style.Xunit" Version="1.2.2" />
-    <PackageVersion Include="AnyUnit.Style.FsUnit" Version="1.2.2" />
+    <PackageVersion Include="AnyUnit.TestingPlatform" Version="1.3.0" />
+    <PackageVersion Include="AnyUnit.Style.Xunit" Version="1.3.0" />
+    <PackageVersion Include="AnyUnit.Style.FsUnit" Version="1.3.0" />
     <PackageVersion Include="Microsoft.Testing.Extensions.TrxReport" Version="2.4.0" />
     <PackageVersion Include="MinVer" Version="6.0.0" />
     <PackageVersion Include="FSharp.Analyzers.SDK" Version="0.39.2" />
