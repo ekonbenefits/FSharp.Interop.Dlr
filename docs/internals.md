@@ -21,9 +21,10 @@ flowchart LR
   for each piece of syntax, `SiteCache` for computed names and runtime type arguments,
   `NamedOfCache` for `Dlr.namedOf` / `Dlr.argsOf` shapes, wide sites past 14 arguments (and
   wasm), and why the sites are hoisted into locals.
-- [**Binders**](binders.md) — the F#-aware binders: the decision flow (ours before C#'s only
-  where C# would bind wrongly), invocation of F# function values, optional parameters, the
-  function ↔ delegate conversions, structural comparison.
+- [**Binders**](binders.md) — the seam: C#'s binder with F# rules only where it fails or binds
+  against F#'s expectation on what F# hands it — the decision flow (ours before C#'s only where
+  C# would bind wrongly), invocation of F# function values, optional parameters, the function ↔
+  delegate conversions, structural comparison.
 - [**Translation**](translation.md) — normalisation, the `Plumbing` / `Members` / `Captures`
   split, captured variables, control flow through `DlrRuntime`, nested blocks, and what the
   translator assumes about the compiler.
