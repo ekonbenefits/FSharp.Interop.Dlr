@@ -1137,7 +1137,7 @@ module internal Translate =
                 // A delegate literal's lambda is the delegate itself, not an F# function: keep it
                 // whole (on wasm, made capturing: see `capturing`). The quotation may give the
                 // parameters as nested lambdas in the body rather than in `vars`.
-                let n = t.GetMethod("Invoke").GetParameters().Length
+                let n = (DelegateMembers.invokeOf t).GetParameters().Length
                 let rec peel k (e: Expr) acc =
                     match e with
                     | Lambda(v, b) when k > 0 -> peel (k - 1) b (v :: acc)

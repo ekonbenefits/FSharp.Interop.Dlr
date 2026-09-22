@@ -55,6 +55,10 @@ nested delegates (loop and try bodies), and the copy costs nothing measurable, w
   `let rec` is tied through reference cells, and so is a `let mutable` of the block: loop and
   `try` bodies are compiled into delegates, and a tree variable cannot be assigned from inside
   one. A captured mutable already is a cell, so `v <- x` writes its `Value`.
+- **Delegate literals** (`Action<string>(fun s -> …)`) are kept whole, made capturing on wasm, and
+  wrapped in `DelegateLiteral<'D>.Over`: compiled with the block they would be `DynamicMethod`
+  delegates whose `.Method` starts with a hidden `Closure` parameter, which a consumer marshalling
+  by `.Method` refuses ([binders](binders.md#functions-and-delegates)).
 - **Nested blocks** compile into the outer block: at run time their machine (or closure) would
   be created by the compiled tree, not the compiler, and would have no reflected body.
 - **`unit` bodies** end with the unit constant, since an F# `unit` call is `void` in IL and the

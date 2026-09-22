@@ -139,7 +139,7 @@ elsewhere).
 marshalling by `.Method` (NLua does) sees `(Closure, string)` and refuses it. The translator wraps
 each in `DelegateLiteral<'D>.Over`, a delegate of the same type over the inner one's `Invoke`
 (emitted IL, or `CreateDelegate`), so `.Method` is the delegate type's own `Invoke` and
-`.Target` the inner delegate: an allocation and one indirection per call, about 20 ns on the
+`.Target` the inner delegate: an allocation per block run and one indirection per call, about 20 ns on the
 block, for delegate literals inside blocks — and for the seam's own past-sixteen-parameter
 conversion, the one shape it builds as a compiled lambda rather than an adapter class
 (`Tests/Delegates.fs`; NLua's `each` and its seventeen-argument `wide`).

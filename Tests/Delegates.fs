@@ -45,6 +45,10 @@ let ``a delegate literal in a block reports its own signature through .Method`` 
     kept.Method.ReturnType |> should equal typeof<int>
     kept.Invoke 41 |> should equal 42
     captured |> should equal 41
+    // An F# `internal` delegate type: its `Invoke` and constructor are internal too, unlike C#'s.
+    let internal': InternalHandler = dlr { return o?KeepInternal(InternalHandler(fun x -> x + 1)) }
+    [ for p in internal'.Method.GetParameters() -> p.ParameterType ] |> should equal [ typeof<int> ]
+    internal'.Invoke 41 |> should equal 42
 
 [<Fact>]
 let ``overloads: the delegate parameter is one candidate among others`` () =

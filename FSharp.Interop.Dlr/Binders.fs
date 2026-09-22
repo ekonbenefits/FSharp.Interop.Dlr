@@ -421,6 +421,16 @@ module DelegateFunction =
         | Patterns.Call(_, mi, _) -> mi
         | _ -> failwith "unreachable"
 
+/// A delegate type's own members. F# compiles a delegate at the *type's* accessibility, so an
+/// `internal` delegate has a non-public `Invoke` and constructor where C#'s stay public; asking for
+/// the public one gives null and a null-reference error far from the cause.
+module internal DelegateMembers =
+    let private flags = BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic
+    let invokeOf (delegateType: Type) : MethodInfo = delegateType.GetMethod("Invoke", flags)
+    let constructorOf (delegateType: Type) : ConstructorInfo =
+        delegateType.GetConstructor(flags, null, [| typeof<obj>; typeof<nativeint> |], null)
+
+
 /// A delegate literal written inside a block (`w?Each(Action<string>(fun s -> …))`) compiles with
 /// the block, as a `DynamicMethod` delegate whose `.Method` has a hidden `Closure` first parameter;
 /// a consumer marshalling by `.Method` (NLua, some event-wiring helpers) sees `(Closure, string)`
@@ -433,18 +443,20 @@ module DelegateFunction =
 type DelegateLiteral<'D when 'D :> Delegate> private () =
     static let factory : Func<'D, 'D> =
         let delegateType = typeof<'D>
-        let invoke = delegateType.GetMethod("Invoke")
+        let invoke = DelegateMembers.invokeOf delegateType
         try
+            // `skipVisibility` covers a non-public `Invoke` or constructor (an F# `internal` delegate).
             let dm = System.Reflection.Emit.DynamicMethod("rewrap", delegateType, [| delegateType |], delegateType.Module, true)
             let il = dm.GetILGenerator()
             il.Emit(System.Reflection.Emit.OpCodes.Ldarg_0)
             il.Emit(System.Reflection.Emit.OpCodes.Dup)
             il.Emit(System.Reflection.Emit.OpCodes.Ldvirtftn, invoke)   // `Invoke` is virtual; the JIT accepts only `dup; ldvirtftn` before `newobj` here
-            il.Emit(System.Reflection.Emit.OpCodes.Newobj, delegateType.GetConstructor([| typeof<obj>; typeof<nativeint> |]))
+            il.Emit(System.Reflection.Emit.OpCodes.Newobj, DelegateMembers.constructorOf delegateType)
             il.Emit(System.Reflection.Emit.OpCodes.Ret)
             dm.CreateDelegate(typeof<Func<'D, 'D>>) :?> Func<'D, 'D>
-        with :? PlatformNotSupportedException | :? NotSupportedException ->
-            Func<'D, 'D>(fun inner -> Delegate.CreateDelegate(delegateType, inner, invoke) :?> 'D)
+        // Any failure to emit, not only the documented ones: a poisoned static initializer would
+        // be permanent for this delegate type, and the fallback is correct by construction.
+        with _ -> Func<'D, 'D>(fun inner -> Delegate.CreateDelegate(delegateType, inner, invoke) :?> 'D)
 
     static member Over(inner: 'D) : 'D = factory.Invoke inner
 
