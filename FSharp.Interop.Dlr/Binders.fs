@@ -723,9 +723,6 @@ type FSharpBinaryOperationBinder(csharp: BinaryOperationBinder) =
                     | _ -> Expression.GreaterThanOrEqual(c, zero)
             DynamicMetaObject(Expression.Convert(value, typeof<obj>), (FunctionShapes.restrictArg target).Merge(FunctionShapes.restrictArg arg))
 
-/// C#'s Invoke binder, aware of F# function targets (`Dlr.call` on a function value, and the
-/// value step of a member invocation).
-[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 /// A seam rule for meta-object targets: an F# function argument (or value) handed to an
 /// `IDynamicMetaObjectProvider` — a script object, a `DynamicObject` someone wrote — becomes the
 /// delegate of its own signature before the meta-object sees it. Every meta-object understands
@@ -746,15 +743,18 @@ module internal MetaObjectArguments =
             Some(Expression.GetDelegateType(Array.ofList (ds @ [ result ])))
         | None -> None
 
-    /// `a` as the delegate of its signature, if it is an F# function value; else `a` itself.
+    /// `a` as the delegate of its signature, if it is an F# function value; else `a` restricted on
+    /// its type (or on null), so the rule is per argument-type combination and a later function in
+    /// this slot binds anew rather than reaching the meta-object raw.
     let private asDelegate (a: DynamicMetaObject) =
-        if not a.HasValue || isNull a.Value then a
+        let asIs () = DynamicMetaObject(a.Expression, FunctionShapes.restrictArg a, (if a.HasValue then a.Value else null))
+        if not a.HasValue || isNull a.Value then asIs ()
         else
         match FunctionShapes.funcBase a.LimitType with
-        | None -> a
+        | None -> asIs ()
         | Some funcType ->
             match delegateTypeOf funcType |> Option.bind (fun dt -> FunctionConversions.tryConversion funcType dt |> Option.map (fun f -> dt, f)) with
-            | None -> a
+            | None -> asIs ()
             | Some(delegateType, factory) ->
                 let expr = Expression.Convert(Expression.Invoke(Expression.Constant factory, Expression.Convert(a.Expression, typeof<obj>)), delegateType)
                 let restriction = BindingRestrictions.GetExpressionRestriction(Expression.TypeIs(a.Expression, funcType))
@@ -779,6 +779,7 @@ module internal MetaObjectArguments =
 /// The standard binders seal `Bind`, so the rule sits one level out: this binder answers a
 /// meta-object target with an F# function argument by the nested-site rule, and hands every
 /// other bind to the real binder, which the meta-object then sees as usual.
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type MetaObjectAwareBinder(inner: DynamicMetaObjectBinder) =
     inherit DynamicMetaObjectBinder()
     member _.Inner = inner
@@ -786,6 +787,9 @@ type MetaObjectAwareBinder(inner: DynamicMetaObjectBinder) =
         if MetaObjectArguments.applies target args then MetaObjectArguments.rule inner target args
         else inner.Bind(target, args)
 
+/// C#'s Invoke binder, aware of F# function targets (`Dlr.call` on a function value, and the
+/// value step of a member invocation).
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type FSharpInvokeBinder(csharp: InvokeBinder) =
     inherit InvokeBinder(csharp.CallInfo)
 
@@ -901,15 +905,16 @@ type FSharpInvokeConstructorBinder(context: Type, t: Type, csharp: DynamicMetaOb
             | None -> csharpRule
         else csharpRule
 
-/// The value of a member read as `unit -> R`: an F# function is applied, a delegate invoked, any
-/// other value is the result itself.
-[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 /// C#'s SetMember, with an F# function value handed to a meta-object as the delegate of its
 /// signature (`w?onClick <- fun () -> …` on a script object).
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type FSharpSetMemberBinder(name: string, csharp: SetMemberBinder) =
     inherit SetMemberBinder(name, false)
     override _.FallbackSetMember(target, value, errorSuggestion) = csharp.FallbackSetMember(target, value, errorSuggestion)
 
+/// The value of a member read as `unit -> R`: an F# function is applied, a delegate invoked, any
+/// other value is the result itself.
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type FSharpReadOrInvokeValueBinder(csharpInvoke: InvokeBinder) =
     inherit InvokeBinder(csharpInvoke.CallInfo)
 
@@ -1430,7 +1435,8 @@ module internal Binders =
     let setIndex (context: Type) (target: Arg) (indexes: Arg list) (value: Arg) =
         callsOnly "indexing" target
         let all = target :: indexes @ [ value ]
-        siteCall (Binder.SetIndex(CSharpBinderFlags.None, context, [ for a in all -> argInfo a ])) all typeof<obj>
+        // C#'s SetIndex binder as it is; a meta-object target with an F# function value gets the delegate.
+        siteCall (MetaObjectAwareBinder(Binder.SetIndex(CSharpBinderFlags.None, context, [ for a in all -> argInfo a ]) :?> DynamicMetaObjectBinder)) all typeof<obj>
 
     /// C#'s `d.Name += v` / `-=`: an IsEvent site decides at run time between the event
     /// accessor (`add_Name`/`remove_Name`, invoked as a special name) and read-modify-write

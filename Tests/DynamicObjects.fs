@@ -87,6 +87,13 @@ let ``an F# function handed to a dynamic object arrives as the delegate of its s
     dlr { c?onEvent <- fun () -> fired.Value <- true }
     (c :?> Caller).Handler.DynamicInvoke() |> ignore
     fired.Value |> should equal true
+    dlr { c |> Dlr.setItem 0 (fun (x: int) -> x + 100) }                      // set by index too
+    (c :?> Caller).Handler.DynamicInvoke(box 1) |> should equal (box 101)
+    // One site, the second slot a value then a function: the rule is per argument-type combination.
+    let kinds (g: obj) : string = dlr { return c?kinds((fun (x: int) -> x * 3), g) }
+    kinds (box 2) |> should equal "delegate,Int32"
+    kinds (box (fun (s: string) -> s.Length)) |> should equal "delegate,delegate"
+    kinds (box 2) |> should equal "delegate,Int32"
     // A CLR target is untouched: the parameter type drives the conversion there, as before.
     let w: obj = Widget()
     let ran: int = dlr { return w?Run(fun (x: int) -> x * 2) }
