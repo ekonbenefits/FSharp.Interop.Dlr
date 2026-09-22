@@ -320,6 +320,7 @@ type Callbacks() =
     member _.Pick(_: int, s: string) = "string:" + s
     member _.Six(f: Func<int, int, int, int, int, int, int>) = f.Invoke(1, 2, 3, 4, 5, 6)
     member _.Six'(f: int -> int -> int -> int -> int -> int -> int) = f 1 2 3 4 5 6
+    member _.Keep(f: Func<int, int>) = f
     member _.Raw(d: Delegate) = d.GetType().Name                 // WinForms' Control.Invoke(Delegate) shape
     member _.Marshal(d: Delegate) = d.DynamicInvoke() |> string   // and how it uses it
 

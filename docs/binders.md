@@ -134,6 +134,14 @@ non-capturing lambda losing its arguments, is why every lambda and delegate lite
 block is made to capture the closure parameter there (`capturing` in `Translate.fs`, a no-op
 elsewhere).
 
+*Delegate literals in a block* (`w?Each(Action<string>(fun s -> …))`) compile with the block, as
+`DynamicMethod` delegates whose `.Method` starts with a hidden `Closure` parameter — a consumer
+marshalling by `.Method` (NLua does) sees `(Closure, string)` and refuses it. The translator wraps
+each in `DelegateLiteral<'D>.Over`, a delegate of the same type over the inner one's `Invoke`
+(emitted IL, or `CreateDelegate`), so `.Method` is the delegate type's own `Invoke` and
+`.Target` the inner delegate: an allocation and one indirection per call, about 20 ns on the
+block, for delegate literals inside blocks only (`Tests/Delegates.fs`, and NLua's `each`).
+
 Cost: a converted argument (either direction) makes a bound call several times the cost of one
 whose arguments need no conversion — the adapter allocation and the second delegate hop — and
 [benchmarks.md](benchmarks.md) has the F#-lambda-for-a-`Func`-parameter row against C#'s `Func`

@@ -35,6 +35,18 @@ let ``a delegate is converted to an F# function parameter`` () =
     (dlr { return o?Six'(Func<int, int, int, int, int, int, int>(fun a b c d e f -> a + b + c + d + e + f)) } : int) |> should equal 21
 
 [<Fact>]
+let ``a delegate literal in a block reports its own signature through .Method`` () =
+    let o = box (Callbacks())
+    let mutable captured = 0
+    // Compiled with the block it would be a DynamicMethod delegate with a hidden `Closure` first
+    // parameter; consumers that marshal by `.Method` (NLua, event-wiring helpers) refuse that.
+    let kept: Func<int, int> = dlr { return o?Keep(Func<int, int>(fun x -> captured <- x; x + 1)) }
+    [ for p in kept.Method.GetParameters() -> p.ParameterType ] |> should equal [ typeof<int> ]
+    kept.Method.ReturnType |> should equal typeof<int>
+    kept.Invoke 41 |> should equal 42
+    captured |> should equal 41
+
+[<Fact>]
 let ``overloads: the delegate parameter is one candidate among others`` () =
     let o = box (Callbacks())
     (dlr { return o?Pick(1, fun (x: int) -> x + 1) } : string) |> should equal "func:2"

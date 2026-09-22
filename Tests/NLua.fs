@@ -133,6 +133,9 @@ let ``an F# function passed to Lua is called from Lua`` () =
     List.ofSeq seen |> should equal [ "a"; "b" ]
     let doubled: int64 = dlr { return w?map(fun (n: int64) -> n * 2L) }
     doubled |> should equal 6L
+    let literal = ResizeArray<string>()
+    dlr { w?each(System.Action<string>(fun tag -> literal.Add tag)) }     // a delegate literal: NLua reads its .Method, which names the real parameters
+    List.ofSeq literal |> should equal [ "a"; "b" ]
 
 [<Fact; ReflectedDefinition>]
 let ``arrays index from one; fields set, add, and nil crosses as null`` () =

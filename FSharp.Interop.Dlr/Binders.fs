@@ -500,6 +500,32 @@ module FunctionConversions =
         | Patterns.Call(_, mi, _) -> mi
         | _ -> failwith "unreachable"
 
+/// A delegate literal written inside a block (`w?Each(Action<string>(fun s -> …))`) compiles with
+/// the block, as a `DynamicMethod` delegate whose `.Method` has a hidden `Closure` first parameter;
+/// a consumer marshalling by `.Method` (NLua, some event-wiring helpers) sees `(Closure, string)`
+/// and refuses it. `Over` re-wraps it on the delegate type's own `Invoke`, so `.Method` is honest and
+/// `.Target` the inner delegate — one indirection per call — through a factory emitted once per
+/// delegate type (`dup; ldvirtftn Invoke; newobj`), or `Delegate.CreateDelegate` where dynamic code is not
+/// supported. Public: compiled blocks call `Over`.
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+type DelegateLiteral<'D when 'D :> Delegate> private () =
+    static let factory : Func<'D, 'D> =
+        let delegateType = typeof<'D>
+        let invoke = delegateType.GetMethod("Invoke")
+        try
+            let dm = System.Reflection.Emit.DynamicMethod("rewrap", delegateType, [| delegateType |], delegateType.Module, true)
+            let il = dm.GetILGenerator()
+            il.Emit(System.Reflection.Emit.OpCodes.Ldarg_0)
+            il.Emit(System.Reflection.Emit.OpCodes.Dup)
+            il.Emit(System.Reflection.Emit.OpCodes.Ldvirtftn, invoke)   // `Invoke` is virtual; the JIT accepts only `dup; ldvirtftn` before `newobj` here
+            il.Emit(System.Reflection.Emit.OpCodes.Newobj, delegateType.GetConstructor([| typeof<obj>; typeof<nativeint> |]))
+            il.Emit(System.Reflection.Emit.OpCodes.Ret)
+            dm.CreateDelegate(typeof<Func<'D, 'D>>) :?> Func<'D, 'D>
+        with :? PlatformNotSupportedException | :? NotSupportedException ->
+            Func<'D, 'D>(fun inner -> Delegate.CreateDelegate(delegateType, inner, invoke) :?> 'D)
+
+    static member Over(inner: 'D) : 'D = factory.Invoke inner
+
 
 /// F# optional parameters (`?arg`) compile to `FSharpOption<'T>` parameters carrying
 /// `[<OptionalArgument>]` and nothing the C# binder recognises, so it can neither omit them nor,
