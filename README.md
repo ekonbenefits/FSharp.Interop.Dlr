@@ -73,9 +73,10 @@ Dapper rows over SQLite, ClearScript V8 — and on browser-wasm.
 2. **F# values C#'s binder does not understand.** F# code passes things C# never produces:
    function values (`FSharpFunc`) where C# has delegates, optional parameters compiled as
    `FSharpOption` with no `[Optional]`, records and unions with structural equality but no
-   `op_Equality`. For those, the library adds binding rules of its own in that seam — only where
-   C#'s binder would fail or bind against F#'s expectation, never changing what C# binds
-   correctly. The five places, [listed](docs/restrictions.md#five-places-it-goes-beyond-c).
+   `op_Equality`. For those, the library adds binding rules of its own — the
+   [seam](docs/binders.md) — only where C#'s binder would fail or bind against F#'s
+   expectation, never changing what C# binds for a type it has operators for. The five places,
+   [listed](docs/restrictions.md#five-places-it-goes-beyond-c).
 
 3. **What F#'s spelling exposes.** The F# forms are more general than C#'s syntax in a few
    places, and the library follows through rather than restricting them: `?` takes a string, so

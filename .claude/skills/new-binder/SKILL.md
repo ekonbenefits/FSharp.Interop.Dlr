@@ -5,10 +5,9 @@ description: Checklist for adding or changing an F#-aware DLR binder (Binders.fs
 
 # Adding an F#-aware binder
 
-A binder rule belongs in the *seam* — where an F# caller hands C#'s binder a value C# code never
-produces (a function value, an `FSharpOption` optional, a structurally-equal record) and C# fails
-or binds against F#'s expectation. If the rule would change what C# binds correctly for C#'s own
-inputs, it is not a seam rule and does not belong here.
+A binder rule belongs in the *seam* (`docs/binders.md`): where C# fails or binds against F#'s
+expectation on what F# hands it. The membership test: would the rule change what C# binds for
+C#'s own inputs? Then it is not a seam rule (the structural-`==` exception is already taken).
 
 Read `docs/binders.md` and `docs/call-sites.md` first (index: `docs/internals.md`); `FSharp.Interop.Dlr/Binders.fs` holds everything (helpers,
 `Accessibility`, `OptionalArguments`, `FunctionShapes`, the binders, the `Binders` module that

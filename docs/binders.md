@@ -3,13 +3,15 @@
 Where our rules sit relative to C#'s, and what each one does. Part of [internals](internals.md);
 the checklist for adding one is the `new-binder` skill.
 
-The library binds with C#'s binder and adds F# rules only in the **seam** — the places where an
-F# caller hands C#'s binder something C# code never produces (a function value where C# has a
-delegate, an `FSharpOption` optional with no `[Optional]`, a record with structural equality but
-no `op_Equality`) and C# either fails or, in two cases, binds against F#'s expectation. Every
-rule below lives in that seam; none changes what C# binds correctly. That is why the design is a
-hybrid rather than a second binder: a caller gets C#'s resolution and F#'s values in one call,
-and an F#-rules binder would add only a different tie-break among competing CLR overloads.
+The library binds with C#'s binder; its own rules sit in the **seam** — where F# code hands that
+binder what C# code does not (a function value, an `FSharpOption` optional, a record without
+`op_Equality`, `<` on a string) and C# fails or binds against F#'s expectation. A rule that would
+change what C# binds for C#'s own inputs does not belong here; the one deliberate exception is
+`?=?` / `?<?` on any CLR type without the operator — structural rather than reference, F# type or
+not ([comparison operators](#comparison-operators)). Inside the seam the choice among candidates
+is `tryInvoke`'s own (most exact slots, then fewest omitted), neither C#'s nor F#'s. An F#-rules
+binder would differ from C#'s mostly in the conversions it refuses (F# widens less) and in which
+of two fitting overloads it prefers; it would bind nothing the seam does not already.
 
 ## Where a rule goes
 
@@ -36,7 +38,7 @@ flowchart TD
 
 The rule from `CLAUDE.md`, drawn once: ours goes before C#'s only where C# would bind *wrongly*
 rather than fail; everywhere else it is C#'s error suggestion, so a member C# can bind is bound
-exactly as C# would. The seam is exactly the `ours1` and `ours2` boxes. Both paths produce DLR rules restricted on runtime types, so the decision is
+exactly as C# would. The seam is the `ours1` and `ours2` boxes. Both paths produce DLR rules restricted on runtime types, so the decision is
 cached per type like everything else.
 
 ## Invocation
