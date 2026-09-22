@@ -114,6 +114,8 @@ type Holders() =
     member _.Six = fun (a: int) (b: int) (c: int) (d: int) (e: int) (f: int) -> a * b * c * d * e * f
     member _.SixTupled = fun (a: int, b: int, c: int, d: int, e: int, f: int) -> a + b + c + d + e + f
     member _.EightTupled = fun (a: int, b: int, c: int, d: int, e: int, f: int, g: int, h: int) -> a + b + c + d + e + f + g + h
+    member _.EightStruct = fun (struct (a: int, b: int, c: int, d: int, e: int, f: int, g: int, h: int)) -> a + b + c + d + e + f + g + h
+    member _.SixteenTupled = fun (a: int, b: int, c: int, d: int, e: int, f: int, g: int, h: int, i: int, j: int, k: int, l: int, m: int, n: int, o: int, p: int) -> a + b + c + d + e + f + g + h + i + j + k + l + m + n + o + p
     member _.Eight = fun (a: int) (b: int) (c: int) (d: int) (e: int) (f: int) (g: int) (h: int) -> a + b + c + d + e + f + g + h
     member _.RevealOptional(o: obj) : int = dlr { return o?BumpHidden(1) }
 
@@ -306,6 +308,10 @@ type Inlines() =
     member inline _.Twice(v: ^T) : ^T = v + v
     member inline _.NameOf(v: ^T when ^T: (member Name: string)) : string = (^T: (member Name: string) v)
 
+/// Past sixteen parameters no adapter class exists, so a function converted to this one is applied
+/// through `FunctionShapes.applyCall` — where a tupled domain's tuple nests.
+type Wide17 = delegate of int * int * int * int * int * int * int * int * int * int * int * int * int * int * int * int * int -> int
+
 /// F# compiles a delegate's `Invoke` at the type's own accessibility, so this one's is not public.
 type internal InternalHandler = delegate of int -> int
 
@@ -325,6 +331,7 @@ type Callbacks() =
     member _.Six(f: Func<int, int, int, int, int, int, int>) = f.Invoke(1, 2, 3, 4, 5, 6)
     member _.Six'(f: int -> int -> int -> int -> int -> int -> int) = f 1 2 3 4 5 6
     member _.Keep(f: Func<int, int>) = f
+    member _.Wide(f: Wide17) = f.Invoke(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17)
     member internal _.KeepInternal(f: InternalHandler) = f
     member _.Raw(d: Delegate) = d.GetType().Name                 // WinForms' Control.Invoke(Delegate) shape
     member _.Marshal(d: Delegate) = d.DynamicInvoke() |> string   // and how it uses it

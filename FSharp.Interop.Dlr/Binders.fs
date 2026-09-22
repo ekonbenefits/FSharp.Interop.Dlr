@@ -210,9 +210,6 @@ module internal FunctionShapes =
                 let ds, r = chain ga.[1] [ ga.[0] ]
                 Some(ds, false, r)
 
-    /// The call applying `read` (an expression whose value is of `funcType`) with `args`, boxed,
-    /// if the shape fits: `unit -> R` for no arguments, `A -> R` for one, and for more either a
-    /// tuple domain of that size or a curried chain of that depth.
     /// The tuple of these values. Past seven elements a CLR tuple nests — `Tuple<a … g, Tuple<h, …>>`
     /// — and the flattened element list has no constructor, so build each rest tuple in turn.
     let rec private newTuple (tupleType: Type) (values: Expression list) : Expression =
@@ -223,6 +220,9 @@ module internal FunctionShapes =
             let head, tail = List.splitAt (ctor.GetParameters().Length - 1) values
             Expression.New(ctor, head @ [ newTuple restType tail ]) :> Expression
 
+    /// The call applying `read` (an expression whose value is of `funcType`) with `args`, boxed,
+    /// if the shape fits: `unit -> R` for no arguments, `A -> R` for one, and for more either a
+    /// tuple domain of that size or a curried chain of that depth.
     let applyCall (funcType: Type) (read: Expression) (args: DynamicMetaObject[]) : Expression option =
         match funcBase funcType with
         | None -> None
