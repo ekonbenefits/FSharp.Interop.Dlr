@@ -175,7 +175,7 @@ module internal FunctionShapes =
 
     /// The `FSharpFunc<_, _>` a type is or derives from: a function value's runtime type is a
     /// compiler-generated subclass (`f@12`), a member's declared type usually the base itself.
-    let rec private funcBase (t: Type) : Type option =
+    let rec funcBase (t: Type) : Type option =
         if isNull t then None
         elif isFunc t then Some t
         else funcBase t.BaseType
@@ -726,6 +726,66 @@ type FSharpBinaryOperationBinder(csharp: BinaryOperationBinder) =
 /// C#'s Invoke binder, aware of F# function targets (`Dlr.call` on a function value, and the
 /// value step of a member invocation).
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+/// A seam rule for meta-object targets: an F# function argument (or value) handed to an
+/// `IDynamicMetaObjectProvider` — a script object, a `DynamicObject` someone wrote — becomes the
+/// delegate of its own signature before the meta-object sees it. Every meta-object understands
+/// delegates and none an `FSharpFunc`; for a CLR target the parameter type drives the conversion
+/// instead, so nothing C# binds changes. Restricted on the function type, so one rule serves every
+/// lambda of that signature.
+module internal MetaObjectArguments =
+    let private isMetaObject (target: DynamicMetaObject) =
+        target.HasValue && (target.Value :? IDynamicMetaObjectProvider)
+
+    /// The delegate type an F# function of `funcType` is naturally: `Func<…>`, `Action<…>` for a
+    /// unit result; a tupled function by its elements.
+    let private delegateTypeOf (funcType: Type) =
+        match FunctionShapes.domains funcType with
+        | Some(ds, _, result) ->
+            let ds = if ds = [ typeof<unit> ] then [] else ds
+            let result = if result = typeof<unit> then typeof<Void> else result
+            Some(Expression.GetDelegateType(Array.ofList (ds @ [ result ])))
+        | None -> None
+
+    /// `a` as the delegate of its signature, if it is an F# function value; else `a` itself.
+    let private asDelegate (a: DynamicMetaObject) =
+        if not a.HasValue || isNull a.Value then a
+        else
+        match FunctionShapes.funcBase a.LimitType with
+        | None -> a
+        | Some funcType ->
+            match delegateTypeOf funcType |> Option.bind (fun dt -> FunctionConversions.tryConversion funcType dt |> Option.map (fun f -> dt, f)) with
+            | None -> a
+            | Some(delegateType, factory) ->
+                let expr = Expression.Convert(Expression.Invoke(Expression.Constant factory, Expression.Convert(a.Expression, typeof<obj>)), delegateType)
+                let restriction = BindingRestrictions.GetExpressionRestriction(Expression.TypeIs(a.Expression, funcType))
+                DynamicMetaObject(expr, restriction, factory.Invoke a.Value)
+
+    /// Whether the rule applies: a meta-object target with an F# function among the arguments.
+    let applies (target: DynamicMetaObject) (args: DynamicMetaObject[]) =
+        isMetaObject target && args |> Array.exists (fun a -> a.HasValue && not (isNull a.Value) && (FunctionShapes.funcBase a.LimitType).IsSome)
+
+    /// The rule: a nested site on `inner` whose arguments are the delegates — a meta-object (a
+    /// `DynamicObject` above all) wants each argument to be the site's own parameter, which the
+    /// nested site's are — restricted on the target's type and each function's type.
+    let rule (inner: DynamicMetaObjectBinder) (target: DynamicMetaObject) (args: DynamicMetaObject[]) =
+        let converted = Array.map asDelegate args
+        let restrictions =
+            converted
+            |> Array.fold (fun (r: BindingRestrictions) a -> r.Merge a.Restrictions)
+                (BindingRestrictions.GetTypeRestriction(target.Expression, target.LimitType))
+        let call = Expression.Dynamic(inner, typeof<obj>, Array.append [| target.Expression |] [| for a in converted -> a.Expression |])
+        DynamicMetaObject(call, restrictions)
+
+/// The standard binders seal `Bind`, so the rule sits one level out: this binder answers a
+/// meta-object target with an F# function argument by the nested-site rule, and hands every
+/// other bind to the real binder, which the meta-object then sees as usual.
+type MetaObjectAwareBinder(inner: DynamicMetaObjectBinder) =
+    inherit DynamicMetaObjectBinder()
+    member _.Inner = inner
+    override _.Bind(target: DynamicMetaObject, args: DynamicMetaObject[]) =
+        if MetaObjectArguments.applies target args then MetaObjectArguments.rule inner target args
+        else inner.Bind(target, args)
+
 type FSharpInvokeBinder(csharp: InvokeBinder) =
     inherit InvokeBinder(csharp.CallInfo)
 
@@ -844,6 +904,12 @@ type FSharpInvokeConstructorBinder(context: Type, t: Type, csharp: DynamicMetaOb
 /// The value of a member read as `unit -> R`: an F# function is applied, a delegate invoked, any
 /// other value is the result itself.
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+/// C#'s SetMember, with an F# function value handed to a meta-object as the delegate of its
+/// signature (`w?onClick <- fun () -> …` on a script object).
+type FSharpSetMemberBinder(name: string, csharp: SetMemberBinder) =
+    inherit SetMemberBinder(name, false)
+    override _.FallbackSetMember(target, value, errorSuggestion) = csharp.FallbackSetMember(target, value, errorSuggestion)
+
 type FSharpReadOrInvokeValueBinder(csharpInvoke: InvokeBinder) =
     inherit InvokeBinder(csharpInvoke.CallInfo)
 
@@ -1226,7 +1292,8 @@ module internal Binders =
 
     let setMember (context: Type) (name: string) (target: Arg) (value: Arg) =
         callsOnly "setting a member" target
-        siteCall (Binder.SetMember(CSharpBinderFlags.None, name, context, [ argInfo target; argInfo value ])) [ target; value ] typeof<obj>
+        let csharp = Binder.SetMember(CSharpBinderFlags.None, name, context, [ argInfo target; argInfo value ]) :?> SetMemberBinder
+        siteCall (MetaObjectAwareBinder(FSharpSetMemberBinder(name, csharp))) [ target; value ] typeof<obj>
 
     /// C#'s InvokeMember binder wrapped to apply F# function values (see FSharpInvokeMemberBinder)
     /// for positional, non-generic calls of any arity; otherwise C#'s binder as is.
@@ -1236,14 +1303,16 @@ module internal Binders =
         let typeArgSeq = match typeArgs with [] -> null | ts -> ts :> seq<Type>
         let csharp = Binder.InvokeMember(flags, name, typeArgSeq, context, [ for a in all -> argInfo a ])
         let positional = args |> List.forall (fun a -> isNull a.Name)
-        if not positional || not typeArgs.IsEmpty then csharp
         // A static target has no instance for the function-member rules, but the argument rules
         // (optional parameters, function/delegate conversions) apply to its static methods.
-        elif isStatic (List.head all) then FSharpStaticInvokeMemberBinder(context, name, csharp :?> InvokeMemberBinder) :> CallSiteBinder
+        if isStatic (List.head all) then
+            (if not positional || not typeArgs.IsEmpty then csharp else FSharpStaticInvokeMemberBinder(context, name, csharp :?> InvokeMemberBinder) :> CallSiteBinder)
         else
             // Discarded results too: the site is void-returning and the DLR drops the rule's value.
             let csharpInvoke = Binder.Invoke(flags, context, [ for a in all -> argInfo a ]) :?> InvokeBinder
-            FSharpInvokeMemberBinder(context, name, csharp :?> InvokeMemberBinder, csharpInvoke) :> CallSiteBinder
+            let inner = if not positional || not typeArgs.IsEmpty then csharp else FSharpInvokeMemberBinder(context, name, csharp :?> InvokeMemberBinder, csharpInvoke) :> CallSiteBinder
+            // An instance target may be a meta-object: F# function arguments become delegates for it.
+            MetaObjectAwareBinder(inner :?> DynamicMetaObjectBinder) :> CallSiteBinder
 
     /// `x?Name(args)` whose inferred type is `A -> R`: InvokeMember, applying an F# function value
     /// held by the member when C# cannot invoke it.
@@ -1273,7 +1342,7 @@ module internal Binders =
         let binder =
             if not positional then csharp
             else FSharpInvokeBinder(csharp :?> InvokeBinder) :> CallSiteBinder
-        siteCall binder all (if discard then voidType else typeof<obj>)
+        siteCall (MetaObjectAwareBinder(binder :?> DynamicMetaObjectBinder)) all (if discard then voidType else typeof<obj>)
 
     /// A value read as an F# function type (see FunctionMember): the argument types come from the
     /// function type's domains, curried or tupled; `binderFor` gives the site's binder for those

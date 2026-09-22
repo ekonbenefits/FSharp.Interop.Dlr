@@ -72,6 +72,27 @@ let ``IDynamicMetaObjectProvider implemented directly`` () =
     bag.Data.["Name"] |> should equal (box "jay")
 
 [<Fact>]
+let ``an F# function handed to a dynamic object arrives as the delegate of its signature`` () =
+    // A script host or a DynamicObject understands delegates, never an FSharpFunc: the seam converts
+    // by the function's own type — `int -> int` a Func<int, int>, `unit -> unit` an Action.
+    let c: obj = Caller()
+    let inc: int = dlr { return c?run(fun (x: int) -> x + 1) }
+    inc |> should equal 21
+    let twice: int = dlr { return c?twice((fun (x: int) -> x * 3), 2) }
+    twice |> should equal 18
+    let hits = ResizeArray<int>()
+    dlr { c?run(fun (x: int) -> hits.Add x) }
+    List.ofSeq hits |> should equal [ 20 ]
+    let fired = ref false
+    dlr { c?onEvent <- fun () -> fired.Value <- true }
+    (c :?> Caller).Handler.DynamicInvoke() |> ignore
+    fired.Value |> should equal true
+    // A CLR target is untouched: the parameter type drives the conversion there, as before.
+    let w: obj = Widget()
+    let ran: int = dlr { return w?Run(fun (x: int) -> x * 2) }
+    ran |> should equal 42
+
+[<Fact>]
 let ``mixed runtime types through one site`` () =
     // The same block sees an Expando, a CLR object and a DynamicObject: the site's rule cache grows.
     let f (o: obj) : int = dlr { return o?Count }

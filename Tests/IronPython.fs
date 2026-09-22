@@ -41,6 +41,9 @@ def greet(name, greeting="hello", punct="!"):
 def make_adder(n):
     return lambda x: x + n
 
+def apply(f, x):
+    return f(x)
+
 data = {"name": "py", "items": [1, 2, 3]}
 """
 
@@ -127,6 +130,12 @@ let ``a scope and an instance are namespaces: setting a new name creates it`` ()
     dlr { p?tag <- "t" }
     let tag: string = dlr { return p?tag }
     tag |> should equal "t"
+
+[<Fact>]
+let ``an F# function passed to Python is called from Python`` () =
+    let m = scope ()
+    let applied: int = dlr { return m?apply((fun (x: int) -> x + 1), 41) }   // int -> int: a Func<int, int> Python can call
+    applied |> should equal 42
 
 [<Fact>]
 let ``misses and errors: a missing name is the binder's error, a Python error carries its type`` () =

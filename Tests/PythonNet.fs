@@ -72,6 +72,9 @@ class Point:
 def make_adder(n):
     return lambda x: x + n
 
+def apply(f, x):
+    return f(x)
+
 data = {"name": "py", "items": [1, 2, 3]}
 """
 
@@ -145,6 +148,14 @@ let ``Python callables through Dlr.apply, dicts and lists through Dlr.item`` () 
     changed |> should equal "changed"
     let root: float = dlr { return m?math?sqrt(16.0) }                         // an imported module through the module
     root |> should equal 4.0
+
+[<Fact>]
+let ``an F# function passed to Python is called from Python`` () =
+    requirePython ()
+    use _gil = Py.GIL()
+    let m: obj = PyModule.FromString("sample6", source)
+    let applied: int = dlr { return m?apply((fun (x: int) -> x + 1), 41) }
+    applied |> should equal 42
 
 [<Fact>]
 let ``Python errors and misses`` () =

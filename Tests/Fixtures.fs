@@ -144,6 +144,22 @@ type WidgetExtensions =
     static member Twice(w: Widget) = w.Count * 2
 
 /// Records which DLR operations reached it.
+/// A dynamic object that calls what it is handed: a script host's shape, for the rule that gives a
+/// meta-object an F# function as the delegate of its signature.
+type Caller() =
+    inherit DynamicObject()
+    member val Handler: Delegate = null with get, set
+    override _.TryInvokeMember(binder, args, result) =
+        match binder.Name, args with
+        | "run", [| :? Delegate as d |] -> result <- d.DynamicInvoke(box 20); true
+        | "run", [| other |] -> result <- box ("not a delegate: " + other.GetType().Name); true
+        | "twice", [| :? Delegate as d; x |] -> result <- d.DynamicInvoke(d.DynamicInvoke x); true
+        | _ -> false
+    override this.TrySetMember(binder, value) =
+        match binder.Name, value with
+        | "onEvent", (:? Delegate as d) -> this.Handler <- d; true
+        | _ -> false
+
 type Recorder() =
     inherit DynamicObject()
     member val Log = ResizeArray<string>()
