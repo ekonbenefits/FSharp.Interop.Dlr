@@ -91,6 +91,7 @@
     <Compile Include="Constructors.fs" />
     <Compile Include="Mutables.fs" />
     <Compile Include="Delegates.fs" />
+    <Compile Include="Adapters.fs" />
     <Compile Include="StaticOverloads.fs" />
     <Compile Include="JsonNet.fs" />
     <Compile Include="PythonNet.fs" Condition="'$(TargetFramework)' != 'net48'" />
