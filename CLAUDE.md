@@ -22,6 +22,9 @@ dotnet build Tests.Wasm -c Release && (cd Tests.Wasm/bin/Release/net10.0-browser
 - CI (`build.yml`) runs on every PR and every push to master (which publishes a prerelease and
   refreshes the badges); the repo is public, so Actions minutes are free. net48 is its own job
   (`net48`, Windows), so a .NET Framework failure does not read as the Windows net10.0 leg's.
+  `dotnet11` builds and runs the suite on the .NET 11 preview SDK (compiler, runtime, analyzer
+  host) as a non-blocking early warning (#67): a red `dotnet11` job is a heads-up to look at, not
+  a merge blocker; fold it into `test` when 11 ships.
   The local gate still comes first: CI has no macOS leg, and a red push costs a cycle.
 - A cold review by a general-purpose subagent (read the diff, verify every claim with a test,
   no edits) has caught things Copilot missed; worth one per non-trivial PR when asked.

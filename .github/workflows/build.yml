@@ -130,6 +130,66 @@ jobs:
           path: results/*.json
           if-no-files-found: warn
 
+  # .NET 11 while it is in preview (#67): the next F# compiler and runtime, as an early warning.
+  # The translator reads compiler output no spec pins down (the closure classes F# generates for a
+  # block, what the optimizer inlines) and relies on System.Linq.Expressions and the C# runtime
+  # binder, so a change in any of them shows here before 11 ships. The analyzer runs under this
+  # SDK too (the pinned fsharp-analyzers tool rolls forward). Non-blocking: a preview regression
+  # is a red job to look at, not a failed PR or a missed publish, so it is in `report` only. When
+  # 11 ships, fold it into the test job as its own leg and drop continue-on-error (#67).
+  dotnet11:
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Debug, Release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: SDK
+        run: dotnet --version
+
+      - name: Restore tools
+        run: dotnet tool restore
+
+      # The analyzer over the tests, hosted by this SDK (Tests/Unreflected.fs carries the one
+      # suppressed DLR001).
+      - name: Analyzer
+        run: dotnet build Tests/Tests.fsproj --configuration ${{ matrix.configuration }} -f net10.0 --no-incremental
+
+      - name: Test (net11.0)
+        shell: bash
+        run: |
+          mkdir -p results
+          dotnet build Tests/Tests.fsproj --configuration ${{ matrix.configuration }} -p:TargetFrameworks=net11.0 -p:RunAnalyzers=false
+          dotnet Tests/bin/${{ matrix.configuration }}/net11.0/Tests.dll \
+            --report-anyunit-json results/Tests-net11-${{ matrix.configuration }}.json \
+            --platform-suffix ${{ matrix.configuration }}
+
+      - name: Test (net11.0, latest FSharp.Core)
+        shell: bash
+        run: |
+          dotnet build Tests/Tests.fsproj --configuration ${{ matrix.configuration }} -p:TargetFrameworks=net11.0 -p:RunAnalyzers=false -p:FSharpCore=latest
+          dotnet Tests/bin/${{ matrix.configuration }}/net11.0/Tests.dll \
+            --report-anyunit-json results/Tests-net11-latest-${{ matrix.configuration }}.json \
+            --platform-suffix ${{ matrix.configuration }}-latest
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: anyunit-results-net11-${{ matrix.configuration }}
+          path: results/*.json
+          if-no-files-found: warn
+
   # The library is JIT-only by design (README) - the C# runtime binder,
   # LambdaExpression.Compile and ReflectedDefinition lookup - and Mono's
   # browser-wasm interpreter is the most different runtime it can be
@@ -344,7 +404,7 @@ jobs:
   # on the run's Summary page. if: always() so the report exists
   # precisely when a leg failed and someone wants to look.
   report:
-    needs: [test, net48, wasm-mtp]
+    needs: [test, net48, dotnet11, wasm-mtp]
     if: always()
     runs-on: ubuntu-latest
     steps:

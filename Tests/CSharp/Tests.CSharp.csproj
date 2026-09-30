@@ -10,7 +10,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.CSharp" />
+    <!-- Inbox on .NET (Core); a package only for netstandard2.0, as in the library. A build that
+         overrides TargetFrameworks (CI's dotnet11 job) otherwise hits NU1510. -->
+    <PackageReference Include="Microsoft.CSharp" Condition="'$(TargetFramework)' == 'netstandard2.0'" />
   </ItemGroup>
 
 </Project>
