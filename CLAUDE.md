@@ -19,9 +19,10 @@ dotnet build Tests.Wasm -c Release && (cd Tests.Wasm/bin/Release/net10.0-browser
   it once shipped that way). `--no-incremental` forces it; `error DLR001`/`DLR002` fails the build.
 - Analyzer tests (`Analyzers.Tests`) run as part of `dotnet test`; run their dll directly to see
   them alone. CI treats warnings as errors.
-- CI (`build.yml`) is manual-only (`workflow_dispatch`) while the repo is private and out of
-  Actions minutes, so this local gate is the gate; run the workflow from the Actions tab to
-  publish a prerelease (on master it also refreshes the badges).
+- CI (`build.yml`) runs on every PR and every push to master (which publishes a prerelease and
+  refreshes the badges); the repo is public, so Actions minutes are free. net48 is its own job
+  (`net48`, Windows), so a .NET Framework failure does not read as the Windows net10.0 leg's.
+  The local gate still comes first: CI has no macOS leg, and a red push costs a cycle.
 - A cold review by a general-purpose subagent (read the diff, verify every claim with a test,
   no edits) has caught things Copilot missed; worth one per non-trivial PR when asked.
 

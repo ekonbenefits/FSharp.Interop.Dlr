@@ -2,9 +2,10 @@
   <PropertyGroup>
     <!-- net48 exercises the library's netstandard2.0 build (and Microsoft.CSharp from a package)
          on the runtime that actually consumes it. On by default where it can run (Windows);
-         -p:TestNet48=true adds it elsewhere, e.g. to check that it still compiles. -->
+         -p:TestNet48=true adds it elsewhere, e.g. to check that it still compiles, and
+         -p:TestNet48=false leaves it out (CI's test job: net48 has a job of its own). -->
     <TargetFrameworks>net10.0</TargetFrameworks>
-    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('Windows')) or '$(TestNet48)' == 'true'">net10.0;net48</TargetFrameworks>
+    <TargetFrameworks Condition="'$(TestNet48)' != 'false' and ($([MSBuild]::IsOSPlatform('Windows')) or '$(TestNet48)' == 'true')">net10.0;net48</TargetFrameworks>
     <IsPackable>false</IsPackable>
     <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
     <!-- AnyUnit's MTP adapter generates the entry point. OutputType is set here rather than

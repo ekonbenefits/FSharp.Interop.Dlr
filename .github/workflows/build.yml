@@ -1,11 +1,11 @@
 name: Build
 
-# Manual only while the repo is private and out of Actions minutes: the same gate runs locally
-# before every push (Debug, Release, wasm, analyzers - see CLAUDE.md). Run it from the Actions
-# tab to publish a prerelease; on master it also refreshes the badges. Restore
-#   push: { branches: [master] }  and  pull_request:
-# to run it on every push and PR again.
+# Every push to master (publishing a prerelease and refreshing the badges) and every PR; also
+# from the Actions tab.
 on:
+  push:
+    branches: [master]
+  pull_request:
   workflow_dispatch:
 
 env:
@@ -14,7 +14,7 @@ env:
   # The AnyUnit tool (anyunit-report, which merges every leg's results
   # into one report). Kept in step with the AnyUnit.* PackageVersions in
   # Directory.Packages.props.
-  ANYUNIT_VERSION: '1.2.2'
+  ANYUNIT_VERSION: '1.3.0'
 
 jobs:
   test:
@@ -44,8 +44,9 @@ jobs:
       # Both configurations on purpose: the Release optimizer inlines
       # closure captures the Debug build leaves as fields, and the
       # quotation translation has to cope with either (it didn't, once).
+      # net48 has a job of its own (below); -p:TestNet48=false leaves it out here.
       - name: Build
-        run: dotnet build --configuration ${{ matrix.configuration }}
+        run: dotnet build --configuration ${{ matrix.configuration }} -p:TestNet48=false
 
       # The test project is an MTP executable (AnyUnit.TestingPlatform's
       # EnableAnyUnitRunner); each target framework's build is run
@@ -69,7 +70,7 @@ jobs:
       - name: Test (net10.0, latest FSharp.Core)
         shell: bash
         run: |
-          dotnet build Tests/Tests.fsproj --configuration ${{ matrix.configuration }} -p:FSharpCore=latest -p:RunAnalyzers=false
+          dotnet build Tests/Tests.fsproj --configuration ${{ matrix.configuration }} -p:FSharpCore=latest -p:RunAnalyzers=false -p:TestNet48=false
           dotnet Tests/bin/${{ matrix.configuration }}/net10.0/Tests.dll \
             --report-anyunit-json results/Tests-net10-latest-${{ matrix.configuration }}.json \
             --platform-suffix ${{ matrix.configuration }}-latest
@@ -83,10 +84,40 @@ jobs:
             --report-anyunit-json results/Analyzers-net10-${{ matrix.configuration }}.json \
             --platform-suffix ${{ matrix.configuration }}
 
-      - name: Test (net48)
-        if: runner.os == 'Windows'
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: anyunit-results-${{ matrix.os }}-${{ matrix.configuration }}
+          path: results/*.json
+          if-no-files-found: warn
+
+  # .NET Framework 4.8: the library's netstandard2.0 build (and Microsoft.CSharp from a package)
+  # on the runtime that consumes it, and the one most different from .NET Core in what it
+  # accepts (#125: its Expression.Lambda finds a delegate's Invoke by public lookup only). A job
+  # of its own so a failure here reads as net48's, not as the Windows net10.0 leg's.
+  net48:
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Debug, Release]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build
+        run: dotnet build Tests/Tests.fsproj --configuration ${{ matrix.configuration }} -f net48 -p:RunAnalyzers=false
+
+      - name: Test
         shell: bash
         run: |
+          mkdir -p results
           Tests/bin/${{ matrix.configuration }}/net48/Tests.exe \
             --report-anyunit-json results/Tests-net48-${{ matrix.configuration }}.json \
             --platform-suffix ${{ matrix.configuration }}
@@ -95,7 +126,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: anyunit-results-${{ matrix.os }}-${{ matrix.configuration }}
+          name: anyunit-results-net48-${{ matrix.configuration }}
           path: results/*.json
           if-no-files-found: warn
 
@@ -232,7 +263,7 @@ jobs:
   # the coverage job's merged cobertura), and commit only if a number changed.
   # [skip ci] so the badge commit does not start another run.
   badges:
-    needs: [test, wasm-mtp, coverage]
+    needs: [test, net48, wasm-mtp, coverage]
     if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     permissions:
@@ -284,7 +315,7 @@ jobs:
   # rotate. --skip-duplicate makes a re-run of the same commit a no-op,
   # and the feed does not take symbol packages, so only the .nupkg goes.
   publish:
-    needs: [test, wasm-mtp, pack]
+    needs: [test, net48, wasm-mtp, pack]
     if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     permissions:
@@ -313,7 +344,7 @@ jobs:
   # on the run's Summary page. if: always() so the report exists
   # precisely when a leg failed and someone wants to look.
   report:
-    needs: [test, wasm-mtp]
+    needs: [test, net48, wasm-mtp]
     if: always()
     runs-on: ubuntu-latest
     steps:
