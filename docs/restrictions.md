@@ -28,9 +28,9 @@ by the assembly's own `IsAotCompatible=false`, not a test):
 - **No compile-time checking**: a misspelt member or wrong arity is a `RuntimeBinderException`
   at the call.
 - **Target and result are `obj`** (a typed target is upcast; the result converts to the inferred
-  type), so value types box there; arguments do not. `byref` / `inref` / `outref` cannot cross a
-  dynamic operation (an `int[]` does reach a `Span<int>` parameter, through the implicit
-  conversion, as in C#). Two consequences C# `dynamic` users know: a **struct target is a boxed
+  type), so value types box there; arguments do not. An `out` / `ref` parameter is `Dlr.out` /
+  `Dlr.ref v` ([syntax](syntax.md)); a `byref` / `inref` / `outref` *value* cannot cross a dynamic
+  operation (an `int[]` does reach a `Span<int>` parameter, through the implicit conversion, as in C#). Two consequences C# `dynamic` users know: a **struct target is a boxed
   copy**, so a mutating call through the box leaves the variable untouched; and a
   **`Nullable<T>` target erases** — the box holds a `T` or is `null`, so there is no `HasValue`
   or `Value` to find (the value reads as `T`).

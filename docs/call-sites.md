@@ -23,6 +23,18 @@ computed name or a `Dlr.namedOf` shape use the same idea one level up: past `Fun
 are a `Func<obj[], obj>` over the parameters packed at the call and unpacked inside
 (`lambdaOver` / `packArguments`).
 
+A site with `ref` / `out` parameters (`Dlr.ref v`, `Dlr.out`, #131) has a delegate emitted at run
+time at any arity (`Func` has no byref parameters), and a quotation cannot pass a byref anyway. Its
+call is a placeholder too, `ByRefSite.Invoke(site, delegateType, args: obj[], byRefs: int[]) : obj[]`,
+returning the result then each byref argument's value after the call. The hoister rewrites it into
+the typed `Invoke` over a LINQ variable per byref parameter (a ref's value in, the default for an
+out), which LINQ writes back, and builds the same `obj[]`; the translator unpacks it into the
+result tuple and assigns each ref back to its `let mutable` (or the ref cell a captured one becomes).
+The placeholder's own body, `DynamicInvoke`, writes byrefs back on the JIT but not on Mono's
+interpreter, so the rewrite is required there, not only faster. The argument flags are C#'s:
+`IsOut` / `IsRef` with `UseCompileTimeType`, the out's type being its element of the block's result
+type (C# needs a written type for a dynamic call's out, CS8197, for the same reason).
+
 ## Argument typing
 
 Decided once per site (`Binders.Arg`):
