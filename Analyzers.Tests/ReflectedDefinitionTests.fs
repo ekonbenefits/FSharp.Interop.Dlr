@@ -24,8 +24,12 @@ module Operators =
     let ( ?+? ) (left: obj) (right: obj) : 'T = failwith "marker"
 type Named<'T> private () = class end
 type TypeArgs private () = class end
+type OutArg private () = class end
+type RefArg<'T> private () = class end
 [<Sealed; AbstractClass>]
 type Dlr =
+    static member out : OutArg = failwith "marker"
+    static member ref (variable: 'T) : RefArg<'T> = failwith "marker"
     static member get (name: string) (target: obj) : 'T = failwith "marker"
     static member named (record: 'T) : Named<'T> = failwith "marker"
     static member namedOf (args: (string * obj) list) : Named<(string * obj) list> = failwith "marker"
@@ -417,3 +421,45 @@ module Impl =
     Assert.messageContains "'twoBlocks'" out.[2] |> should equal true
     (msgs |> List.filter (fun m -> m.Code <> ReflectedDefinitionAnalyzer.UndecodableCode)) |> should equal []
 
+
+[<Fact>]
+let ``Dlr.out and Dlr.ref: fine in x?M(…), reported out of place, over a non-mutable, with a computed name or a result that does not fit`` () =
+    let msgs =
+        run """
+module Impl =
+    let w = box 1
+    let kw: (string * obj) list = []
+    [<ReflectedDefinition>]
+    let fine () : int =
+        let mutable a = 1
+        let (found: bool), (v: int) = dlr { return w?TryGetValue("a", Dlr.out) }
+        let (l: string), (r: string) = dlr { return w?Split("a,b", Dlr.out, Dlr.out) }
+        let one: int = dlr { return w?Half(4, Dlr.out) }
+        let n: int = dlr { return w?Bump(Dlr.ref a) }
+        let t: bool * int = dlr { return w?Try(Dlr.typeArgs<int>(), Dlr.out) }
+        let i: bool * int = dlr { return w |> Dlr.invoke "Try" (1, Dlr.out) }
+        let g: bool * int = dlr { return (w |> Dlr.get "Try") (1, Dlr.out) }
+        (if found then v else 0) + l.Length + r.Length + one + n + snd t + snd i + snd g
+    [<ReflectedDefinition>]
+    let wrong (name: string) : int =
+        let a: int = dlr { return w?M(Dlr.ref 1) }                                  // not a mutable
+        let b: obj = dlr { return box Dlr.out }                                     // not an argument
+        let c: int = dlr { return Dlr.call w (1, Dlr.out) }                        // a value call: not yet
+        let d: bool * int = dlr { return ((?) w name) (1, Dlr.out) }               // computed name
+        let e: bool * int * string * int = dlr { return w?M(Dlr.out) }            // shape
+        let f: bool * int = dlr { return w?M(Dlr.out, Dlr.namedOf kw) }            // with namedOf
+        a + b.GetHashCode() + c + snd d + (let (_, x, _, _) = e in x) + snd f
+"""
+    let out = msgs |> List.filter (fun m -> m.Code = ReflectedDefinitionAnalyzer.ArgumentMarkerCode)
+    let messages = out |> List.map (fun m -> m.Message)
+    let count (text: string) = messages |> List.filter (fun m -> m.Contains text) |> List.length
+    count "takes a let mutable" |> should equal 1
+    count "only meaningful as an argument" |> should equal 1
+    count "do not take them yet" |> should equal 1
+    count "computed member name" |> should equal 1
+    count "result type does not fit" |> should equal 1
+    count "in one call: not yet supported" |> should equal 1
+    let lines = out |> List.map (fun m -> m.Range.StartLine) |> List.distinct |> List.sort
+    let first = List.head lines
+    lines |> should equal [ for i in 0 .. 5 -> first + i ]                          // only the wrong lines
+    (msgs |> List.filter (fun m -> m.Code <> ReflectedDefinitionAnalyzer.ArgumentMarkerCode)) |> should equal []

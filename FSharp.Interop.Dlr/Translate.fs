@@ -747,7 +747,7 @@ module internal Translate =
                     match a with
                     | TypeArgs _ -> unsupported "Dlr.typeArgs anywhere but as the first argument of a member call (a value invoked with Dlr.call / Dlr.apply or a constructor takes no type arguments)" a
                     | NamedOf _ | ArgsOf _ -> unsupported "Dlr.namedOf / Dlr.argsOf here (they go in the arguments of a member call, Dlr.call / Dlr.apply, or Dlr.new')" a
-                    | OutMarker | RefMarker _ -> unsupported "Dlr.out / Dlr.ref here: so far they go in the arguments of a member call written x?M(…) with a literal name" a
+                    | OutMarker | RefMarker _ -> unsupported "Dlr.out / Dlr.ref here: so far they go in the arguments of a member call (x?M(…), Dlr.get, Dlr.invoke) with a literal name" a
                     | NamedRecord(lets, fields) ->
                         bindings.AddRange lets
                         let inner = bindings |> Seq.fold (fun (b: Set<Var>) (v, _) -> b.Add v) bound
@@ -1195,6 +1195,7 @@ module internal Translate =
             | Op opNamed _ -> unsupported "Dlr.named anywhere but as an argument of a call (a member call, Dlr.invoke, Dlr.call / Dlr.apply, Dlr.new')" e
             | Op opNamedOf _ -> unsupported "Dlr.namedOf anywhere but as an argument of a call (a member call, Dlr.invoke, Dlr.call / Dlr.apply, Dlr.new')" e
             | Op opArgsOf _ -> unsupported "Dlr.argsOf anywhere but as an argument of a call (a member call, Dlr.invoke, Dlr.call / Dlr.apply, Dlr.new')" e
+            | OutMarker | RefMarker _ -> unsupported "Dlr.out / Dlr.ref anywhere but as an argument of a member call (x?M(…), Dlr.get, Dlr.invoke)" e
             | TypeArgs _ -> unsupported "Dlr.typeArgs anywhere but as the first argument of a member call" e
             | _ -> None
 

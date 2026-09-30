@@ -20,16 +20,16 @@ namespace Tests.CSharp
     /// <summary>A dynamic object with an out parameter: it writes the value into <c>args</c>, which the DLR carries back.</summary>
     public class DynamicOuts : DynamicObject
     {
-        public override bool TryInvokeMember(InvokeMemberBinder binder, object[] args, out object result)
+        public override bool TryInvokeMember(InvokeMemberBinder binder, object?[]? args, out object? result)
         {
             if (binder.Name == "TryHalf")
             {
-                var n = (int)args[0];
+                var n = (int)args![0]!;
                 args[1] = n / 2;
                 result = n % 2 == 0;
                 return true;
             }
-            result = null!;
+            result = null;
             return false;
         }
     }

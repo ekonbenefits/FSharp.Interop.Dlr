@@ -76,3 +76,23 @@ let ``an out whose type does not match the parameter is the binder's error, as i
     let o = box (ByRefs())
     (fun () -> (dlr { return o?TryHalf(6, Dlr.out) } : bool * obj) |> ignore)
     |> should throw typeof<Microsoft.CSharp.RuntimeBinder.RuntimeBinderException>
+
+[<Fact>]
+let ``Dlr.invoke and an applied Dlr.get take Dlr.out as x?M(…) does`` () =
+    let o = box (ByRefs())
+    let (even: bool), (half: int) = dlr { return o |> Dlr.invoke "TryHalf" (6, Dlr.out) }
+    let (q: int), (r: int) = dlr { return (o |> Dlr.get "DivRem") (7, 2, Dlr.out) }
+    (even, half, q, r) |> should equal (true, 3, 3, 1)
+
+[<Fact>]
+let ``anything but a supported form is a translation error`` () =
+    let o = box (ByRefs())
+    let name = "TryHalf"
+    // The analyzer reports each of these at build time (DLR005); this pins the run-time error behind it.
+    // fsharpanalyzer: ignore-region-start DLR005
+    (fun () -> dlr { o?Twice(Dlr.ref "x") }) |> should throw typeof<DlrTranslationException>                                        // not a mutable
+    (fun () -> (dlr { return box Dlr.out } : obj) |> ignore) |> should throw typeof<DlrTranslationException>                      // not an argument
+    (fun () -> (dlr { return Dlr.call o (6, Dlr.out) } : bool * int) |> ignore) |> should throw typeof<DlrTranslationException>                  // a value call: not yet
+    (fun () -> (dlr { return ((?) o name) (6, Dlr.out) } : bool * int) |> ignore) |> should throw typeof<DlrTranslationException>              // computed name
+    (fun () -> (dlr { return o?TryHalf(6, Dlr.out) } : bool * int * int) |> ignore) |> should throw typeof<DlrTranslationException>            // shape
+    // fsharpanalyzer: ignore-region-end DLR005
