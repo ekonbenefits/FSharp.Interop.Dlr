@@ -57,8 +57,9 @@ converter is the first that handles a block's statements (any compiler can refer
 package; on an older SDK, set the `FSharp.Core` package version in the app).
 
 The suite also runs against real dynamic targets — Newtonsoft `JObject`, IronPython, Python.NET,
-Dapper rows over SQLite, ClearScript V8, and NLua through a short `DynamicObject` adapter
-(`Tests/NLua.fs`, the pattern for any late-bound API without a DLR face) — and on browser-wasm.
+Dapper rows over SQLite, ClearScript V8, COM `IDispatch` on Windows (`Scripting.FileSystemObject`,
+`WScript.Shell`), and NLua through a short `DynamicObject` adapter (`Tests/NLua.fs`, the pattern
+for any late-bound API without a DLR face) — and on browser-wasm.
 
 ## Scope
 
