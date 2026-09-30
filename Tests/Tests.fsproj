@@ -30,6 +30,8 @@
     <PackageReference Include="IronPython" Condition="'$(TargetFramework)' != 'net48'" />
     <!-- NLua: a dynamic API without a DLR face, adapted in the test; native Lua per platform, the test skips itself without it. -->
     <PackageReference Include="NLua" Condition="'$(TargetFramework)' != 'net48'" />
+    <!-- PowerShell's engine alone (no cmdlet modules): a PSObject is a meta-object. net10.0 only. -->
+    <PackageReference Include="System.Management.Automation" Condition="'$(TargetFramework)' != 'net48'" />
     <PackageReference Include="Dapper" Condition="'$(TargetFramework)' != 'net48'" />
     <PackageReference Include="Microsoft.Data.Sqlite" Condition="'$(TargetFramework)' != 'net48'" />
     <!-- ClearScript V8: JS objects as dynamic. Native V8 per platform; the test skips itself if
@@ -97,6 +99,7 @@
     <Compile Include="PythonNet.fs" Condition="'$(TargetFramework)' != 'net48'" />
     <Compile Include="IronPython.fs" Condition="'$(TargetFramework)' != 'net48'" />
     <Compile Include="NLua.fs" Condition="'$(TargetFramework)' != 'net48'" />
+    <Compile Include="PowerShell.fs" Condition="'$(TargetFramework)' != 'net48'" />
     <Compile Include="DapperRows.fs" Condition="'$(TargetFramework)' != 'net48'" />
     <Compile Include="Com.fs" />
     <Compile Include="HotPath.fs" />

@@ -1,11 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!-- Types the F# tests cannot declare: a C# `internal` class with public members and an
-       anonymous type, for the accessibility of a *declaring type* (docs/restrictions.md). -->
+       anonymous type, for the accessibility of a *declaring type* (docs/restrictions.md). And C#
+       `dynamic` itself, as the baseline a real-target test compares with (ComEvents.cs). -->
   <PropertyGroup>
     <TargetFrameworks>netstandard2.0</TargetFrameworks>
     <IsPackable>false</IsPackable>
     <Nullable>enable</Nullable>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CSharp" />
+  </ItemGroup>
 
 </Project>
