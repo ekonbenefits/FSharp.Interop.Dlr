@@ -85,23 +85,30 @@ let ``addAssign and subtractAssign on a meta-object's event, with a delegate`` (
 [<Fact>]
 let ``an F# function added to a meta-object's event arrives as the delegate of its signature`` () =
     // COM's bound event (Tests/Com.fs) takes delegates only, as this one does. A new delegate is
-    // made per conversion, so subtractAssign cannot find it: keep a delegate to unsubscribe, as
-    // with a C# lambda.
+    // made per conversion, so subtractAssign with the same function cannot find it — pinned
+    // below: keep a delegate to unsubscribe, as with a C# lambda.
     let host = EventHost()
     let o = box host
     let seen = ResizeArray<int>()
-    dlr { o |> Dlr.addAssign "Changed" (fun (n: int) -> seen.Add n) }
+    let handler = fun (n: int) -> seen.Add n
+    dlr { o |> Dlr.addAssign "Changed" handler }
     host.Raise 3
-    List.ofSeq seen |> should equal [ 3 ]
+    dlr { o |> Dlr.subtractAssign "Changed" handler }
+    host.Raise 6
+    List.ofSeq seen |> should equal [ 3; 6 ]            // still subscribed
+    host.HandlerCount |> should equal 1
 
 [<Fact>]
 let ``an F# function added to a CLR event converts to the event's delegate type`` () =
     let c = Clicker()
     let o = box c
     let seen = ResizeArray<int>()
-    dlr { o |> Dlr.addAssign "Clicked" (fun (_: obj) (n: int) -> seen.Add n) }
+    let handler = fun (_: obj) (n: int) -> seen.Add n
+    dlr { o |> Dlr.addAssign "Clicked" handler }
     c.Raise 4
-    List.ofSeq seen |> should equal [ 4 ]
+    dlr { o |> Dlr.subtractAssign "Clicked" handler }   // a new delegate: not the one added
+    c.Raise 5
+    List.ofSeq seen |> should equal [ 4; 5 ]
 
 [<Fact>]
 let ``one addAssign site alternates functions and delegates on a meta-object's event`` () =
