@@ -8,14 +8,13 @@
     stores; a local function inside it is a closure and cannot carry the attribute). Packaged in the analyzers/dotnet/fs layout the SDK's
     tooling looks in; the assembly name has to contain "Analyzer" to be picked up.
 
-    Built twice, because an analyzer only loads in the fsharp-analyzers tool of the exact
-    FSharp.Analyzers.SDK version it references, and that tool needs the SDK it was packaged for:
-    net8.0 against SDK 0.36.0 (the last net8.0 SDK; its tool installs under .NET SDK 8 and 9) and
-    net10.0 against SDK 0.39.2 (tool 0.39.2 needs .NET SDK 10). Each goes in its own
-    analyzers/dotnet/fs/<tfm> folder; the tool skips the one built for the other SDK version.
+    An analyzer only loads in the fsharp-analyzers tool of the exact FSharp.Analyzers.SDK version
+    it references, and that tool needs the .NET SDK it was packaged for: net10.0 against SDK
+    0.39.2 (tool 0.39.2 needs .NET SDK 10). .NET SDK 8 and 9 are not supported (both end of
+    support in November 2026); the net8.0 build for tool 0.36.0 was dropped with them.
   -->
   <PropertyGroup>
-    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <TargetFramework>net10.0</TargetFramework>
     <Description>Build-time check that every dlr { } sits in a [&lt;ReflectedDefinition&gt;] function or member (FSharp.Analyzers.SDK analyzer for FSharp.Interop.Dlr)</Description>
     <Authors>Jay Tuley</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
@@ -31,21 +30,16 @@
   </PropertyGroup>
 
   <!-- FSharp.Analyzers.SDK pins FSharp.Core exactly (it must match the tool host); keep in step. -->
-  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+  <ItemGroup>
     <PackageReference Include="FSharp.Core" VersionOverride="10.1.400" />
     <PackageReference Include="FSharp.Analyzers.SDK" />
-  </ItemGroup>
-  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
-    <PackageReference Include="FSharp.Core" VersionOverride="10.0.101" />
-    <PackageReference Include="FSharp.Analyzers.SDK" VersionOverride="0.36.0" />
   </ItemGroup>
 
   <ItemGroup>
     <None Include="README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
-  <!-- Pack happens once (outer build); pick up each inner build's output. -->
+  <!-- The analyzers/dotnet/fs/<tfm> layout the tool looks in. -->
   <ItemGroup>
-    <None Include="bin\$(Configuration)\net8.0\$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/fs/net8.0" Visible="false" />
     <None Include="bin\$(Configuration)\net10.0\$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/fs/net10.0" Visible="false" />
   </ItemGroup>
 

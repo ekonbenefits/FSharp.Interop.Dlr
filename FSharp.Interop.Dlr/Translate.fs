@@ -16,9 +16,12 @@ type DlrData<'T> =
     [<DefaultValue(false)>]
     val mutable Result: 'T
 
-/// The compiled block over its state machine, by reference: no copy of the struct at the call,
-/// none of the delegate-with-a-struct-argument cost a `Func<'SM, 'T>` has (measured 4x slower).
-type internal DlrReader<'SM, 'T> = delegate of inref<'SM> -> 'T
+/// <summary>The compiled block over its state machine, by reference: no copy of the struct at the call,
+/// none of the delegate-with-a-struct-argument cost a <c>Func&lt;'SM, 'T&gt;</c> has (measured 4x slower).
+/// Public, and not for direct use: an F# <c>internal</c> delegate's <c>Invoke</c> is internal too, and
+/// .NET Framework's <c>Expression.Lambda</c> finds <c>Invoke</c> by public lookup only (#125).</summary>
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+type DlrReader<'SM, 'T> = delegate of inref<'SM> -> 'T
 
 /// Turns the reflected body of a `dlr { }` block into a delegate over the block's compiler-generated
 /// container — a `DlrReader<'SM, 'T>` over its state machine struct, or a `Func<obj, 'T>` over its
@@ -499,6 +502,9 @@ module internal Translate =
 
     let private onWasm =
         string System.Runtime.InteropServices.RuntimeInformation.OSArchitecture = "Wasm"   // no Architecture.Wasm on netstandard2.0
+
+    let private onNetFramework =
+        System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription.StartsWith ".NET Framework"
 
     /// What every part of the translation of one block needs: where it is (the builder and the
     /// member it sits in) and where its values come from (the state machine struct or the Delay
@@ -1145,9 +1151,23 @@ module internal Translate =
                 let peeled, body = peel (n - vars.Length) delegateBody []
                 let allVars = vars @ peeled
                 let inner = allVars |> List.fold (fun b v -> Set.add v b) bound
-                let literal = Expr.NewDelegate(t, allVars, capturing block (asUnit (rewriteIn inner body)))
+                let body = capturing block (asUnit (rewriteIn inner body))
+                // .NET Framework's Expression.Lambda finds `Invoke` by public lookup only, and an F#
+                // `internal` delegate's is internal: there, the lambda is the Func or Action of the
+                // same signature and the delegate is bound over it (#125).
+                let invoke = DelegateMembers.invokeOf t
+                let parameterTypes = invoke.GetParameters() |> Array.map (fun p -> p.ParameterType)
+                let standIn =
+                    if onNetFramework && not invoke.IsPublic && parameterTypes.Length <= 16
+                       && not (parameterTypes |> Array.exists (fun p -> p.IsByRef)) then
+                        Some(if invoke.ReturnType = typeof<Void> then Expression.GetActionType parameterTypes
+                             else Expression.GetFuncType(Array.append parameterTypes [| invoke.ReturnType |]))
+                    else None
+                let literalOf = typedefof<DelegateLiteral<_>>.MakeGenericType t
+                match standIn with
+                | Some standIn -> Expr.Call(literalOf.GetMethod("From"), [ Expr.Coerce(Expr.NewDelegate(standIn, allVars, body), typeof<Delegate>) ])
                 // Re-wrapped so `.Method` is the delegate type's own `Invoke` (see `DelegateLiteral`).
-                Expr.Call(typedefof<DelegateLiteral<_>>.MakeGenericType(t).GetMethod("Over"), [ literal ])
+                | None -> Expr.Call(literalOf.GetMethod("Over"), [ Expr.NewDelegate(t, allVars, body) ])
             | ShapeLambda(v, lambdaBody) -> Expr.Lambda(v, capturing block (asUnit (rewriteIn (bound.Add v) lambdaBody)))
             // A void call where a `unit` value is expected (`ignore (list.Add x)`, `f (list.Add x)`):
             // the converter has no value for it, so run it, then `()`.
@@ -1179,6 +1199,6 @@ module internal Translate =
                // A static member resolved here by reflection and missing is the binder's kind of
                // error, as it would be at the call for an instance target.
                | :? Microsoft.CSharp.RuntimeBinder.RuntimeBinderException -> reraise ()
-               | ex -> raise (DlrTranslationException(sprintf "dlr { } could not compile this body: %s\n%A" ex.Message body))
+               | ex -> raise (DlrTranslationException(sprintf "dlr { } could not compile this body: %s\n%A" ex.Message body, ex))
         { Delegate = compiled
           ResultType = resultType }

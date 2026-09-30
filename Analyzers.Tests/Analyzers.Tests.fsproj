@@ -22,6 +22,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\FSharp.Interop.Dlr.Analyzers\FSharp.Interop.Dlr.Analyzers.fsproj" SetTargetFramework="TargetFramework=net10.0" />
+    <ProjectReference Include="..\FSharp.Interop.Dlr.Analyzers\FSharp.Interop.Dlr.Analyzers.fsproj" />
   </ItemGroup>
 </Project>

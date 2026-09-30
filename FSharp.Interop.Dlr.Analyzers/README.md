@@ -28,12 +28,8 @@ the target of a call; `Dlr.call x` read at a non-function type.
 ## Setup
 
 An FSharp.Analyzers.SDK analyzer runs in the `fsharp-analyzers` tool, and only in the tool of the
-exact SDK version it was built against, so the package carries two builds:
-
-| Your .NET SDK | Tool to install | Analyzer folder in the package |
-| --- | --- | --- |
-| 10 | `fsharp-analyzers` 0.39.2 | `analyzers/dotnet/fs/net10.0` |
-| 8 or 9 | `fsharp-analyzers` 0.36.0 (the last that installs there) | `analyzers/dotnet/fs/net8.0` |
+exact SDK version it was built against: `fsharp-analyzers` 0.39.2, which needs .NET SDK 10 (8 and
+9 are not supported). The build is in `analyzers/dotnet/fs/net10.0`.
 
 The project being analyzed can target anything, `net472` included; only the SDK you build with
 matters.
@@ -42,7 +38,7 @@ matters.
 
    ```
    dotnet new tool-manifest            # if there is no .config/dotnet-tools.json yet
-   dotnet tool install fsharp-analyzers --version 0.39.2   # or 0.36.0 on SDK 8/9
+   dotnet tool install fsharp-analyzers --version 0.39.2
    ```
 
    (`dotnet tool restore` on a fresh clone.)
@@ -58,19 +54,15 @@ matters.
    <PropertyGroup>
      <!-- F# projects do not set this by default; without it the analyzer never runs. -->
      <RunAnalyzers>true</RunAnalyzers>
-     <!-- The build for your tool: net10.0 on .NET SDK 10, net8.0 on SDK 8/9. Not the package root. -->
-     <DlrAnalyzerFolder>net10.0</DlrAnalyzerFolder>
-     <DlrAnalyzerFolder Condition="$([MSBuild]::VersionLessThan('$(NETCoreSdkVersion)', '10.0'))">net8.0</DlrAnalyzerFolder>
-     <FSharpAnalyzersOtherFlags>--analyzers-path "$(PkgFSharp_Interop_Dlr_Analyzers)/analyzers/dotnet/fs/$(DlrAnalyzerFolder)"</FSharpAnalyzersOtherFlags>
+     <FSharpAnalyzersOtherFlags>--analyzers-path "$(PkgFSharp_Interop_Dlr_Analyzers)/analyzers/dotnet/fs/net10.0"</FSharpAnalyzersOtherFlags>
      <!-- Without this, DLR001/DLR002 and a tool that fails to run are all downgraded to warnings
           (MSBuild's Exec with ContinueOnError) and the build succeeds. -->
      <FSharpAnalyzersContinueOnError>false</FSharpAnalyzersContinueOnError>
    </PropertyGroup>
    ```
 
-   Not the package root: it holds both builds, and while tool 0.39.2 just logs that it skipped
-   the other one, tool 0.36.0 reports the diagnostics and then exits with -3 ("failed to load
-   some assemblies"), which is a build failure with `FSharpAnalyzersContinueOnError=false`.
+   The `net10.0` folder, not the package root: the tool looks for analyzers in the directory it
+   is given.
 
 3. Check it actually runs: a clean build prints nothing, so remove one `[<ReflectedDefinition>]`
    and build — you should see `error DLR001: dlr { } needs [<ReflectedDefinition>] …`. If not,
