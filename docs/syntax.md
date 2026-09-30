@@ -30,7 +30,7 @@ recompiles), `DlrCache.count()` says how many there are.
 | `x \|> Dlr.get "Name"`, `(x \|> Dlr.get "Add") (1, 2)` | GetMember, target last, for pipelines; applied to arguments it invokes, like `?` |
 | `x \|> Dlr.invoke "Name" (a, b)` | InvokeMember, target last |
 | `x \|> Dlr.set "Name" v` | SetMember, target last |
-| `x \|> Dlr.addAssign "Name" v`, `x \|> Dlr.subtractAssign "Name" v` | C#'s `+=` / `-=`: an IsEvent site picks the event accessor (`add_` / `remove_`) or read-modify-write |
+| `x \|> Dlr.addAssign "Name" v`, `x \|> Dlr.subtractAssign "Name" v` | C#'s `+=` / `-=`: an IsEvent site picks the event accessor (`add_` / `remove_`) or read-modify-write; an F# function handler converts to the event's delegate type, or for a dynamic object's (COM's) event to the delegate of its signature — keep a delegate to remove it later |
 | `Dlr.call x (a, b)`, `Dlr.call x ()`, `(x \|> Dlr.call) (a, b)` | Invoke the object itself — a delegate, a callable dynamic object, or an F# function value — the `?` of values: applied, it invokes, like `(x?Name)(a, b)`. Target first, as `?` is; the pipe form is `Dlr.apply` |
 | `x \|> Dlr.apply (a, b)`, `x \|> Dlr.apply ()` | Invoke the object itself, target last for pipelines: the value's `Dlr.invoke` |
 | `Dlr.call x` typed `A -> B -> R` | the target itself as that function, as `x?Name` typed so is the member: curried any arity, tupled up to five, `unit -> R` invokes with no arguments; a non-callable fails at the first application; an F# function of exactly that type is returned as it is. At a non-function type it is a translation error — a value read as a type is `Dlr.implicit` |

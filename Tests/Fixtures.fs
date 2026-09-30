@@ -167,6 +167,26 @@ type Caller() =
         | :? Delegate as d -> this.Handler <- d; true
         | _ -> false
 
+/// A COM event's shape anywhere: `Changed` reads as a bound event that takes `+=` / `-=` (a
+/// BinaryOperation AddAssign / SubtractAssign) of a delegate only, as COM's BoundDispEvent does,
+/// and the compound assignment's write-back is accepted and ignored.
+type EventHost() =
+    inherit DynamicObject()
+    let handlers = ResizeArray<Delegate>()
+    member _.Raise(n: int) = for h in List.ofSeq handlers do h.DynamicInvoke(box n) |> ignore
+    member _.HandlerCount = handlers.Count
+    override _.TryGetMember(binder, result) =
+        if binder.Name = "Changed" then result <- box (BoundEvent handlers); true else false
+    override _.TrySetMember(binder, value) = binder.Name = "Changed" && (value :? BoundEvent)
+
+and BoundEvent(handlers: ResizeArray<Delegate>) =
+    inherit DynamicObject()
+    override this.TryBinaryOperation(binder, arg, result) =
+        match binder.Operation, arg with
+        | Linq.Expressions.ExpressionType.AddAssign, (:? Delegate as d) -> handlers.Add d; result <- box this; true
+        | Linq.Expressions.ExpressionType.SubtractAssign, (:? Delegate as d) -> handlers.Remove d |> ignore; result <- box this; true
+        | _ -> raise (InvalidOperationException "Attempting to pass an event handler of an unsupported type.")
+
 /// Records which DLR operations reached it.
 type Recorder() =
     inherit DynamicObject()

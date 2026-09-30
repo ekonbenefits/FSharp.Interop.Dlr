@@ -110,8 +110,10 @@ F# function argument or value by the function's own signature (`int -> unit` to 
 `(int * string) -> bool` to `Func<int, string, bool>`; a curried `int -> int -> int` is one
 `Func<int, int, int>`, its domains flattened as the seam's delegate conversion does elsewhere) before the meta-object binds: every script
 host and `DynamicObject` understands delegates, none an `FSharpFunc`. The standard binders seal
-`Bind`, so `MetaObjectAwareBinder` wraps the invoke, apply, set-member and set-index binders (not `addAssign`, nor the
-nested invoke of a member read as a callable value) and answers that case
+`Bind`, so `MetaObjectAwareBinder` wraps the invoke, apply, set-member and set-index binders, and
+the AddAssign/SubtractAssign step of `Dlr.addAssign`'s read-modify-write — a COM event reads as a
+bound event that takes `+=` of a delegate only (#132) — (not the nested invoke of a member read as a
+callable value) and answers that case
 with a nested site on the real binder whose arguments are the delegates — a `DynamicObject` insists
 each argument be the site's own parameter, which the nested site's are; every other bind goes
 straight through. Restricted on the target's type, each function's `FSharpFunc<_, _>` type and each other
