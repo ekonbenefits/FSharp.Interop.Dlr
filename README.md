@@ -59,8 +59,9 @@ on every block. The app itself may run on anything `netstandard2.0` covers, .NET
 included.
 
 The suite also runs against real dynamic targets — Newtonsoft `JObject`, IronPython, Python.NET,
-Dapper rows over SQLite, ClearScript V8, and NLua through a short `DynamicObject` adapter
-(`Tests/NLua.fs`, the pattern for any late-bound API without a DLR face) — and on browser-wasm.
+Dapper rows over SQLite, ClearScript V8, COM `IDispatch` on Windows (`Scripting.FileSystemObject`,
+`WScript.Shell`), and NLua through a short `DynamicObject` adapter (`Tests/NLua.fs`, the pattern
+for any late-bound API without a DLR face) — and on browser-wasm.
 
 ## Scope
 
