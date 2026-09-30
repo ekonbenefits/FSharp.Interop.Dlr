@@ -9,8 +9,11 @@ open Microsoft.CSharp.RuntimeBinder
 open FSharp.Quotations
 
 /// Raised when a `dlr { }` body uses something the translator does not handle.
-type DlrTranslationException(message: string) =
-    inherit Exception(message)
+type DlrTranslationException =
+    inherit Exception
+    new(message: string) = { inherit Exception(message) }
+    /// With the failure that caused it, whose stack a message alone loses.
+    new(message: string, inner: exn) = { inherit Exception(message, inner) }
 
 /// Control-flow helpers the compiled block calls: `LeafExpressionConverter` cannot translate F# loop
 /// or try nodes, but it can translate lambdas, so those become calls to these with the bodies as lambdas.
@@ -469,6 +472,11 @@ type DelegateLiteral<'D when 'D :> Delegate> private () =
         with _ -> Func<'D, 'D>(fun inner -> Delegate.CreateDelegate(delegateType, inner, invoke) :?> 'D)
 
     static member Over(inner: 'D) : 'D = factory.Invoke inner
+
+    /// A literal compiled at a stand-in delegate type of the same signature (a Func or Action;
+    /// see Translate's `NewDelegate`), as this type, and re-wrapped as `Over` does.
+    static member From(inner: Delegate) : 'D =
+        DelegateLiteral<'D>.Over(Delegate.CreateDelegate(typeof<'D>, inner, DelegateMembers.invokeOf (inner.GetType())) :?> 'D)
 
 /// A delegate over an F# function (`FunctionAdapters`, in Adapters.fs): per (function type,
 /// delegate type) a factory emitted once as IL — `new Adapter(f)` and the delegate constructor
