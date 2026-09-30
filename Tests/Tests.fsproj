@@ -102,6 +102,7 @@
     <Compile Include="IronPython.fs" Condition="'$(TargetFramework)' != 'net48'" />
     <Compile Include="NLua.fs" Condition="'$(TargetFramework)' != 'net48'" />
     <Compile Include="DapperRows.fs" Condition="'$(TargetFramework)' != 'net48'" />
+    <Compile Include="Com.fs" />
     <Compile Include="HotPath.fs" />
     <Compile Include="ClearScriptV8.fs" Condition="'$(TargetFramework)' != 'net48'" />
     <Compile Include="FSharpInBlocks.fs" />
