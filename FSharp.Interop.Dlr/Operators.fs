@@ -21,6 +21,14 @@ type Named<'T> private () =
 type TypeArgs private () =
     class end
 
+[<Sealed>]
+type OutArg private () =
+    class end
+
+[<Sealed>]
+type RefArg<'T> private () =
+    class end
+
 [<AutoOpen>]
 module Operators =
 
@@ -70,6 +78,9 @@ type Dlr =
     static member namedOf (args: (string * obj) list) : Named<(string * obj) list> = ignore args; outside "Dlr.namedOf"
     [<MethodImpl(MethodImplOptions.NoInlining)>]
     static member argsOf (args: obj list) : Named<obj list> = ignore args; outside "Dlr.argsOf"
+    static member out with [<MethodImpl(MethodImplOptions.NoInlining)>] get () : OutArg = outside "Dlr.out"
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
+    static member ref (variable: 'T) : RefArg<'T> = ignore variable; outside "Dlr.ref"
     [<MethodImpl(MethodImplOptions.NoInlining)>]
     static member item (indexes: 'TIndexes) (target: obj) : 'T = ignore (indexes, target); outside "Dlr.item"
     [<MethodImpl(MethodImplOptions.NoInlining)>]

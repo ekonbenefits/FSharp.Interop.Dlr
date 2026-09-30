@@ -157,6 +157,22 @@ module internal Translate =
     /// Either splat marker.
     let private isSplat (e: Expr) = match e with NamedOf _ | ArgsOf _ -> true | _ -> false
 
+    /// `Dlr.out`: an out argument, its value returned in the result tuple.
+    let private (|OutMarker|_|) (e: Expr) =
+        match e with
+        | PropertyGet(None, p, []) when p.DeclaringType = typeof<Dlr> && p.Name = "out" -> Some()
+        | _ -> None
+
+    /// `Dlr.ref v`: a ref argument over the variable `v`.
+    let private (|RefMarker|_|) (e: Expr) =
+        match e with
+        | Call(None, mi, [ v ]) when mi.DeclaringType = typeof<Dlr> && mi.Name = "ref" -> Some v
+        | _ -> None
+
+    let private isByRefMarker (e: Expr) = match e with OutMarker | RefMarker _ -> true | _ -> false
+    let private arrayGet = opMethod <@ fun (a: obj[]) -> a.[0] @>
+    let private unboxTo = opMethod <@ fun (o: obj) -> unbox<int> o @>
+
     let private (|UnaryOp|_|) (e: Expr) =
         match e with
         | Call(None, mi, [ v ]) ->
@@ -498,6 +514,50 @@ module internal Translate =
                 if node.Method.Name = "InvokeVoid" then invoke :> Expression
                 elif invoke.Type = typeof<obj> then invoke :> Expression
                 else Expression.Convert(invoke, typeof<obj>) :> Expression
+            // A byref site's placeholder (`Binders.ByRefSite`) becomes the typed `Invoke` over a
+            // variable per byref parameter (a ref's value in, the default for an out), which LINQ
+            // writes back; then the same `obj[]` — result, then each byref's value — the
+            // translator unpacks. Required on wasm, where DynamicInvoke does not write byrefs back.
+            elif node.Method.DeclaringType = typeof<Binders.ByRefSite> then
+                let site = this.Visit node.Arguments.[0]
+                let delegateType = (node.Arguments.[1] :?> ConstantExpression).Value :?> Type
+                let invokeMethod = delegateType.GetMethod("Invoke")
+                let parameters = invokeMethod.GetParameters()
+                let elements = (node.Arguments.[2] :?> NewArrayExpression).Expressions
+                let unboxed (e: Expression) (wanted: Type) =
+                    match e with
+                    | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert && u.Type = typeof<obj> && u.Operand.Type = wanted -> u.Operand
+                    | e when e.Type = wanted -> e
+                    | e -> Expression.Convert(e, wanted) :> Expression
+                let temps = ResizeArray<ParameterExpression>()
+                let inits = ResizeArray<Expression>()
+                let args =
+                    [ for i in 0 .. elements.Count - 1 ->
+                        let p = parameters.[i + 1]
+                        let e = this.Visit elements.[i]
+                        if p.ParameterType.IsByRef then
+                            let t = p.ParameterType.GetElementType()
+                            let temp = Expression.Variable(t, "byRef")
+                            temps.Add temp
+                            let initial =
+                                if p.IsOut || (e :? ConstantExpression && isNull (e :?> ConstantExpression).Value && t.IsValueType) then Expression.Default(t) :> Expression
+                                else unboxed e t
+                            inits.Add(Expression.Assign(temp, initial))
+                            temp :> Expression
+                        else unboxed e p.ParameterType ]
+                let siteType = typedefof<CallSite<_>>.MakeGenericType delegateType
+                let target = Expression.Field(Expression.Convert(site, siteType), "Target")
+                let call = Expression.Call(target, invokeMethod, (Expression.Convert(site, typeof<CallSite>) :> Expression) :: args)
+                let result, callStep =
+                    if invokeMethod.ReturnType = typeof<Void> then (Expression.Constant(null, typeof<obj>) :> Expression), (call :> Expression)
+                    else
+                        let r = Expression.Variable(invokeMethod.ReturnType, "result")
+                        temps.Add r
+                        (Expression.Convert(r, typeof<obj>) :> Expression), (Expression.Assign(r, call) :> Expression)
+                let values =
+                    Expression.NewArrayInit(typeof<obj>,
+                        result :: [ for t in temps do if t.Name = "byRef" then yield (Expression.Convert(t, typeof<obj>) :> Expression) ])
+                Expression.Block(typeof<obj[]>, temps, List.ofSeq inits @ [ callStep; values :> Expression ]) :> Expression
             else base.VisitMethodCall node
 
     let private onWasm =
@@ -687,6 +747,7 @@ module internal Translate =
                     match a with
                     | TypeArgs _ -> unsupported "Dlr.typeArgs anywhere but as the first argument of a member call (a value invoked with Dlr.call / Dlr.apply or a constructor takes no type arguments)" a
                     | NamedOf _ | ArgsOf _ -> unsupported "Dlr.namedOf / Dlr.argsOf here (they go in the arguments of a member call, Dlr.call / Dlr.apply, or Dlr.new')" a
+                    | OutMarker | RefMarker _ -> unsupported "Dlr.out / Dlr.ref here: so far they go in the arguments of a member call written x?M(…) with a literal name" a
                     | NamedRecord(lets, fields) ->
                         bindings.AddRange lets
                         let inner = bindings |> Seq.fold (fun (b: Set<Var>) (v, _) -> b.Add v) bound
@@ -703,6 +764,67 @@ module internal Translate =
 
         let private finish (block: Block) discard (resultType: Type) (call: Expr) =
             if discard then call else block.Convert resultType call
+
+        /// A member call with `Dlr.out` / `Dlr.ref` arguments (#131). The outs come back as F# returns
+        /// a method's out parameters: the result is a tuple of the return value then each out in
+        /// order, or the outs alone for a void method (the bare value for one); each out's type is
+        /// its element of the result type. A ref's value goes in from its `let mutable` and the
+        /// method's write is assigned back. Through `Binders.ByRefSite`, whose `obj[]` is unpacked here.
+        let private byRefCall (block: Block) (rewriteIn: Rewrite) bound (name: string) (typeArgs: Type list) (target: Expr) (argExprs: Expr list) (resultType: Type) : Expr =
+            let outCount = argExprs |> List.filter (function OutMarker -> true | _ -> false) |> List.length
+            let shapeError () =
+                unsupported (sprintf "a call with %d Dlr.out argument(s) whose result is %s: the result is the return value then each out as a tuple, the outs alone as a tuple for a void method, or the one out's value" outCount resultType.Name) target
+            let returnType, outTypes =
+                if outCount = 0 then (if resultType = typeof<unit> then None else Some resultType), []
+                elif resultType = typeof<unit> then shapeError ()
+                elif FSharpType.IsTuple resultType && not resultType.IsValueType then
+                    let elements = FSharpType.GetTupleElements resultType
+                    if elements.Length = outCount + 1 then Some elements.[0], List.ofArray elements.[1..]
+                    elif elements.Length = outCount then None, List.ofArray elements
+                    else shapeError ()
+                elif outCount = 1 then None, [ resultType ]
+                else shapeError ()
+            let pendingOuts = System.Collections.Generic.Queue<Type>(outTypes)
+            // Per byref argument, in order: an out's type, or a ref's place (its type and how to
+            // write it back).
+            let byRefs = ResizeArray<Choice<Type, Type * (Expr -> Expr)>>()
+            let args =
+                [ for a in argExprs ->
+                    match a with
+                    | OutMarker ->
+                        let t = pendingOuts.Dequeue()
+                        byRefs.Add(Choice1Of2 t)
+                        Binders.byRefArg true t (Expr.Value(null, typeof<obj>))
+                    | RefMarker(Var v) when v.IsMutable ->
+                        byRefs.Add(Choice2Of2(v.Type, fun value -> Expr.VarSet(v, value)))
+                        Binders.byRefArg false v.Type (rewriteIn bound (Expr.Var v))
+                    // A `let mutable` a closure captures is a ref cell by the time it is quoted.
+                    | RefMarker(PropertyGet(Some(Var cell as cellExpr), p, [])) when cell.Type.IsGenericType && cell.Type.GetGenericTypeDefinition() = typedefof<Ref<_>> ->
+                        byRefs.Add(Choice2Of2(p.PropertyType, fun value -> Expr.PropertySet(cellExpr, p, value)))
+                        Binders.byRefArg false p.PropertyType (rewriteIn bound (Expr.PropertyGet(cellExpr, p)))
+                    | RefMarker other -> unsupported "Dlr.ref of anything but a let mutable (its value goes in, and the method's write is assigned back to it)" other
+                    | NamedRecord _ | NamedOf _ | ArgsOf _ -> unsupported "Dlr.named / Dlr.namedOf / Dlr.argsOf in a call with Dlr.out or Dlr.ref (not yet)" a
+                    | v -> valueArg rewriteIn bound v ]
+            let call = Binders.invokeMemberByRef block.Context name typeArgs returnType.IsNone (targetArg rewriteIn bound target :: args)
+            let results = Var("byRefResults", typeof<obj[]>)
+            let at (i: int) = Expr.Call(arrayGet.MakeGenericMethod typeof<obj>, [ Expr.Var results; Expr.Value i ])
+            let unboxAt (t: Type) (i: int) = Expr.Call(unboxTo.MakeGenericMethod t, [ at i ])
+            let bound' = Set.add results bound
+            let writeBacks =
+                [ for i, b in Seq.indexed byRefs do
+                    match b with
+                    | Choice2Of2(t, write) -> yield rewriteIn bound' (write (unboxAt t (i + 1)))
+                    | Choice1Of2 _ -> () ]
+            let outValues = [ for i, b in Seq.indexed byRefs do match b with Choice1Of2 t -> yield unboxAt t (i + 1) | Choice2Of2 _ -> () ]
+            let value =
+                match returnType, outValues with
+                | None, [] -> Expr.Value(())
+                | Some t, [] -> block.Convert t (at 0)
+                | Some t, outs -> Expr.NewTuple(block.Convert t (at 0) :: outs)
+                | None, [ single ] -> single
+                | None, outs -> Expr.NewTuple outs
+            let body = List.foldBack (fun w rest -> Expr.Sequential(w, rest)) writeBacks value
+            Expr.Let(results, call, body)
 
         /// The tuple bindings of `splitArgs`, added to the bound set for the argument rewrites.
         let private withTuple (bound: Set<Var>) (tupleBindings: (Var * Expr) list) =
@@ -945,6 +1067,17 @@ module internal Translate =
             let finish = finish block
             let computedName = computedName block rewriteIn bound
             match e with
+            | MemberOp(InvokeMember(target, nameExpr, argExpr)) when (snd (splitArgs argExpr)) |> List.exists isByRefMarker ->
+                let tupleBindings, argExprs = splitArgs argExpr
+                let typeArgs, argExprs =
+                    match argExprs with
+                    | TypeArgs(StaticTypes ts) :: rest -> ts, rest
+                    | TypeArgs _ :: _ -> unsupported "Dlr.typeArgsOf in a call with Dlr.out or Dlr.ref (not yet)" argExpr
+                    | args -> [], args
+                match nameExpr with
+                | Literal name when tupleBindings.IsEmpty -> Some(byRefCall block rewriteIn bound (string name) typeArgs target argExprs e.Type)
+                | Literal _ -> unsupported "Dlr.out / Dlr.ref in a tuple held in a variable" argExpr
+                | _ -> unsupported "Dlr.out / Dlr.ref with a computed member name (not yet)" nameExpr
             | MemberOp(InvokeMember(target, nameExpr, argExpr)) ->
                 let tupleBindings, argExprs = splitArgs argExpr
                 let typeArgs, argExprs =

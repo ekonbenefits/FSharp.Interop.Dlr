@@ -10,6 +10,16 @@ type Named<'T> =
 type TypeArgs =
     class end
 
+/// <summary>Type of <c>Dlr.out</c>; only meaningful inside <c>dlr { }</c>.</summary>
+[<Sealed>]
+type OutArg =
+    class end
+
+/// <summary>Result of <c>Dlr.ref</c>; only meaningful inside <c>dlr { }</c>.</summary>
+[<Sealed>]
+type RefArg<'T> =
+    class end
+
 /// <summary>
 /// Operators recognised inside <c>dlr { }</c>. They are never executed: the builder inspects the
 /// quotation and compiles each one to a DLR call site. Calling any of them outside <c>dlr { }</c> throws.
@@ -64,6 +74,10 @@ type Dlr =
     static member namedOf: args: (string * obj) list -> Named<(string * obj) list>
     /// <summary>Positional arguments whose count is a run-time value — Python's <c>*args</c>: <c>m?f(Dlr.argsOf args, Dlr.namedOf kwargs)</c> is <c>f(*args, **kwargs)</c>. Values dispatch on their runtime types; compiled once per distinct count (and name list) at the site, like <c>Dlr.namedOf</c>; combines with fixed arguments before or after it and with <c>Dlr.named</c> / <c>Dlr.namedOf</c> after it. At most 64 values (<c>NamedOfCache.MaxPositional</c>; docs/syntax.md says why).</summary>
     static member argsOf: args: obj list -> Named<obj list>
+    /// <summary>An <c>out</c> argument, returned as F# returns a method's out parameters: the result becomes a tuple, the return value first then each out in order — <c>let (found: bool), (v: int) = dlr { return d?TryGetValue("a", Dlr.out) }</c>. For a void method the result is the outs alone (the bare value for one). Each out's type is its element of the result type, which must be known where the block is used.</summary>
+    static member out: OutArg
+    /// <summary>A <c>ref</c> argument over a <c>let mutable</c>: its value is passed in and the method's write lands back in it — <c>d?Swap(Dlr.ref a, Dlr.ref b)</c>.</summary>
+    static member ref: variable: 'T -> RefArg<'T>
     /// <summary>Dynamic indexer get, target last: <c>x |&gt; Dlr.item i</c>, <c>x |&gt; Dlr.item (i, j)</c> (a tuple, literal or in a variable, is several indexes, as a tuple is several arguments in a member call; a struct tuple is one); the element type is inferred from use.</summary>
     static member item: indexes: 'TIndexes -> target: obj -> 'T
     /// <summary>Dynamic indexer set, target last: <c>x |&gt; Dlr.setItem i v</c>, <c>x |&gt; Dlr.setItem (i, j) v</c>.</summary>

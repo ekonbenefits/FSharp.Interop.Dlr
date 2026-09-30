@@ -1302,6 +1302,12 @@ module internal Binders =
     /// literal to `byte`, `0` to an enum, `null` to any reference type).
     let constant (arg: Arg) = withFlag CSharpArgumentInfoFlags.Constant arg
 
+    /// A `ref` / `out` argument (`Dlr.ref v`, `Dlr.out`): the site's parameter is `t&`, and
+    /// `initial` is the value passed in (null for an out).
+    let byRefArg (isOut: bool) (t: Type) (initial: Expr) =
+        withFlag (if isOut then CSharpArgumentInfoFlags.IsOut else CSharpArgumentInfoFlags.IsRef)
+            { Expr = initial; Type = t.MakeByRefType(); Flags = CSharpArgumentInfoFlags.UseCompileTimeType; Name = null }
+
     let named (name: string) (arg: Arg) =
         { withFlag CSharpArgumentInfoFlags.NamedArgument arg with Name = name }
 
@@ -1331,6 +1337,39 @@ module internal Binders =
     let private wideMethod (name: string) = typeof<WideSite>.GetMethod(name, BindingFlags.Static ||| BindingFlags.Public ||| BindingFlags.NonPublic)
     let private wideInvokeMethod = wideMethod "Invoke"
     let private wideInvokeVoidMethod = wideMethod "InvokeVoid"
+
+    /// A site with byref parameters (`Dlr.out`, `Dlr.ref`). No quotation can pass a byref, so the
+    /// call is this placeholder: the values go in as an `obj[]` (target first) and come back as
+    /// one, the result first, then each byref argument's value after the call, in argument order.
+    /// Correct on its own: `DynamicInvoke` writes byref parameters back into its array.
+    type ByRefSite =
+        static member Invoke(site: CallSite, delegateType: Type, args: obj[], byRefs: int[]) : obj[] =
+            ignore delegateType
+            let target = site.GetType().GetField("Target").GetValue site :?> Delegate
+            let all = Array.append [| box site |] args
+            let result =
+                // A binder's error, or the callee's, arrives as itself, as at any other site.
+                try target.DynamicInvoke all
+                with :? TargetInvocationException as e when not (isNull e.InnerException) ->
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.InnerException).Throw()
+                    null
+            Array.append [| result |] [| for i in byRefs -> all.[i + 1] |]
+    let private byRefInvokeMethod = typeof<ByRefSite>.GetMethod("Invoke", BindingFlags.Static ||| BindingFlags.Public ||| BindingFlags.NonPublic)
+
+    /// `x?M(…, Dlr.out, Dlr.ref v, …)`: C#'s InvokeMember over byref parameters, through
+    /// `ByRefSite` (see there); the expression is the `obj[]` of result and byref values.
+    let invokeMemberByRef (context: Type) (name: string) (typeArgs: Type list) (discard: bool) (all: Arg list) : Expr =
+        let flags = if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None
+        let typeArgSeq = match typeArgs with [] -> null | ts -> ts :> seq<Type>
+        let binder = Binder.InvokeMember(flags, name, typeArgSeq, context, [ for a in all -> argInfo a ])
+        let resultType = if discard then voidType else typeof<obj>
+        let delegateType = Expression.GetDelegateType(Array.ofList (typeof<CallSite> :: [ for a in all -> a.Type ] @ [ resultType ]))
+        let site = typedefof<CallSite<_>>.MakeGenericType(delegateType).GetMethod("Create").Invoke(null, [| box binder |])
+        let byRefs = [| for i, a in List.indexed all do if a.Type.IsByRef then yield i |]
+        let boxed = [ for a in all -> if a.Expr.Type = typeof<obj> then a.Expr else Expr.Coerce(a.Expr, typeof<obj>) ]
+        Expr.Call(byRefInvokeMethod,
+                  [ Expr.Value(site, typeof<CallSite>); Expr.Value(delegateType, typeof<Type>)
+                    Expr.NewArray(typeof<obj>, boxed); Expr.Value(byRefs) ])
 
     let siteCall (binder: CallSiteBinder) (args: Arg list) (resultType: Type) : Expr =
         let siteExpr = site binder args resultType
