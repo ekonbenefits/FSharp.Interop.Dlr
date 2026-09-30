@@ -64,9 +64,13 @@ constructors, delegate-typed members and delegate values.
   an `int -> int` — the conversions F# does at a static call. C#'s binder sees an `FSharpFunc`
   and a `Func` as unrelated types. And **an F# function handed to a dynamic object** — a script
   host's object, a `DynamicObject` — arrives as the delegate of its own signature (`int -> unit`
-  an `Action<int>`), as an argument (`arr?forEach(fun n -> …)`) or a value set on it
-  (`el?onclick <- fun () -> …`), since every meta-object understands delegates and none an
-  `FSharpFunc`; there is no parameter type to drive it, so the function's own does.
+  an `Action<int>`), as an argument (`arr?forEach(fun n -> …)`), a value set on it
+  (`el?onclick <- fun () -> …`) or a handler added to its event (`com |> Dlr.addAssign
+  "MoveComplete" (fun … -> …)`, COM's bound event included), since every meta-object understands
+  delegates and none an `FSharpFunc`; there is no parameter type to drive it, so the function's
+  own does. A CLR event takes one too (`Dlr.addAssign "Clicked" (fun sender n -> …)`, converted to
+  the event's delegate type). A new delegate is made per conversion, so to remove a handler with
+  `Dlr.subtractAssign`, add a delegate and keep it — as with a C# lambda.
 - **F# optional parameters (`?arg`) can be omitted**: omitted ones are `None`, bare values become
   `Some`. C#'s binder cannot omit them (they are `FSharpOption<'T>` parameters with no `[Optional]`
   metadata).

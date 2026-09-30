@@ -69,3 +69,47 @@ let ``addAssign with a computed name`` () =
     bump "Total" 1
     bump "Count" 1
     (w.Total, w.Count) |> should equal (11, 4)
+
+[<Fact>]
+let ``addAssign and subtractAssign on a meta-object's event, with a delegate`` () =
+    let host = EventHost()
+    let o = box host
+    let seen = ResizeArray<int>()
+    let handler = Action<int>(fun n -> seen.Add n)
+    dlr { o |> Dlr.addAssign "Changed" handler }
+    host.Raise 1
+    dlr { o |> Dlr.subtractAssign "Changed" handler }
+    host.Raise 2
+    List.ofSeq seen |> should equal [ 1 ]
+
+[<Fact>]
+let ``an F# function added to a meta-object's event arrives as the delegate of its signature`` () =
+    // COM's bound event (Tests/Com.fs) takes delegates only, as this one does. A new delegate is
+    // made per conversion, so subtractAssign cannot find it: keep a delegate to unsubscribe, as
+    // with a C# lambda.
+    let host = EventHost()
+    let o = box host
+    let seen = ResizeArray<int>()
+    dlr { o |> Dlr.addAssign "Changed" (fun (n: int) -> seen.Add n) }
+    host.Raise 3
+    List.ofSeq seen |> should equal [ 3 ]
+
+[<Fact>]
+let ``an F# function added to a CLR event converts to the event's delegate type`` () =
+    let c = Clicker()
+    let o = box c
+    let seen = ResizeArray<int>()
+    dlr { o |> Dlr.addAssign "Clicked" (fun (_: obj) (n: int) -> seen.Add n) }
+    c.Raise 4
+    List.ofSeq seen |> should equal [ 4 ]
+
+[<Fact>]
+let ``one addAssign site alternates functions and delegates on a meta-object's event`` () =
+    let host = EventHost()
+    let o = box host
+    let seen = ResizeArray<string>()
+    let handlers: obj list = [ box (fun (n: int) -> seen.Add(sprintf "f%d" n)); box (Action<int>(fun n -> seen.Add(sprintf "d%d" n))) ]
+    for h in handlers do
+        dlr { o |> Dlr.addAssign "Changed" h }
+    host.Raise 5
+    List.ofSeq seen |> should equal [ "f5"; "d5" ]
