@@ -53,8 +53,10 @@ let depth (root: obj) : int =
 Both run as written in `Tests/Readme.fs`; every form is in [docs/syntax.md](docs/syntax.md).
 
 Targets `netstandard2.0` and `net10.0`; depends on FSharp.Core ≥ 10.1.201 — its expression
-converter is the first that handles a block's statements (any compiler can reference that
-package; on an older SDK, set the `FSharp.Core` package version in the app).
+converter is the first that handles a block's statements. Build with .NET SDK 10: the SDK 8 and 9
+compilers (both end of support in November 2026) are not supported — in Debug they warn FS3511
+on every block. The app itself may run on anything `netstandard2.0` covers, .NET Framework
+included.
 
 The suite also runs against real dynamic targets — Newtonsoft `JObject`, IronPython, Python.NET,
 Dapper rows over SQLite, ClearScript V8, and NLua through a short `DynamicObject` adapter

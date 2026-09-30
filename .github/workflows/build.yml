@@ -99,77 +99,6 @@ jobs:
           path: results/*.json
           if-no-files-found: warn
 
-  # The translator reads compiler output that no spec pins down: the
-  # closure classes F# generates for the Delay lambda (field names, this,
-  # FSharpRef cells for mutables, where they nest, generic parameter
-  # names) and what the optimizer inlines instead of capturing. Older
-  # compilers build the same source so a change in any of that shows up
-  # here rather than in a consumer's project. The SDK is pinned with a
-  # global.json because the runner image ships several; TargetFrameworks
-  # is overridden since those SDKs cannot target net10.0 (and cannot
-  # read the .slnx, so the test project is built directly). Both
-  # configurations, for the same optimizer reason as above.
-  compilers:
-    strategy:
-      fail-fast: false
-      matrix:
-        sdk: ['8.0', '9.0']
-        configuration: [Debug, Release]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-      - uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '${{ matrix.sdk }}.x'
-
-      - name: Pin the SDK
-        shell: bash
-        run: |
-          printf '{ "sdk": { "version": "%s.0", "rollForward": "latestFeature" }, "test": { "runner": "Microsoft.Testing.Platform" } }' "${{ matrix.sdk }}" > global.json
-          dotnet --version
-
-      - name: Build with this compiler
-        run: dotnet build Tests/Tests.fsproj --configuration ${{ matrix.configuration }} -p:TargetFrameworks=net${{ matrix.sdk }} -p:RunAnalyzers=false
-
-      # The analyzer as an SDK 8/9 user gets it: the net8.0 build (FSharp.Analyzers.SDK 0.36.0)
-      # through the 0.36.0 tool, which is the newest that installs under these SDKs (the repo's
-      # manifest pins 0.39.2 for .NET 10, so this one is a global install). Runs the analyzer
-      # over the test project, where Unreflected.fs carries the one suppressed DLR001.
-      - name: Analyzer on this SDK
-        shell: bash
-        run: |
-          dotnet tool install -g fsharp-analyzers --version 0.36.0
-          dotnet build FSharp.Interop.Dlr.Analyzers --configuration ${{ matrix.configuration }} -p:TargetFrameworks=net8.0
-          dotnet build Tests/Tests.fsproj --configuration ${{ matrix.configuration }} -p:TargetFrameworks=net${{ matrix.sdk }} --no-incremental \
-            -p:RunAnalyzers=true -p:FSharpAnalyzersExeHost= -p:FSharpAnalyzersExe=fsharp-analyzers
-          # Prove it loaded: with the suppression removed the build must fail on DLR001.
-          sed -i 's|// fsharpanalyzer: ignore-line-next DLR001|// suppression removed for the CI check|' Tests/Unreflected.fs
-          if dotnet build Tests/Tests.fsproj --configuration ${{ matrix.configuration }} -p:TargetFrameworks=net${{ matrix.sdk }} --no-incremental \
-               -p:RunAnalyzers=true -p:FSharpAnalyzersExeHost= -p:FSharpAnalyzersExe=fsharp-analyzers > analyzer-check.log 2>&1; then
-            echo "expected the build to fail on DLR001"; cat analyzer-check.log; exit 1
-          fi
-          grep -q "error DLR001" analyzer-check.log || { echo "build failed but not on DLR001"; cat analyzer-check.log; exit 1; }
-          git checkout Tests/Unreflected.fs
-
-      - name: Test
-        shell: bash
-        run: |
-          mkdir -p results
-          dotnet Tests/bin/${{ matrix.configuration }}/net${{ matrix.sdk }}/Tests.dll \
-            --report-anyunit-json results/Tests-sdk${{ matrix.sdk }}-${{ matrix.configuration }}.json \
-            --platform-suffix sdk${{ matrix.sdk }}-${{ matrix.configuration }}
-
-      - name: Upload results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: anyunit-results-sdk${{ matrix.sdk }}-${{ matrix.configuration }}
-          path: results/*.json
-          if-no-files-found: warn
-
   # The library is JIT-only by design (README) - the C# runtime binder,
   # LambdaExpression.Compile and ReflectedDefinition lookup - and Mono's
   # browser-wasm interpreter is the most different runtime it can be
@@ -303,7 +232,7 @@ jobs:
   # the coverage job's merged cobertura), and commit only if a number changed.
   # [skip ci] so the badge commit does not start another run.
   badges:
-    needs: [test, compilers, wasm-mtp, coverage]
+    needs: [test, wasm-mtp, coverage]
     if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     permissions:
@@ -355,7 +284,7 @@ jobs:
   # rotate. --skip-duplicate makes a re-run of the same commit a no-op,
   # and the feed does not take symbol packages, so only the .nupkg goes.
   publish:
-    needs: [test, compilers, wasm-mtp, pack]
+    needs: [test, wasm-mtp, pack]
     if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     permissions:
@@ -384,7 +313,7 @@ jobs:
   # on the run's Summary page. if: always() so the report exists
   # precisely when a leg failed and someone wants to look.
   report:
-    needs: [test, compilers, wasm-mtp]
+    needs: [test, wasm-mtp]
     if: always()
     runs-on: ubuntu-latest
     steps:
