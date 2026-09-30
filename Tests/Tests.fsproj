@@ -46,9 +46,11 @@
   </ItemGroup>
 
   <!-- The reference only makes the analyzer build first (skipped when analyzers are off,
-       -p:RunAnalyzers=false). -->
+       -p:RunAnalyzers=false). No framework negotiation (the net48 build cannot reference net10.0)
+       and none of this build's TargetFramework passed on: the analyzer has one target, so it must
+       build as the same instance the solution builds, or the two race over its obj folder. -->
   <ItemGroup Condition="'$(RunAnalyzers)' != 'false'">
-    <ProjectReference Include="..\FSharp.Interop.Dlr.Analyzers\FSharp.Interop.Dlr.Analyzers.fsproj" ReferenceOutputAssembly="false" SkipGetTargetFrameworkProperties="true" SetTargetFramework="TargetFramework=net10.0" />
+    <ProjectReference Include="..\FSharp.Interop.Dlr.Analyzers\FSharp.Interop.Dlr.Analyzers.fsproj" ReferenceOutputAssembly="false" SkipGetTargetFrameworkProperties="true" GlobalPropertiesToRemove="TargetFramework" />
   </ItemGroup>
 
   <PropertyGroup>
