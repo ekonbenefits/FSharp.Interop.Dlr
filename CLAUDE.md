@@ -83,6 +83,8 @@ dotnet build Tests.Wasm -c Release && (cd Tests.Wasm/bin/Release/net10.0-browser
   named in a quotation: FSharp.Core's checks call `Assembly.ReflectionOnly` on it, unimplemented
   on Mono wasm — `Binders.WideSite` (a placeholder the LINQ `SiteHoister` rewrites) and the
   packed `Func<obj[], obj>` of `lambdaOver` in `Translate.fs` exist for that.
+- .NET SDK 10 only: 8 and 9 were dropped (#126; end of support November 2026, and their compilers
+  warn FS3511 on every block in Debug — caller info on `Run`); no `compilers` CI job.
 - FSharp.Core floor 10.1.201 (older converters reject `Sequential`/`PropertySet`, so unit blocks,
   mutables and `let rec` fail there; the test projects run at the floor); netstandard2.0 has no `Architecture.Wasm` or Reflection.Emit inbox
   (`System.Reflection.Emit.Lightweight` is referenced for it).

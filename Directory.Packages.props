@@ -7,8 +7,8 @@
          the floor is what the suite proves. 10.1 is the lowest that works: its
          LeafExpressionConverter is the first to convert Sequential, PropertySet, VarSet and
          FieldSet (every unit block, let mutable and let rec needs one) and to convert a Let
-         without a nested lambda. Older compilers can reference it: the package is
-         netstandard2.0, verified with the SDK 7 and 8 compilers. -->
+         without a nested lambda. The package is netstandard2.0; the compiler that builds
+         against it must be SDK 10's (README). -->
     <PackageVersion Include="FSharp.Core" Version="10.1.201" />
     <PackageVersion Include="Microsoft.CSharp" Version="4.7.0" />
     <PackageVersion Include="System.Reflection.Emit.Lightweight" Version="4.7.0" />

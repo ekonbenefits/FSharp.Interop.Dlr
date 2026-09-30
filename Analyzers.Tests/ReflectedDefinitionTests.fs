@@ -54,8 +54,8 @@ open FSharp.Interop.Dlr
 let private options =
     lazy
         (// The SDK's test helper loads every *Analyzer*.dll under the current directory. Run
-         // from the repo root that would include the analyzer's net8.0 build (a different SDK
-         // version, which fails to load and fails the test), so use the test's own output.
+         // from the repo root that would include every configuration's build of the analyzer
+         // (and any stale one), so use the test's own output.
          System.Environment.CurrentDirectory <- System.AppContext.BaseDirectory
          mkOptionsFromProject "net10.0" [] |> Async.AwaitTask |> Async.RunSynchronously)
 
