@@ -145,10 +145,11 @@ markers, ordinary F#: `let`, `let rec`, `let mutable`, `use`, `if`, `match`, `fo
 
 ## How it works
 
-The compiler turns each block into a struct state machine whose fields are its captured
-variables. On the first call the block's body is read from the enclosing `[<ReflectedDefinition>]`,
-translated into an expression tree with one C# call site per operation, and compiled to a delegate
-over that struct; every later call is a field read and an invoke.
+In Release the compiler turns each block into a struct state machine whose fields are its captured
+variables (in Debug, where it builds none, the block's closure plays that part: a little slower,
+the same results). On the first call the block's body is read from the enclosing
+`[<ReflectedDefinition>]`, translated into an expression tree with one C# call site per operation,
+and compiled to a delegate over that struct; every later call is a field read and an invoke.
 
 [docs/internals.md](docs/internals.md) indexes the full picture: every cache, every site and its
 argument flags, the F#-aware binders, and what the translator assumes about the compiler.
