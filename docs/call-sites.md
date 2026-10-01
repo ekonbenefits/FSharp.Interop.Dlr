@@ -33,10 +33,9 @@ the typed `Invoke` over a LINQ variable per byref parameter (a ref's value in, t
 out — the out positions are explicit, since a per-key template's value in is a parameter and an
 emitted delegate's parameter carries no `[Out]`), which LINQ writes back, and builds the holder
 from them: no array and no boxing. The translator reads its fields into the result tuple and
-assigns each ref back to its `let mutable` (or the ref cell a captured one becomes). Measured
-for #136 (BenchmarkDotNet default job): `d?TryGetValue(k, Dlr.out)` about 32 ns and 48 B (the boxed
-result and the F# tuple) against C# `dynamic`'s 21 ns and 24 B (the boxed result); the row is in
-`Benchmarks/Program.fs`, so [benchmarks.md](benchmarks.md) carries it from its next regeneration.
+assigns each ref back to its `let mutable` (or the ref cell a captured one becomes). [benchmarks.md](benchmarks.md)
+has `d?TryGetValue(k, Dlr.out)` against C# `dynamic`'s `out int v`: a few nanoseconds more, and 48 B
+against 24 B — the F# tuple beside the boxed result both pay.
 The placeholder's own body, `DynamicInvoke`, writes byrefs back on the JIT but not on Mono's
 interpreter, so the rewrite is required there, not only faster. The argument flags are C#'s:
 `IsOut` / `IsRef` with `UseCompileTimeType`, the out's type being its element of the block's result
