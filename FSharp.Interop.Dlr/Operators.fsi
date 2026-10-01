@@ -118,7 +118,7 @@ type Dlr =
     static member call: target: obj -> 'T
     /// <summary>Invoke the target itself, target last for pipelines — the twin of <c>Dlr.invoke</c> for values: <c>f |> Dlr.apply (a, b)</c>, <c>f |> Dlr.apply ()</c>. Arguments follow the same rules as a member invocation.</summary>
     static member apply: args: 'TArgs -> target: obj -> 'T
-    /// <summary>C#'s <c>d.Name += v</c>: adds a handler to an event, or reads, adds and writes back for anything else: <c>btn |> Dlr.addAssign "Click" handler</c>, <c>stats |> Dlr.addAssign "Count" 1</c>.</summary>
+    /// <summary>C#'s <c>d.Name += v</c>: adds a handler to an event — an F# function converts to the event's delegate type, or for a dynamic object's (COM's) event to the delegate of its signature; a new delegate is made per conversion, so to remove it later with <c>Dlr.subtractAssign</c>, add a delegate and keep it — or reads, adds and writes back for anything else: <c>btn |> Dlr.addAssign "Click" handler</c>, <c>stats |> Dlr.addAssign "Count" 1</c>.</summary>
     static member addAssign: name: string -> value: 'TValue -> target: obj -> unit
     /// <summary>C#'s <c>d.Name -= v</c>: removes a handler from an event, or reads, subtracts and writes back for anything else.</summary>
     static member subtractAssign: name: string -> value: 'TValue -> target: obj -> unit
