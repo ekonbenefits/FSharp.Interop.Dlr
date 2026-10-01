@@ -58,7 +58,8 @@ included.
 
 The suite also runs against real dynamic targets — Newtonsoft `JObject`, IronPython, Python.NET,
 Dapper rows over SQLite, ClearScript V8, PowerShell `PSObject`s, COM `IDispatch` on Windows
-(`Scripting.FileSystemObject`, `WScript.Shell`, and an ADO `Recordset`'s events), and NLua through
+(`Scripting.FileSystemObject`, `WScript.Shell`, `Scripting.Dictionary`, ADO's `Recordset` events,
+`Stream`, and `Connection` against SQL Server LocalDB for an `[out]`), and NLua through
 a short `DynamicObject` adapter (`Tests/NLua.fs`, the pattern for any late-bound API without a DLR
 face) — and on browser-wasm.
 
