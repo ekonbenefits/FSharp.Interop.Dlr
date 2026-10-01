@@ -18,12 +18,16 @@ code is reported without a fix: move it into a function.
 | `DLR006` | Error | a `dlr { }` in a function or member whose reflected definition FSharp.Core will not decode — it holds `typeof<System.Void>` — so every block in it fails at run time with the not-found error naming the member |
 
 `DLR005` reports: an argument marker — `Dlr.named`, `Dlr.namedOf`, `Dlr.argsOf`, `Dlr.typeArgs`,
-`Dlr.typeArgsOf` — anywhere but as an argument of a call (a member call, `Dlr.invoke`, `Dlr.call` /
+`Dlr.typeArgsOf`, `Dlr.out`, `Dlr.ref` — anywhere but as an argument of a call (a member call, `Dlr.invoke`, `Dlr.call` /
 `Dlr.apply`, `Dlr.new'`); `Dlr.typeArgs` / `typeArgsOf` not first, or on `Dlr.call` / `Dlr.apply` /
 `Dlr.new'` (a value or constructor call takes none); `Dlr.namedOf` or `Dlr.argsOf` twice in one
 call; a positional argument after `Dlr.namedOf`; `Dlr.named` on a record in a variable rather
 than the literal (names from data are `Dlr.namedOf`); `Dlr.Static<T>.Overloads` anywhere but as
-the target of a call; `Dlr.call x` read at a non-function type.
+the target of a call; `Dlr.call x` read at a non-function type; `Dlr.ref` on anything but a
+`let mutable`; a call with `Dlr.out` whose result type does not fit (the return value then each
+out as a tuple, the outs alone, or the one out's value); `Dlr.out` in `Dlr.new'` (its result is the
+`T`; a constructor's `ref` is `Dlr.ref`); `Dlr.out` / `Dlr.ref` in a call with `Dlr.namedOf` /
+`Dlr.argsOf`.
 
 ## Setup
 

@@ -54,9 +54,10 @@ let private footnotes =
       "3", "FSharp.Interop.Dynamic fails on a `JObject` member: its result conversion asks the `JValue` to convert to `object`, which Newtonsoft refuses (\"Can not convert from System.Int64 to System.Object\")."
       "4", "neither C#'s binder nor Dynamitey invokes an F# function value held in a member."
       "5", "an F# optional parameter is an `FSharpOption` with no `[Optional]`: C#'s binder and Dynamitey need it passed."
-      "6", "no spelling for a constructor chosen by an argument's runtime type outside `dlr`."
+      "6", "C# reaches a constructor through the binder only with a `dynamic` argument (`new Widget()` is a static call), and FSharp.Interop.Dynamic has no form for it here."
       "7", "C# has no spelling with a run-time member name or argument names, nor for invoking a value read as an F# function."
-      "8", "FSharp.Interop.Dynamic takes its arguments as a tuple; a list of unknown length has no form." ]
+      "8", "FSharp.Interop.Dynamic takes its arguments as a tuple; a list of unknown length has no form."
+      "9", "FSharp.Interop.Dynamic has no spelling for an `out` argument." ]
 
 /// `docs`: run every suite and write docs/benchmarks.md (comparisons) and the README's "Measured"
 /// table (`readmeRows`), between its markers.
@@ -101,14 +102,15 @@ let private writeDocs (short: bool) =
                      "implicit conversion of a boxed int to int64", [ "CSharpConvert"; "Convert"; "DynamicConvert" ]
                      "static method chosen by an argument's runtime type", [ "CSharpStaticOverloads"; "StaticOverloads"; "DynamicStatic" ]
                      "a lambda for a `Func` parameter (C#: a `Func` literal; dlr: an F# lambda in the block)", [ "CSharpRunFunc"; "FunctionToDelegate"; "^1" ]
-                     "named arguments `d.Add(b: 1, a: i)`", [ "CSharpNamedArgs"; "NamedArgs"; "DynamicNamedArgs" ] ]
+                     "named arguments `d.Add(b: 1, a: i)`", [ "CSharpNamedArgs"; "NamedArgs"; "DynamicNamedArgs" ]
+                     "an `out` argument, `d.TryGetValue(k, out v)` with the result used (dlr: `Dlr.out`, a tuple)", [ "CSharpOutArg"; "OutArg"; "^9" ] ]
           yield! comparison r "Where the forms differ"
                    "Each column does what its language offers here, so the cells are not always like for like: `==` on records is reference equality for C# `dynamic` and FSharp.Interop.Dynamic, structural for `dlr { }`; FSharp.Interop.Dynamic's `!?f` invokes a value where `dlr` reads it as a function first; a dash is a form that language has no spelling for, footnoted."
                    [ "C# `dynamic`"; "`dlr { }`"; "FSharp.Interop.Dynamic" ]
                    [ "F# function member `w?Fn(1, 2)`", [ "^4"; "FunctionMember"; "^4" ]
                      "optional parameter omitted `w?Bump(1)`", [ "^5"; "OptionalOmitted"; "^5" ]
                      "record `==` (structural only for `dlr`)", [ "CSharpEquals"; "StructuralEquals"; "DynamicEquals" ]
-                     "constructor chosen by an argument's runtime type", [ "^6"; "Construct"; "^6" ]
+                     "constructor through the binder, `Dlr.new'<Widget>()`", [ "^6"; "Construct"; "^6" ]
                      "member name from a variable, alternating between two", [ "^7"; "ComputedName"; "DynamicComputedName" ]
                      "keyword arguments from data (`Dlr.namedOf kwargs`; `Dyn.namedArg` pairs)", [ "^7"; "NamedOf"; "DynamicNamedOf" ]
                      "positional arguments from data, `Dlr.argsOf args`", [ "^7"; "ArgsOf"; "^8" ]

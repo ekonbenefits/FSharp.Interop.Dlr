@@ -50,7 +50,7 @@ let depth (root: obj) : int =
     }
 ```
 
-Both run as written in `Tests/Readme.fs`; every form is in [docs/syntax.md](docs/syntax.md).
+Both run in `Tests/Readme.fs`; every form is in [docs/syntax.md](docs/syntax.md).
 
 Targets `netstandard2.0` and `net10.0`; depends on FSharp.Core ≥ 10.1.201 — its expression
 converter is the first that handles a block's statements. Build with .NET SDK 10: the SDK 8 and 9
@@ -154,6 +154,8 @@ The common forms; [docs/syntax.md](docs/syntax.md) has every one, with what each
 | `x?Name <- v` | set |
 | `x \|> Dlr.item i` · `x \|> Dlr.setItem (i, j) v` | indexers |
 | `x \|> Dlr.get "Name"` · `Dlr.invoke "Name" (a, b)` · `Dlr.set "Name" v` | the same three with the target last, for pipelines |
+| `x?TryGetValue(k, Dlr.out)` · `x?Swap(Dlr.ref a, Dlr.ref b)` | `out` / `ref` parameters: outs returned as F# returns them (`let (ok: bool), (v: int) = …`), refs written back to a `let mutable` |
+| `x \|> Dlr.addAssign "Click" handler` · `Dlr.subtractAssign` | `+=` / `-=`: an event handler (an F# function converts) or read-modify-write |
 | `?+?` `?-?` … `?=?` `?<?` … | operators, converted to the inferred type (comparisons to `bool`) |
 | `Dlr.cast<T> x` · `Dlr.implicit x` | explicit / implicit conversion |
 | `Dlr.Static<T>.Overloads?Name(a)` · `Dlr.new'<T>(a)` | static overload / constructor chosen by the arguments' runtime types |
@@ -195,6 +197,6 @@ FSharp.Interop.Dynamic. `Benchmarks/bench.sh docs` regenerates this table and th
 <!-- benchmarks:start -->
 | ns per call | static | C# `dynamic` | **`dlr { }`** | reflection (cached) | FSharp.Interop.Dynamic |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| method call `w.Add(i, 1)` | 1.2 | 7.5 | **11.6** | 37.3 | 7,788 |
-| property get `w.Count` | 0 | 6.9 | **10.9** | 12.5 | 4,004 |
+| method call `w.Add(i, 1)` | 1.2 | 7.4 | **11.3** | 35.3 | 7,500 |
+| property get `w.Count` | 0 | 6.7 | **11.3** | 12.5 | 3,943 |
 <!-- benchmarks:end -->
