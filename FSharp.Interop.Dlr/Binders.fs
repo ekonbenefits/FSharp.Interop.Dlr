@@ -1265,16 +1265,18 @@ module internal Binders =
         { Expr: Expr
           Type: Type
           Flags: CSharpArgumentInfoFlags
-          Name: string }
+          Name: string
+          /// A `Dlr.ref`'s variable: two refs over the same one are one storage at the call, as in C#.
+          Alias: obj }
 
     /// A dynamically typed argument: the binder dispatches on its runtime type.
     let dynamicArg (e: Expr) =
-        { Expr = e; Type = typeof<obj>; Flags = CSharpArgumentInfoFlags.None; Name = null }
+        { Expr = e; Type = typeof<obj>; Flags = CSharpArgumentInfoFlags.None; Name = null; Alias = null }
 
     /// A type as the target (`Dlr.Static<T>.Overloads`, `Dlr.new'<T>`): argument 0 of the site is
     /// `typeof<T>` flagged as a static type, the C# compiler's shape for `T.Member(…)`.
     let staticTarget (t: Type) =
-        { Expr = Expr.Value(t, typeof<Type>); Type = typeof<Type>; Flags = CSharpArgumentInfoFlags.UseCompileTimeType ||| CSharpArgumentInfoFlags.IsStaticType; Name = null }
+        { Expr = Expr.Value(t, typeof<Type>); Type = typeof<Type>; Flags = CSharpArgumentInfoFlags.UseCompileTimeType ||| CSharpArgumentInfoFlags.IsStaticType; Name = null; Alias = null }
 
     let isStatic (a: Arg) = a.Flags.HasFlag CSharpArgumentInfoFlags.IsStaticType
 
@@ -1289,7 +1291,7 @@ module internal Binders =
     /// overload resolution on boxed values.
     let typedArg (e: Expr) =
         if e.Type = typeof<obj> then dynamicArg e
-        else { Expr = e; Type = e.Type; Flags = CSharpArgumentInfoFlags.UseCompileTimeType; Name = null }
+        else { Expr = e; Type = e.Type; Flags = CSharpArgumentInfoFlags.UseCompileTimeType; Name = null; Alias = null }
 
     let private withFlag (flag: CSharpArgumentInfoFlags) (arg: Arg) =
         // Spelled out with int locals: `|||` straight on the enum resolved to the dynamic
@@ -1303,10 +1305,10 @@ module internal Binders =
     let constant (arg: Arg) = withFlag CSharpArgumentInfoFlags.Constant arg
 
     /// A `ref` / `out` argument (`Dlr.ref v`, `Dlr.out`): the site's parameter is `t&`, and
-    /// `initial` is the value passed in (null for an out).
-    let byRefArg (isOut: bool) (t: Type) (initial: Expr) =
+    /// `initial` is the value passed in (null for an out); `alias` is a ref's variable (null for an out).
+    let byRefArg (isOut: bool) (t: Type) (initial: Expr) (alias: obj) =
         withFlag (if isOut then CSharpArgumentInfoFlags.IsOut else CSharpArgumentInfoFlags.IsRef)
-            { Expr = initial; Type = t.MakeByRefType(); Flags = CSharpArgumentInfoFlags.UseCompileTimeType; Name = null }
+            { Expr = initial; Type = t.MakeByRefType(); Flags = CSharpArgumentInfoFlags.UseCompileTimeType; Name = null; Alias = alias }
 
     let named (name: string) (arg: Arg) =
         { withFlag CSharpArgumentInfoFlags.NamedArgument arg with Name = name }
@@ -1357,13 +1359,14 @@ module internal Binders =
     /// A site with byref parameters (`Dlr.out`, `Dlr.ref`). No quotation can pass a byref, so the
     /// call is this placeholder: the values go in as an `obj[]` (target first) and come back as the
     /// holder `'H` (see `byRefHolderType`). `byRefs` are the byref positions in `args`, `outs` those
-    /// of them that are out (whose value in is not read: it starts as the default). The LINQ
+    /// of them that are out (whose value in is not read: it starts as the default), and `sameAs`
+    /// per position the earlier one over the same variable (-1 if none), which shares its storage. The LINQ
     /// `SiteHoister` rewrites it into the typed `Invoke` (no array, no boxing); this body is the
     /// slow path, correct on the JIT (`DynamicInvoke` writes byref parameters back into its array)
     /// but not on Mono wasm, which is why the rewrite is required there.
     type ByRefSite =
-        static member Invoke<'H>(site: CallSite, delegateType: Type, args: obj[], byRefs: int[], outs: int[]) : 'H =
-            ignore (delegateType, outs)
+        static member Invoke<'H>(site: CallSite, delegateType: Type, args: obj[], byRefs: int[], outs: int[], sameAs: int[]) : 'H =
+            ignore (delegateType, outs, sameAs)
             let target = site.GetType().GetField("Target").GetValue site :?> Delegate
             let all = Array.append [| box site |] args
             let result =
@@ -1390,11 +1393,16 @@ module internal Binders =
         let site = typedefof<CallSite<_>>.MakeGenericType(delegateType).GetMethod("Create").Invoke(null, [| box binder |])
         let byRefs = [| for i, a in List.indexed all do if a.Type.IsByRef then yield i |]
         let outs = [| for i, a in List.indexed all do if a.Flags.HasFlag CSharpArgumentInfoFlags.IsOut then yield i |]
+        // Per position: the first earlier position whose ref is over the same variable, else -1.
+        let sameAs =
+            [| for i, a in List.indexed all ->
+                if isNull a.Alias then -1
+                else match all |> List.take i |> List.tryFindIndex (fun b -> obj.ReferenceEquals(b.Alias, a.Alias)) with Some j -> j | None -> -1 |]
         let holder = byRefHolderOf all
         let boxed = [ for a in all -> if a.Expr.Type = typeof<obj> then a.Expr else Expr.Coerce(a.Expr, typeof<obj>) ]
         Expr.Call(byRefInvokeMethod.MakeGenericMethod holder,
                   [ Expr.Value(site, typeof<CallSite>); Expr.Value(delegateType, typeof<Type>)
-                    Expr.NewArray(typeof<obj>, boxed); Expr.Value(byRefs); Expr.Value(outs) ])
+                    Expr.NewArray(typeof<obj>, boxed); Expr.Value(byRefs); Expr.Value(outs); Expr.Value(sameAs) ])
 
     /// `x?M(…, Dlr.out, Dlr.ref v, …)`: C#'s InvokeMember over byref parameters (target first in `all`).
     let invokeMemberByRef (context: Type) (name: string) (typeArgs: Type list) (discard: bool) (all: Arg list) : Expr =

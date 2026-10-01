@@ -530,6 +530,8 @@ module internal Translate =
                 // Out positions are explicit: in a per-key template an out's value in is a parameter,
                 // not the null constant, and an emitted delegate's parameter carries no [Out].
                 let outs = (node.Arguments.[4] :?> ConstantExpression).Value :?> int[]
+                let sameAs = (node.Arguments.[5] :?> ConstantExpression).Value :?> int[]
+                let tempAt = System.Collections.Generic.Dictionary<int, ParameterExpression>()
                 let unboxed (e: Expression) (wanted: Type) =
                     match e with
                     | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert && u.Type = typeof<obj> && u.Operand.Type = wanted -> u.Operand
@@ -541,10 +543,15 @@ module internal Translate =
                     [ for i in 0 .. elements.Count - 1 ->
                         let p = parameters.[i + 1]
                         let e = this.Visit elements.[i]
-                        if p.ParameterType.IsByRef then
+                        if p.ParameterType.IsByRef && sameAs.[i] >= 0 then
+                            // The same variable as an earlier ref: the same storage, as C# passes it.
+                            tempAt.[i] <- tempAt.[sameAs.[i]]
+                            tempAt.[i] :> Expression
+                        elif p.ParameterType.IsByRef then
                             let t = p.ParameterType.GetElementType()
                             let temp = Expression.Variable(t, "byRef")
                             temps.Add temp
+                            tempAt.[i] <- temp
                             let initial = if Array.contains i outs then Expression.Default(t) :> Expression else unboxed e t
                             inits.Add(Expression.Assign(temp, initial))
                             temp :> Expression
@@ -563,7 +570,7 @@ module internal Translate =
                     let fields = t.GetGenericArguments()
                     let args = if fields.Length = 8 then List.take 7 values @ [ holder fields.[7] (List.skip 7 values) ] else values
                     Expression.New(t.GetConstructor fields, args) :> Expression
-                let values = holder node.Type (result :: [ for t in temps do if t.Name = "byRef" then yield (t :> Expression) ])
+                let values = holder node.Type (result :: [ for i in 0 .. elements.Count - 1 do if parameters.[i + 1].ParameterType.IsByRef then yield (tempAt.[i] :> Expression) ])
                 Expression.Block(node.Type, temps, List.ofSeq inits @ [ callStep; values ]) :> Expression
             else base.VisitMethodCall node
 
@@ -754,7 +761,7 @@ module internal Translate =
                     match a with
                     | TypeArgs _ -> unsupported "Dlr.typeArgs anywhere but as the first argument of a member call (a value invoked with Dlr.call / Dlr.apply or a constructor takes no type arguments)" a
                     | NamedOf _ | ArgsOf _ -> unsupported "Dlr.namedOf / Dlr.argsOf here (they go in the arguments of a member call, Dlr.call / Dlr.apply, or Dlr.new')" a
-                    | OutMarker | RefMarker _ -> unsupported "Dlr.out / Dlr.ref here: so far they go in the arguments of a member call (x?M(…), Dlr.get, Dlr.invoke) with a literal name" a
+                    | OutMarker | RefMarker _ -> unsupported "Dlr.out / Dlr.ref here: they go directly in the arguments of a call (x?M(…), Dlr.get, Dlr.invoke, Dlr.call / Dlr.apply; Dlr.ref in Dlr.new'), not beside Dlr.namedOf / Dlr.argsOf" a
                     | NamedRecord(lets, fields) ->
                         bindings.AddRange lets
                         let inner = bindings |> Seq.fold (fun (b: Set<Var>) (v, _) -> b.Add v) bound
@@ -804,14 +811,14 @@ module internal Translate =
                     | OutMarker ->
                         let t = pendingOuts.Dequeue()
                         byRefs.Add(Choice1Of2 t)
-                        yield Binders.byRefArg true t (Expr.Value(null, typeof<obj>))
+                        yield Binders.byRefArg true t (Expr.Value(null, typeof<obj>)) null
                     | RefMarker(Var v) when v.IsMutable ->
                         byRefs.Add(Choice2Of2(v.Type, fun value -> Expr.VarSet(v, value)))
-                        yield Binders.byRefArg false v.Type (rewriteIn bound (Expr.Var v))
+                        yield Binders.byRefArg false v.Type (rewriteIn bound (Expr.Var v)) (box v)
                     // A `let mutable` a closure captures is a ref cell by the time it is quoted.
                     | RefMarker(PropertyGet(Some(Var cell as cellExpr), p, [])) when cell.Type.IsGenericType && cell.Type.GetGenericTypeDefinition() = typedefof<Ref<_>> ->
                         byRefs.Add(Choice2Of2(p.PropertyType, fun value -> Expr.PropertySet(cellExpr, p, value)))
-                        yield Binders.byRefArg false p.PropertyType (rewriteIn bound (Expr.PropertyGet(cellExpr, p)))
+                        yield Binders.byRefArg false p.PropertyType (rewriteIn bound (Expr.PropertyGet(cellExpr, p))) (box cell)
                     | RefMarker other -> unsupported "Dlr.ref of anything but a let mutable (its value goes in, and the method's write is assigned back to it)" other
                     // Named arguments, as `argList` takes them: the record's field temporaries
                     // wrap the call, in source order.
@@ -1251,7 +1258,7 @@ module internal Translate =
             | Op opNamed _ -> unsupported "Dlr.named anywhere but as an argument of a call (a member call, Dlr.invoke, Dlr.call / Dlr.apply, Dlr.new')" e
             | Op opNamedOf _ -> unsupported "Dlr.namedOf anywhere but as an argument of a call (a member call, Dlr.invoke, Dlr.call / Dlr.apply, Dlr.new')" e
             | Op opArgsOf _ -> unsupported "Dlr.argsOf anywhere but as an argument of a call (a member call, Dlr.invoke, Dlr.call / Dlr.apply, Dlr.new')" e
-            | OutMarker | RefMarker _ -> unsupported "Dlr.out / Dlr.ref anywhere but as an argument of a member call (x?M(…), Dlr.get, Dlr.invoke)" e
+            | OutMarker | RefMarker _ -> unsupported "Dlr.out / Dlr.ref anywhere but directly in the arguments of a call (x?M(…), Dlr.get, Dlr.invoke, Dlr.call / Dlr.apply; Dlr.ref in Dlr.new')" e
             | TypeArgs _ -> unsupported "Dlr.typeArgs anywhere but as the first argument of a member call" e
             | _ -> None
 

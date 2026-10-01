@@ -76,7 +76,7 @@ type Dlr =
     static member argsOf: args: obj list -> Named<obj list>
     /// <summary>An <c>out</c> argument, returned as F# returns a method's out parameters: the result becomes a tuple, the return value first then each out in order — <c>let (found: bool), (v: int) = dlr { return d?TryGetValue("a", Dlr.out) }</c>. When the result has no slot for the return value (a void method, or a return you discard) it is the outs alone (the bare value for one). Each out's type is its element of the result type, which must be known where the block is used.</summary>
     static member out: OutArg
-    /// <summary>A <c>ref</c> argument over a <c>let mutable</c>: its value is read at the call (after every other argument) and the method's write lands back in it — <c>d?Swap(Dlr.ref a, Dlr.ref b)</c>. A copy in and back, not a reference: the same variable twice keeps the last write, and a method that throws leaves it unchanged.</summary>
+    /// <summary>A <c>ref</c> argument over a <c>let mutable</c>: its value is read at the call (after every other argument) and the method's write lands back in it — <c>d?Swap(Dlr.ref a, Dlr.ref b)</c>. The same variable twice is one storage, as in C#; being copied back after the call, a method that throws leaves it unchanged.</summary>
     static member ref: variable: 'T -> RefArg<'T>
     /// <summary>Dynamic indexer get, target last: <c>x |&gt; Dlr.item i</c>, <c>x |&gt; Dlr.item (i, j)</c> (a tuple, literal or in a variable, is several indexes, as a tuple is several arguments in a member call; a struct tuple is one); the element type is inferred from use.</summary>
     static member item: indexes: 'TIndexes -> target: obj -> 'T

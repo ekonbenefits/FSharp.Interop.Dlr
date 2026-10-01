@@ -169,3 +169,24 @@ let ``a struct (obj * T) result of a computed-name call converts through the bin
     let name = "Nothing"
     (fun () -> (dlr { return ((?) o name) () } : struct (obj * int)) |> ignore)
     |> should throw typeof<Microsoft.CSharp.RuntimeBinder.RuntimeBinderException>
+
+[<Fact>]
+let ``a void method's one out is the bare value`` () =
+    let o = box (ByRefs())
+    let half: int = dlr { return o?Halve(9, Dlr.out) }
+    half |> should equal 4
+
+[<Fact>]
+let ``eight outs: past the holder's seven fields`` () =
+    let o = box (ByRefs())
+    let (a: int), (b: int), (c: int), (d: int), (e: int), (f: int), (g: int), (h: int) =
+        dlr { return o?Eight(Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out) }
+    [ a; b; c; d; e; f; g; h ] |> should equal [ 1 .. 8 ]
+
+[<Fact>]
+let ``the same variable by ref twice is one storage, as in C#`` () =
+    let o = box (ByRefs())
+    let mutable x = 0
+    let r: int = dlr { return o?AddBoth(Dlr.ref x, Dlr.ref x) }
+    struct (r, x) |> should equal (ByRefs.CSharpSameRefTwice o)          // C#'s ValueTuple
+    (r, x) |> should equal (4, 2)

@@ -18,6 +18,19 @@ namespace Tests.CSharp
         public int Scale(int n, out int remainder, int by = 2) { remainder = n % by; return n / by; }
         public string Concat(int n, ref string s) { s = s + n; return s; }
         public void Prepend(ref string s, int n) { s = s + n; }
+        public void Halve(int n, out int half) { half = n / 2; }
+        public void Eight(out int a, out int b, out int c, out int d, out int e, out int f, out int g, out int h)
+        { a = 1; b = 2; c = 3; d = 4; e = 5; f = 6; g = 7; h = 8; }
+        public int AddBoth(ref int a, ref int b) { a++; b++; return a + b; }
+
+        /// <summary>C# <c>dynamic</c> with the same variable passed by ref twice: one storage.</summary>
+        public static (int, int) CSharpSameRefTwice(object o)
+        {
+            dynamic d = o;
+            var x = 0;
+            int r = d.AddBoth(ref x, ref x);
+            return (r, x);
+        }
 
         /// <summary>C# <c>dynamic</c>'s own order for a ref before an argument that writes the same
         /// variable: a ref is a reference, so the callee sees the later write.</summary>
