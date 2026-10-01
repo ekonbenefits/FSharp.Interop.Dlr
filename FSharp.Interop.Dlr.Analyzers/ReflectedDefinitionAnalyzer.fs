@@ -353,36 +353,21 @@ let private misplacedMarkers (block: FSharpExpr) : (range * string) list =
                 | FSharpExprPatterns.Value v when v.IsMutable -> None
                 | _ -> Some(m.Range, "Dlr.ref takes a let mutable (its value goes in, and the method's write is assigned back to it); here it would raise DlrTranslationException at the block's first call.")
             | _ -> None)
-    // A member call with Dlr.out / Dlr.ref (`x?M(…)`, an applied `Dlr.get`, `Dlr.invoke`): a literal
-    // member name, and a result shaped as F# returns out parameters.
+    // A call with Dlr.out / Dlr.ref: its result shaped as F# returns out parameters. (`Dlr.new'`
+    // returns its T: an out there is reported below instead.)
+    let isNew (e: FSharpExpr) = match e with FSharpExprPatterns.Call(_, mfv, _, _, _) -> isMarker mfv && mfv.DisplayName = "new'" | _ -> false
     let byRefCalls =
         exprs
         |> List.choose (fun e ->
             match callArgumentExprs e with
-            | Some(args, true) ->
+            | Some(args, _) when not (isNew e) ->
                 let args = List.collect items args
-                if not (args |> List.exists isByRefArg) then None
-                else
-                    // The name: `?`'s second argument; the first of `Dlr.get` / `Dlr.invoke`, written
-                    // directly or (eta-expanded) the first applied.
-                    let name =
-                        match describe e with
-                        | Some(mfv, [ _; name ], _, _) when mfv.CompiledName = "op_Dynamic" -> Some name
-                        | Some(_, first :: _, 0, _) -> Some first
-                        | Some(_, _, _, first :: _) -> Some first
-                        | _ -> None
-                    name |> Option.map (fun name -> e, name, args)
+                if args |> List.exists isByRefArg then Some(e, args) else None
             | _ -> None)
-        |> List.distinctBy (fun (e, _, _) -> e.Range)
-    let byRefComputedName =
-        byRefCalls
-        |> List.choose (fun (_, name, _) ->
-            match resolve name with
-            | FSharpExprPatterns.Const _ -> None
-            | _ -> Some(name.Range, "Dlr.out / Dlr.ref with a computed member name: not yet supported (a literal name only); here it would raise DlrTranslationException at the block's first call."))
+        |> List.distinctBy (fun (e, _) -> e.Range)
     let byRefShape =
         byRefCalls
-        |> List.choose (fun (e, _, args) ->
+        |> List.choose (fun (e, args) ->
             let n = outCount args
             let t = e.Type
             let isUnit = t.HasTypeDefinition && (try t.TypeDefinition.CompiledName = "Unit" with _ -> false)
@@ -394,6 +379,15 @@ let private misplacedMarkers (block: FSharpExpr) : (range * string) list =
             if fits then None
             else Some(e.Range, sprintf "a call with %d Dlr.out argument(s) whose result type does not fit: the result is the return value then each out as a tuple, the outs alone as a tuple for a void method, or the one out's value; here it would raise DlrTranslationException at the block's first call." n))
         |> List.distinctBy fst
+    // `Dlr.new'<T>` returns T: no room for an out value (a ref writes back to its variable).
+    let outInNew =
+        exprs
+        |> List.choose (fun e ->
+            match e with
+            | FSharpExprPatterns.Call(_, _, _, _, args) when isNew e ->
+                args |> List.map resolve |> List.tryFind (fun a -> isByRefArg a && outCount [ a ] = 1)
+                |> Option.map (fun a -> a.Range, "Dlr.out in Dlr.new': its result is the constructed T, with no room for an out value (Dlr.ref writes back to a variable); here it would raise DlrTranslationException at the block's first call.")
+            | _ -> None)
     let perList =
         argumentLists
         |> List.collect (fun (args, isMember) ->
@@ -424,14 +418,12 @@ let private misplacedMarkers (block: FSharpExpr) : (range * string) list =
             let byRefs =
                 match args |> List.filter isByRefArg with
                 | [] -> []
-                | byRefArgs when not isMember ->
-                    byRefArgs |> List.map (fun a -> a.Range, "Dlr.out / Dlr.ref go in a member call (x?M(…), Dlr.get, Dlr.invoke): Dlr.call / Dlr.apply and Dlr.new' do not take them yet; here it would raise DlrTranslationException at the block's first call.")
                 | byRefArgs ->
-                    let splatOrNamed = args |> List.exists (fun a -> [ "named"; "namedOf"; "argsOf"; "typeArgsOf" ] |> List.exists (fun n -> markerNamed n a))
-                    if splatOrNamed then [ (List.head byRefArgs).Range, "Dlr.out / Dlr.ref with Dlr.named / Dlr.namedOf / Dlr.argsOf / Dlr.typeArgsOf in one call: not yet supported; here it would raise DlrTranslationException at the block's first call." ]
+                    let splat = args |> List.exists (fun a -> markerNamed "namedOf" a || markerNamed "argsOf" a)
+                    if splat then [ (List.head byRefArgs).Range, "Dlr.out / Dlr.ref with Dlr.namedOf / Dlr.argsOf in one call: not supported (the outs' types are fixed by the result, the splat's arity is not); here it would raise DlrTranslationException at the block's first call." ]
                     else []
             twice @ afterNamed @ typeArgs @ byRefs)
-    outOfPlace @ namedNotLiteral @ staticsOutOfPlace @ callNotFunction @ refNotMutable @ byRefComputedName @ byRefShape @ perList
+    outOfPlace @ namedNotLiteral @ staticsOutOfPlace @ callNotFunction @ refNotMutable @ byRefShape @ outInNew @ perList
 
 /// The outermost `dlr.Run(...)` subtrees of `e`.
 let rec private blocksIn (e: FSharpExpr) : FSharpExpr list =

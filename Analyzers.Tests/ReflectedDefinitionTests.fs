@@ -423,14 +423,15 @@ module Impl =
 
 
 [<Fact>]
-let ``Dlr.out and Dlr.ref: fine in x?M(…), reported out of place, over a non-mutable, with a computed name or a result that does not fit`` () =
+let ``Dlr.out and Dlr.ref: fine in calls, reported out of place, over a non-mutable, in new', with a splat or a result that does not fit`` () =
     let msgs =
         run """
 module Impl =
     let w = box 1
     let kw: (string * obj) list = []
+    let ts: System.Type list = []
     [<ReflectedDefinition>]
-    let fine () : int =
+    let fine (name: string) : int =
         let mutable a = 1
         let (found: bool), (v: int) = dlr { return w?TryGetValue("a", Dlr.out) }
         let (l: string), (r: string) = dlr { return w?Split("a,b", Dlr.out, Dlr.out) }
@@ -439,26 +440,31 @@ module Impl =
         let t: bool * int = dlr { return w?Try(Dlr.typeArgs<int>(), Dlr.out) }
         let i: bool * int = dlr { return w |> Dlr.invoke "Try" (1, Dlr.out) }
         let g: bool * int = dlr { return (w |> Dlr.get "Try") (1, Dlr.out) }
-        (if found then v else 0) + l.Length + r.Length + one + n + snd t + snd i + snd g
+        let c: bool * int = dlr { return ((?) w name) (1, Dlr.out) }
+        let k: bool * int = dlr { return w?Try(Dlr.typeArgsOf ts, Dlr.out) }
+        let m: bool * int = dlr { return w?Try(Dlr.out, Dlr.named {| p = 1 |}) }
+        let f: bool * int = dlr { return Dlr.call w (1, Dlr.out) }
+        let p: bool * int = dlr { return w |> Dlr.apply (1, Dlr.out) }
+        let o: int = dlr { return Dlr.new'<int>(1, Dlr.ref a) }
+        (if found then v else 0) + l.Length + r.Length + one + n + snd t + snd i + snd g + snd c + snd k + snd m + snd f + snd p + o
     [<ReflectedDefinition>]
-    let wrong (name: string) : int =
+    let wrong () : int =
         let a: int = dlr { return w?M(Dlr.ref 1) }                                  // not a mutable
         let b: obj = dlr { return box Dlr.out }                                     // not an argument
-        let c: int = dlr { return Dlr.call w (1, Dlr.out) }                        // a value call: not yet
-        let d: bool * int = dlr { return ((?) w name) (1, Dlr.out) }               // computed name
-        let e: bool * int * string * int = dlr { return w?M(Dlr.out) }            // shape
+        let c: int = dlr { return Dlr.new'<int>(1, Dlr.out) }                       // new' returns its T
+        let d: bool * int * string * int = dlr { return w?M(Dlr.out) }            // shape
+        let e: bool * int * int = dlr { return Dlr.call w (Dlr.out) }              // shape, value call
         let f: bool * int = dlr { return w?M(Dlr.out, Dlr.namedOf kw) }            // with namedOf
-        a + b.GetHashCode() + c + snd d + (let (_, x, _, _) = e in x) + snd f
+        a + b.GetHashCode() + c + (let (_, x, _, _) = d in x) + (let (_, y, _) = e in y) + snd f
 """
     let out = msgs |> List.filter (fun m -> m.Code = ReflectedDefinitionAnalyzer.ArgumentMarkerCode)
     let messages = out |> List.map (fun m -> m.Message)
     let count (text: string) = messages |> List.filter (fun m -> m.Contains text) |> List.length
     count "takes a let mutable" |> should equal 1
     count "only meaningful as an argument" |> should equal 1
-    count "do not take them yet" |> should equal 1
-    count "computed member name" |> should equal 1
-    count "result type does not fit" |> should equal 1
-    count "in one call: not yet supported" |> should equal 1
+    count "no room for an out value" |> should equal 1
+    count "result type does not fit" |> should equal 2
+    count "Dlr.namedOf / Dlr.argsOf in one call" |> should equal 1
     let lines = out |> List.map (fun m -> m.Range.StartLine) |> List.distinct |> List.sort
     let first = List.head lines
     lines |> should equal [ for i in 0 .. 5 -> first + i ]                          // only the wrong lines

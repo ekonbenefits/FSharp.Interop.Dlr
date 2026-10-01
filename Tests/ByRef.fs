@@ -85,14 +85,50 @@ let ``Dlr.invoke and an applied Dlr.get take Dlr.out as x?M(…) does`` () =
     (even, half, q, r) |> should equal (true, 3, 3, 1)
 
 [<Fact>]
+let ``a computed member name`` () =
+    let o = box (ByRefs())
+    let call (name: string) : bool * int = dlr { return ((?) o name) (6, Dlr.out) }
+    call "TryHalf" |> should equal (true, 3)
+
+[<Fact>]
+let ``type arguments, static and from data`` () =
+    let o = box (Generic())
+    let (ok: bool), (v: int) = dlr { return o?TryDefault(Dlr.typeArgs<int>(), Dlr.out) }
+    let types = [ typeof<string> ]
+    let (ok2: bool), (s: string) = dlr { return o?TryDefault(Dlr.typeArgsOf types, Dlr.out) }
+    let valueTypes = [ typeof<int> ]
+    let (ok3: bool), (n: int) = dlr { return o?TryDefault(Dlr.typeArgsOf valueTypes, Dlr.out) }   // a value-type out through a per-key site
+    (ok, v, ok2, isNull s, ok3, n) |> should equal (true, 0, true, true, true, 0)
+
+[<Fact>]
+let ``a named argument beside an out`` () =
+    let o = box (ByRefs())
+    let (q: int), (r: int) = dlr { return o?Scale(7, Dlr.out, Dlr.named {| by = 3 |}) }
+    (q, r) |> should equal (2, 1)
+
+[<Fact>]
+let ``Dlr.call and Dlr.apply invoke a delegate with an out`` () =
+    let f = box ByRefs.HalfFn
+    let (even: bool), (half: int) = dlr { return Dlr.call f (6, Dlr.out) }
+    let (odd: bool), (half2: int) = dlr { return f |> Dlr.apply (7, Dlr.out) }
+    (even, half, odd, half2) |> should equal (true, 3, false, 3)
+
+[<Fact>]
+let ``Dlr.new' with a constructor ref`` () =
+    // Dlr.new'<T> returns T, so a constructor's out has no room in the result; a ref writes back.
+    let mutable count = 0
+    let made: Counted = dlr { return Dlr.new'<Counted>("a", Dlr.ref count) }
+    let again: Counted = dlr { return Dlr.new'<Counted>("b", Dlr.ref count) }
+    (made.Name, again.Name, count) |> should equal ("a", "b", 2)
+
+[<Fact>]
 let ``anything but a supported form is a translation error`` () =
     let o = box (ByRefs())
-    let name = "TryHalf"
     // The analyzer reports each of these at build time (DLR005); this pins the run-time error behind it.
     // fsharpanalyzer: ignore-region-start DLR005
     (fun () -> dlr { o?Twice(Dlr.ref "x") }) |> should throw typeof<DlrTranslationException>                                        // not a mutable
     (fun () -> (dlr { return box Dlr.out } : obj) |> ignore) |> should throw typeof<DlrTranslationException>                      // not an argument
-    (fun () -> (dlr { return Dlr.call o (6, Dlr.out) } : bool * int) |> ignore) |> should throw typeof<DlrTranslationException>                  // a value call: not yet
-    (fun () -> (dlr { return ((?) o name) (6, Dlr.out) } : bool * int) |> ignore) |> should throw typeof<DlrTranslationException>              // computed name
+    (fun () -> (dlr { return o?TryHalf(Dlr.out, Dlr.namedOf [ "n", box 6 ]) } : bool * int) |> ignore) |> should throw typeof<DlrTranslationException>   // with a splat
+    (fun () -> (dlr { return Dlr.new'<Counted>("a", Dlr.out) } : Counted) |> ignore) |> should throw typeof<DlrTranslationException>              // new' returns T: no room for an out
     (fun () -> (dlr { return o?TryHalf(6, Dlr.out) } : bool * int * int) |> ignore) |> should throw typeof<DlrTranslationException>            // shape
     // fsharpanalyzer: ignore-region-end DLR005

@@ -15,6 +15,24 @@ namespace Tests.CSharp
         }
         public void Twice(ref string s) { s = s + s; }
         public bool TryHalf(int n, out int half) { half = n / 2; return n % 2 == 0; }
+        public int Scale(int n, out int remainder, int by = 2) { remainder = n % by; return n / by; }
+        public static TryHalfFn HalfFn => (int n, out int half) => { half = n / 2; return n % 2 == 0; };
+    }
+
+    /// <summary>A delegate with an out parameter, for <c>Dlr.call</c> / <c>Dlr.apply</c>.</summary>
+    public delegate bool TryHalfFn(int n, out int half);
+
+    /// <summary>A constructor with a ref parameter, for <c>Dlr.new'</c>.</summary>
+    public class Counted
+    {
+        public Counted(string name, ref int count) { count++; Name = name; }
+        public string Name { get; }
+    }
+
+    /// <summary>A generic method with an out parameter, for type arguments.</summary>
+    public class Generic
+    {
+        public bool TryDefault<T>(out T value) { value = default!; return true; }
     }
 
     /// <summary>A dynamic object with an out parameter: it writes the value into <c>args</c>, which the DLR carries back.</summary>

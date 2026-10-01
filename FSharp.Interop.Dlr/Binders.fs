@@ -1341,10 +1341,12 @@ module internal Binders =
     /// A site with byref parameters (`Dlr.out`, `Dlr.ref`). No quotation can pass a byref, so the
     /// call is this placeholder: the values go in as an `obj[]` (target first) and come back as
     /// one, the result first, then each byref argument's value after the call, in argument order.
-    /// Correct on its own: `DynamicInvoke` writes byref parameters back into its array.
+    /// `byRefs` are the byref positions in `args`, `outs` those of them that are out (whose value
+    /// in is not read: it starts as the default). Correct on its own: `DynamicInvoke` writes byref
+    /// parameters back into its array.
     type ByRefSite =
-        static member Invoke(site: CallSite, delegateType: Type, args: obj[], byRefs: int[]) : obj[] =
-            ignore delegateType
+        static member Invoke(site: CallSite, delegateType: Type, args: obj[], byRefs: int[], outs: int[]) : obj[] =
+            ignore (delegateType, outs)
             let target = site.GetType().GetField("Target").GetValue site :?> Delegate
             let all = Array.append [| box site |] args
             let result =
@@ -1356,20 +1358,34 @@ module internal Binders =
             Array.append [| result |] [| for i in byRefs -> all.[i + 1] |]
     let private byRefInvokeMethod = typeof<ByRefSite>.GetMethod("Invoke", BindingFlags.Static ||| BindingFlags.Public ||| BindingFlags.NonPublic)
 
-    /// `x?M(…, Dlr.out, Dlr.ref v, …)`: C#'s InvokeMember over byref parameters, through
-    /// `ByRefSite` (see there); the expression is the `obj[]` of result and byref values.
-    let invokeMemberByRef (context: Type) (name: string) (typeArgs: Type list) (discard: bool) (all: Arg list) : Expr =
-        let flags = if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None
-        let typeArgSeq = match typeArgs with [] -> null | ts -> ts :> seq<Type>
-        let binder = Binder.InvokeMember(flags, name, typeArgSeq, context, [ for a in all -> argInfo a ])
-        let resultType = if discard then voidType else typeof<obj>
+    /// A byref site (see `ByRefSite`) for `binder` over `all`, returning `resultType` (`Void` for a
+    /// discarded result); the expression is the `obj[]` of result and byref values.
+    let private byRefSite (binder: CallSiteBinder) (all: Arg list) (resultType: Type) : Expr =
         let delegateType = Expression.GetDelegateType(Array.ofList (typeof<CallSite> :: [ for a in all -> a.Type ] @ [ resultType ]))
         let site = typedefof<CallSite<_>>.MakeGenericType(delegateType).GetMethod("Create").Invoke(null, [| box binder |])
         let byRefs = [| for i, a in List.indexed all do if a.Type.IsByRef then yield i |]
+        let outs = [| for i, a in List.indexed all do if a.Flags.HasFlag CSharpArgumentInfoFlags.IsOut then yield i |]
         let boxed = [ for a in all -> if a.Expr.Type = typeof<obj> then a.Expr else Expr.Coerce(a.Expr, typeof<obj>) ]
         Expr.Call(byRefInvokeMethod,
                   [ Expr.Value(site, typeof<CallSite>); Expr.Value(delegateType, typeof<Type>)
-                    Expr.NewArray(typeof<obj>, boxed); Expr.Value(byRefs) ])
+                    Expr.NewArray(typeof<obj>, boxed); Expr.Value(byRefs); Expr.Value(outs) ])
+
+    /// `x?M(…, Dlr.out, Dlr.ref v, …)`: C#'s InvokeMember over byref parameters (target first in `all`).
+    let invokeMemberByRef (context: Type) (name: string) (typeArgs: Type list) (discard: bool) (all: Arg list) : Expr =
+        let flags = if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None
+        let typeArgSeq = match typeArgs with [] -> null | ts -> ts :> seq<Type>
+        byRefSite (Binder.InvokeMember(flags, name, typeArgSeq, context, [ for a in all -> argInfo a ])) all (if discard then voidType else typeof<obj>)
+
+    /// `Dlr.call f (…, Dlr.out, …)` / `Dlr.apply`: C#'s Invoke of the value itself over byref parameters.
+    let invokeByRef (context: Type) (discard: bool) (all: Arg list) : Expr =
+        callsOnly "invoking a value (Dlr.call / Dlr.apply)" (List.head all)
+        let flags = if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None
+        byRefSite (Binder.Invoke(flags, context, [ for a in all -> argInfo a ])) all (if discard then voidType else typeof<obj>)
+
+    /// `Dlr.new'<T>(…, Dlr.out, …)`: C#'s InvokeConstructor over byref parameters; the result is typed `t`.
+    let invokeConstructorByRef (context: Type) (t: Type) (args: Arg list) : Expr =
+        let all = staticTarget t :: args
+        byRefSite (Binder.InvokeConstructor(CSharpBinderFlags.None, context, [ for a in all -> argInfo a ])) all t
 
     let siteCall (binder: CallSiteBinder) (args: Arg list) (resultType: Type) : Expr =
         let siteExpr = site binder args resultType
