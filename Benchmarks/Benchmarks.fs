@@ -180,6 +180,11 @@ type Core() =
         let (found: bool), (v: int) = dlr { return dictionary?TryGetValue("a", Dlr.out) }
         if found then v else 0
 
+    [<Benchmark(Description = "dlr d?TryGetValue(k, Dlr.out) into a struct tuple")>]
+    member _.OutArgStruct() : int =
+        let struct (found: bool, v: int) = dlr { return dictionary?TryGetValue("a", Dlr.out) }
+        if found then v else 0
+
     [<Benchmark(Description = "dlr w?Count")>]
     member _.Get() : int = dlr { return o?Count }
 

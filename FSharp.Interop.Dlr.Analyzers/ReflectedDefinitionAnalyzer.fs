@@ -374,7 +374,7 @@ let private misplacedMarkers (block: FSharpExpr) : (range * string) list =
             let fits =
                 if n = 0 || t.IsGenericParameter then true
                 elif isUnit then false
-                elif t.IsTupleType && not t.IsStructTupleType then (let k = t.GenericArguments.Count in k = n + 1 || k = n)
+                elif t.IsTupleType then (let k = t.GenericArguments.Count in k = n + 1 || k = n)   // reference or struct
                 else n = 1
             if fits then None
             else Some(e.Range, sprintf "a call with %d Dlr.out argument(s) whose result type does not fit: the result is the return value then each out as a tuple, the outs alone as a tuple for a void method, or the one out's value; here it would raise DlrTranslationException at the block's first call." n))

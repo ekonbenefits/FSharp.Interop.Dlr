@@ -789,11 +789,12 @@ module internal Translate =
         let private byRefCall (rewriteIn: Rewrite) bound (argExprs: Expr list) (resultType: Type) (convertReturn: Type -> Expr -> Expr) (makeCall: bool -> Binders.Arg list -> Expr) : Expr =
             let outCount = argExprs |> List.filter (function OutMarker -> true | _ -> false) |> List.length
             let shapeError () =
-                unsupported (sprintf "a call with %d Dlr.out argument(s) whose result is %s: the result is the return value then each out as a tuple, the outs alone as a tuple for a void method, or the one out's value" outCount resultType.Name) (Expr.Value resultType.Name)
+                raise (DlrTranslationException(sprintf "dlr { } does not support a call with %d Dlr.out argument(s) whose result is %s: the result is the return value then each out as a tuple (reference or struct), the outs alone as a tuple, or the one out's value" outCount resultType.Name))
             let returnType, outTypes =
                 if outCount = 0 then (if resultType = typeof<unit> then None else Some resultType), []
                 elif resultType = typeof<unit> then shapeError ()
-                elif FSharpType.IsTuple resultType && not resultType.IsValueType then
+                // A reference or a struct tuple: `let struct (ok, v) = …` allocates no tuple.
+                elif FSharpType.IsTuple resultType then
                     let elements = FSharpType.GetTupleElements resultType
                     if elements.Length = outCount + 1 then Some elements.[0], List.ofArray elements.[1..]
                     elif elements.Length = outCount then None, List.ofArray elements
@@ -841,13 +842,20 @@ module internal Translate =
                     | Choice2Of2(t, write) -> yield rewriteIn bound' (write (unboxAt t (i + 1)))
                     | Choice1Of2 _ -> () ]
             let outValues = [ for i, b in Seq.indexed byRefs do match b with Choice1Of2 t -> yield unboxAt t (i + 1) | Choice2Of2 _ -> () ]
+            // The result tuple, of the result type's kind: a struct one is the ValueTuple constructor,
+            // nested in its `Rest` past seven elements.
+            let rec newStructTuple (t: Type) (values: Expr list) =
+                let elements = t.GetGenericArguments()
+                let values = if elements.Length = 8 then List.take 7 values @ [ newStructTuple elements.[7] (List.skip 7 values) ] else values
+                Expr.NewObject(t.GetConstructor elements, values)
+            let newTuple (values: Expr list) = if resultType.IsValueType then newStructTuple resultType values else Expr.NewTuple values
             let value =
                 match returnType, outValues with
                 | None, [] -> Expr.Value(())
                 | Some t, [] -> convertReturn t (at 0)
-                | Some t, outs -> Expr.NewTuple(convertReturn t (at 0) :: outs)
+                | Some t, outs -> newTuple (convertReturn t (at 0) :: outs)
                 | None, [ single ] -> single
-                | None, outs -> Expr.NewTuple outs
+                | None, outs -> newTuple outs
             let body = List.foldBack (fun w rest -> Expr.Sequential(w, rest)) writeBacks value
             List.foldBack (fun (v, value) body -> Expr.Let(v, rewriteIn bound value, body)) (List.ofSeq namedBindings) (Expr.Let(results, call, body))
 

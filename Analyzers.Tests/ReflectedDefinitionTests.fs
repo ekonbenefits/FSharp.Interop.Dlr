@@ -446,7 +446,8 @@ module Impl =
         let f: bool * int = dlr { return Dlr.call w (1, Dlr.out) }
         let p: bool * int = dlr { return w |> Dlr.apply (1, Dlr.out) }
         let o: int = dlr { return Dlr.new'<int>(1, Dlr.ref a) }
-        (if found then v else 0) + l.Length + r.Length + one + n + snd t + snd i + snd g + snd c + snd k + snd m + snd f + snd p + o
+        let struct (sf: bool, sv: int) = dlr { return w?TryGetValue("a", Dlr.out) }
+        (if found then v else 0) + l.Length + r.Length + one + n + snd t + snd i + snd g + snd c + snd k + snd m + snd f + snd p + o + (if sf then sv else 0)
     [<ReflectedDefinition>]
     let wrong () : int =
         let a: int = dlr { return w?M(Dlr.ref 1) }                                  // not a mutable
@@ -455,7 +456,8 @@ module Impl =
         let d: bool * int * string * int = dlr { return w?M(Dlr.out) }            // shape
         let e: bool * int * int = dlr { return Dlr.call w (Dlr.out) }              // shape, value call
         let f: bool * int = dlr { return w?M(Dlr.out, Dlr.namedOf kw) }            // with namedOf
-        a + b.GetHashCode() + c + (let (_, x, _, _) = d in x) + (let (_, y, _) = e in y) + snd f
+        let g: struct (bool * int * int) = dlr { return w?M(Dlr.out) }               // shape, a struct tuple
+        a + b.GetHashCode() + c + (let (_, x, _, _) = d in x) + (let (_, y, _) = e in y) + snd f + (let struct (_, z, _) = g in z)
 """
     let out = msgs |> List.filter (fun m -> m.Code = ReflectedDefinitionAnalyzer.ArgumentMarkerCode)
     let messages = out |> List.map (fun m -> m.Message)
@@ -463,9 +465,9 @@ module Impl =
     count "takes a let mutable" |> should equal 1
     count "only meaningful as an argument" |> should equal 1
     count "no room for an out value" |> should equal 1
-    count "result type does not fit" |> should equal 2
+    count "result type does not fit" |> should equal 3
     count "Dlr.namedOf / Dlr.argsOf in one call" |> should equal 1
     let lines = out |> List.map (fun m -> m.Range.StartLine) |> List.distinct |> List.sort
     let first = List.head lines
-    lines |> should equal [ for i in 0 .. 5 -> first + i ]                          // only the wrong lines
+    lines |> should equal [ for i in 0 .. 6 -> first + i ]                          // only the wrong lines
     (msgs |> List.filter (fun m -> m.Code <> ReflectedDefinitionAnalyzer.ArgumentMarkerCode)) |> should equal []
