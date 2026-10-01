@@ -132,3 +132,40 @@ let ``anything but a supported form is a translation error`` () =
     (fun () -> (dlr { return Dlr.new'<Counted>("a", Dlr.out) } : Counted) |> ignore) |> should throw typeof<DlrTranslationException>              // new' returns T: no room for an out
     (fun () -> (dlr { return o?TryHalf(6, Dlr.out) } : bool * int * int) |> ignore) |> should throw typeof<DlrTranslationException>            // shape
     // fsharpanalyzer: ignore-region-end DLR005
+
+[<Fact>]
+let ``byref calls keep C#'s order: the target, then the arguments left to right, a ref read at its place`` () =
+    let log = ResizeArray<string>()
+    let t () = log.Add "target"; box (Recorder())
+    let p () = log.Add "p"; 1
+    let n (name: string) = log.Add name; 2
+    let orderOf (run: unit -> unit) = log.Clear(); run (); List.ofSeq log
+    orderOf (fun () -> (dlr { return (t ())?Call(p (), Dlr.out, Dlr.named {| second = n "second"; first = n "first" |}) } : string * int) |> ignore)
+    |> should equal [ "target"; "p"; "second"; "first" ]
+    let name () = log.Add "name"; "Call"
+    orderOf (fun () -> (dlr { return ((?) (t ()) (name ())) (p (), Dlr.out) } : string * int) |> ignore)
+    |> should equal [ "target"; "name"; "p" ]
+    // A ref is read where it stands: an earlier argument's write to it is passed in, as in C#.
+    let o = box (ByRefs())
+    let mutable s = "a"
+    let bump () = s <- s + "b"; 1
+    dlr { o?Concat(bump (), Dlr.ref s) }
+    s |> should equal "ab1"
+    let concat = "Concat"
+    s <- "a"
+    dlr { ((?) o concat) (bump (), Dlr.ref s) }
+    s |> should equal "ab1"
+    // And a later argument's write is seen too, as C#'s reference sees it: the value is read at the
+    // call, after every other argument.
+    s <- "a"
+    dlr { o?Prepend(Dlr.ref s, bump ()) }
+    s |> should equal (ByRefs.CSharpRefThenWrite o)
+    s |> should equal "ab1"
+
+[<Fact>]
+let ``a struct (obj * T) result of a computed-name call converts through the binder`` () =
+    // The byref holder is a ValueTuple<obj, …>; a user's own struct tuple result must not be taken for one.
+    let o = box (ByRefs())
+    let name = "Nothing"
+    (fun () -> (dlr { return ((?) o name) () } : struct (obj * int)) |> ignore)
+    |> should throw typeof<Microsoft.CSharp.RuntimeBinder.RuntimeBinderException>

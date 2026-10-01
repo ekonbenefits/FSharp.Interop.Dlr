@@ -1353,8 +1353,6 @@ module internal Binders =
         else
             let rest = holder.GetField("Rest")
             rest :: byRefHolderPath rest.FieldType (i - 7)
-    let isByRefHolder (t: Type) =
-        t.IsValueType && t.IsGenericType && t.FullName.StartsWith "System.ValueTuple`" && (let g = t.GetGenericArguments() in g.Length >= 2 && g.[0] = typeof<obj>)
 
     /// A site with byref parameters (`Dlr.out`, `Dlr.ref`). No quotation can pass a byref, so the
     /// call is this placeholder: the values go in as an `obj[]` (target first) and come back as the

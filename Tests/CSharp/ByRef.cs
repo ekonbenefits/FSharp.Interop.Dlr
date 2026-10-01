@@ -16,6 +16,20 @@ namespace Tests.CSharp
         public void Twice(ref string s) { s = s + s; }
         public bool TryHalf(int n, out int half) { half = n / 2; return n % 2 == 0; }
         public int Scale(int n, out int remainder, int by = 2) { remainder = n % by; return n / by; }
+        public string Concat(int n, ref string s) { s = s + n; return s; }
+        public void Prepend(ref string s, int n) { s = s + n; }
+
+        /// <summary>C# <c>dynamic</c>'s own order for a ref before an argument that writes the same
+        /// variable: a ref is a reference, so the callee sees the later write.</summary>
+        public static string CSharpRefThenWrite(object o)
+        {
+            dynamic d = o;
+            var s = "a";
+            int Bump() { s += "b"; return 1; }
+            d.Prepend(ref s, Bump());
+            return s;
+        }
+        public object? Nothing() => null;
         public static TryHalfFn HalfFn => (int n, out int half) => { half = n / 2; return n % 2 == 0; };
     }
 
