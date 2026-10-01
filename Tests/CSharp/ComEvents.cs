@@ -18,5 +18,13 @@ namespace Tests.CSharp
             rs.MoveLast();
             return seen;
         }
+
+        /// <summary>C# <c>dynamic</c>'s own COM out: ADO's <c>Connection.Execute(sql, out object n)</c>'s RecordsAffected.</summary>
+        public static object RecordsAffected(object connection, string sql)
+        {
+            dynamic conn = connection;
+            conn.Execute(sql, out object affected);
+            return affected;
+        }
     }
 }

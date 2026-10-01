@@ -4,7 +4,10 @@
 /// form below is late-bound by name through `IDispatch`, as C#'s `dynamic` does it: optional
 /// arguments omitted or passed by name (the binder fills `Type.Missing`), and events through C#'s
 /// COM event sink, on ADO's in-memory `ADODB.Recordset`, whose `MoveComplete` fires on the calling
-/// thread. Skipped where the ProgID is not registered (anything but Windows).
+/// thread. A Dlr.ref reaches a COM method as a by-reference VARIANT (ADODB.Stream, Scripting.Dictionary),
+/// and a COM [out] is written back through Dlr.out (ADO's Connection.Execute against SQL Server
+/// LocalDB, which the Windows CI runner has). Skipped where the ProgID is not registered (anything
+/// but Windows) or LocalDB does not open.
 [<ReflectedDefinition>]
 module Tests.Com
 
@@ -169,3 +172,65 @@ let ``COM events: an F# function as the handler`` () =
     dlr { rs |> Dlr.addAssign "MoveComplete" handler }
     dlr { rs?MoveFirst() }
     moves.Value |> should be (greaterThan 0)
+
+[<Fact>]
+let ``a Dlr.ref argument reaches a COM method as a by-reference VARIANT`` () =
+    // No COM server on stock (64-bit) Windows has an [in, out] parameter to write back through,
+    // so this pins the half that can be tested: a Dlr.ref goes through C#'s COM binder as a
+    // VT_BYREF VARIANT, which ADO's ReadText ([in] long NumChars) coerces, and its value comes back.
+    let stream = create "ADODB.Stream"
+    dlr { stream?Type <- 2 }                                   // adTypeText
+    dlr { stream?Open() }
+    dlr { stream?WriteText("Testing dlr COM interop") }
+    dlr { stream?Position <- 0 }
+    let mutable count = -1                                     // adReadAll
+    let text: string = dlr { return stream?ReadText(Dlr.ref count) }
+    dlr { stream?Close() }
+    text |> should equal "Testing dlr COM interop"
+    count |> should equal -1                                   // an [in] parameter: back as it went
+
+[<Fact>]
+let ``a Dlr.ref argument meets a by-reference COM parameter (Scripting.Dictionary)`` () =
+    // Dictionary declares its keys `[in] VARIANT*`: by reference in the signature, input only. A
+    // Dlr.ref there is the declared shape itself rather than one the server coerces (ADODB above);
+    // the server reads the key and writes nothing back.
+    let dict = create "Scripting.Dictionary"
+    dlr { dict?Add("k", "v") }
+    let mutable key = "k"
+    let found: bool = dlr { return dict?Exists(Dlr.ref key) }
+    let mutable missing = "nope"
+    let absent: bool = dlr { return dict?Exists(Dlr.ref missing) }
+    (found, absent) |> should equal (true, false)
+    (key, missing) |> should equal ("k", "nope")
+
+/// An ADO connection to SQL Server LocalDB (on the Windows CI runner: MSOLEDBSQL19 / MSOLEDBSQL),
+/// retried while LocalDB starts; skipped where none opens.
+let private localDb () : obj =
+    let candidates =
+        [ "Provider=MSOLEDBSQL19;Data Source=(localdb)\\MSSQLLocalDB;Integrated Security=SSPI;Use Encryption for Data=Optional"
+          "Provider=MSOLEDBSQL;Data Source=(localdb)\\MSSQLLocalDB;Integrated Security=SSPI" ]
+    let attempt (cs: string) =
+        try
+            let conn = create "ADODB.Connection"
+            dlr { conn?Open(cs) }
+            Some conn
+        with :? AnyUnit.IgnoreException -> reraise () | _ -> None
+    // A cold LocalDB can time out the first login: try each provider, then once more.
+    match (candidates @ candidates) |> List.tryPick attempt with
+    | Some conn -> conn
+    | None -> raise (AnyUnit.IgnoreException "no ADO provider opens SQL Server LocalDB here")
+
+[<Fact>]
+let ``a COM [out] parameter is written back through Dlr.out, as C#'s out (ADO Connection.Execute)`` () =
+    // Connection.Execute(CommandText, [out] RecordsAffected, Options): the server writes the count.
+    let conn = localDb ()
+    try
+        dlr { conn?Execute("CREATE TABLE #t (x int); INSERT INTO #t VALUES (1), (2), (3)") }
+        // RecordsAffected is a VARIANT*, so the out is `obj` (C#'s `out object`).
+        let (_: obj), (affected: obj) = dlr { return conn?Execute("UPDATE #t SET x = x + 1", Dlr.out) }
+        let (_: obj), (again: obj) = dlr { return conn?Execute("UPDATE #t SET x = x + 1 WHERE x > 2", Dlr.out) }
+        affected |> should equal (box 3)
+        again |> should equal (box 2)
+        affected |> should equal (Tests.CSharp.CSharpComEvents.RecordsAffected(conn, "UPDATE #t SET x = x + 1"))
+    finally
+        dlr { conn?Close() }
