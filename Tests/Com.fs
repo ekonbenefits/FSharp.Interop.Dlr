@@ -201,3 +201,58 @@ let ``a Dlr.ref argument meets a by-reference COM parameter (Scripting.Dictionar
     let absent: bool = dlr { return dict?Exists(Dlr.ref missing) }
     (found, absent) |> should equal (true, false)
     (key, missing) |> should equal ("k", "nope")
+
+/// DIAGNOSTIC, not a test of behaviour: what an ADODB.Connection can open on this machine, to find a
+/// stock route to a COM [out] write-back (Connection.Execute's RecordsAffected). Never fails; its
+/// findings are its skip reason, which the CI log prints.
+[<Fact>]
+let ``PROBE: ADO providers and LocalDB for a COM out write-back`` () : unit =
+    if not (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform System.Runtime.InteropServices.OSPlatform.Windows) then
+        raise (AnyUnit.IgnoreException "probe: Windows only")
+    let found = ResizeArray<string>()
+    let note (s: string) = found.Add s
+    // 1. LocalDB.
+    (try
+        let psi = Diagnostics.ProcessStartInfo("sqllocaldb", "info", RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false)
+        use p = Diagnostics.Process.Start psi
+        let out = p.StandardOutput.ReadToEnd().Trim()
+        p.WaitForExit()
+        note (sprintf "sqllocaldb info: exit %d [%s]" p.ExitCode (out.Replace("\r\n", "; ")))
+     with e -> note (sprintf "sqllocaldb: %s" e.Message))
+    // 2. Registered OLE DB providers (HKCR\CLSID\{…}\OLE DB Provider).
+    (try
+        use clsid = Microsoft.Win32.Registry.ClassesRoot.OpenSubKey "CLSID"
+        let providers =
+            [ for name in clsid.GetSubKeyNames() do
+                use key = clsid.OpenSubKey name
+                if not (isNull key) then
+                    use provider = key.OpenSubKey "OLE DB Provider"
+                    if not (isNull provider) then
+                        use progId = key.OpenSubKey "ProgID"
+                        let id = if isNull progId then "?" else string (progId.GetValue "")
+                        yield sprintf "%s (%s)" id (string (provider.GetValue "")) ]
+        note (sprintf "OLE DB providers: %s" (String.Join("; ", providers)))
+     with e -> note (sprintf "providers: %s" e.Message))
+    // 3. Connection strings; on the first that opens, the real thing.
+    let candidates =
+        [ "Provider=MSOLEDBSQL;Data Source=(localdb)\\MSSQLLocalDB;Integrated Security=SSPI"
+          "Provider=MSOLEDBSQL19;Data Source=(localdb)\\MSSQLLocalDB;Integrated Security=SSPI;Use Encryption for Data=Optional"
+          "Provider=SQLOLEDB;Data Source=(localdb)\\MSSQLLocalDB;Integrated Security=SSPI"
+          "Provider=MSDASQL;Driver={ODBC Driver 18 for SQL Server};Server=(localdb)\\MSSQLLocalDB;Trusted_Connection=yes;TrustServerCertificate=yes"
+          "Provider=MSDASQL;Driver={ODBC Driver 17 for SQL Server};Server=(localdb)\\MSSQLLocalDB;Trusted_Connection=yes" ]
+    let mutable opened = false
+    for cs in candidates do
+        if not opened then
+            try
+                let conn = create "ADODB.Connection"
+                dlr { conn?Open(cs) }
+                opened <- true
+                note (sprintf "OPENED: %s" cs)
+                try
+                    dlr { conn?Execute("CREATE TABLE #t (x int); INSERT INTO #t VALUES (1), (2), (3)") }
+                    let (_: obj), (affected: obj) = dlr { return conn?Execute("UPDATE #t SET x = x + 1", Dlr.out) }
+                    note (sprintf "Execute RecordsAffected via Dlr.out: %A (%s)" affected (if isNull affected then "null" else affected.GetType().Name))
+                with e -> note (sprintf "Execute: %s: %s" (e.GetType().Name) e.Message)
+                dlr { conn?Close() }
+            with e -> note (sprintf "failed: %s -> %s" cs (e.Message.Split('\n').[0]))
+    raise (AnyUnit.IgnoreException ("probe:\n  " + String.Join("\n  ", found)))
