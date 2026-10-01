@@ -4,7 +4,7 @@
 /// form below is late-bound by name through `IDispatch`, as C#'s `dynamic` does it: optional
 /// arguments omitted or passed by name (the binder fills `Type.Missing`), and events through C#'s
 /// COM event sink, on ADO's in-memory `ADODB.Recordset`, whose `MoveComplete` fires on the calling
-/// thread. A Dlr.ref reaches a COM method as a by-reference VARIANT (ADODB.Stream); a COM write-back
+/// thread. A Dlr.ref reaches a COM method as a by-reference VARIANT (ADODB.Stream, Scripting.Dictionary); a COM write-back
 /// stays untested, for want of an [in, out] parameter on stock 64-bit Windows. Skipped where the
 /// ProgID is not registered (anything but Windows).
 [<ReflectedDefinition>]
@@ -187,3 +187,17 @@ let ``a Dlr.ref argument reaches a COM method as a by-reference VARIANT`` () =
     dlr { stream?Close() }
     text |> should equal "Testing dlr COM interop"
     count |> should equal -1                                   // an [in] parameter: back as it went
+
+[<Fact>]
+let ``a Dlr.ref argument meets a by-reference COM parameter (Scripting.Dictionary)`` () =
+    // Dictionary declares its keys `[in] VARIANT*`: by reference in the signature, input only. A
+    // Dlr.ref there is the declared shape itself rather than one the server coerces (ADODB above);
+    // the server reads the key and writes nothing back.
+    let dict = create "Scripting.Dictionary"
+    dlr { dict?Add("k", "v") }
+    let mutable key = "k"
+    let found: bool = dlr { return dict?Exists(Dlr.ref key) }
+    let mutable missing = "nope"
+    let absent: bool = dlr { return dict?Exists(Dlr.ref missing) }
+    (found, absent) |> should equal (true, false)
+    (key, missing) |> should equal ("k", "nope")
