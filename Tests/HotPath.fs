@@ -42,6 +42,13 @@ let ``a bound call allocates nothing but, for a value result, its box`` () : uni
     bytes get |> should lessThanOrEqualTo box'
     bytes call |> should lessThanOrEqualTo box'
     bytes set |> should lessThanOrEqualTo box'
+    // Dlr.out: the outs come back in a struct holder, unboxed; what is left is the result's box,
+    // and the F# tuple itself unless the result is a struct tuple.
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "a", 1 ]))
+    let outStruct () = (dlr { return d?TryGetValue("a", Dlr.out) } : struct (bool * int)) |> ignore
+    let outTuple () = (dlr { return d?TryGetValue("a", Dlr.out) } : bool * int) |> ignore
+    bytes outStruct |> should lessThanOrEqualTo box'
+    bytes outTuple |> should lessThanOrEqualTo (box' + 24L)
 #endif
 
 [<Fact>]

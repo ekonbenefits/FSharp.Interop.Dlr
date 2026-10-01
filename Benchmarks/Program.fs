@@ -103,7 +103,8 @@ let private writeDocs (short: bool) =
                      "static method chosen by an argument's runtime type", [ "CSharpStaticOverloads"; "StaticOverloads"; "DynamicStatic" ]
                      "a lambda for a `Func` parameter (C#: a `Func` literal; dlr: an F# lambda in the block)", [ "CSharpRunFunc"; "FunctionToDelegate"; "^1" ]
                      "named arguments `d.Add(b: 1, a: i)`", [ "CSharpNamedArgs"; "NamedArgs"; "DynamicNamedArgs" ]
-                     "an `out` argument, `d.TryGetValue(k, out v)` with the result used (dlr: `Dlr.out`, a tuple)", [ "CSharpOutArg"; "OutArg"; "^9" ] ]
+                     "an `out` argument, `d.TryGetValue(k, out v)` with the result used (dlr: `Dlr.out`, a tuple)", [ "CSharpOutArg"; "OutArg"; "^9" ]
+                     "the same into a struct tuple (dlr: `let struct (found, v) = …`)", [ "CSharpOutArg"; "OutArgStruct"; "^9" ] ]
           yield! comparison r "Where the forms differ"
                    "Each column does what its language offers here, so the cells are not always like for like: `==` on records is reference equality for C# `dynamic` and FSharp.Interop.Dynamic, structural for `dlr { }`; FSharp.Interop.Dynamic's `!?f` invokes a value where `dlr` reads it as a function first; a dash is a form that language has no spelling for, footnoted."
                    [ "C# `dynamic`"; "`dlr { }`"; "FSharp.Interop.Dynamic" ]

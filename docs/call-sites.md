@@ -35,7 +35,8 @@ emitted delegate's parameter carries no `[Out]`), which LINQ writes back, and bu
 from them: no array and no boxing. The translator reads its fields into the result tuple and
 assigns each ref back to its `let mutable` (or the ref cell a captured one becomes). [benchmarks.md](benchmarks.md)
 has `d?TryGetValue(k, Dlr.out)` against C# `dynamic`'s `out int v`: a few nanoseconds more, and 48 B
-against 24 B — the F# tuple beside the boxed result both pay.
+against 24 B — the F# tuple beside the boxed result both pay; read into a struct tuple, only the box
+(`Tests/HotPath.fs` pins both).
 The placeholder's own body, `DynamicInvoke`, writes byrefs back on the JIT but not on Mono's
 interpreter, so the rewrite is required there, not only faster. The argument flags are C#'s:
 `IsOut` / `IsRef` with `UseCompileTimeType`, the out's type being its element of the block's result

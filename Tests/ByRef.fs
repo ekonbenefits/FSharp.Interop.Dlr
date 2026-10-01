@@ -130,6 +130,7 @@ let ``anything but a supported form is a translation error`` () =
     (fun () -> (dlr { return box Dlr.out } : obj) |> ignore) |> should throw typeof<DlrTranslationException>                      // not an argument
     (fun () -> (dlr { return o?TryHalf(Dlr.out, Dlr.namedOf [ "n", box 6 ]) } : bool * int) |> ignore) |> should throw typeof<DlrTranslationException>   // with a splat
     (fun () -> (dlr { return Dlr.new'<Counted>("a", Dlr.out) } : Counted) |> ignore) |> should throw typeof<DlrTranslationException>              // new' returns T: no room for an out
+    (fun () -> (dlr { return o?TryHalf(6, Dlr.out) } : struct (bool * int * int)) |> ignore) |> should throw typeof<DlrTranslationException>   // shape, a struct tuple
     (fun () -> (dlr { return o?TryHalf(6, Dlr.out) } : bool * int * int) |> ignore) |> should throw typeof<DlrTranslationException>            // shape
     // fsharpanalyzer: ignore-region-end DLR005
 
@@ -190,3 +191,19 @@ let ``the same variable by ref twice is one storage, as in C#`` () =
     let r: int = dlr { return o?AddBoth(Dlr.ref x, Dlr.ref x) }
     struct (r, x) |> should equal (ByRefs.CSharpSameRefTwice o)          // C#'s ValueTuple
     (r, x) |> should equal (4, 2)
+
+[<Fact>]
+let ``a struct tuple result: the same shapes, no tuple allocated`` () =
+    let d = box (Dictionary<string, int>(dict [ "a", 1 ]))
+    let o = box (ByRefs())
+    let struct (found: bool, v: int) = dlr { return d?TryGetValue("a", Dlr.out) }
+    let struct (q: int, r: int) = dlr { return o?DivRem(7, 2, Dlr.out) }
+    let struct (left: string, right: string) = dlr { return o?Split("a,b", Dlr.out, Dlr.out) }
+    (found, v, q, r, left, right) |> should equal (true, 1, 3, 1, "a", "b")
+
+[<Fact>]
+let ``eight outs into a struct tuple: past ValueTuple's seven fields`` () =
+    let o = box (ByRefs())
+    let struct (a: int, b: int, c: int, d: int, e: int, f: int, g: int, h: int) =
+        dlr { return o?Eight(Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out) }
+    [ a; b; c; d; e; f; g; h ] |> should equal [ 1 .. 8 ]
