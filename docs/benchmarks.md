@@ -70,7 +70,7 @@ nothing for the block itself (a struct state machine) — see `Tests/HotPath.fs`
 [^3]: FSharp.Interop.Dynamic fails on a `JObject` member: its result conversion asks the `JValue` to convert to `object`, which Newtonsoft refuses ("Can not convert from System.Int64 to System.Object").
 [^4]: neither C#'s binder nor Dynamitey invokes an F# function value held in a member.
 [^5]: an F# optional parameter is an `FSharpOption` with no `[Optional]`: C#'s binder and Dynamitey need it passed.
-[^6]: no spelling for a constructor chosen by an argument's runtime type outside `dlr`.
+[^6]: C# reaches a constructor through the binder only with a `dynamic` argument (`new Widget()` is a static call), and FSharp.Interop.Dynamic has no form for it here.
 [^7]: C# has no spelling with a run-time member name or argument names, nor for invoking a value read as an F# function.
 [^8]: FSharp.Interop.Dynamic takes its arguments as a tuple; a list of unknown length has no form.
 [^9]: FSharp.Interop.Dynamic has no spelling for an `out` argument.
