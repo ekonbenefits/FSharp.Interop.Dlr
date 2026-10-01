@@ -203,6 +203,10 @@ let ``a Dlr.ref argument meets a by-reference COM parameter (Scripting.Dictionar
     (found, absent) |> should equal (true, false)
     (key, missing) |> should equal ("k", "nope")
 
+/// Runs `f`, naming the step in any exception, so a COM error says which call it came from.
+let private step (name: string) (f: unit -> 'T) : 'T =
+    try f () with e -> raise (Exception(sprintf "%s: %s: %s" name (e.GetType().Name) e.Message, e))
+
 /// An ADO connection to SQL Server LocalDB (on the Windows CI runner: MSOLEDBSQL19 / MSOLEDBSQL),
 /// retried while LocalDB starts; skipped where none opens.
 let private localDb () : obj =
@@ -226,8 +230,6 @@ let ``a COM [out] parameter is written back through Dlr.out, as C#'s out (ADO Co
     let conn = localDb ()
     try
         // Each step named, so a COM error says which call it came from.
-        let step (name: string) (f: unit -> 'T) : 'T =
-            try f () with e -> raise (Exception(sprintf "%s: %s: %s" name (e.GetType().Name) e.Message, e))
         step "create" (fun () -> dlr { conn?Execute("CREATE TABLE #t (x int); INSERT INTO #t VALUES (1), (2), (3)") })
         let (_: obj), (affected: obj) = step "Dlr.out into a tuple" (fun () -> dlr { return conn?Execute("UPDATE #t SET x = x + 1", Dlr.out) })
         affected |> should equal (box 3)
