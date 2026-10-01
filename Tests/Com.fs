@@ -227,9 +227,11 @@ let ``a COM [out] parameter is written back through Dlr.out, as C#'s out (ADO Co
     try
         dlr { conn?Execute("CREATE TABLE #t (x int); INSERT INTO #t VALUES (1), (2), (3)") }
         let (_: obj), (affected: obj) = dlr { return conn?Execute("UPDATE #t SET x = x + 1", Dlr.out) }
-        let struct (_: obj, again: int) = dlr { return conn?Execute("UPDATE #t SET x = x + 1 WHERE x > 2", Dlr.out) }
+        // RecordsAffected is a VARIANT*, so the out is `obj` (C#'s `out object`): an `int` out is a
+        // VT_I4 slot the server rejects ("Type mismatch").
+        let struct (_: obj, again: obj) = dlr { return conn?Execute("UPDATE #t SET x = x + 1 WHERE x > 2", Dlr.out) }
         affected |> should equal (box 3)
-        again |> should equal 2
+        again |> should equal (box 2)
         affected |> should equal (Tests.CSharp.CSharpComEvents.RecordsAffected(conn, "UPDATE #t SET x = x + 1"))
     finally
         dlr { conn?Close() }
