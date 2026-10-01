@@ -25,11 +25,16 @@ are a `Func<obj[], obj>` over the parameters packed at the call and unpacked ins
 
 A site with `ref` / `out` parameters (`Dlr.ref v`, `Dlr.out`, #131) has a delegate emitted at run
 time at any arity (`Func` has no byref parameters), and a quotation cannot pass a byref anyway. Its
-call is a placeholder too, `ByRefSite.Invoke(site, delegateType, args: obj[], byRefs: int[]) : obj[]`,
-returning the result then each byref argument's value after the call. The hoister rewrites it into
+call is a placeholder too, `ByRefSite.Invoke<'H>(site, delegateType, args: obj[], byRefs, outs) : 'H`,
+whose `'H` holds the result then each byref argument's value after the call — a `ValueTuple<obj,
+T1, …>` (nested in `Rest` past seven), so the values come back typed. The hoister rewrites it into
 the typed `Invoke` over a LINQ variable per byref parameter (a ref's value in, the default for an
-out), which LINQ writes back, and builds the same `obj[]`; the translator unpacks it into the
-result tuple and assigns each ref back to its `let mutable` (or the ref cell a captured one becomes).
+out — the out positions are explicit, since a per-key template's value in is a parameter and an
+emitted delegate's parameter carries no `[Out]`), which LINQ writes back, and builds the holder
+from them: no array and no boxing. The translator reads its fields into the result tuple and
+assigns each ref back to its `let mutable` (or the ref cell a captured one becomes). Measured:
+`d?TryGetValue(k, Dlr.out)` about 32 ns and 48 B (the boxed result and the F# tuple) against C#
+`dynamic`'s 21 ns and 24 B (the boxed result).
 The placeholder's own body, `DynamicInvoke`, writes byrefs back on the JIT but not on Mono's
 interpreter, so the rewrite is required there, not only faster. The argument flags are C#'s:
 `IsOut` / `IsRef` with `UseCompileTimeType`, the out's type being its element of the block's result

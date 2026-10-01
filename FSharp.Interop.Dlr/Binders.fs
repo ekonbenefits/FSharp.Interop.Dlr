@@ -1338,14 +1338,33 @@ module internal Binders =
     let private wideInvokeMethod = wideMethod "Invoke"
     let private wideInvokeVoidMethod = wideMethod "InvokeVoid"
 
+    /// The holder a byref call returns: the result (`obj`), then each byref argument's value after
+    /// the call, typed, in argument order — a `ValueTuple`, nested in its `Rest` past seven, so
+    /// nothing is boxed or allocated on the way out.
+    let rec byRefHolderType (types: Type list) : Type =
+        if types.Length <= 7 then
+            let def = [| typedefof<ValueTuple<_>>; typedefof<ValueTuple<_, _>>; typedefof<ValueTuple<_, _, _>>; typedefof<ValueTuple<_, _, _, _>>
+                         typedefof<ValueTuple<_, _, _, _, _>>; typedefof<ValueTuple<_, _, _, _, _, _>>; typedefof<ValueTuple<_, _, _, _, _, _, _>> |].[types.Length - 1]
+            def.MakeGenericType(Array.ofList types)
+        else typedefof<ValueTuple<_, _, _, _, _, _, _, _>>.MakeGenericType(Array.ofList (List.take 7 types @ [ byRefHolderType (List.skip 7 types) ]))
+    /// Element `i` of a holder: `Item(i+1)`, through `Rest` past the seventh.
+    let rec byRefHolderPath (holder: Type) (i: int) : FieldInfo list =
+        if i < 7 then [ holder.GetField(sprintf "Item%d" (i + 1)) ]
+        else
+            let rest = holder.GetField("Rest")
+            rest :: byRefHolderPath rest.FieldType (i - 7)
+    let isByRefHolder (t: Type) =
+        t.IsValueType && t.IsGenericType && t.FullName.StartsWith "System.ValueTuple`" && (let g = t.GetGenericArguments() in g.Length >= 2 && g.[0] = typeof<obj>)
+
     /// A site with byref parameters (`Dlr.out`, `Dlr.ref`). No quotation can pass a byref, so the
-    /// call is this placeholder: the values go in as an `obj[]` (target first) and come back as
-    /// one, the result first, then each byref argument's value after the call, in argument order.
-    /// `byRefs` are the byref positions in `args`, `outs` those of them that are out (whose value
-    /// in is not read: it starts as the default). Correct on its own: `DynamicInvoke` writes byref
-    /// parameters back into its array.
+    /// call is this placeholder: the values go in as an `obj[]` (target first) and come back as the
+    /// holder `'H` (see `byRefHolderType`). `byRefs` are the byref positions in `args`, `outs` those
+    /// of them that are out (whose value in is not read: it starts as the default). The LINQ
+    /// `SiteHoister` rewrites it into the typed `Invoke` (no array, no boxing); this body is the
+    /// slow path, correct on the JIT (`DynamicInvoke` writes byref parameters back into its array)
+    /// but not on Mono wasm, which is why the rewrite is required there.
     type ByRefSite =
-        static member Invoke(site: CallSite, delegateType: Type, args: obj[], byRefs: int[], outs: int[]) : obj[] =
+        static member Invoke<'H>(site: CallSite, delegateType: Type, args: obj[], byRefs: int[], outs: int[]) : 'H =
             ignore (delegateType, outs)
             let target = site.GetType().GetField("Target").GetValue site :?> Delegate
             let all = Array.append [| box site |] args
@@ -1355,18 +1374,27 @@ module internal Binders =
                 with :? TargetInvocationException as e when not (isNull e.InnerException) ->
                     System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.InnerException).Throw()
                     null
-            Array.append [| result |] [| for i in byRefs -> all.[i + 1] |]
+            let values = result :: [ for i in byRefs -> all.[i + 1] ]
+            let rec make (holder: Type) (values: obj list) : obj =
+                let fields = holder.GetGenericArguments()
+                if fields.Length = 8 then Activator.CreateInstance(holder, Array.ofList (List.take 7 values @ [ make fields.[7] (List.skip 7 values) ]))
+                else Activator.CreateInstance(holder, Array.ofList values)
+            make typeof<'H> values :?> 'H
     let private byRefInvokeMethod = typeof<ByRefSite>.GetMethod("Invoke", BindingFlags.Static ||| BindingFlags.Public ||| BindingFlags.NonPublic)
 
+    /// The holder type of a byref call over `all` (target first): the result, then each byref's type.
+    let byRefHolderOf (all: Arg list) = byRefHolderType (typeof<obj> :: [ for a in all do if a.Type.IsByRef then yield a.Type.GetElementType() ])
+
     /// A byref site (see `ByRefSite`) for `binder` over `all`, returning `resultType` (`Void` for a
-    /// discarded result); the expression is the `obj[]` of result and byref values.
+    /// discarded result); the expression is the holder of result and byref values.
     let private byRefSite (binder: CallSiteBinder) (all: Arg list) (resultType: Type) : Expr =
         let delegateType = Expression.GetDelegateType(Array.ofList (typeof<CallSite> :: [ for a in all -> a.Type ] @ [ resultType ]))
         let site = typedefof<CallSite<_>>.MakeGenericType(delegateType).GetMethod("Create").Invoke(null, [| box binder |])
         let byRefs = [| for i, a in List.indexed all do if a.Type.IsByRef then yield i |]
         let outs = [| for i, a in List.indexed all do if a.Flags.HasFlag CSharpArgumentInfoFlags.IsOut then yield i |]
+        let holder = byRefHolderOf all
         let boxed = [ for a in all -> if a.Expr.Type = typeof<obj> then a.Expr else Expr.Coerce(a.Expr, typeof<obj>) ]
-        Expr.Call(byRefInvokeMethod,
+        Expr.Call(byRefInvokeMethod.MakeGenericMethod holder,
                   [ Expr.Value(site, typeof<CallSite>); Expr.Value(delegateType, typeof<Type>)
                     Expr.NewArray(typeof<obj>, boxed); Expr.Value(byRefs); Expr.Value(outs) ])
 

@@ -170,7 +170,6 @@ module internal Translate =
         | _ -> None
 
     let private isByRefMarker (e: Expr) = match e with OutMarker | RefMarker _ -> true | _ -> false
-    let private arrayGet = opMethod <@ fun (a: obj[]) -> a.[0] @>
     let private unboxTo = opMethod <@ fun (o: obj) -> unbox<int> o @>
 
     let private (|UnaryOp|_|) (e: Expr) =
@@ -555,10 +554,13 @@ module internal Translate =
                         let r = Expression.Variable(invokeMethod.ReturnType, "result")
                         temps.Add r
                         (Expression.Convert(r, typeof<obj>) :> Expression), (Expression.Assign(r, call) :> Expression)
-                let values =
-                    Expression.NewArrayInit(typeof<obj>,
-                        result :: [ for t in temps do if t.Name = "byRef" then yield (Expression.Convert(t, typeof<obj>) :> Expression) ])
-                Expression.Block(typeof<obj[]>, temps, List.ofSeq inits @ [ callStep; values :> Expression ]) :> Expression
+                // The holder `node.Type` (Binders.byRefHolderType), nested in `Rest` past seven.
+                let rec holder (t: Type) (values: Expression list) : Expression =
+                    let fields = t.GetGenericArguments()
+                    let args = if fields.Length = 8 then List.take 7 values @ [ holder fields.[7] (List.skip 7 values) ] else values
+                    Expression.New(t.GetConstructor fields, args) :> Expression
+                let values = holder node.Type (result :: [ for t in temps do if t.Name = "byRef" then yield (t :> Expression) ])
+                Expression.Block(node.Type, temps, List.ofSeq inits @ [ callStep; values ]) :> Expression
             else base.VisitMethodCall node
 
     let private onWasm =
@@ -815,9 +817,10 @@ module internal Translate =
                     | TypeArgs _ -> unsupported "Dlr.typeArgs anywhere but as the first argument of a member call" a
                     | v -> yield valueArg rewriteIn bound v ]
             let call = makeCall returnType.IsNone args
-            let results = Var("byRefResults", typeof<obj[]>)
-            let at (i: int) = Expr.Call(arrayGet.MakeGenericMethod typeof<obj>, [ Expr.Var results; Expr.Value i ])
-            let unboxAt (t: Type) (i: int) = Expr.Call(unboxTo.MakeGenericMethod t, [ at i ])
+            // The holder (Binders.byRefHolderType): the result as obj, then each byref's value, typed.
+            let results = Var("byRefResults", call.Type)
+            let at (i: int) = Binders.byRefHolderPath call.Type i |> List.fold (fun (e: Expr) f -> Expr.FieldGet(e, f)) (Expr.Var results)
+            let unboxAt (_: Type) (i: int) = at i
             let bound' = Set.add results bound
             let writeBacks =
                 [ for i, b in Seq.indexed byRefs do
@@ -926,8 +929,8 @@ module internal Translate =
             let compiled = (SiteHoister().Visit linq :?> LambdaExpression).Compile()
             let invocation = Expr.Call(Expr.Value(compiled, delegateType), delegateType.GetMethod("Invoke"), packArguments parameters arguments)
             let call = Expr.Let(sitesVar, Expr.Call(Expr.Value(cache, cacheType), cacheType.GetMethod("Get"), [ Expr.NewTuple [ nameE; typesE ] ]), invocation)
-            // A byref site's `obj[]` (result and byref values) is passed through for its caller to unpack.
-            if FSharpType.IsFunction resultType || resultType = typeof<obj[]> then Expr.Coerce(call, resultType) else block.Convert resultType call
+            // A byref site's holder (result and byref values) is passed through for its caller to unpack.
+            if FSharpType.IsFunction resultType || Binders.isByRefHolder resultType then Expr.Coerce(call, resultType) else block.Convert resultType call
 
         /// The key of a computed name / run-time type arguments, its expressions rewritten in
         /// the block's scope.
@@ -1093,7 +1096,7 @@ module internal Translate =
                     | _ ->
                         let key = keySpec rewriteIn bound nameExpr typeArgs
                         fun discard args ->
-                            keyedSiteCore block key targetInfo args typeof<obj[]> (fun name ts t a -> Binders.invokeMemberByRef context name ts discard (t :: a))
+                            keyedSiteCore block key targetInfo args (Binders.byRefHolderOf (targetInfo :: args)) (fun name ts t a -> Binders.invokeMemberByRef context name ts discard (t :: a))
                 Some(byRefCall rewriteIn bound argExprs e.Type convert makeCall)
             | MemberOp(InvokeMember(target, nameExpr, argExpr)) ->
                 let tupleBindings, argExprs = splitArgs argExpr
