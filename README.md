@@ -37,9 +37,7 @@ let invoice (order: obj) (pricing: obj) =
     customer, city, first, total, discount
 ```
 
-Chained gets converted to the inferred type, an index and a get in a pipeline, a call with a named
-argument, a set, a loop, one block's result feeding another — each `dlr { }` a few nanoseconds
-after its first call. The recursive step can be dynamic too:
+The recursive step can be dynamic too:
 
 ```fsharp
 [<ReflectedDefinition>]
@@ -66,31 +64,16 @@ face) — and on browser-wasm.
 
 ## Scope
 
-`dlr { }` is C# `dynamic` for F#, and the scope follows from that in four steps:
+`dlr { }` is C# `dynamic` for F#:
 
-1. **Parity with C# `dynamic`.** Everything C# can write with a `dynamic` operand has a spelling
-   here — member get/set/invoke, indexers, operators, conversions, named and generic arguments,
-   `+=`/`-=`, constructors and static overloads chosen by an argument's runtime type — through
-   the same Microsoft.CSharp binders, so it binds what C# binds and fails where C# fails. C#'s
-   restrictions are ours — extension methods, explicit interface members, accessibility, no AOT:
-   [docs/restrictions.md](docs/restrictions.md).
-
-2. **F# values C#'s binder does not understand.** F# code passes things C# never produces:
-   function values (`FSharpFunc`) where C# has delegates, optional parameters compiled as
-   `FSharpOption` with no `[Optional]`, records and unions with structural equality but no
-   `op_Equality`. For those, the library adds binding rules of its own — the
-   [seam](docs/binders.md) — only where C#'s binder would fail or bind against F#'s
-   expectation, never changing what C# binds for a type it has operators for. The five places,
-   [listed](docs/restrictions.md#five-places-it-goes-beyond-c).
-
-3. **What F#'s spelling exposes.** The F# forms are more general than C#'s syntax in a few
-   places, and the library follows through rather than restricting them: `?` takes a string, so
-   a member name can be a variable; `Dlr.typeArgsOf` takes a list, so type arguments can be
-   run-time values; a tuple applies as several arguments, as in F#'s own method calls. Each is
-   cached per call site so it costs a lookup, not a bind. Every form: [docs/syntax.md](docs/syntax.md).
-
-4. **Mindful of speed.** It uses the same call sites C# does, bound once, and tries to stay in
-   that neighbourhood; [docs/benchmarks.md](docs/benchmarks.md) has the numbers.
+1. **Parity with C# `dynamic`**: the same binders, so it binds what C# binds and fails where C#
+   fails, restrictions included ([restrictions](docs/restrictions.md)).
+2. **F# values C#'s binder does not understand** (functions, F# optional parameters, structural
+   equality): binding rules of its own only where C# would fail or bind against F#'s expectation
+   ([the seam](docs/binders.md)).
+3. **What F#'s spelling exposes**: a member name or type arguments from a variable, a tuple as
+   several arguments, each cached per site ([syntax](docs/syntax.md)).
+4. **Mindful of speed**: C#'s call sites, bound once ([benchmarks](docs/benchmarks.md)).
 
 Outside the scope: reaching members the binder would not (a static-member-access API, private
 members beyond the accessibility rules), reflection conveniences, and language features
@@ -129,15 +112,8 @@ functions, `byref`s, `Span` — so prefer the binding. If the function around a 
 quoted, move the block into the smallest function that can.
 
 Without the attribute the first call raises a `DlrTranslationException` that says so; the
-[analyzer package](FSharp.Interop.Dlr.Analyzers/README.md) reports it at build time instead
-(`DLR001`, with a fix), along with a marker used outside any block (`DLR002`), two blocks on
-one line (`DLR003`), a block in an `inline` function (`DLR004`: it fails in Release, where
-the function is expanded into its callers), a marker out of its place inside a block, such as
-`Dlr.named` anywhere but in a call's arguments (`DLR005`), and a member whose reflected
-definition FSharp.Core cannot decode (`DLR006`: it holds `typeof<System.Void>`). Why the block is not simply quoted by the compiler, sparing the attribute:
-tried and [scrapped](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/60) — a quotation
-literal costs ~7 µs per evaluation and carries no calling type, so `internal` members would not
-bind.
+[analyzer package](FSharp.Interop.Dlr.Analyzers/README.md) reports it at build time instead, with
+a fix, along with the other misuses it can see (`DLR002`–`DLR006`).
 
 One block per source line. Blocks in generic functions and members work (one site per
 instantiation); so do nested blocks, blocks inside `task { }` / `async { }`, and F# Interactive.
@@ -169,28 +145,18 @@ markers, ordinary F#: `let`, `let rec`, `let mutable`, `use`, `if`, `match`, `fo
 
 ## How it works
 
-`dlr { … }` desugars to `dlr.Run(dlr.Delay(fun () -> …), file, line)`, and `Run` is resumable
-code in `task { }`'s shape: the compiler turns each block into a struct state machine whose
-fields are the captured variables — the machine is never run; its type identifies the block and
-its fields hold the values. On the first call the body is found in the enclosing
-`[<ReflectedDefinition>]`, [translated](docs/translation.md) into an expression tree with one
-[`CallSite` per operation](docs/call-sites.md) baked in as a constant, and compiled to a delegate
-over the machine, cached in a [static slot per machine type](docs/caches.md), so a call is a
-field read and an invoke: no closure, no `GetType()`, no lookup. The few nanoseconds left over
-C# `dynamic` are that invoke ([pipeline](docs/pipeline.md#one-call-on-the-hot-path) says why
-they stay). Invocation sites use C#'s binder wrapped in
-[one that also applies F# function values](docs/binders.md), as DLR rules per runtime type.
+The compiler turns each block into a struct state machine whose fields are its captured
+variables. On the first call the block's body is read from the enclosing `[<ReflectedDefinition>]`,
+translated into an expression tree with one C# call site per operation, and compiled to a delegate
+over that struct; every later call is a field read and an invoke.
 
 [docs/internals.md](docs/internals.md) indexes the full picture: every cache, every site and its
 argument flags, the F#-aware binders, and what the translator assumes about the compiler.
 
 ## Measured
 
-The same call each way it can be made, steady state (Release, net10.0, Apple Silicon): a `dlr { }`
-call costs a few nanoseconds over C# `dynamic` — the same Microsoft.CSharp call sites, reached
-through a struct state machine — and orders of magnitude under the reflection-based
-FSharp.Interop.Dynamic. `Benchmarks/bench.sh docs` regenerates this table and the full
-[docs/benchmarks.md](docs/benchmarks.md) (every suite, allocations, real targets).
+Steady state, Release, net10.0, Apple Silicon. `Benchmarks/bench.sh docs` regenerates this table
+and the full [docs/benchmarks.md](docs/benchmarks.md) (every suite, allocations, real targets).
 
 <!-- benchmarks:start -->
 | ns per call | static | C# `dynamic` | **`dlr { }`** | reflection (cached) | FSharp.Interop.Dynamic |
