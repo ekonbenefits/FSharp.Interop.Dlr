@@ -172,6 +172,14 @@ type Core() =
         CSharpDynamic.AreEqual(a, b)   // C#'s reference equality on records (false here); dlr's is structural
 
     // --- dlr { } -------------------------------------------------------------------------
+    [<Benchmark(Description = "C# dynamic d.TryGetValue(k, out int v)")>]
+    member _.CSharpOutArg() = CSharpDynamic.OutArg dictionary
+
+    [<Benchmark(Description = "dlr d?TryGetValue(k, Dlr.out)")>]
+    member _.OutArg() : int =
+        let (found: bool), (v: int) = dlr { return dictionary?TryGetValue("a", Dlr.out) }
+        if found then v else 0
+
     [<Benchmark(Description = "dlr w?Count")>]
     member _.Get() : int = dlr { return o?Count }
 
