@@ -315,9 +315,15 @@ let ``reading a member as a curried function has no arity limit`` () =
     // A unit result past five: the site is void, the last step returns unit.
     let sixUnit: int -> int -> int -> int -> int -> int -> unit = dlr { return h?Six }
     sixUnit 1 2 3 4 5 6
-    // Tupled reads keep the five-element limit of the typed helpers.
+    // Tupled reads keep the five-element limit of the typed helpers. The analyzer reports both at
+    // build time (DLR005); this pins the run-time error behind it.
+    // fsharpanalyzer: ignore-region-start DLR005
     (fun () -> (dlr { return h?SixTupled } : int * int * int * int * int * int -> int) |> ignore)
     |> should throw typeof<DlrTranslationException>
+    let six = box (fun (a: int, b: int, c: int, d: int, e: int, f: int) -> a + b + c + d + e + f)
+    (fun () -> (dlr { return Dlr.call six } : int * int * int * int * int * int -> int) |> ignore)
+    |> should throw typeof<DlrTranslationException>
+    // fsharpanalyzer: ignore-region-end DLR005
 
 [<Fact>]
 let ``a method of only optional parameters can be read as unit -> R`` () =

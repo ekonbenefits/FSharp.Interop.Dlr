@@ -353,6 +353,59 @@ let private misplacedMarkers (block: FSharpExpr) : (range * string) list =
                 | FSharpExprPatterns.Value v when v.IsMutable -> None
                 | _ -> Some(m.Range, "Dlr.ref takes a let mutable (its value goes in, and the method's write is assigned back to it); here it would raise DlrTranslationException at the block's first call.")
             | _ -> None)
+    // A member or value read as a *tupled* F# function of more than five elements: the translator's
+    // typed helpers stop at five (Binders.asFunction; curried has no limit). A read is the `?` /
+    // `Dlr.get` / `Dlr.call` node itself at a function type; one that is applied — over-applied in
+    // place, applied through pipes or lambdas, or the tupled eta-expansion of a non-`obj` target
+    // (`let clo = x?M in fun tupledArg -> … clo (a0, …)`) — is a call, which has no limit.
+    let rec strip (t: FSharpType) = if t.IsAbbreviation then strip t.AbbreviatedType else t
+    let tupledArity (t: FSharpType) =
+        let t = strip t
+        if t.IsFunctionType && t.GenericArguments.Count = 2 then
+            let d = strip t.GenericArguments.[0]
+            if d.IsTupleType then Some d.GenericArguments.Count else None
+        else None
+    // The parameters a read takes before it is a value: `?` target and name, `Dlr.get` name and
+    // target, `Dlr.call` target.
+    let readArity (mfv: FSharpMemberOrFunctionOrValue) =
+        if not (isMarker mfv) then None
+        else match mfv.CompiledName with "op_Dynamic" | "get" -> Some 2 | "call" -> Some 1 | _ -> None
+    let rec readHeads (f: FSharpExpr) : FSharpExpr list =
+        match f with
+        | FSharpExprPatterns.Call(_, mfv, _, _, _) when (readArity mfv).IsSome -> [ f ]
+        | FSharpExprPatterns.Call(_, mfv, _, _, [ _; g ]) when mfv.CompiledName = "op_PipeRight" -> readHeads g
+        | FSharpExprPatterns.Call(_, mfv, _, _, [ g; _ ]) when mfv.CompiledName = "op_PipeLeft" -> readHeads g
+        | FSharpExprPatterns.Application(g, _, _) -> readHeads g
+        | FSharpExprPatterns.Lambda(_, body) -> readHeads body
+        | FSharpExprPatterns.Coerce(_, inner) -> readHeads inner
+        | FSharpExprPatterns.Let(_, body) -> readHeads body
+        | _ -> []
+    let appliedReads =
+        exprs
+        |> List.collect (fun e ->
+            match e with
+            // Applied beyond the lambdas of an eta-expansion: those only take the read's own
+            // parameters (`w |> Dlr.get "M"` is `(fun target -> Dlr.get "M" target) w`, a read).
+            | FSharpExprPatterns.Application(f, _, _) ->
+                match describe e with
+                | Some(_, _, lambdas, applied) when applied.Length > lambdas -> readHeads f
+                | _ -> []
+            | FSharpExprPatterns.Let((v, value, _), FSharpExprPatterns.Lambda(_, body)) when appliesLet v body -> readHeads value
+            | _ -> [])
+    let tupledPastFive =
+        exprs
+        |> List.choose (fun e ->
+            match e with
+            | FSharpExprPatterns.Call(_, mfv, _, _, args) ->
+                match readArity mfv, tupledArity e.Type with
+                // More arguments than the read takes: over-applied in place, a call.
+                | Some arity, Some n when n > 5 && args.Length <= arity
+                                          && not (appliedReads |> List.exists (fun a -> Range.equals a.Range e.Range)) ->
+                    let name = if mfv.CompiledName = "op_Dynamic" then "?" else "Dlr." + mfv.CompiledName
+                    Some(e.Range, sprintf "%s read as a tupled function of %d elements: up to five are supported (curried has no limit). Read it curried, or call it with the arguments; here it would raise DlrTranslationException at the block's first call." name n)
+                | _ -> None
+            | _ -> None)
+        |> List.distinctBy fst
     // A call with Dlr.out / Dlr.ref: its result shaped as F# returns out parameters. (`Dlr.new'`
     // returns its T: an out there is reported below instead.)
     let isNew (e: FSharpExpr) = match e with FSharpExprPatterns.Call(_, mfv, _, _, _) -> isMarker mfv && mfv.DisplayName = "new'" | _ -> false
@@ -423,7 +476,7 @@ let private misplacedMarkers (block: FSharpExpr) : (range * string) list =
                     if splat then [ (List.head byRefArgs).Range, "Dlr.out / Dlr.ref with Dlr.namedOf / Dlr.argsOf in one call: not supported (the outs' types are fixed by the result, the splat's arity is not); here it would raise DlrTranslationException at the block's first call." ]
                     else []
             twice @ afterNamed @ typeArgs @ byRefs)
-    outOfPlace @ namedNotLiteral @ staticsOutOfPlace @ callNotFunction @ refNotMutable @ byRefShape @ outInNew @ perList
+    outOfPlace @ namedNotLiteral @ staticsOutOfPlace @ callNotFunction @ tupledPastFive @ refNotMutable @ byRefShape @ outInNew @ perList
 
 /// The outermost `dlr.Run(...)` subtrees of `e`.
 let rec private blocksIn (e: FSharpExpr) : FSharpExpr list =

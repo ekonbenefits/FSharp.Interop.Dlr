@@ -471,3 +471,35 @@ module Impl =
     let first = List.head lines
     lines |> should equal [ for i in 0 .. 6 -> first + i ]                          // only the wrong lines
     (msgs |> List.filter (fun m -> m.Code <> ReflectedDefinitionAnalyzer.ArgumentMarkerCode)) |> should equal []
+
+[<Fact>]
+let ``a read as a tupled function past five elements is reported; a call of any arity, and a curried read, are not`` () =
+    let msgs =
+        run """
+module Impl =
+    let w = box 1
+    [<ReflectedDefinition>]
+    let fine (name: string) : int =
+        let a: int * int * int * int * int -> int = dlr { return w?M }                       // tupled, five
+        let b: int -> int -> int -> int -> int -> int -> int = dlr { return w?M }             // curried, six
+        let c: int = dlr { return w?M(1, 2, 3, 4, 5, 6) }                                      // a call
+        let d: int = dlr { return (w |> Dlr.get "M") (1, 2, 3, 4, 5, 6) }                      // a call, piped
+        let e: int = dlr { return Dlr.call w (1, 2, 3, 4, 5, 6) }                              // a call of a value
+        let f: int = dlr { return w |> Dlr.apply (1, 2, 3, 4, 5, 6) }                          // a call of a value, target last
+        let g: int = dlr { return (System.DateTime.Now)?M(1, 2, 3, 4, 5, 6) }                  // a call, the tupled eta-expansion
+        let h: int = dlr { return ((?) w name) (1, 2, 3, 4, 5, 6) }                            // a call, computed name
+        a (1, 2, 3, 4, 5) + b 1 2 3 4 5 6 + c + d + e + f + g + h
+    [<ReflectedDefinition>]
+    let wrong (name: string) : int =
+        let a: int * int * int * int * int * int -> int = dlr { return w?M }                   // ?
+        let b: int * int * int * int * int * int -> int = dlr { return (?) w name }            // a computed name
+        let c: int * int * int * int * int * int -> int = dlr { return w |> Dlr.get "M" }      // Dlr.get
+        let d: int * int * int * int * int * int -> int = dlr { return Dlr.call w }            // Dlr.call
+        a (1, 2, 3, 4, 5, 6) + b (1, 2, 3, 4, 5, 6) + c (1, 2, 3, 4, 5, 6) + d (1, 2, 3, 4, 5, 6)
+"""
+    let out = msgs |> List.filter (fun m -> m.Code = ReflectedDefinitionAnalyzer.ArgumentMarkerCode)
+    let lines = out |> List.map (fun m -> m.Range.StartLine) |> List.distinct |> List.sort
+    let first = List.head lines
+    lines |> should equal [ for i in 0 .. 3 -> first + i ]                                     // only the wrong lines
+    out |> List.forall (fun m -> m.Message.Contains "tupled function of 6 elements") |> should equal true
+    (msgs |> List.filter (fun m -> m.Code <> ReflectedDefinitionAnalyzer.ArgumentMarkerCode)) |> should equal []

@@ -23,7 +23,8 @@ code is reported without a fix: move it into a function.
 `Dlr.new'` (a value or constructor call takes none); `Dlr.namedOf` or `Dlr.argsOf` twice in one
 call; a positional argument after `Dlr.namedOf`; `Dlr.named` on a record in a variable rather
 than the literal (names from data are `Dlr.namedOf`); `Dlr.Static<T>.Overloads` anywhere but as
-the target of a call; `Dlr.call x` read at a non-function type; `Dlr.ref` on anything but a
+the target of a call; `Dlr.call x` read at a non-function type; a member or value read as a tupled F#
+function of more than five elements (curried has no limit); `Dlr.ref` on anything but a
 `let mutable`; a call with `Dlr.out` whose result type does not fit (the return value then each
 out as a tuple, the outs alone, or the one out's value); `Dlr.out` in `Dlr.new'` (its result is the
 `T`; a constructor's `ref` is `Dlr.ref`); `Dlr.out` / `Dlr.ref` in a call with `Dlr.namedOf` /
