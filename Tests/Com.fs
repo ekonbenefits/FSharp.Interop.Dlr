@@ -4,7 +4,9 @@
 /// form below is late-bound by name through `IDispatch`, as C#'s `dynamic` does it: optional
 /// arguments omitted or passed by name (the binder fills `Type.Missing`), and events through C#'s
 /// COM event sink, on ADO's in-memory `ADODB.Recordset`, whose `MoveComplete` fires on the calling
-/// thread. Skipped where the ProgID is not registered (anything but Windows).
+/// thread. A Dlr.ref reaches a COM method as a by-reference VARIANT (ADODB.Stream); a COM write-back
+/// stays untested, for want of an [in, out] parameter on stock 64-bit Windows. Skipped where the
+/// ProgID is not registered (anything but Windows).
 [<ReflectedDefinition>]
 module Tests.Com
 
@@ -169,3 +171,19 @@ let ``COM events: an F# function as the handler`` () =
     dlr { rs |> Dlr.addAssign "MoveComplete" handler }
     dlr { rs?MoveFirst() }
     moves.Value |> should be (greaterThan 0)
+
+[<Fact>]
+let ``a Dlr.ref argument reaches a COM method as a by-reference VARIANT`` () =
+    // No COM server on stock (64-bit) Windows has an [in, out] parameter to write back through,
+    // so this pins the half that can be tested: a Dlr.ref goes through C#'s COM binder as a
+    // VT_BYREF VARIANT, which ADO's ReadText ([in] long NumChars) coerces, and its value comes back.
+    let stream = create "ADODB.Stream"
+    dlr { stream?Type <- 2 }                                   // adTypeText
+    dlr { stream?Open() }
+    dlr { stream?WriteText("Testing dlr COM interop") }
+    dlr { stream?Position <- 0 }
+    let mutable count = -1                                     // adReadAll
+    let text: string = dlr { return stream?ReadText(Dlr.ref count) }
+    dlr { stream?Close() }
+    text |> should equal "Testing dlr COM interop"
+    count |> should equal -1                                   // an [in] parameter: back as it went
