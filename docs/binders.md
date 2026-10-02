@@ -78,9 +78,11 @@ site that decides by the value's runtime type. Reading a member *as* a function
 five like `OptimizedClosures`; past five, `FunctionBuilder` compiles a factory once per site, a
 LINQ lambda taking the sites and the target and returning the function: tupled, one
 `CurriedStep` taking the whole tuple (any length, its elements read through `Rest`); curried, a
-`CurriedStep` per argument. A step is one object holding the sites, the target and the arguments
-so far (a `ValueTuple`) with a `next` compiled once, the last calling the site: what F# emits past
-`OptimizedClosures`, with no closure per step (`Tests/HotPath.fs` pins the bytes). Typed throughout (no boxing, no
+`CurriedStep` per argument. A step is one object holding the step before it (the first, the sites
+and the target), its argument and a `next` compiled once; the last reads the arguments back along
+the chain and calls the site: what F# emits past `OptimizedClosures`, with no closure per step
+(`Tests/HotPath.fs` pins the bytes). Not a `ValueTuple` of everything so far: a struct over
+references as a generic argument put each step on the runtime's slow shared-generic path. Typed throughout (no boxing, no
 `DynamicInvoke`), so what it throws arrives as itself, as at five and under. The sites stay
 `CallSite` constants in the quotation, so a computed name's per-key sites substitute them. The argument
 types a shape has to fit are the meta-objects' `LimitType`s — the runtime type of an `obj`-typed
