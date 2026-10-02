@@ -77,9 +77,9 @@ site that decides by the value's runtime type. Reading a member *as* a function
 (`FunctionMember.CurriedN`/`TupledN`) constructs an F# closure and so has per-arity helpers up to
 five like `OptimizedClosures`; past five, `FunctionBuilder` compiles a factory once per site, a
 LINQ lambda taking the sites and the target and returning the function: tupled, one
-`FunctionStep` taking the whole tuple (any length, its elements read through `Rest`); curried, a
-`CurriedStep` per argument — one object holding the sites, the target and the arguments so far
-(a `ValueTuple`) with a `next` compiled once, the last calling the site: what F# emits past
+`CurriedStep` taking the whole tuple (any length, its elements read through `Rest`); curried, a
+`CurriedStep` per argument. A step is one object holding the sites, the target and the arguments
+so far (a `ValueTuple`) with a `next` compiled once, the last calling the site: what F# emits past
 `OptimizedClosures`, with no closure per step (`Tests/HotPath.fs` pins the bytes). Typed throughout (no boxing, no
 `DynamicInvoke`), so what it throws arrives as itself, as at five and under. The sites stay
 `CallSite` constants in the quotation, so a computed name's per-key sites substitute them. The argument
