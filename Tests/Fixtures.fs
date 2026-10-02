@@ -358,6 +358,10 @@ type Callbacks() =
     member _.Pick(_: int, s: string) = "string:" + s
     member _.Six(f: Func<int, int, int, int, int, int, int>) = f.Invoke(1, 2, 3, 4, 5, 6)
     member _.Six'(f: int -> int -> int -> int -> int -> int -> int) = f 1 2 3 4 5 6
+    member _.SixPartial(f: int -> int -> int -> int -> int -> int -> int) = let g = f 1 2 3 in g 4 5 6 * 1000 + g 0 0 0
+    member _.SixTupled'(f: int * int * int * int * int * int -> int) = f (1, 2, 3, 4, 5, 6)
+    member _.EightTupled'(f: int * int * int * int * int * int * int * int -> int) = f (1, 2, 3, 4, 5, 6, 7, 8)
+    member _.SixUnit'(f: int -> int -> int -> int -> int -> int -> unit) = f 1 2 3 4 5 6
     member _.Keep(f: Func<int, int>) = f
     member _.Wide(f: Wide17) = f.Invoke(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17)
     member internal _.KeepInternal(f: InternalHandler) = f

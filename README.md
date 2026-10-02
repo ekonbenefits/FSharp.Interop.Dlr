@@ -1,7 +1,7 @@
 # FSharp.Interop.Dlr
 
 [![CI](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml/badge.svg)](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml)
-[![Tests](https://img.shields.io/badge/tests-331%20passed-brightgreen.svg?style=flat)](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml)
+[![Tests](https://img.shields.io/badge/tests-334%20passed-brightgreen.svg?style=flat)](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml)
 [![Line coverage](https://img.shields.io/badge/line%20coverage-94%25-brightgreen.svg?style=flat)](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml)
 [![Branch coverage](https://img.shields.io/badge/branch%20coverage-84%25-green.svg?style=flat)](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](License.txt)
@@ -165,6 +165,6 @@ and the full [docs/benchmarks.md](docs/benchmarks.md) (every suite, allocations,
 <!-- benchmarks:start -->
 | ns per call | static | C# `dynamic` | **`dlr { }`** | reflection (cached) | FSharp.Interop.Dynamic |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| method call `w.Add(i, 1)` | 1.2 | 7.3 | **11.5** | 35.4 | 7,493 |
-| property get `w.Count` | 0 | 6.7 | **10.8** | 12.3 | 3,982 |
+| method call `w.Add(i, 1)` | 1.2 | 7.7 | **11.7** | 35.8 | 7,532 |
+| property get `w.Count` | 0 | 7.1 | **10.9** | 12.7 | 3,939 |
 <!-- benchmarks:end -->

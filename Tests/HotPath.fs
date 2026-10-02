@@ -49,6 +49,16 @@ let ``a bound call allocates nothing but, for a value result, its box`` () : uni
     let outTuple () = (dlr { return d?TryGetValue("a", Dlr.out) } : bool * int) |> ignore
     bytes outStruct |> should lessThanOrEqualTo box'
     bytes outTuple |> should lessThanOrEqualTo (box' + 24L)
+    // A member read as a function past five, applied (read once, outside): the result's box plus
+    // what F# itself allocates — the tuple (40 B), or a step per argument after the first (no
+    // InvokeFast past OptimizedClosures), each one object of 40 B: the step before, its argument
+    // and `next`. No closure, delegate or array per step (once ~1 KB).
+    let tupled6: int * int * int * int * int * int -> int = dlr { return w?Sum6 }
+    let curried6: int -> int -> int -> int -> int -> int -> int = dlr { return w?Sum6 }
+    let applyTupled () = tupled6 (1, 2, 3, 4, 5, 6) |> ignore
+    let applyCurried () = curried6 1 2 3 4 5 6 |> ignore
+    bytes applyTupled |> should lessThanOrEqualTo (box' + 40L)
+    bytes applyCurried |> should lessThanOrEqualTo (box' + 5L * 40L)
 #endif
 
 [<Fact>]
