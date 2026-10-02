@@ -92,6 +92,11 @@ dotnet build Tests.Wasm -c Release && (cd Tests.Wasm/bin/Release/net10.0-browser
 - FSharp.Core floor 10.1.201 (older converters reject `Sequential`/`PropertySet`, so unit blocks,
   mutables and `let rec` fail there; the test projects run at the floor); netstandard2.0 has no `Architecture.Wasm` or Reflection.Emit inbox
   (`System.Reflection.Emit.Lightweight` is referenced for it).
+- Benchmarks: only on a quiet machine (load average under 4; a busy one skews every cell).
+  `Benchmarks/bench.sh docs` regenerates `docs/benchmarks.md`, then `bench.sh compare` flags the
+  `dlr { }` cells over 25% slower or allocating more than the committed file (and prints the
+  other columns' drift). Allocations on the hot paths are pinned exactly in `Tests/HotPath.fs`,
+  which the gate runs; timings cannot be, so they are compared, not asserted.
 - Copilot: one automatic review per new PR, none on later pushes; never request one while
   waiting (15–20 min); address via `check-review`, verifying each claim with a test first.
 - Issues are the backlog; the API decisions above came from them.

@@ -27,7 +27,9 @@ let private results (summaries: (Type * Summary) list) =
     |> dict
 
 let private fmtNs (ns: float) =
-    if ns >= 1000.0 then String.Format("{0:N0}", ns) else String.Format("{0:0.#}", ns)
+    // Invariant: the file is compared across machines (compare.fsx), whatever their culture.
+    let invariant = Globalization.CultureInfo.InvariantCulture
+    if ns >= 1000.0 then String.Format(invariant, "{0:N0}", ns) else String.Format(invariant, "{0:0.#}", ns)
 
 let private cell (results: Collections.Generic.IDictionary<string, string * float * int64>) (name: string) =
     match results.TryGetValue name with
