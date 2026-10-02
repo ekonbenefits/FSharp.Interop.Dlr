@@ -488,3 +488,4 @@ TestResults/
 
 # BenchmarkDotNet output
 Benchmarks/BenchmarkDotNet.Artifacts/
+.claude/worktrees/

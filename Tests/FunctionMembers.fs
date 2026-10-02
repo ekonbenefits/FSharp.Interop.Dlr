@@ -343,6 +343,11 @@ let ``reading a member or value as a tupled function has no arity limit`` () =
     let f = box (Func<int, int, int, int, int, int, int>(fun a b c d e g -> a + b + c + d + e + g))
     let value: int * int * int * int * int * int -> int = dlr { return Dlr.call f }                   // a value read as a function
     value (1, 2, 3, 4, 5, 6) |> should equal 21
+    // Curried, over a delegate (not already an F# function, so no shortcut: the factory's function).
+    let curried: int -> int -> int -> int -> int -> int -> int = dlr { return Dlr.call f }
+    let partial = curried 1 2 3
+    partial 4 5 6 |> should equal 21
+    partial 0 0 0 |> should equal 6
 
 [<Fact>]
 let ``a method of only optional parameters can be read as unit -> R`` () =
