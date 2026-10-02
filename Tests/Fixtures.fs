@@ -88,6 +88,14 @@ type Counter(n: int) =
     override _.TryGetMember(binder, result) =
         if binder.Name = "Count" then result <- box n; true else false
 
+/// Members that throw, and F# function parameters past the typed adapters' five, for exceptions
+/// through the run-time-built functions (read past five, delegate to function past five).
+type Throwers() =
+    member _.Five(a: int, b: int, c: int, d: int, e: int) : int = ignore (a, b, c, d, e); raise (InvalidOperationException "boom")
+    member _.Six(a: int, b: int, c: int, d: int, e: int, f: int) : int = ignore (a, b, c, d, e, f); raise (InvalidOperationException "boom")
+    member _.ApplyCurried6(f: int -> int -> int -> int -> int -> int -> int) = f 1 2 3 4 5 6
+    member _.ApplyTupled6(f: int * int * int * int * int * int -> int) = f (1, 2, 3, 4, 5, 6)
+
 /// CLR members whose declared types say different things about what they hold.
 [<ReflectedDefinition>]
 type Holders() =

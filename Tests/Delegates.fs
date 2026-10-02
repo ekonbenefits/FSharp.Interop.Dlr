@@ -88,3 +88,10 @@ let ``one site alternates delegate and function arguments`` () =
             results.Add(o?Map(1, a))
     }
     List.ofSeq results |> should equal [ 2; 11; 101 ]
+
+[<Fact>]
+let ``a delegate's exception through an F# function parameter past five arrives as itself`` () =
+    let t = box (Throwers())
+    let throwing = Func<int, int, int, int, int, int, int>(fun _ _ _ _ _ _ -> raise (InvalidOperationException "boom"))
+    (fun () -> (dlr { return t?ApplyCurried6(throwing) } : int) |> ignore) |> should throw typeof<InvalidOperationException>
+    (fun () -> (dlr { return t?ApplyTupled6(throwing) } : int) |> ignore) |> should throw typeof<InvalidOperationException>

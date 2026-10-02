@@ -315,9 +315,33 @@ let ``reading a member as a curried function has no arity limit`` () =
     // A unit result past five: the site is void, the last step returns unit.
     let sixUnit: int -> int -> int -> int -> int -> int -> unit = dlr { return h?Six }
     sixUnit 1 2 3 4 5 6
-    // Tupled reads keep the five-element limit of the typed helpers.
-    (fun () -> (dlr { return h?SixTupled } : int * int * int * int * int * int -> int) |> ignore)
-    |> should throw typeof<DlrTranslationException>
+
+[<Fact>]
+let ``reading a member or value as a tupled function has no arity limit`` () =
+    // Past five, a tupled function built at run time: one argument, the whole tuple.
+    let h = box (Holders())
+    let five: int * int * int * int * int -> int = dlr { return h?Five }
+    five (1, 2, 3, 4, 5) |> should equal 15
+    let six: int * int * int * int * int * int -> int = dlr { return h?SixTupled }
+    six (1, 2, 3, 4, 5, 6) |> should equal 21
+    let sum6: int * int * int * int * int * int -> int = dlr { return (box (Widget()))?Sum6 }       // a C# method of six parameters
+    sum6 (1, 2, 3, 4, 5, 6) |> should equal 21
+    let eight: int * int * int * int * int * int * int * int -> int = dlr { return h?EightTupled }   // past seven: the CLR tuple nests
+    eight (1, 2, 3, 4, 5, 6, 7, 8) |> should equal 36
+    let eightStruct: struct (int * int * int * int * int * int * int * int) -> int = dlr { return h?EightStruct }
+    eightStruct (struct (1, 2, 3, 4, 5, 6, 7, 8)) |> should equal 36
+    // Sixteen: the site is past Func's arity, so its delegate type is emitted at run time — which
+    // a quotation must not name (wasm). The site goes in as a CallSite constant, coerced to the base.
+    let sixteen: int * int * int * int * int * int * int * int * int * int * int * int * int * int * int * int -> int = dlr { return h?SixteenTupled }
+    sixteen (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16) |> should equal 136
+    let sixUnit: int * int * int * int * int * int -> unit = dlr { return h?SixTupled }               // a unit result: a void site
+    sixUnit (1, 2, 3, 4, 5, 6)
+    let name = "SixTupled"
+    let keyed: int * int * int * int * int * int -> int = dlr { return (?) h name }                   // a computed name: a per-key site
+    keyed (1, 1, 1, 1, 1, 1) |> should equal 6
+    let f = box (Func<int, int, int, int, int, int, int>(fun a b c d e g -> a + b + c + d + e + g))
+    let value: int * int * int * int * int * int -> int = dlr { return Dlr.call f }                   // a value read as a function
+    value (1, 2, 3, 4, 5, 6) |> should equal 21
 
 [<Fact>]
 let ``a method of only optional parameters can be read as unit -> R`` () =
@@ -365,3 +389,19 @@ let ``a unit-typed variable as the argument means no arguments`` () =
 
 /// `Dlr.call x` read at a function type is the target itself as that function — the value's
 /// counterpart of `x?Name` read as a function — and applied it is a call, like `(x?Name)(a)`.
+
+[<Fact>]
+let ``an exception through a read past five arrives as itself, as at five`` () =
+    // The functions built at run time invoke the site with DynamicInvoke, which wraps what is thrown
+    // in a TargetInvocationException; the typed helpers (five and under) never did.
+    let t = box (Throwers())
+    let five: int * int * int * int * int -> int = dlr { return t?Five }
+    let six: int * int * int * int * int * int -> int = dlr { return t?Six }
+    let sixCurried: int -> int -> int -> int -> int -> int -> int = dlr { return t?Six }
+    (fun () -> five (1, 2, 3, 4, 5) |> ignore) |> should throw typeof<InvalidOperationException>
+    (fun () -> six (1, 2, 3, 4, 5, 6) |> ignore) |> should throw typeof<InvalidOperationException>
+    (fun () -> sixCurried 1 2 3 4 5 6 |> ignore) |> should throw typeof<InvalidOperationException>
+    let missing: int * int * int * int * int * int -> int = dlr { return t?NoSuchMember }        // a binder miss, at the call
+    let missingCurried: int -> int -> int -> int -> int -> int -> int = dlr { return t?NoSuchMember }
+    (fun () -> missing (1, 2, 3, 4, 5, 6) |> ignore) |> should throw typeof<RuntimeBinderException>
+    (fun () -> missingCurried 1 2 3 4 5 6 |> ignore) |> should throw typeof<RuntimeBinderException>
