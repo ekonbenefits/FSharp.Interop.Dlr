@@ -307,6 +307,7 @@ let ``reading a member as a curried function has no arity limit`` () =
     six 1 2 3 4 5 6 |> should equal 720
     let partial = six 1 2 3
     partial 4 5 6 |> should equal 720
+    partial 1 1 1 |> should equal 6        // each step keeps its own arguments: a partial application is reusable
     let eight: int -> int -> int -> int -> int -> int -> int -> int -> int64 = dlr { return h?Eight }
     eight 1 2 3 4 5 6 7 8 |> should equal 36L
     // A C# method of six parameters, bound curried.

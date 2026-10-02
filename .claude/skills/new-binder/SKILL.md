@@ -41,13 +41,13 @@ in `Adapters.fs` (`generate-adapters.fsx`).
 The misses caught in review were always "handled here, not there". Check each:
 
 - `FSharpInvokeMemberBinder` (`x?M(args)`), `FSharpReadOrInvokeBinder` (`unit -> R` read),
-  `FSharpInvokeBinder` (`Dlr.call` / `Dlr.apply` / a value invoked), `FunctionMember`/`CurriedInvoker`
+  `FSharpInvokeBinder` (`Dlr.call` / `Dlr.apply` / a value invoked), `FunctionMember`/`FunctionBuilder`
   (member read as `A -> B -> R`).
 - Result discarded (`ResultDiscarded`, void site) vs converted result vs `obj` result.
 - Typed args (`UseCompileTimeType`) vs `obj` args vs literals (`Constant`).
 - CLR target vs `DynamicObject`/`ExpandoObject` target (`FallbackInvoke` after the dynamic
   object produced the member).
-- Arities: 0, 1, 2, 5, >5 (curried helpers stop at five; tupled >5 is a translation error).
+- Arities: 0, 1, 2, 5, >5 (the typed helpers stop at five; past it `FunctionBuilder` compiles the function).
 - Accessibility: public, internal, protected, private from inside the declaring type.
 - F# optional parameters (`OptionalArguments.tryCall`) as the error suggestion where a method
   of that name exists.
