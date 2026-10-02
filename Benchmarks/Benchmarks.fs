@@ -14,6 +14,8 @@ type Widget() =
     member val Count = 3 with get, set
     member val Name = "widget" with get, set
     member _.Add(a: int, b: int) = a + b
+    member _.Sum5(a: int, b: int, c: int, d: int, e: int) = a + b + c + d + e
+    member _.Sum6(a: int, b: int, c: int, d: int, e: int, f: int) = a + b + c + d + e + f
     member _.Bump(count: int, ?step: int) = count + defaultArg step 1
     member _.Run(f: Func<int, int>) = f.Invoke 21
     member val Fn = (fun (a: int) (b: int) -> a + b) with get
@@ -216,6 +218,21 @@ type Core() =
 
     [<Benchmark(Description = "dlr Dlr.call f read as int -> int -> int, then applied")>]
     member _.CallAsFunction() : int = let f: int -> int -> int = dlr { return Dlr.call adder2 } in f 1 2
+
+    [<Benchmark(Description = "dlr w?Sum5 read as a tupled function of five, then applied")>]
+    member _.TupledRead5() : int = let f: int * int * int * int * int -> int = dlr { return o?Sum5 } in f (1, 2, 3, 4, 5)
+
+    [<Benchmark(Description = "dlr w?Sum6 read as a tupled function of six, then applied")>]
+    member _.TupledRead6() : int = let f: int * int * int * int * int * int -> int = dlr { return o?Sum6 } in f (1, 2, 3, 4, 5, 6)
+
+    [<Benchmark(Description = "dlr w?Sum6 read as a curried function of six, then applied")>]
+    member _.CurriedRead6() : int = let f: int -> int -> int -> int -> int -> int -> int = dlr { return o?Sum6 } in f 1 2 3 4 5 6
+
+    [<Benchmark(Description = "dlr w?Sum6(1, 2, 3, 4, 5, 6)")>]
+    member _.CallSum6() : int = dlr { return o?Sum6(1, 2, 3, 4, 5, 6) }
+
+    [<Benchmark(Description = "C# dynamic d.Sum6(1, 2, 3, 4, 5, 6)")>]
+    member _.CSharpCallSum6() = CSharpDynamic.Sum6 o
 
     [<Benchmark(Description = "dlr (?) o name, name alternating (SiteCache hit)")>]
     member _.ComputedName() : obj = i <- i + 1; let n = names.[i % 2] in dlr { return (?) o n }

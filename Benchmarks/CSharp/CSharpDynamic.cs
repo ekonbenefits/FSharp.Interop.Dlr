@@ -38,6 +38,8 @@ public static class CSharpDynamic
 
     public static int InvokeDelegate(object f, int arg) { dynamic d = f; return d(arg); }
 
+    public static int Sum6(object o) { dynamic d = o; return d.Sum6(1, 2, 3, 4, 5, 6); }
+
     public static int OutArg(object o) { dynamic d = o; bool found = d.TryGetValue("a", out int v); return found ? v : 0; }
 
     public static int NamedArgs(object o, int i) { dynamic d = o; return d.Add(b: 1, a: i); }
