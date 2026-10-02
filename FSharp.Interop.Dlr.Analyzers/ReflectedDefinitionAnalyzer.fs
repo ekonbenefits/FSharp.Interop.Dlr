@@ -451,7 +451,7 @@ let private misplacedMarkers (block: FSharpExpr) : (range * string) list =
                 | [] -> []
                 | byRefArgs ->
                     let splat = args |> List.exists (fun a -> markerNamed "namedOf" a || markerNamed "argsOf" a)
-                    if splat then [ (List.head byRefArgs).Range, "Dlr.out / Dlr.ref with Dlr.namedOf / Dlr.argsOf in one call: not supported (the outs' types are fixed by the result, the splat's arity is not); here it would raise DlrTranslationException at the block's first call." ]
+                    if splat then [ (List.head byRefArgs).Range, "Dlr.out / Dlr.outAs / Dlr.ref with Dlr.namedOf / Dlr.argsOf in one call: not supported (the outs' types are fixed by the result, the splat's arity is not); here it would raise DlrTranslationException at the block's first call." ]
                     else []
             twice @ afterNamed @ typeArgs @ byRefs)
     outOfPlace @ namedNotLiteral @ staticsOutOfPlace @ callNotFunction @ refNotMutable @ byRefShape @ outInNew @ perList

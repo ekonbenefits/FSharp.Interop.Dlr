@@ -835,7 +835,7 @@ module internal Translate =
                         namedBindings.AddRange lets
                         let inner = namedBindings |> Seq.fold (fun (b: Set<Var>) (v, _) -> b.Add v) bound
                         for (name, v) in fields -> Binders.named name (valueArg rewriteIn inner v)
-                    | NamedOf _ | ArgsOf _ -> unsupported "Dlr.namedOf / Dlr.argsOf in a call with Dlr.out or Dlr.ref (not supported: the outs' types are fixed by the result, the splat's arity is not)" a
+                    | NamedOf _ | ArgsOf _ -> unsupported "Dlr.namedOf / Dlr.argsOf in a call with Dlr.out, Dlr.outAs or Dlr.ref (not supported: the outs' types are fixed by the result, the splat's arity is not)" a
                     | TypeArgs _ -> unsupported "Dlr.typeArgs anywhere but as the first argument of a member call" a
                     | v -> yield valueArg rewriteIn bound v ]
             let call = makeCall returnType.IsNone args
@@ -1116,7 +1116,7 @@ module internal Translate =
             match e with
             | MemberOp(InvokeMember(target, nameExpr, argExpr)) when (snd (splitArgs argExpr)) |> List.exists isByRefMarker ->
                 let tupleBindings, argExprs = splitArgs argExpr
-                if not tupleBindings.IsEmpty then unsupported "Dlr.out / Dlr.ref in a tuple held in a variable" argExpr
+                if not tupleBindings.IsEmpty then unsupported "Dlr.out / Dlr.outAs / Dlr.ref in a tuple held in a variable" argExpr
                 let typeArgs, argExprs =
                     match argExprs with
                     | TypeArgs spec :: rest -> spec, rest
@@ -1225,7 +1225,7 @@ module internal Translate =
             | Application(EtaReduced(Op opCall [ Unboxed target ]), argExpr)
             | Op opApply [ argExpr; Unboxed target ] when (snd (splitArgs argExpr)) |> List.exists isByRefMarker ->
                 let tupleBindings, argExprs = splitArgs argExpr
-                if not tupleBindings.IsEmpty then unsupported "Dlr.out / Dlr.ref in a tuple held in a variable" argExpr
+                if not tupleBindings.IsEmpty then unsupported "Dlr.out / Dlr.outAs / Dlr.ref in a tuple held in a variable" argExpr
                 let bindings, vars, target', _, argExprs' = sequenced (Some target) [] [] argExprs
                 let bound' = Set.union bound vars
                 let targetInfo = targetArg bound' target'.Value
