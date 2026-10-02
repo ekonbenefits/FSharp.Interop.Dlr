@@ -70,7 +70,7 @@ void site, a `unit` read or operator just drops the value).
 | `x?Name <- v` | `SetMember` |
 | `Dlr.addAssign` / `subtractAssign` | `IsEvent`, then either `InvokeMember add_Name` (`InvokeSpecialName`, discarded) or `GetMember` + `BinaryOperation AddAssign` + `SetMember` (`ValueFromCompoundAssignment`) — the C# compiler's shape for `+=` |
 | `Dlr.call x (args)`, `x \|> Dlr.apply args` | `Invoke` (through `FSharpInvokeBinder`) + `Convert` |
-| `Dlr.call x` typed `A -> B -> R` | `Invoke` site with typed argument slots + `Convert`, wrapped by `FunctionMember.CurriedN` / `TupledN` like a member read; the target returned as it is when it already is a function of the type |
+| `Dlr.call x` typed `A -> B -> R` | `Invoke` site with typed argument slots + `Convert`, wrapped by `FunctionMember.CurriedN` / `TupledN` like a member read (past five, a function built at run time: `CurriedInvoker` / `TupledStep`); the target returned as it is when it already is a function of the type |
 | `Dlr.Static<T>.Overloads?M(a)` | the member's usual `InvokeMember` site with `typeof<T>` as argument 0, flagged `UseCompileTimeType ||| IsStaticType` (C#'s shape for `T.M(dynamicArg)`); C#'s binder alone, the F#-aware wrappers look at instances. Only calls: C#'s `GetMember`/`SetMember`/`IsEvent` have no static form, so the other operations on it are a translation error |
 | `Dlr.new'<T>(a, b)` | `InvokeConstructor` + `Convert`; `typeof<T>` is argument 0 of the site, flagged `UseCompileTimeType ||| IsStaticType`, the C# compiler's shape for `new T(dynamicArg)` |
 | `x \|> Dlr.item i`, `x \|> Dlr.setItem i v` | `GetIndex` / `SetIndex` |
@@ -78,7 +78,7 @@ void site, a `unit` read or operator just drops the value).
 | `Dlr.neg` … | `UnaryOperation` + `Convert` |
 | `Dlr.cast<T>` | `Convert` with `ConvertExplicit` |
 | `Dlr.implicit` | `Convert` |
-| `x?Name` typed `A -> B -> R` | `InvokeMember` site with typed argument slots + `Convert`, wrapped in a curried F# function by `FunctionMember.CurriedN` / `TupledN`; `unit -> R` uses `FSharpReadOrInvokeBinder` |
+| `x?Name` typed `A -> B -> R` | `InvokeMember` site with typed argument slots + `Convert`, wrapped in a curried F# function by `FunctionMember.CurriedN` / `TupledN` (past five, a function built at run time: `CurriedInvoker` / `TupledStep`); `unit -> R` uses `FSharpReadOrInvokeBinder` |
 | `(?) x name`, variable name; `x?M(Dlr.typeArgsOf ts)`, variable list | see below |
 
 ## Computed names and runtime type arguments

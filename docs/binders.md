@@ -79,7 +79,8 @@ five like `OptimizedClosures`; a curried read past five builds a chain of `Curry
 run time that collects the arguments and invokes the site's delegate once (`DynamicInvoke`, so
 slower than the typed helpers), and a tupled read past five a `TupledStep` taking the whole tuple
 (any length; `FSharpValue.GetTupleFields` reads it through `Rest`), which invokes the site the same
-way. The argument
+way. What either throws (a binder's error, the callee's) arrives as itself, as at five and under:
+`DynamicCall.invoke` unwraps `DynamicInvoke`'s `TargetInvocationException`. The argument
 types a shape has to fit are the meta-objects' `LimitType`s — the runtime type of an `obj`-typed
 argument, the static type of a typed one — matching the site's own argument rules; a null value
 fits any reference-type domain whatever its static type (an untyped `null` is `obj`), and the

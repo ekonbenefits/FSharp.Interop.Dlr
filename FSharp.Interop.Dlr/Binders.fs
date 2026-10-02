@@ -311,6 +311,15 @@ module internal FunctionShapes =
     /// `obj`, an interface, an abstract class. Its value then goes through a nested site.
     let opaque (t: Type) = t = typeof<obj> || t.IsInterface || (t.IsAbstract && not t.IsSealed)
 
+/// `DynamicInvoke`, with what is thrown arriving as itself, as at any other site: a binder's error
+/// or the callee's, not wrapped in a TargetInvocationException (ByRefSite does the same).
+module internal DynamicCall =
+    let invoke (d: Delegate) (args: obj[]) : obj =
+        try d.DynamicInvoke args
+        with :? System.Reflection.TargetInvocationException as e when not (isNull e.InnerException) ->
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.InnerException).Throw()
+            null
+
 /// One step of a curried F# function built at run time for a member read as a function of more
 /// arguments than the FunctionMember helpers cover: each step collects one argument and returns
 /// the next step, and the last invokes the site's delegate with all of them. This is exactly what
@@ -351,8 +360,8 @@ module CurriedInvoker =
         let siteDelegate = site.GetType().GetField("Target").GetValue(site) :?> Delegate
         let convertDelegate = if isNull convert then null else convert.GetType().GetField("Target").GetValue(convert) :?> Delegate
         buildWith domains resultType (fun args ->
-            let raw = siteDelegate.DynamicInvoke(Array.ofList (box site :: box target :: args))
-            if isNull convertDelegate then null else convertDelegate.DynamicInvoke([| box convert; raw |]))
+            let raw = DynamicCall.invoke siteDelegate (Array.ofList (box site :: box target :: args))
+            if isNull convertDelegate then null else DynamicCall.invoke convertDelegate [| box convert; raw |])
 
     /// A tupled F# function over `tupleType` (a reference or struct tuple of any length) whose
     /// result is the site invoked with the tuple's elements, converted.
@@ -360,8 +369,8 @@ module CurriedInvoker =
         let siteDelegate = site.GetType().GetField("Target").GetValue(site) :?> Delegate
         let convertDelegate = if isNull convert then null else convert.GetType().GetField("Target").GetValue(convert) :?> Delegate
         let finish (tuple: obj) : obj =
-            let raw = siteDelegate.DynamicInvoke(Array.append [| box site; target |] (FSharp.Reflection.FSharpValue.GetTupleFields tuple))
-            if isNull convertDelegate then null else convertDelegate.DynamicInvoke([| box convert; raw |])
+            let raw = DynamicCall.invoke siteDelegate (Array.append [| box site; target |] (FSharp.Reflection.FSharpValue.GetTupleFields tuple))
+            if isNull convertDelegate then null else DynamicCall.invoke convertDelegate [| box convert; raw |]
         Activator.CreateInstance(typedefof<TupledStep<_, _>>.MakeGenericType(tupleType, resultType), [| box finish |])
 
 /// Reference-equality comparer for a pair of types: the default struct-tuple comparer boxes and
@@ -433,7 +442,7 @@ type TupledDelegateFunction<'T, 'R>(d: Delegate) =
             if n = 0 then [||]
             elif n > 1 && FSharp.Reflection.FSharpType.IsTuple typeof<'T> then FSharp.Reflection.FSharpValue.GetTupleFields(box t)
             else [| box t |]
-        unbox<'R> (d.DynamicInvoke args)
+        unbox<'R> (DynamicCall.invoke d args)
 
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 module DelegateFunction =
@@ -442,7 +451,7 @@ module DelegateFunction =
         | Some make -> make d
         | None ->
         match FunctionShapes.domains funcType with
-        | Some(domains, false, result) when domains.Length > 1 -> CurriedInvoker.buildWith domains result (fun args -> d.DynamicInvoke(Array.ofList args))
+        | Some(domains, false, result) when domains.Length > 1 -> CurriedInvoker.buildWith domains result (fun args -> DynamicCall.invoke d (Array.ofList args))
         | _ ->
             let ga = funcType.GetGenericArguments()
             Activator.CreateInstance(typedefof<TupledDelegateFunction<_, _>>.MakeGenericType(ga.[0], ga.[1]), [| box d |])

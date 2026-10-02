@@ -385,3 +385,19 @@ let ``a unit-typed variable as the argument means no arguments`` () =
 
 /// `Dlr.call x` read at a function type is the target itself as that function — the value's
 /// counterpart of `x?Name` read as a function — and applied it is a call, like `(x?Name)(a)`.
+
+[<Fact>]
+let ``an exception through a read past five arrives as itself, as at five`` () =
+    // The functions built at run time invoke the site with DynamicInvoke, which wraps what is thrown
+    // in a TargetInvocationException; the typed helpers (five and under) never did.
+    let t = box (Throwers())
+    let five: int * int * int * int * int -> int = dlr { return t?Five }
+    let six: int * int * int * int * int * int -> int = dlr { return t?Six }
+    let sixCurried: int -> int -> int -> int -> int -> int -> int = dlr { return t?Six }
+    (fun () -> five (1, 2, 3, 4, 5) |> ignore) |> should throw typeof<InvalidOperationException>
+    (fun () -> six (1, 2, 3, 4, 5, 6) |> ignore) |> should throw typeof<InvalidOperationException>
+    (fun () -> sixCurried 1 2 3 4 5 6 |> ignore) |> should throw typeof<InvalidOperationException>
+    let missing: int * int * int * int * int * int -> int = dlr { return t?NoSuchMember }        // a binder miss, at the call
+    let missingCurried: int -> int -> int -> int -> int -> int -> int = dlr { return t?NoSuchMember }
+    (fun () -> missing (1, 2, 3, 4, 5, 6) |> ignore) |> should throw typeof<RuntimeBinderException>
+    (fun () -> missingCurried 1 2 3 4 5 6 |> ignore) |> should throw typeof<RuntimeBinderException>
