@@ -114,7 +114,7 @@ type Dlr =
     static member cast<'T> : value: obj -> 'T
     /// <summary>Pipe-friendly member get: <c>x |> Dlr.get "Name"</c>; chains as <c>x |> Dlr.get "A" |> Dlr.get "B"</c>, and applied it invokes, like <c>?</c>: <c>(x |> Dlr.get "Add") (1, 2)</c>. The name may be computed.</summary>
     static member get: name: string -> target: obj -> 'T
-    /// <summary>The <c>?</c> of values — the target itself (a delegate, a callable dynamic object, or an F# function value): applied, it invokes, <c>Dlr.call f (a, b)</c>, <c>Dlr.call f ()</c>; read at a function type, it is that function, <c>let add: int -> int -> int = dlr { return Dlr.call f }</c>, invoking the target when applied (curried any arity, tupled up to five; <c>unit -> R</c> invokes with no arguments; an F# function of that type is returned as it is). Pipe-friendly: <c>x |> Dlr.call</c>.</summary>
+    /// <summary>The <c>?</c> of values — the target itself (a delegate, a callable dynamic object, or an F# function value): applied, it invokes, <c>Dlr.call f (a, b)</c>, <c>Dlr.call f ()</c>; read at a function type, it is that function, <c>let add: int -> int -> int = dlr { return Dlr.call f }</c>, invoking the target when applied (curried or tupled, any arity; <c>unit -> R</c> invokes with no arguments; an F# function of that type is returned as it is). Pipe-friendly: <c>x |> Dlr.call</c>.</summary>
     static member call: target: obj -> 'T
     /// <summary>Invoke the target itself, target last for pipelines — the twin of <c>Dlr.invoke</c> for values: <c>f |> Dlr.apply (a, b)</c>, <c>f |> Dlr.apply ()</c>. Arguments follow the same rules as a member invocation.</summary>
     static member apply: args: 'TArgs -> target: obj -> 'T

@@ -77,7 +77,9 @@ site that decides by the value's runtime type. Reading a member *as* a function
 (`FunctionMember.CurriedN`/`TupledN`) constructs an F# closure and so has per-arity helpers up to
 five like `OptimizedClosures`; a curried read past five builds a chain of `CurryStep` closures at
 run time that collects the arguments and invokes the site's delegate once (`DynamicInvoke`, so
-slower than the typed helpers); tupled reads past five are a translation error. The argument
+slower than the typed helpers), and a tupled read past five a `TupledStep` taking the whole tuple
+(any length; `FSharpValue.GetTupleFields` reads it through `Rest`), which invokes the site the same
+way. The argument
 types a shape has to fit are the meta-objects' `LimitType`s — the runtime type of an `obj`-typed
 argument, the static type of a typed one — matching the site's own argument rules; a null value
 fits any reference-type domain whatever its static type (an untyped `null` is `obj`), and the
