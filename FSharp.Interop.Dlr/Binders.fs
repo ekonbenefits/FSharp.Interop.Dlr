@@ -320,28 +320,18 @@ module internal DynamicCall =
             System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.InnerException).Throw()
             null
 
-/// One step of a curried F# function built at run time for a member read as a function of more
-/// arguments than the FunctionMember helpers cover: each step collects one argument and returns
-/// the next step, and the last invokes the site's delegate with all of them. This is exactly what
-/// F# emits for a curried function beyond OptimizedClosures' reach, minus InvokeFast.
+/// One step of a curried F# function over a delegate whose signature the function's does not
+/// match exactly (`DelegateFunction.Make`): each step collects one argument and returns the next,
+/// and the last invokes the delegate with all of them (`DynamicInvoke`, which converts).
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type CurryStep<'A, 'R>(collected: obj list, next: obj list -> obj) =
     inherit FSharpFunc<'A, 'R>()
     override _.Invoke(a: 'A) : 'R = unbox<'R> (next (collected @ [ box a ]))
 
-/// A tupled F# function built at run time for a member read as a tupled function of more elements
-/// than the FunctionMember helpers cover: one argument, the whole tuple (of any length — the
-/// CLR nests it in `Rest` past seven), handed to `finish`. A class of its own rather than
-/// `FuncConvert`, whose wrappers lose their argument on Mono's interpreter (wasm).
-[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
-type TupledStep<'T, 'R>(finish: obj -> obj) =
-    inherit FSharpFunc<'T, 'R>()
-    override _.Invoke(tuple: 'T) : 'R = unbox<'R> (finish (box tuple))
-
-[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
-module CurriedInvoker =
+module internal CurriedInvoker =
     /// A curried F# function of the given domain types (nested `FSharpFunc`s) whose final result
-    /// is `finish` applied to all the collected arguments.
+    /// is `finish` applied to all the collected arguments: the untyped fallback, for a delegate
+    /// whose signature the function's does not match exactly (`DelegateFunction.Make`).
     let buildWith (domains: Type list) (resultType: Type) (finish: obj list -> obj) : obj =
         // The function type of the step taking domains.[i]: FSharpFunc<d_i, type of the rest>.
         let rec stepType (ds: Type list) =
@@ -356,22 +346,70 @@ module CurriedInvoker =
                 Activator.CreateInstance(typedefof<CurryStep<_, _>>.MakeGenericType(d, stepType rest), [| box collected; box next |])
         step [] domains
 
-    let build (domains: Type list) (resultType: Type) (site: CallSite) (convert: CallSite) (target: obj) : obj =
-        let siteDelegate = site.GetType().GetField("Target").GetValue(site) :?> Delegate
-        let convertDelegate = if isNull convert then null else convert.GetType().GetField("Target").GetValue(convert) :?> Delegate
-        buildWith domains resultType (fun args ->
-            let raw = DynamicCall.invoke siteDelegate (Array.ofList (box site :: box target :: args))
-            if isNull convertDelegate then null else DynamicCall.invoke convertDelegate [| box convert; raw |])
+/// One step of a function `FunctionBuilder` builds: the step before it (`Prev`; for the first, the
+/// captured values as a `Tuple`), the argument that step took (`Own`; for the first, null), and
+/// `next`, compiled once, which takes this step with its argument — the whole tuple, for a tupled
+/// function — to the next step or, at the last, the call, reading the arguments back along `Prev`.
+/// One object per step, no closure and nothing copied. Everything it holds is a class or a
+/// domain's own type: a struct over references as a type argument here (a `ValueTuple`
+/// accumulator) put each step on the runtime's slow shared-generic path, three times the cost. A
+/// class of its own rather than `FuncConvert`, whose wrappers lose their argument on Mono's
+/// interpreter (wasm).
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+type CurriedStep<'Prev, 'Own, 'A, 'R>(prev: 'Prev, own: 'Own, next: Func<CurriedStep<'Prev, 'Own, 'A, 'R>, 'A, 'R>) =
+    inherit FSharpFunc<'A, 'R>()
+    member _.Prev = prev
+    member _.Own = own
+    override this.Invoke(a: 'A) : 'R = next.Invoke(this, a)
 
-    /// A tupled F# function over `tupleType` (a reference or struct tuple of any length) whose
-    /// result is the site invoked with the tuple's elements, converted.
-    let buildTupled (tupleType: Type) (resultType: Type) (site: CallSite) (convert: CallSite) (target: obj) : obj =
-        let siteDelegate = site.GetType().GetField("Target").GetValue(site) :?> Delegate
-        let convertDelegate = if isNull convert then null else convert.GetType().GetField("Target").GetValue(convert) :?> Delegate
-        let finish (tuple: obj) : obj =
-            let raw = DynamicCall.invoke siteDelegate (Array.append [| box site; target |] (FSharp.Reflection.FSharpValue.GetTupleFields tuple))
-            if isNull convertDelegate then null else DynamicCall.invoke convertDelegate [| box convert; raw |]
-        Activator.CreateInstance(typedefof<TupledStep<_, _>>.MakeGenericType(tupleType, resultType), [| box finish |])
+/// F# functions past five arguments as LINQ, compiled once per site (or per delegate and function
+/// type): tupled, one `CurriedStep` taking the whole tuple, its elements read through `Rest`;
+/// curried, a `CurriedStep` per argument — what F# emits for a curried function beyond
+/// OptimizedClosures, minus InvokeFast. Typed throughout: no boxing, no `DynamicInvoke`, and what
+/// the call throws arrives as itself.
+module internal FunctionBuilder =
+    /// Element `i` of a reference or struct tuple: `Item(i+1)`, through `Rest` past the seventh.
+    let rec private element (tuple: Expression) (i: int) : Expression =
+        if i < 7 then Expression.PropertyOrField(tuple, sprintf "Item%d" (i + 1))
+        else element (Expression.PropertyOrField(tuple, "Rest")) (i - 7)
+
+    /// The F# function whose result is `call captured args`: tupled over `tupleType` when given
+    /// (`domains` its elements), else curried over `domains`; `captured` (one to seven: sites,
+    /// target, delegate) are values from the enclosing lambda, handed to `call` as expressions
+    /// valid where it is placed. `resultType` is the function's final result, which `call` produces.
+    let build (tupleType: Type option) (domains: Type list) (resultType: Type) (captured: Expression list)
+              (call: Expression list -> Expression list -> Expression) : Expression =
+        let capturedType = typedefof<Tuple<_>>.Assembly.GetType(sprintf "System.Tuple`%d" captured.Length).MakeGenericType([| for e in captured -> e.Type |])
+        // The steps' argument types: the tuple alone, or each argument.
+        let steps = match tupleType with Some t -> [ t ] | None -> domains
+        let n = steps.Length
+        let rec funcType k = if k = n then resultType else typedefof<FSharpFunc<_, _>>.MakeGenericType(steps.[k], funcType (k + 1))
+        let rec stepType k =
+            let prev, own = if k = 0 then capturedType, typeof<obj> else stepType (k - 1), steps.[k - 1]
+            typedefof<CurriedStep<_, _, _, _>>.MakeGenericType(prev, own, steps.[k], funcType (k + 1))
+        let newStep k (prev: Expression) (own: Expression) (next: Delegate) =
+            Expression.Convert(Expression.New((stepType k).GetConstructors().[0], prev, own, Expression.Constant(next)), funcType k) :> Expression
+        // `next` of step k: on to step k+1, or, at the last, the call.
+        let rec next k : Delegate =
+            let self = Expression.Parameter(stepType k, "self")
+            let a = Expression.Parameter(steps.[k], "a")
+            let body =
+                if k < n - 1 then newStep (k + 1) self a (next (k + 1))
+                else
+                    // Step j is n-1-j `Prev`s up; argument i is step i+1's `Own`.
+                    let rec up (j: int) : Expression = if j = n - 1 then self else Expression.Property(up (j + 1), "Prev")
+                    let capturedValues = [ for i in 0 .. captured.Length - 1 -> Expression.Property(Expression.Property(up 0, "Prev"), sprintf "Item%d" (i + 1)) :> Expression ]
+                    let args =
+                        match tupleType with
+                        | Some _ -> [ for i in 0 .. domains.Length - 1 -> element a i ]
+                        | None -> [ for i in 0 .. n - 2 -> Expression.Property(up (i + 1), "Own") :> Expression ] @ [ a ]
+                    call capturedValues args
+            Expression.Lambda(typedefof<Func<_, _, _>>.MakeGenericType(stepType k, steps.[k], funcType (k + 1)), body, [ self; a ]).Compile()
+        newStep 0 (Expression.New(capturedType.GetConstructors().[0], captured)) (Expression.Constant(null, typeof<obj>)) (next 0)
+
+    /// A void call as an F# `unit` result.
+    let unitOf (call: Expression) : Expression =
+        if call.Type = typeof<Void> then Expression.Block(typeof<unit>, call, Expression.Constant(null, typeof<unit>)) :> Expression else call
 
 /// Reference-equality comparer for a pair of types: the default struct-tuple comparer boxes and
 /// costs ~100 ns per lookup, which the per-call conversion caches pay each time.
@@ -387,9 +425,10 @@ type TypePairComparer() =
 module internal DelegateConversions =
     let private makers = System.Collections.Concurrent.ConcurrentDictionary<struct (Type * Type), (Delegate -> obj) option>(TypePairComparer.Instance)
 
-    /// A maker of the typed wrapper for a function type from a delegate type, or None when no
-    /// typed wrapper fits (then `DynamicInvoke`). The delegate is rebound to the `Func`/`Action`
-    /// of its signature, which any delegate with that signature allows.
+    /// A maker of the typed wrapper for a function type from a delegate type, or None when the
+    /// signatures do not match exactly (then `DynamicInvoke`). The delegate is rebound to the
+    /// `Func`/`Action` of its signature, which any delegate with that signature allows; past five
+    /// parameters, a factory compiled once calls the delegate type's own `Invoke`.
     let tryTyped (funcType: Type) (delegateType: Type) : (Delegate -> obj) option =
         match makers.TryGetValue(struct (funcType, delegateType)) with
         | true, m -> m
@@ -403,7 +442,17 @@ module internal DelegateConversions =
                     let ds = if ds = [ typeof<unit> ] then [] else ds
                     let n = ds.Length
                     let unitResult = result = typeof<unit>
-                    if ds <> ps || n > 5 || (tupled && n < 2) || (isVoid <> unitResult) || (not isVoid && invoke.ReturnType <> result) then None
+                    if ds <> ps || (tupled && n < 2) || (isVoid <> unitResult) || (not isVoid && invoke.ReturnType <> result) then None
+                    elif n > 5 then
+                        // Past the typed wrappers: a factory compiled once (FunctionBuilder) calling
+                        // this delegate type's own Invoke.
+                        let d = Expression.Parameter(typeof<Delegate>, "d")
+                        let typed = Expression.Convert(d, delegateType)
+                        let body =
+                            FunctionBuilder.build (if tupled then Some (funcType.GetGenericArguments().[0]) else None) ds result [ typed ]
+                                (fun captured args -> FunctionBuilder.unitOf (Expression.Call(List.head captured, invoke, args)))
+                        let factory = Expression.Lambda<Func<Delegate, obj>>(Expression.Convert(body, typeof<obj>), [ d ]).Compile()
+                        Some factory.Invoke
                     else
                         let standard = if isVoid then Expression.GetActionType(Array.ofList ds) else Expression.GetFuncType(Array.ofList (ds @ [ result ]))
                         let name = (if tupled then "Tupled" else "") + (if isVoid then "Action" else "Func") + string n
@@ -431,8 +480,9 @@ module internal DelegateConversions =
 
 
 /// An F# function over a delegate, for a delegate argument passed to a function-typed parameter
-/// when `FuncConvert` has no matching shape: tupled (or one parameter) as one closure, curried
-/// as a `CurryStep` chain, the delegate invoked with `DynamicInvoke` when all arguments are in.
+/// whose signature the delegate's does not match exactly (no typed wrapper): tupled (or one
+/// parameter) as one closure, curried as a `CurryStep` chain, the delegate invoked with
+/// `DynamicInvoke` when all arguments are in.
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type TupledDelegateFunction<'T, 'R>(d: Delegate) =
     inherit FSharpFunc<'T, 'R>()
@@ -1528,6 +1578,9 @@ module internal Binders =
     /// typed argument slots (`unit -> R` gets an empty list), and `shortcut` says to return the
     /// target itself when it already is a function of that type (a bare value, not a member read).
     /// Any arity, curried or tupled: typed helpers up to five, functions built at run time past it.
+    /// `asFunction`'s factories past five, per (function type, invoke site type).
+    let private factories = System.Collections.Concurrent.ConcurrentDictionary<struct (Type * Type), Delegate>(TypePairComparer.Instance)
+
     let private asFunction (context: Type) (functionType: Type) (original: Arg) (shortcut: bool) (binderFor: Arg list -> bool -> CallSiteBinder) : Expr =
         let target = original
         let rec domains (t: Type) =
@@ -1555,17 +1608,34 @@ module internal Binders =
         let shape = (if tupled then "Tupled" else "Curried") + string argTypes.Length
         let built =
             if argTypes.Length > 5 then
-                // Beyond the typed helpers, functions built at run time: curried, a chain of steps
-                // (CurriedInvoker), which is what F# itself does past OptimizedClosures; tupled, one
-                // step taking the whole tuple (TupledStep). Either ends in a DynamicInvoke of the site.
-                let convertSite = if discard then Expr.Value(null, typeof<CallSite>) else site (Binder.Convert(CSharpBinderFlags.None, resultType, context)) [ dynamicArg (Expr.Value(null, typeof<obj>)) ] resultType
-                let invoker = typeof<CurryStep<obj, obj>>.Assembly.GetType("FSharp.Interop.Dlr.CurriedInvoker")
-                let result = Expr.Value((if discard then typeof<unit> else resultType), typeof<Type>)
-                let sites = [ Expr.Coerce(invokeSite, typeof<CallSite>); Expr.Coerce(convertSite, typeof<CallSite>); target.Expr ]
-                let call =
-                    if tupled then Expr.Call(invoker.GetMethod("buildTupled"), Expr.Value(List.head ds, typeof<Type>) :: result :: sites)
-                    else Expr.Call(invoker.GetMethod("build"), Expr.Value(argTypes, typeof<Type list>) :: result :: sites)
-                Expr.Coerce(call, functionType)
+                // Beyond the typed helpers, the function as a factory compiled once here (see
+                // FunctionBuilder): the sites and the target in, the function over them out. The
+                // sites stay in the quotation, as `CallSite` constants (a per-key site lifts them),
+                // typed as the base: a wide site's delegate type is emitted, which a quotation
+                // must not name (see WideSite).
+                let sites =
+                    [ yield invokeSite
+                      if not discard then yield site (Binder.Convert(CSharpBinderFlags.None, resultType, context)) [ dynamicArg (Expr.Value(null, typeof<obj>)) ] resultType ]
+                    |> List.map (function Patterns.Value(v, t) -> v, t | _ -> failwith "unreachable")
+                let factoryType = Expression.GetFuncType(Array.ofList ([ for _ in sites -> typeof<CallSite> ] @ [ typeof<obj>; functionType ]))
+                // The factory depends on the function type and the sites' types, not on the sites:
+                // compiled once per shape, which a per-key site's template (built again per key, for
+                // its sites) then finds here rather than compiling and discarding its own.
+                let factory =
+                    factories.GetOrAdd(struct (functionType, snd sites.Head), fun _ ->
+                        let siteParams = [ for i in 0 .. sites.Length - 1 -> Expression.Parameter(typeof<CallSite>, sprintf "site%d" i) ]
+                        let targetParam = Expression.Parameter(typeof<obj>, "target")
+                        // Captured: each site as its own type, then the target.
+                        let captured = [ for p, (_, t) in List.zip siteParams sites -> Expression.Convert(p, t) :> Expression ] @ [ targetParam ]
+                        let finish (captured: Expression list) (args: Expression list) =
+                            let invoke (i: int) (args: Expression list) =
+                                Expression.Invoke(Expression.Field(captured.[i], "Target"), captured.[i] :: args) :> Expression
+                            let raw = invoke 0 (List.last captured :: args)
+                            if discard then FunctionBuilder.unitOf raw else invoke 1 [ raw ]
+                        let body = FunctionBuilder.build (if tupled then Some (List.head ds) else None) argTypes (if discard then typeof<unit> else resultType) captured finish
+                        Expression.Lambda(factoryType, body, siteParams @ [ targetParam ]).Compile())
+                Expr.Call(Expr.Value(factory, factoryType), factoryType.GetMethod("Invoke"),
+                          [ for v, _ in sites -> Expr.Value(v, typeof<CallSite>) ] @ [ target.Expr ])
             elif discard then
                 let helper = typeof<FunctionMember>.GetMethod(shape + "Unit")
                 let helper = if argTypes.IsEmpty then helper else helper.MakeGenericMethod(Array.ofList argTypes)

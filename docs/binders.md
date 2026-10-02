@@ -75,12 +75,17 @@ So a discarded call or a widened result still applies the function that is there
 whose declared type says nothing (`obj`, an interface) is read and handed to a nested `Invoke`
 site that decides by the value's runtime type. Reading a member *as* a function
 (`FunctionMember.CurriedN`/`TupledN`) constructs an F# closure and so has per-arity helpers up to
-five like `OptimizedClosures`; a curried read past five builds a chain of `CurryStep` closures at
-run time that collects the arguments and invokes the site's delegate once (`DynamicInvoke`, so
-slower than the typed helpers), and a tupled read past five a `TupledStep` taking the whole tuple
-(any length; `FSharpValue.GetTupleFields` reads it through `Rest`), which invokes the site the same
-way. What either throws (a binder's error, the callee's) arrives as itself, as at five and under:
-`DynamicCall.invoke` unwraps `DynamicInvoke`'s `TargetInvocationException`. The argument
+five like `OptimizedClosures`; past five, `FunctionBuilder` compiles a factory once per (function
+type, site type) — so a computed name's per-key sites reuse it — a LINQ lambda taking the sites
+and the target and returning the function: tupled, one
+`CurriedStep` taking the whole tuple (any length, its elements read through `Rest`); curried, a
+`CurriedStep` per argument. A step is one object holding the step before it (the first, the sites
+and the target), its argument and a `next` compiled once; the last reads the arguments back along
+the chain and calls the site: what F# emits past `OptimizedClosures`, with no closure per step
+(`Tests/HotPath.fs` pins the bytes). Not a `ValueTuple` of everything so far: a struct over
+references as a generic argument put each step on the runtime's slow shared-generic path. Typed throughout (no boxing, no
+`DynamicInvoke`), so what it throws arrives as itself, as at five and under. The sites stay
+`CallSite` constants in the quotation, so a computed name's per-key sites substitute them. The argument
 types a shape has to fit are the meta-objects' `LimitType`s — the runtime type of an `obj`-typed
 argument, the static type of a typed one — matching the site's own argument rules; a null value
 fits any reference-type domain whatever its static type (an untyped `null` is `obj`), and the
@@ -134,7 +139,11 @@ lambda applying the function.
 *Delegate to function*: a typed `DelegateFunctions` wrapper (`FSharpFunc` subclass calling the
 delegate's `Invoke`; `OptimizedClosures` for curried, so `f a b` is one call) over the delegate
 rebound to the `Func`/`Action` of its signature, again constructed by emitted IL; past five
-parameters `TupledDelegateFunction`/`CurryStep` with `DynamicInvoke`. Not `FuncConvert`, whose
+parameters a `FunctionBuilder` factory compiled once per (function type, delegate type), calling
+the delegate type's own `Invoke`. The binder converts only a delegate whose signature matches the
+function's exactly (a mismatch is C#'s binder error); `DelegateFunction.Make` called with a
+non-matching pair falls back to `TupledDelegateFunction`/`CurryStep` with `DynamicInvoke`, which
+no bound call reaches. Not `FuncConvert`, whose
 wrapper loses arguments on Mono's browser-wasm runtime. A related wasm fault, a nested
 non-capturing lambda losing its arguments, is why every lambda and delegate literal written in a
 block is made to capture the closure parameter there (`capturing` in `Translate.fs`, a no-op

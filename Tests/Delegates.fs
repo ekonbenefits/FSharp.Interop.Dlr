@@ -33,6 +33,15 @@ let ``a delegate is converted to an F# function parameter`` () =
     let ran = Func<string>(fun () -> "ran")      // built outside: a zero-argument delegate literal has no quotation form the converter takes
     (dlr { return o?Run(ran) } : string) |> should equal "ran"
     (dlr { return o?Six'(Func<int, int, int, int, int, int, int>(fun a b c d e f -> a + b + c + d + e + f)) } : int) |> should equal 21
+    // Past five, a function compiled once per delegate type: curried (each partial application its
+    // own), tupled (the tuple nested past seven), and unit for an Action.
+    (dlr { return o?SixPartial(Func<int, int, int, int, int, int, int>(fun a b c d e f -> a + b + c + d + e + f)) } : int) |> should equal 21006
+    (dlr { return o?SixTupled'(Func<int, int, int, int, int, int, int>(fun a b c d e f -> a * b * c * d * e * f)) } : int) |> should equal 720
+    (dlr { return o?EightTupled'(Func<int, int, int, int, int, int, int, int, int>(fun a b c d e f g h -> a + b + c + d + e + f + g + h)) } : int) |> should equal 36
+    let seen = ResizeArray<int>()
+    let record = Action<int, int, int, int, int, int>(fun a b c d e f -> seen.AddRange [ a; b; c; d; e; f ])
+    (dlr { return o?SixUnit'(record) } : unit)
+    List.ofSeq seen |> should equal [ 1; 2; 3; 4; 5; 6 ]
 
 [<Fact>]
 let ``a tupled F# function reaches a delegate parameter past the adapter classes`` () =

@@ -118,8 +118,8 @@ let private writeDocs (short: bool) =
                      "keyword arguments from data, two name lists alternating", [ "^7"; "NamedOfAlternating"; "DynamicNamedOfAlternating" ]
                      "a six-argument call `w?Sum6(1, …, 6)`", [ "CSharpCallSum6"; "CallSum6"; "" ]
                      "a member read as a tupled function of five, then applied (`w?Sum5` typed `int * … -> int`; a typed helper)", [ "^7"; "TupledRead5"; "" ]
-                     "the same of six (built at run time, one step over the tuple)", [ "^7"; "TupledRead6"; "" ]
-                     "a member read as a curried function of six, then applied (built at run time, a step per argument)", [ "^7"; "CurriedRead6"; "" ]
+                     "the same of six (compiled once per site, one step over the tuple)", [ "^7"; "TupledRead6"; "" ]
+                     "a member read as a curried function of six, then applied (compiled once per site, a step per argument)", [ "^7"; "CurriedRead6"; "" ]
                      "a value read as an F# function, `Dlr.call f : int -> int -> int`, then applied (`!?f (1, 2)`, which takes a tupled function, not a curried one)", [ "^7"; "CallAsFunction"; "DynamicInvokeFunction" ] ]
           yield "## Real targets"
           yield ""
