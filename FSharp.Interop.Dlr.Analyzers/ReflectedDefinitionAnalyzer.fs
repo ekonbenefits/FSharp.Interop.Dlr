@@ -378,7 +378,15 @@ let private misplacedMarkers (block: FSharpExpr) : (range * string) list =
                         Some(if mfv.DisplayName = "outAs" then List.tryHead methodTypeArgs |> Option.map unabbreviated else None)
                     | _ -> None)
             let n = stated.Length
-            let t = unabbreviated e.Type
+            // An eta-expanded partial application (`w |> Dlr.invoke "M" (1, Dlr.out)`, `|> Dlr.apply`)
+            // is typed as the function still awaiting its target: the result is past those arrows.
+            let remaining =
+                match e with
+                | FSharpExprPatterns.Application(f, _, applied) ->
+                    (match head f 0 with Some(_, lambdas) when lambdas > applied.Length -> lambdas - applied.Length | _ -> 0)
+                | _ -> 0
+            let rec resultPast (k: int) (t: FSharpType) = if k > 0 && t.IsFunctionType then resultPast (k - 1) t.GenericArguments.[1] else t
+            let t = unabbreviated (resultPast remaining e.Type)
             let isUnit = t.HasTypeDefinition && (try t.TypeDefinition.TryFullName = Some "Microsoft.FSharp.Core.Unit" with _ -> false)
             // As the translator: the shapes in order, the first that agrees with every stated type (a
             // type still generic agrees, as it cannot be told yet).
@@ -409,7 +417,7 @@ let private misplacedMarkers (block: FSharpExpr) : (range * string) list =
             match e with
             | FSharpExprPatterns.Call(_, _, _, _, args) when isNew e ->
                 args |> List.map resolve |> List.tryFind (fun a -> isByRefArg a && outCount [ a ] = 1)
-                |> Option.map (fun a -> a.Range, "Dlr.out in Dlr.new': its result is the constructed T, with no room for an out value (Dlr.ref writes back to a variable); here it would raise DlrTranslationException at the block's first call.")
+                |> Option.map (fun a -> a.Range, "Dlr.out / Dlr.outAs in Dlr.new': its result is the constructed T, with no room for an out value (Dlr.ref writes back to a variable); here it would raise DlrTranslationException at the block's first call.")
             | _ -> None)
     let perList =
         argumentLists

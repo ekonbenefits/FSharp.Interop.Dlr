@@ -131,7 +131,7 @@ The common forms; [docs/syntax.md](docs/syntax.md) has every one, with what each
 | `x?Name <- v` | set |
 | `x \|> Dlr.item i` · `x \|> Dlr.setItem (i, j) v` | indexers |
 | `x \|> Dlr.get "Name"` · `Dlr.invoke "Name" (a, b)` · `Dlr.set "Name" v` | the same three with the target last, for pipelines |
-| `x?TryGetValue(k, Dlr.out)` · `x?Swap(Dlr.ref a, Dlr.ref b)` | `out` / `ref` parameters: outs returned as F# returns them (`let (ok: bool), (v: int) = …`), refs written back to a `let mutable` |
+| `x?TryGetValue(k, Dlr.out)` · `Dlr.outAs<T> ()` · `x?Swap(Dlr.ref a, Dlr.ref b)` | `out` / `ref` parameters: outs returned as F# returns them (`let (ok: bool), (v: int) = …`; `Dlr.outAs` states an out's type where the shape is ambiguous), refs written back to a `let mutable` |
 | `x \|> Dlr.addAssign "Click" handler` · `Dlr.subtractAssign` | `+=` / `-=`: an event handler (an F# function converts) or read-modify-write |
 | `?+?` `?-?` … `?=?` `?<?` … | operators, converted to the inferred type (comparisons to `bool`) |
 | `Dlr.cast<T> x` · `Dlr.implicit x` | explicit / implicit conversion |

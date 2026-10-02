@@ -224,4 +224,10 @@ let ``Dlr.outAs states an out's type: a lone tuple-typed out read as the bare va
     let d = box (Dictionary<string, int>(dict [ "a", 1 ]))
     let (found: bool), (n: int) = dlr { return d?TryGetValue("a", Dlr.outAs<int> ()) }                           // a plain type: as Dlr.out
     (v, r, ok, p, keyed, found, n) |> should equal (struct (1, 2), (5, 6), true, struct (3, 4), struct (1, 2), true, 1)
+    // The piped forms, whose typed-tree node is the function still awaiting its target (the analyzer
+    // once reported these at build time while they ran correctly).
+    let piped: struct (int * int) = dlr { return o |> Dlr.invoke "PairOut" (Dlr.outAs<struct (int * int)> ()) }
+    let f = box ByRefs.HalfFn
+    let applied: bool * int = dlr { return f |> Dlr.apply (8, Dlr.outAs<int> ()) }
+    (piped, applied) |> should equal (struct (1, 2), (true, 4))
 

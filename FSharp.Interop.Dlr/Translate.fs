@@ -763,7 +763,7 @@ module internal Translate =
                     match a with
                     | TypeArgs _ -> unsupported "Dlr.typeArgs anywhere but as the first argument of a member call (a value invoked with Dlr.call / Dlr.apply or a constructor takes no type arguments)" a
                     | NamedOf _ | ArgsOf _ -> unsupported "Dlr.namedOf / Dlr.argsOf here (they go in the arguments of a member call, Dlr.call / Dlr.apply, or Dlr.new')" a
-                    | OutMarker _ | RefMarker _ -> unsupported "Dlr.out / Dlr.ref here: they go directly in the arguments of a call (x?M(…), Dlr.get, Dlr.invoke, Dlr.call / Dlr.apply; Dlr.ref in Dlr.new'), not beside Dlr.namedOf / Dlr.argsOf" a
+                    | OutMarker _ | RefMarker _ -> unsupported "Dlr.out / Dlr.outAs / Dlr.ref here: they go directly in the arguments of a call (x?M(…), Dlr.get, Dlr.invoke, Dlr.call / Dlr.apply; Dlr.ref in Dlr.new'), not beside Dlr.namedOf / Dlr.argsOf" a
                     | NamedRecord(lets, fields) ->
                         bindings.AddRange lets
                         let inner = bindings |> Seq.fold (fun (b: Set<Var>) (v, _) -> b.Add v) bound
@@ -1195,7 +1195,7 @@ module internal Translate =
                         Binders.setMember context name targetArg (List.head args))
                 |> Some
             | New(_, argExprs) when argExprs |> List.exists (function OutMarker _ -> true | _ -> false) ->
-                unsupported "Dlr.out in Dlr.new': its result is the constructed T, with no room for an out value (Dlr.ref writes back to a variable)" e
+                unsupported "Dlr.out / Dlr.outAs in Dlr.new': its result is the constructed T, with no room for an out value (Dlr.ref writes back to a variable)" e
             | New(t, argExprs) when argExprs |> List.exists isByRefMarker ->
                 // The site's result is `T` itself (see below): the return value unboxes to it.
                 let convertReturn (rt: Type) (e: Expr) = if rt = t then Expr.Call(unboxTo.MakeGenericMethod t, [ e ]) else convert rt e
@@ -1274,7 +1274,7 @@ module internal Translate =
             | Op opNamed _ -> unsupported "Dlr.named anywhere but as an argument of a call (a member call, Dlr.invoke, Dlr.call / Dlr.apply, Dlr.new')" e
             | Op opNamedOf _ -> unsupported "Dlr.namedOf anywhere but as an argument of a call (a member call, Dlr.invoke, Dlr.call / Dlr.apply, Dlr.new')" e
             | Op opArgsOf _ -> unsupported "Dlr.argsOf anywhere but as an argument of a call (a member call, Dlr.invoke, Dlr.call / Dlr.apply, Dlr.new')" e
-            | OutMarker _ | RefMarker _ -> unsupported "Dlr.out / Dlr.ref anywhere but directly in the arguments of a call (x?M(…), Dlr.get, Dlr.invoke, Dlr.call / Dlr.apply; Dlr.ref in Dlr.new')" e
+            | OutMarker _ | RefMarker _ -> unsupported "Dlr.out / Dlr.outAs / Dlr.ref anywhere but directly in the arguments of a call (x?M(…), Dlr.get, Dlr.invoke, Dlr.call / Dlr.apply; Dlr.ref in Dlr.new')" e
             | TypeArgs _ -> unsupported "Dlr.typeArgs anywhere but as the first argument of a member call" e
             | _ -> None
 

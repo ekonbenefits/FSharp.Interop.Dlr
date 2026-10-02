@@ -530,3 +530,32 @@ module Impl =
     let first = List.head lines
     lines |> should equal [ first; first + 1; first + 2 ]                                    // only the wrong lines
     (msgs |> List.filter (fun m -> m.Code <> ReflectedDefinitionAnalyzer.ArgumentMarkerCode)) |> should equal []
+
+[<Fact>]
+let ``Dlr.out and Dlr.outAs through a piped Dlr.invoke / Dlr.apply: the shape is the call's result, past the target's arrow`` () =
+    // The eta-expanded partial application is typed as the function still awaiting its target.
+    let msgs =
+        run """
+module Impl =
+    let w = box 1
+    [<ReflectedDefinition>]
+    let fine () : int =
+        let a: struct (int * int) = dlr { return w |> Dlr.invoke "PairOut" (Dlr.outAs<struct (int * int)> ()) }
+        let b: struct (int * int) = dlr { return w |> Dlr.apply (Dlr.outAs<struct (int * int)> ()) }
+        let c: bool * int = dlr { return w |> Dlr.invoke "Try" (1, Dlr.outAs<int> ()) }
+        let d: bool * int = dlr { return w |> Dlr.apply (1, Dlr.out) }
+        let struct (x, y) = a
+        let struct (p, q) = b
+        x + y + p + q + snd c + snd d
+    [<ReflectedDefinition>]
+    let wrong () : int =
+        let a: bool * int * int = dlr { return w |> Dlr.invoke "Try" (1, Dlr.out) }
+        let b: bool * int * int = dlr { return w |> Dlr.apply (1, Dlr.out) }
+        (let (_, x, _) = a in x) + (let (_, y, _) = b in y)
+"""
+    let out = msgs |> List.filter (fun m -> m.Code = ReflectedDefinitionAnalyzer.ArgumentMarkerCode)
+    let lines = out |> List.map (fun m -> m.Range.StartLine) |> List.distinct |> List.sort
+    let first = List.head lines
+    lines |> should equal [ first; first + 1 ]                                               // only the wrong lines
+    out |> List.forall (fun m -> m.Message.Contains "result type does not fit") |> should equal true
+    (msgs |> List.filter (fun m -> m.Code <> ReflectedDefinitionAnalyzer.ArgumentMarkerCode)) |> should equal []
