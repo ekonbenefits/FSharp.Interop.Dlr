@@ -161,7 +161,7 @@ let rec private findInDeclarations (reflected: bool) (decls: FSharpImplementatio
 
 /// `Dlr.out` (a property: its getter) / `Dlr.ref`: the byref argument markers (#131).
 let private isByRefMarker (mfv: FSharpMemberOrFunctionOrValue) =
-    isMarker mfv && (match mfv.DisplayName, mfv.CompiledName with ("out" | "ref"), _ | _, "get_out" -> true | _ -> false)
+    isMarker mfv && (match mfv.DisplayName, mfv.CompiledName with ("out" | "outAs" | "ref"), _ | _, "get_out" -> true | _ -> false)
 
 /// `Dlr.named` / `namedOf` / `typeArgs` / `typeArgsOf` / `out` / `ref`: meaningful only as an argument.
 let private isArgumentMarker (mfv: FSharpMemberOrFunctionOrValue) =
@@ -368,18 +368,47 @@ let private misplacedMarkers (block: FSharpExpr) : (range * string) list =
     let byRefShape =
         byRefCalls
         |> List.choose (fun (e, args) ->
-            let n = outCount args
             // Through abbreviations: `unit` is one (of Microsoft.FSharp.Core.Unit), and a tuple may be too.
             let rec unabbreviated (t: FSharpType) = if t.IsAbbreviation then unabbreviated t.AbbreviatedType else t
-            let t = unabbreviated e.Type
+            // Each out's stated type (`Dlr.outAs<'T> ()`), or None to take it from the result's shape.
+            let stated =
+                args |> List.choose (fun a ->
+                    match a with
+                    | FSharpExprPatterns.Call(_, mfv, _, methodTypeArgs, _) when isByRefMarker mfv && mfv.DisplayName <> "ref" ->
+                        Some(if mfv.DisplayName = "outAs" then List.tryHead methodTypeArgs |> Option.map unabbreviated else None)
+                    | _ -> None)
+            let n = stated.Length
+            // An eta-expanded partial application (`w |> Dlr.invoke "M" (1, Dlr.out)`, `|> Dlr.apply`)
+            // is typed as the function still awaiting its target: the result is past those arrows.
+            let remaining =
+                match e with
+                | FSharpExprPatterns.Application(f, _, applied) ->
+                    (match head f 0 with Some(_, lambdas) when lambdas > applied.Length -> lambdas - applied.Length | _ -> 0)
+                | _ -> 0
+            let rec resultPast (k: int) (t: FSharpType) = if k > 0 && t.IsFunctionType then resultPast (k - 1) t.GenericArguments.[1] else t
+            let t = unabbreviated (resultPast remaining e.Type)
             let isUnit = t.HasTypeDefinition && (try t.TypeDefinition.TryFullName = Some "Microsoft.FSharp.Core.Unit" with _ -> false)
+            // As the translator: the shapes in order, the first that agrees with every stated type (a
+            // type still generic agrees, as it cannot be told yet).
+            let agrees (outs: FSharpType list) =
+                List.forall2 (fun (s: FSharpType option) (o: FSharpType) ->
+                    match s with
+                    | Some s -> let o = unabbreviated o in s.IsGenericParameter || o.IsGenericParameter || s.Equals o
+                    | None -> true) stated outs
             let fits =
                 if n = 0 || t.IsGenericParameter then true
                 elif isUnit then false
-                elif t.IsTupleType then (let k = t.GenericArguments.Count in k = n + 1 || k = n)   // reference or struct
-                else n = 1
+                else
+                    // A reference or struct tuple; the typed tree does not call a one-element
+                    // ValueTuple / Tuple written out a tuple, but the translator (reflection) does.
+                    let oneTuple = t.HasTypeDefinition && (try (match t.TypeDefinition.TryFullName with Some ("System.ValueTuple`1" | "System.Tuple`1") -> true | _ -> false) with _ -> false)
+                    let elements = if t.IsTupleType || oneTuple then List.ofSeq t.GenericArguments else []
+                    (elements.Length = n + 1 && agrees elements.Tail)
+                    || (n >= 2 && elements.Length = n && agrees elements)
+                    // The bare value of a tuple type only when Dlr.outAs states it (as the translator).
+                    || (n = 1 && (elements.IsEmpty || (match stated with [ Some s ] -> s.Equals t | _ -> false)) && agrees [ t ])
             if fits then None
-            else Some(e.Range, sprintf "a call with %d Dlr.out argument(s) whose result type does not fit: the result is the return value then each out as a tuple, the outs alone as a tuple for a void method, or the one out's value; here it would raise DlrTranslationException at the block's first call." n))
+            else Some(e.Range, sprintf "a call with %d Dlr.out argument(s) whose result type does not fit: the result is the return value then each out as a tuple, the outs alone as a tuple of two or more, or the one out's value, the first agreeing with every type Dlr.outAs states; here it would raise DlrTranslationException at the block's first call." n))
         |> List.distinctBy fst
     // `Dlr.new'<T>` returns T: no room for an out value (a ref writes back to its variable).
     let outInNew =
@@ -388,7 +417,7 @@ let private misplacedMarkers (block: FSharpExpr) : (range * string) list =
             match e with
             | FSharpExprPatterns.Call(_, _, _, _, args) when isNew e ->
                 args |> List.map resolve |> List.tryFind (fun a -> isByRefArg a && outCount [ a ] = 1)
-                |> Option.map (fun a -> a.Range, "Dlr.out in Dlr.new': its result is the constructed T, with no room for an out value (Dlr.ref writes back to a variable); here it would raise DlrTranslationException at the block's first call.")
+                |> Option.map (fun a -> a.Range, "Dlr.out / Dlr.outAs in Dlr.new': its result is the constructed T, with no room for an out value (Dlr.ref writes back to a variable); here it would raise DlrTranslationException at the block's first call.")
             | _ -> None)
     let perList =
         argumentLists
@@ -422,7 +451,7 @@ let private misplacedMarkers (block: FSharpExpr) : (range * string) list =
                 | [] -> []
                 | byRefArgs ->
                     let splat = args |> List.exists (fun a -> markerNamed "namedOf" a || markerNamed "argsOf" a)
-                    if splat then [ (List.head byRefArgs).Range, "Dlr.out / Dlr.ref with Dlr.namedOf / Dlr.argsOf in one call: not supported (the outs' types are fixed by the result, the splat's arity is not); here it would raise DlrTranslationException at the block's first call." ]
+                    if splat then [ (List.head byRefArgs).Range, "Dlr.out / Dlr.outAs / Dlr.ref with Dlr.namedOf / Dlr.argsOf in one call: not supported (the outs' types are fixed by the result, the splat's arity is not); here it would raise DlrTranslationException at the block's first call." ]
                     else []
             twice @ afterNamed @ typeArgs @ byRefs)
     outOfPlace @ namedNotLiteral @ staticsOutOfPlace @ callNotFunction @ refNotMutable @ byRefShape @ outInNew @ perList

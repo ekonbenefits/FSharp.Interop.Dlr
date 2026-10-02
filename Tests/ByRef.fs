@@ -132,6 +132,8 @@ let ``anything but a supported form is a translation error`` () =
     (fun () -> (dlr { return Dlr.new'<Counted>("a", Dlr.out) } : Counted) |> ignore) |> should throw typeof<DlrTranslationException>              // new' returns T: no room for an out
     (fun () -> (dlr { return o?TryHalf(6, Dlr.out) } : struct (bool * int * int)) |> ignore) |> should throw typeof<DlrTranslationException>   // shape, a struct tuple
     (fun () -> (dlr { return o?TryHalf(6, Dlr.out) } : unit)) |> should throw typeof<DlrTranslationException>                                  // shape, unit: no slot for the out
+    (fun () -> (dlr { return o?TryHalf(6, Dlr.outAs<string> ()) } : bool * int) |> ignore) |> should throw typeof<DlrTranslationException>      // a stated type no shape agrees with
+    (fun () -> (dlr { return o?Halve(6, Dlr.out) } : System.ValueTuple<int>) |> ignore) |> should throw typeof<DlrTranslationException>      // a one-element tuple: not a shape (was an internal crash)
     (fun () -> (dlr { return o?TryHalf(6, Dlr.out) } : bool * int * int) |> ignore) |> should throw typeof<DlrTranslationException>            // shape
     // fsharpanalyzer: ignore-region-end DLR005
 
@@ -208,3 +210,24 @@ let ``eight outs into a struct tuple: past ValueTuple's seven fields`` () =
     let struct (a: int, b: int, c: int, d: int, e: int, f: int, g: int, h: int) =
         dlr { return o?Eight(Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out) }
     [ a; b; c; d; e; f; g; h ] |> should equal [ 1 .. 8 ]
+
+[<Fact>]
+let ``Dlr.outAs states an out's type: a lone tuple-typed out read as the bare value`` () =
+    // With Dlr.out a two-element result and one out is the return value then the out; a void
+    // method's only out that is itself a pair has no other spelling. Stating the type picks the shape.
+    let o = box (ByRefs())
+    let v: struct (int * int) = dlr { return o?PairOut(Dlr.outAs<struct (int * int)> ()) }
+    let r: int * int = dlr { return o?RefPairOut(Dlr.outAs<int * int> ()) }
+    let struct (ok: bool, p: struct (int * int)) = dlr { return o?TryPair(Dlr.outAs<struct (int * int)> ()) }   // beside a return value
+    let name = "PairOut"
+    let keyed: struct (int * int) = dlr { return ((?) o name) (Dlr.outAs<struct (int * int)> ()) }               // a per-key site
+    let d = box (Dictionary<string, int>(dict [ "a", 1 ]))
+    let (found: bool), (n: int) = dlr { return d?TryGetValue("a", Dlr.outAs<int> ()) }                           // a plain type: as Dlr.out
+    (v, r, ok, p, keyed, found, n) |> should equal (struct (1, 2), (5, 6), true, struct (3, 4), struct (1, 2), true, 1)
+    // The piped forms, whose typed-tree node is the function still awaiting its target (the analyzer
+    // once reported these at build time while they ran correctly).
+    let piped: struct (int * int) = dlr { return o |> Dlr.invoke "PairOut" (Dlr.outAs<struct (int * int)> ()) }
+    let f = box ByRefs.HalfFn
+    let applied: bool * int = dlr { return f |> Dlr.apply (8, Dlr.outAs<int> ()) }
+    (piped, applied) |> should equal (struct (1, 2), (true, 4))
+

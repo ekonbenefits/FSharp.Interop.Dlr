@@ -157,10 +157,12 @@ module internal Translate =
     /// Either splat marker.
     let private isSplat (e: Expr) = match e with NamedOf _ | ArgsOf _ -> true | _ -> false
 
-    /// `Dlr.out`: an out argument, its value returned in the result tuple.
+    /// `Dlr.out` / `Dlr.outAs<'T> ()`: an out argument, its value returned in the result tuple; with
+    /// the type the out states (`outAs`), or None for the result's shape to infer.
     let private (|OutMarker|_|) (e: Expr) =
         match e with
-        | PropertyGet(None, p, []) when p.DeclaringType = typeof<Dlr> && p.Name = "out" -> Some()
+        | PropertyGet(None, p, []) when p.DeclaringType = typeof<Dlr> && p.Name = "out" -> Some None
+        | Call(None, mi, []) when mi.DeclaringType = typeof<Dlr> && mi.Name = "outAs" -> Some(Some(mi.GetGenericArguments().[0]))
         | _ -> None
 
     /// `Dlr.ref v`: a ref argument over the variable `v`.
@@ -169,7 +171,7 @@ module internal Translate =
         | Call(None, mi, [ v ]) when mi.DeclaringType = typeof<Dlr> && mi.Name = "ref" -> Some v
         | _ -> None
 
-    let private isByRefMarker (e: Expr) = match e with OutMarker | RefMarker _ -> true | _ -> false
+    let private isByRefMarker (e: Expr) = match e with OutMarker _ | RefMarker _ -> true | _ -> false
     let private unboxTo = opMethod <@ fun (o: obj) -> unbox<int> o @>
 
     let private (|UnaryOp|_|) (e: Expr) =
@@ -334,7 +336,7 @@ module internal Translate =
                 // A byref marker stays where it is: the translator reads a ref's variable at the
                 // call, after every other argument (a C# ref is a reference: the callee sees each
                 // argument's write to it).
-                | OutMarker | RefMarker _ -> a
+                | OutMarker _ | RefMarker _ -> a
                 | a -> place (sprintf "arg%d" i) a)
         let bound = bindings |> Seq.map fst |> Set.ofSeq
         List.ofSeq bindings, bound, target', keys', args'
@@ -761,7 +763,7 @@ module internal Translate =
                     match a with
                     | TypeArgs _ -> unsupported "Dlr.typeArgs anywhere but as the first argument of a member call (a value invoked with Dlr.call / Dlr.apply or a constructor takes no type arguments)" a
                     | NamedOf _ | ArgsOf _ -> unsupported "Dlr.namedOf / Dlr.argsOf here (they go in the arguments of a member call, Dlr.call / Dlr.apply, or Dlr.new')" a
-                    | OutMarker | RefMarker _ -> unsupported "Dlr.out / Dlr.ref here: they go directly in the arguments of a call (x?M(…), Dlr.get, Dlr.invoke, Dlr.call / Dlr.apply; Dlr.ref in Dlr.new'), not beside Dlr.namedOf / Dlr.argsOf" a
+                    | OutMarker _ | RefMarker _ -> unsupported "Dlr.out / Dlr.outAs / Dlr.ref here: they go directly in the arguments of a call (x?M(…), Dlr.get, Dlr.invoke, Dlr.call / Dlr.apply; Dlr.ref in Dlr.new'), not beside Dlr.namedOf / Dlr.argsOf" a
                     | NamedRecord(lets, fields) ->
                         bindings.AddRange lets
                         let inner = bindings |> Seq.fold (fun (b: Set<Var>) (v, _) -> b.Add v) bound
@@ -787,20 +789,26 @@ module internal Translate =
         /// (the callers bind those in order: `sequenced`), and the method's write is assigned back.
         /// Through `Binders.ByRefSite`, whose holder `makeCall` returns and is unpacked here.
         let private byRefCall (rewriteIn: Rewrite) bound (argExprs: Expr list) (resultType: Type) (convertReturn: Type -> Expr -> Expr) (makeCall: bool -> Binders.Arg list -> Expr) : Expr =
-            let outCount = argExprs |> List.filter (function OutMarker -> true | _ -> false) |> List.length
+            // Each out's stated type (`Dlr.outAs<'T>`), or None to take it from the result's shape.
+            let stated = argExprs |> List.choose (function OutMarker t -> Some t | _ -> None)
+            let outCount = stated.Length
             let shapeError () =
-                raise (DlrTranslationException(sprintf "dlr { } does not support a call with %d Dlr.out argument(s) whose result is %s: the result is the return value then each out as a tuple (reference or struct), the outs alone as a tuple, or the one out's value" outCount resultType.Name))
+                raise (DlrTranslationException(sprintf "dlr { } does not support a call with %d Dlr.out argument(s) whose result is %s: the result is the return value then each out as a tuple (reference or struct), the outs alone as a tuple of two or more, or the one out's value — the first of these that agrees with every type Dlr.outAs states" outCount resultType.Name))
+            let agrees (outTypes: Type list) = List.forall2 (fun s t -> match s with Some s -> s = t | None -> true) stated outTypes
+            // The shapes in order, the first that agrees with the stated types: the return value then
+            // the outs; the outs alone (two or more); the one out's bare value — for a tuple-typed
+            // result only when Dlr.outAs states that type, so a plain Dlr.out keeps a mismatched
+            // tuple a shape error (the analyzer's too). A reference or a struct tuple: `let struct
+            // (ok, v) = …` allocates no tuple.
             let returnType, outTypes =
                 if outCount = 0 then (if resultType = typeof<unit> then None else Some resultType), []
                 elif resultType = typeof<unit> then shapeError ()
-                // A reference or a struct tuple: `let struct (ok, v) = …` allocates no tuple.
-                elif FSharpType.IsTuple resultType then
-                    let elements = FSharpType.GetTupleElements resultType
-                    if elements.Length = outCount + 1 then Some elements.[0], List.ofArray elements.[1..]
-                    elif elements.Length = outCount then None, List.ofArray elements
+                else
+                    let elements = if FSharpType.IsTuple resultType then List.ofArray (FSharpType.GetTupleElements resultType) else []
+                    if elements.Length = outCount + 1 && agrees elements.Tail then Some elements.Head, elements.Tail
+                    elif outCount >= 2 && elements.Length = outCount && agrees elements then None, elements
+                    elif outCount = 1 && (elements.IsEmpty || stated = [ Some resultType ]) && agrees [ resultType ] then None, [ resultType ]
                     else shapeError ()
-                elif outCount = 1 then None, [ resultType ]
-                else shapeError ()
             let pendingOuts = System.Collections.Generic.Queue<Type>(outTypes)
             // Per byref argument, in order: an out's type, or a ref's place (its type and how to
             // write it back).
@@ -809,7 +817,7 @@ module internal Translate =
             let args =
                 [ for a in argExprs do
                     match a with
-                    | OutMarker ->
+                    | OutMarker _ ->
                         let t = pendingOuts.Dequeue()
                         byRefs.Add(Choice1Of2 t)
                         yield Binders.byRefArg true t (Expr.Value(null, typeof<obj>)) null
@@ -827,7 +835,7 @@ module internal Translate =
                         namedBindings.AddRange lets
                         let inner = namedBindings |> Seq.fold (fun (b: Set<Var>) (v, _) -> b.Add v) bound
                         for (name, v) in fields -> Binders.named name (valueArg rewriteIn inner v)
-                    | NamedOf _ | ArgsOf _ -> unsupported "Dlr.namedOf / Dlr.argsOf in a call with Dlr.out or Dlr.ref (not supported: the outs' types are fixed by the result, the splat's arity is not)" a
+                    | NamedOf _ | ArgsOf _ -> unsupported "Dlr.namedOf / Dlr.argsOf in a call with Dlr.out, Dlr.outAs or Dlr.ref (not supported: the outs' types are fixed by the result, the splat's arity is not)" a
                     | TypeArgs _ -> unsupported "Dlr.typeArgs anywhere but as the first argument of a member call" a
                     | v -> yield valueArg rewriteIn bound v ]
             let call = makeCall returnType.IsNone args
@@ -1108,7 +1116,7 @@ module internal Translate =
             match e with
             | MemberOp(InvokeMember(target, nameExpr, argExpr)) when (snd (splitArgs argExpr)) |> List.exists isByRefMarker ->
                 let tupleBindings, argExprs = splitArgs argExpr
-                if not tupleBindings.IsEmpty then unsupported "Dlr.out / Dlr.ref in a tuple held in a variable" argExpr
+                if not tupleBindings.IsEmpty then unsupported "Dlr.out / Dlr.outAs / Dlr.ref in a tuple held in a variable" argExpr
                 let typeArgs, argExprs =
                     match argExprs with
                     | TypeArgs spec :: rest -> spec, rest
@@ -1186,8 +1194,8 @@ module internal Translate =
                     computedName nameExpr target [ value ] typeof<unit> (fun name targetArg args ->
                         Binders.setMember context name targetArg (List.head args))
                 |> Some
-            | New(_, argExprs) when argExprs |> List.exists (function OutMarker -> true | _ -> false) ->
-                unsupported "Dlr.out in Dlr.new': its result is the constructed T, with no room for an out value (Dlr.ref writes back to a variable)" e
+            | New(_, argExprs) when argExprs |> List.exists (function OutMarker _ -> true | _ -> false) ->
+                unsupported "Dlr.out / Dlr.outAs in Dlr.new': its result is the constructed T, with no room for an out value (Dlr.ref writes back to a variable)" e
             | New(t, argExprs) when argExprs |> List.exists isByRefMarker ->
                 // The site's result is `T` itself (see below): the return value unboxes to it.
                 let convertReturn (rt: Type) (e: Expr) = if rt = t then Expr.Call(unboxTo.MakeGenericMethod t, [ e ]) else convert rt e
@@ -1217,7 +1225,7 @@ module internal Translate =
             | Application(EtaReduced(Op opCall [ Unboxed target ]), argExpr)
             | Op opApply [ argExpr; Unboxed target ] when (snd (splitArgs argExpr)) |> List.exists isByRefMarker ->
                 let tupleBindings, argExprs = splitArgs argExpr
-                if not tupleBindings.IsEmpty then unsupported "Dlr.out / Dlr.ref in a tuple held in a variable" argExpr
+                if not tupleBindings.IsEmpty then unsupported "Dlr.out / Dlr.outAs / Dlr.ref in a tuple held in a variable" argExpr
                 let bindings, vars, target', _, argExprs' = sequenced (Some target) [] [] argExprs
                 let bound' = Set.union bound vars
                 let targetInfo = targetArg bound' target'.Value
@@ -1266,7 +1274,7 @@ module internal Translate =
             | Op opNamed _ -> unsupported "Dlr.named anywhere but as an argument of a call (a member call, Dlr.invoke, Dlr.call / Dlr.apply, Dlr.new')" e
             | Op opNamedOf _ -> unsupported "Dlr.namedOf anywhere but as an argument of a call (a member call, Dlr.invoke, Dlr.call / Dlr.apply, Dlr.new')" e
             | Op opArgsOf _ -> unsupported "Dlr.argsOf anywhere but as an argument of a call (a member call, Dlr.invoke, Dlr.call / Dlr.apply, Dlr.new')" e
-            | OutMarker | RefMarker _ -> unsupported "Dlr.out / Dlr.ref anywhere but directly in the arguments of a call (x?M(…), Dlr.get, Dlr.invoke, Dlr.call / Dlr.apply; Dlr.ref in Dlr.new')" e
+            | OutMarker _ | RefMarker _ -> unsupported "Dlr.out / Dlr.outAs / Dlr.ref anywhere but directly in the arguments of a call (x?M(…), Dlr.get, Dlr.invoke, Dlr.call / Dlr.apply; Dlr.ref in Dlr.new')" e
             | TypeArgs _ -> unsupported "Dlr.typeArgs anywhere but as the first argument of a member call" e
             | _ -> None
 

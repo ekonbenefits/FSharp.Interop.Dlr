@@ -80,6 +80,8 @@ type Dlr =
     static member argsOf (args: obj list) : Named<obj list> = ignore args; outside "Dlr.argsOf"
     static member out with [<MethodImpl(MethodImplOptions.NoInlining)>] get () : OutArg = outside "Dlr.out"
     [<MethodImpl(MethodImplOptions.NoInlining)>]
+    static member outAs<'T> () : OutArg = outside "Dlr.outAs"
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
     static member ref (variable: 'T) : RefArg<'T> = ignore variable; outside "Dlr.ref"
     [<MethodImpl(MethodImplOptions.NoInlining)>]
     static member item (indexes: 'TIndexes) (target: obj) : 'T = ignore (indexes, target); outside "Dlr.item"
