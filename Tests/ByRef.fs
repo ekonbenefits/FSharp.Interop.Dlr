@@ -131,6 +131,7 @@ let ``anything but a supported form is a translation error`` () =
     (fun () -> (dlr { return o?TryHalf(Dlr.out, Dlr.namedOf [ "n", box 6 ]) } : bool * int) |> ignore) |> should throw typeof<DlrTranslationException>   // with a splat
     (fun () -> (dlr { return Dlr.new'<Counted>("a", Dlr.out) } : Counted) |> ignore) |> should throw typeof<DlrTranslationException>              // new' returns T: no room for an out
     (fun () -> (dlr { return o?TryHalf(6, Dlr.out) } : struct (bool * int * int)) |> ignore) |> should throw typeof<DlrTranslationException>   // shape, a struct tuple
+    (fun () -> (dlr { return o?TryHalf(6, Dlr.out) } : unit)) |> should throw typeof<DlrTranslationException>                                  // shape, unit: no slot for the out
     (fun () -> (dlr { return o?TryHalf(6, Dlr.out) } : bool * int * int) |> ignore) |> should throw typeof<DlrTranslationException>            // shape
     // fsharpanalyzer: ignore-region-end DLR005
 

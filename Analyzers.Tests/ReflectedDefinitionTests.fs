@@ -457,7 +457,8 @@ module Impl =
         let e: bool * int * int = dlr { return Dlr.call w (Dlr.out) }              // shape, value call
         let f: bool * int = dlr { return w?M(Dlr.out, Dlr.namedOf kw) }            // with namedOf
         let g: struct (bool * int * int) = dlr { return w?M(Dlr.out) }               // shape, a struct tuple
-        a + b.GetHashCode() + c + (let (_, x, _, _) = d in x) + (let (_, y, _) = e in y) + snd f + (let struct (_, z, _) = g in z)
+        let h: unit = dlr { return w?M(1, Dlr.out) }                                 // shape, unit: no slot for the out
+        a + b.GetHashCode() + c + (let (_, x, _, _) = d in x) + (let (_, y, _) = e in y) + snd f + (let struct (_, z, _) = g in z) + (h; 0)
 """
     let out = msgs |> List.filter (fun m -> m.Code = ReflectedDefinitionAnalyzer.ArgumentMarkerCode)
     let messages = out |> List.map (fun m -> m.Message)
@@ -465,9 +466,9 @@ module Impl =
     count "takes a let mutable" |> should equal 1
     count "only meaningful as an argument" |> should equal 1
     count "no room for an out value" |> should equal 1
-    count "result type does not fit" |> should equal 3
+    count "result type does not fit" |> should equal 4
     count "Dlr.namedOf / Dlr.argsOf in one call" |> should equal 1
     let lines = out |> List.map (fun m -> m.Range.StartLine) |> List.distinct |> List.sort
     let first = List.head lines
-    lines |> should equal [ for i in 0 .. 6 -> first + i ]                          // only the wrong lines
+    lines |> should equal [ for i in 0 .. 7 -> first + i ]                          // only the wrong lines
     (msgs |> List.filter (fun m -> m.Code <> ReflectedDefinitionAnalyzer.ArgumentMarkerCode)) |> should equal []

@@ -369,8 +369,10 @@ let private misplacedMarkers (block: FSharpExpr) : (range * string) list =
         byRefCalls
         |> List.choose (fun (e, args) ->
             let n = outCount args
-            let t = e.Type
-            let isUnit = t.HasTypeDefinition && (try t.TypeDefinition.CompiledName = "Unit" with _ -> false)
+            // Through abbreviations: `unit` is one (of Microsoft.FSharp.Core.Unit), and a tuple may be too.
+            let rec unabbreviated (t: FSharpType) = if t.IsAbbreviation then unabbreviated t.AbbreviatedType else t
+            let t = unabbreviated e.Type
+            let isUnit = t.HasTypeDefinition && (try t.TypeDefinition.TryFullName = Some "Microsoft.FSharp.Core.Unit" with _ -> false)
             let fits =
                 if n = 0 || t.IsGenericParameter then true
                 elif isUnit then false
