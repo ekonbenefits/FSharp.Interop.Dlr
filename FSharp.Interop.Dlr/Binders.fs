@@ -346,42 +346,76 @@ module internal CurriedInvoker =
                 Activator.CreateInstance(typedefof<CurryStep<_, _>>.MakeGenericType(d, stepType rest), [| box collected; box next |])
         step [] domains
 
-/// One step of an F# function built at run time past the typed helpers' five arguments: the
-/// `Func` of a compiled lambda (`FunctionBuilder`) as an `FSharpFunc`. A class of its own rather
-/// than `FuncConvert`, whose wrappers lose their argument on Mono's interpreter (wasm).
+/// The tupled function `FunctionBuilder` builds: a compiled lambda's `Func` as an `FSharpFunc`. A
+/// class of its own rather than `FuncConvert`, whose wrappers lose their argument on Mono's
+/// interpreter (wasm).
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type FunctionStep<'A, 'R>(f: Func<'A, 'R>) =
     inherit FSharpFunc<'A, 'R>()
     override _.Invoke(a: 'A) : 'R = f.Invoke a
 
-/// F# functions past five arguments as LINQ, compiled once per site (or per delegate and function
-/// type) into a factory: tupled, one `FunctionStep` taking the whole tuple, its elements read
-/// through `Rest`; curried, a `FunctionStep` per argument, each lambda capturing the ones before
-/// and the last making the call — what F# emits for a curried function beyond OptimizedClosures,
-/// minus InvokeFast. Typed throughout: no boxing, no `DynamicInvoke`, and what the call throws
-/// arrives as itself.
-module internal FunctionBuilder =
-    let private stepOf (domain: Type) (body: Expression) (p: ParameterExpression) : Expression =
-        let funcType = typedefof<FSharpFunc<_, _>>.MakeGenericType(domain, body.Type)
-        let step = typedefof<FunctionStep<_, _>>.MakeGenericType(domain, body.Type)
-        let lambda = Expression.Lambda(typedefof<Func<_, _>>.MakeGenericType(domain, body.Type), body, [ p ])
-        Expression.Convert(Expression.New(step.GetConstructors().[0], lambda), funcType)
+/// One step of a curried function `FunctionBuilder` builds: what came before (the captured
+/// values and the arguments so far, a `ValueTuple`) and `next`, compiled once, which takes them
+/// with this step's argument to the next step or, at the last, the call. One object per step.
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+type CurriedStep<'Acc, 'A, 'R>(acc: 'Acc, next: Func<'Acc, 'A, 'R>) =
+    inherit FSharpFunc<'A, 'R>()
+    override _.Invoke(a: 'A) : 'R = next.Invoke(acc, a)
 
+/// F# functions past five arguments as LINQ, compiled once per site (or per delegate and function
+/// type): tupled, one `FunctionStep` taking the whole tuple, its elements read through `Rest`;
+/// curried, a `CurriedStep` per argument — what F# emits for a curried function beyond
+/// OptimizedClosures, minus InvokeFast, without a closure per step. Typed throughout: no boxing,
+/// no `DynamicInvoke`, and what the call throws arrives as itself.
+module internal FunctionBuilder =
     /// Element `i` of a reference or struct tuple: `Item(i+1)`, through `Rest` past the seventh.
     let rec private element (tuple: Expression) (i: int) : Expression =
         if i < 7 then Expression.PropertyOrField(tuple, sprintf "Item%d" (i + 1))
         else element (Expression.PropertyOrField(tuple, "Rest")) (i - 7)
 
-    /// The F# function whose body is `call` over its arguments: tupled over `tupleType` when
-    /// given (`domains` its elements), else curried over `domains`.
-    let build (tupleType: Type option) (domains: Type list) (call: Expression list -> Expression) : Expression =
+    /// The `ValueTuple` of `types` (at least one), nested in `Rest` past seven.
+    let rec private valueTupleOf (types: Type list) : Type =
+        if types.Length <= 7 then
+            let def = [| typedefof<ValueTuple<_>>; typedefof<ValueTuple<_, _>>; typedefof<ValueTuple<_, _, _>>; typedefof<ValueTuple<_, _, _, _>>
+                         typedefof<ValueTuple<_, _, _, _, _>>; typedefof<ValueTuple<_, _, _, _, _, _>>; typedefof<ValueTuple<_, _, _, _, _, _, _>> |].[types.Length - 1]
+            def.MakeGenericType(Array.ofList types)
+        else typedefof<ValueTuple<_, _, _, _, _, _, _, _>>.MakeGenericType(Array.ofList (List.take 7 types @ [ valueTupleOf (List.skip 7 types) ]))
+
+    let rec private newValueTuple (t: Type) (values: Expression list) : Expression =
+        let args = t.GetGenericArguments()
+        let values = if args.Length = 8 then List.take 7 values @ [ newValueTuple args.[7] (List.skip 7 values) ] else values
+        Expression.New(t.GetConstructor args, values) :> Expression
+
+    /// The F# function whose result is `call captured args`: tupled over `tupleType` when given
+    /// (`domains` its elements), else curried over `domains`; `captured` are values from the
+    /// enclosing lambda (sites, target, delegate), handed to `call` as expressions valid where it is
+    /// placed. `resultType` is the function's final result, which `call` produces.
+    let build (tupleType: Type option) (domains: Type list) (resultType: Type) (captured: Expression list)
+              (call: Expression list -> Expression list -> Expression) : Expression =
         match tupleType with
         | Some t ->
             let p = Expression.Parameter(t, "tuple")
-            stepOf t (call [ for i in 0 .. domains.Length - 1 -> element p i ]) p
+            let lambda = Expression.Lambda(typedefof<Func<_, _>>.MakeGenericType(t, resultType),
+                                           call captured [ for i in 0 .. domains.Length - 1 -> element p i ], [ p ])
+            Expression.Convert(Expression.New(typedefof<FunctionStep<_, _>>.MakeGenericType(t, resultType).GetConstructors().[0], lambda),
+                               typedefof<FSharpFunc<_, _>>.MakeGenericType(t, resultType))
         | None ->
-            let ps = [ for i, d in List.indexed domains -> Expression.Parameter(d, sprintf "a%d" i) ]
-            List.foldBack (fun (p: ParameterExpression) body -> stepOf p.Type body p) ps (call [ for p in ps -> p :> Expression ])
+            let c = captured.Length
+            let n = domains.Length
+            // Step k holds the captured values and the first k arguments.
+            let accType k = valueTupleOf ([ for e in captured -> e.Type ] @ List.take k domains)
+            let rec funcType k = if k = n then resultType else typedefof<FSharpFunc<_, _>>.MakeGenericType(domains.[k], funcType (k + 1))
+            let rec step (k: int) (acc: Expression) : Expression =
+                let accP = Expression.Parameter(accType k, "acc")
+                let a = Expression.Parameter(domains.[k], "a")
+                let values = [ for i in 0 .. c + k - 1 -> element accP i ] @ [ a :> Expression ]
+                let body =
+                    if k = n - 1 then call (List.take c values) (List.skip c values)
+                    else step (k + 1) (newValueTuple (accType (k + 1)) values)
+                let next = Expression.Lambda(typedefof<Func<_, _, _>>.MakeGenericType(accType k, domains.[k], funcType (k + 1)), body, [ accP; a ]).Compile()
+                let stepType = typedefof<CurriedStep<_, _, _>>.MakeGenericType(accType k, domains.[k], funcType (k + 1))
+                Expression.Convert(Expression.New(stepType.GetConstructors().[0], acc, Expression.Constant(next)), funcType k)
+            step 0 (newValueTuple (accType 0) captured)
 
     /// A void call as an F# `unit` result.
     let unitOf (call: Expression) : Expression =
@@ -425,8 +459,8 @@ module internal DelegateConversions =
                         let d = Expression.Parameter(typeof<Delegate>, "d")
                         let typed = Expression.Convert(d, delegateType)
                         let body =
-                            FunctionBuilder.build (if tupled then Some (funcType.GetGenericArguments().[0]) else None) ds (fun args ->
-                                FunctionBuilder.unitOf (Expression.Call(typed, invoke, args)))
+                            FunctionBuilder.build (if tupled then Some (funcType.GetGenericArguments().[0]) else None) ds result [ typed ]
+                                (fun captured args -> FunctionBuilder.unitOf (Expression.Call(List.head captured, invoke, args)))
                         let factory = Expression.Lambda<Func<Delegate, obj>>(Expression.Convert(body, typeof<obj>), [ d ]).Compile()
                         Some factory.Invoke
                     else
@@ -1591,14 +1625,15 @@ module internal Binders =
                       if not discard then yield site (Binder.Convert(CSharpBinderFlags.None, resultType, context)) [ dynamicArg (Expr.Value(null, typeof<obj>)) ] resultType ]
                     |> List.map (function Patterns.Value(v, t) -> v, t | _ -> failwith "unreachable")
                 let siteParams = [ for i in 0 .. sites.Length - 1 -> Expression.Parameter(typeof<CallSite>, sprintf "site%d" i) ]
-                let invoke (i: int) (args: Expression list) =
-                    let site = Expression.Convert(siteParams.[i], snd sites.[i])
-                    Expression.Invoke(Expression.Field(site, "Target"), (site :> Expression) :: args) :> Expression
                 let targetParam = Expression.Parameter(typeof<obj>, "target")
-                let finish (args: Expression list) =
-                    let raw = invoke 0 (targetParam :> Expression :: args)
+                // Captured: each site as its own type, then the target.
+                let captured = [ for p, (_, t) in List.zip siteParams sites -> Expression.Convert(p, t) :> Expression ] @ [ targetParam ]
+                let finish (captured: Expression list) (args: Expression list) =
+                    let invoke (i: int) (args: Expression list) =
+                        Expression.Invoke(Expression.Field(captured.[i], "Target"), captured.[i] :: args) :> Expression
+                    let raw = invoke 0 (List.last captured :: args)
                     if discard then FunctionBuilder.unitOf raw else invoke 1 [ raw ]
-                let body = FunctionBuilder.build (if tupled then Some (List.head ds) else None) argTypes finish
+                let body = FunctionBuilder.build (if tupled then Some (List.head ds) else None) argTypes (if discard then typeof<unit> else resultType) captured finish
                 let parameters = siteParams @ [ targetParam ]
                 let factoryType = Expression.GetFuncType(Array.ofList ([ for p in parameters -> p.Type ] @ [ functionType ]))
                 let factory = Expression.Lambda(factoryType, body, parameters).Compile()
