@@ -457,7 +457,8 @@ module Impl =
         let e: bool * int * int = dlr { return Dlr.call w (Dlr.out) }              // shape, value call
         let f: bool * int = dlr { return w?M(Dlr.out, Dlr.namedOf kw) }            // with namedOf
         let g: struct (bool * int * int) = dlr { return w?M(Dlr.out) }               // shape, a struct tuple
-        a + b.GetHashCode() + c + (let (_, x, _, _) = d in x) + (let (_, y, _) = e in y) + snd f + (let struct (_, z, _) = g in z)
+        let h: unit = dlr { return w?M(1, Dlr.out) }                                 // shape, unit: no slot for the out
+        a + b.GetHashCode() + c + (let (_, x, _, _) = d in x) + (let (_, y, _) = e in y) + snd f + (let struct (_, z, _) = g in z) + (h; 0)
 """
     let out = msgs |> List.filter (fun m -> m.Code = ReflectedDefinitionAnalyzer.ArgumentMarkerCode)
     let messages = out |> List.map (fun m -> m.Message)
@@ -465,9 +466,41 @@ module Impl =
     count "takes a let mutable" |> should equal 1
     count "only meaningful as an argument" |> should equal 1
     count "no room for an out value" |> should equal 1
-    count "result type does not fit" |> should equal 3
+    count "result type does not fit" |> should equal 4
     count "Dlr.namedOf / Dlr.argsOf in one call" |> should equal 1
     let lines = out |> List.map (fun m -> m.Range.StartLine) |> List.distinct |> List.sort
     let first = List.head lines
-    lines |> should equal [ for i in 0 .. 6 -> first + i ]                          // only the wrong lines
+    lines |> should equal [ for i in 0 .. 7 -> first + i ]                          // only the wrong lines
+    (msgs |> List.filter (fun m -> m.Code <> ReflectedDefinitionAnalyzer.ArgumentMarkerCode)) |> should equal []
+
+[<Fact>]
+let ``Dlr.out result shapes are read through type abbreviations`` () =
+    // `unit` is an abbreviation, and a tuple may be written as one: the shape check looks through both.
+    let msgs =
+        run """
+module Impl =
+    type Pair = bool * int
+    type SPair = System.ValueTuple<bool, int>
+    type Triple = bool * int * int
+    type STriple = System.ValueTuple<bool, int, int>
+    type U = unit
+    let w = box 1
+    [<ReflectedDefinition>]
+    let fine () : int =
+        let a: Pair = dlr { return w?M(Dlr.out) }
+        let b: SPair = dlr { return w?M(Dlr.out) }
+        snd a + (let struct (_, y) = b in y)
+    [<ReflectedDefinition>]
+    let wrong () : int =
+        let a: Triple = dlr { return w?M(Dlr.out) }
+        let b: STriple = dlr { return w?M(Dlr.out) }
+        let c: U = dlr { return w?M(Dlr.out) }
+        c
+        (let (_, x, _) = a in x) + (let struct (_, y, _) = b in y)
+"""
+    let out = msgs |> List.filter (fun m -> m.Code = ReflectedDefinitionAnalyzer.ArgumentMarkerCode)
+    let lines = out |> List.map (fun m -> m.Range.StartLine) |> List.distinct |> List.sort
+    let first = List.head lines
+    lines |> should equal [ for i in 0 .. 2 -> first + i ]                          // the three wrong lines, not Pair / SPair
+    out |> List.forall (fun m -> m.Message.Contains "result type does not fit") |> should equal true
     (msgs |> List.filter (fun m -> m.Code <> ReflectedDefinitionAnalyzer.ArgumentMarkerCode)) |> should equal []
