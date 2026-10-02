@@ -19,6 +19,9 @@ namespace Tests.CSharp
         public string Concat(int n, ref string s) { s = s + n; return s; }
         public void Prepend(ref string s, int n) { s = s + n; }
         public void Halve(int n, out int half) { half = n / 2; }
+        public void PairOut(out (int, int) v) { v = (1, 2); }
+        public bool TryPair(out (int, int) v) { v = (3, 4); return true; }
+        public void RefPairOut(out System.Tuple<int, int> v) { v = System.Tuple.Create(5, 6); }
         public void Eight(out int a, out int b, out int c, out int d, out int e, out int f, out int g, out int h)
         { a = 1; b = 2; c = 3; d = 4; e = 5; f = 6; g = 7; h = 8; }
         public int AddBoth(ref int a, ref int b) { a++; b++; return a + b; }

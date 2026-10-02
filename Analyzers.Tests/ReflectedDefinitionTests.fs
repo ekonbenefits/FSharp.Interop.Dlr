@@ -29,6 +29,7 @@ type RefArg<'T> private () = class end
 [<Sealed; AbstractClass>]
 type Dlr =
     static member out : OutArg = failwith "marker"
+    static member outAs<'T> () : OutArg = failwith "marker"
     static member ref (variable: 'T) : RefArg<'T> = failwith "marker"
     static member get (name: string) (target: obj) : 'T = failwith "marker"
     static member named (record: 'T) : Named<'T> = failwith "marker"
@@ -503,4 +504,29 @@ module Impl =
     let first = List.head lines
     lines |> should equal [ for i in 0 .. 2 -> first + i ]                          // the three wrong lines, not Pair / SPair
     out |> List.forall (fun m -> m.Message.Contains "result type does not fit") |> should equal true
+    (msgs |> List.filter (fun m -> m.Code <> ReflectedDefinitionAnalyzer.ArgumentMarkerCode)) |> should equal []
+
+[<Fact>]
+let ``Dlr.outAs: the stated type picks the shape, and one no shape agrees with is reported`` () =
+    let msgs =
+        run """
+module Impl =
+    let w = box 1
+    [<ReflectedDefinition>]
+    let fine () : int =
+        let a: struct (int * int) = dlr { return w?PairOut(Dlr.outAs<struct (int * int)> ()) }   // bare value
+        let b: bool * int = dlr { return w?TryGetValue("a", Dlr.outAs<int> ()) }                 // return then out
+        let struct (c, d) = a
+        c + d + snd b
+    [<ReflectedDefinition>]
+    let wrong () : int =
+        let a: bool * int = dlr { return w?M(Dlr.outAs<string> ()) }                             // no shape agrees
+        let b: obj = dlr { return box (Dlr.outAs<int> ()) }                                       // not an argument
+        let c: System.ValueTuple<int> = dlr { return w?M(Dlr.out) }                               // a one-element tuple
+        snd a + b.GetHashCode() + c.GetHashCode()
+"""
+    let out = msgs |> List.filter (fun m -> m.Code = ReflectedDefinitionAnalyzer.ArgumentMarkerCode)
+    let lines = out |> List.map (fun m -> m.Range.StartLine) |> List.distinct |> List.sort
+    let first = List.head lines
+    lines |> should equal [ first; first + 1; first + 2 ]                                    // only the wrong lines
     (msgs |> List.filter (fun m -> m.Code <> ReflectedDefinitionAnalyzer.ArgumentMarkerCode)) |> should equal []
