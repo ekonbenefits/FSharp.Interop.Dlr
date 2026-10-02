@@ -75,8 +75,9 @@ So a discarded call or a widened result still applies the function that is there
 whose declared type says nothing (`obj`, an interface) is read and handed to a nested `Invoke`
 site that decides by the value's runtime type. Reading a member *as* a function
 (`FunctionMember.CurriedN`/`TupledN`) constructs an F# closure and so has per-arity helpers up to
-five like `OptimizedClosures`; past five, `FunctionBuilder` compiles a factory once per site, a
-LINQ lambda taking the sites and the target and returning the function: tupled, one
+five like `OptimizedClosures`; past five, `FunctionBuilder` compiles a factory once per (function
+type, site type) — so a computed name's per-key sites reuse it — a LINQ lambda taking the sites
+and the target and returning the function: tupled, one
 `CurriedStep` taking the whole tuple (any length, its elements read through `Rest`); curried, a
 `CurriedStep` per argument. A step is one object holding the step before it (the first, the sites
 and the target), its argument and a `next` compiled once; the last reads the arguments back along
@@ -139,9 +140,10 @@ lambda applying the function.
 delegate's `Invoke`; `OptimizedClosures` for curried, so `f a b` is one call) over the delegate
 rebound to the `Func`/`Action` of its signature, again constructed by emitted IL; past five
 parameters a `FunctionBuilder` factory compiled once per (function type, delegate type), calling
-the delegate type's own `Invoke`. Only a delegate whose signature the function's does not match
-exactly falls back to `TupledDelegateFunction`/`CurryStep` with `DynamicInvoke` (which converts
-the arguments, and whose `TargetInvocationException` `DynamicCall.invoke` unwraps). Not `FuncConvert`, whose
+the delegate type's own `Invoke`. The binder converts only a delegate whose signature matches the
+function's exactly (a mismatch is C#'s binder error); `DelegateFunction.Make` called with a
+non-matching pair falls back to `TupledDelegateFunction`/`CurryStep` with `DynamicInvoke`, which
+no bound call reaches. Not `FuncConvert`, whose
 wrapper loses arguments on Mono's browser-wasm runtime. A related wasm fault, a nested
 non-capturing lambda losing its arguments, is why every lambda and delegate literal written in a
 block is made to capture the closure parameter there (`capturing` in `Translate.fs`, a no-op

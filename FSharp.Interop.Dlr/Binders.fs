@@ -1578,6 +1578,9 @@ module internal Binders =
     /// typed argument slots (`unit -> R` gets an empty list), and `shortcut` says to return the
     /// target itself when it already is a function of that type (a bare value, not a member read).
     /// Any arity, curried or tupled: typed helpers up to five, functions built at run time past it.
+    /// `asFunction`'s factories past five, per (function type, invoke site type).
+    let private factories = System.Collections.Concurrent.ConcurrentDictionary<struct (Type * Type), Delegate>(TypePairComparer.Instance)
+
     let private asFunction (context: Type) (functionType: Type) (original: Arg) (shortcut: bool) (binderFor: Arg list -> bool -> CallSiteBinder) : Expr =
         let target = original
         let rec domains (t: Type) =
@@ -1614,19 +1617,23 @@ module internal Binders =
                     [ yield invokeSite
                       if not discard then yield site (Binder.Convert(CSharpBinderFlags.None, resultType, context)) [ dynamicArg (Expr.Value(null, typeof<obj>)) ] resultType ]
                     |> List.map (function Patterns.Value(v, t) -> v, t | _ -> failwith "unreachable")
-                let siteParams = [ for i in 0 .. sites.Length - 1 -> Expression.Parameter(typeof<CallSite>, sprintf "site%d" i) ]
-                let targetParam = Expression.Parameter(typeof<obj>, "target")
-                // Captured: each site as its own type, then the target.
-                let captured = [ for p, (_, t) in List.zip siteParams sites -> Expression.Convert(p, t) :> Expression ] @ [ targetParam ]
-                let finish (captured: Expression list) (args: Expression list) =
-                    let invoke (i: int) (args: Expression list) =
-                        Expression.Invoke(Expression.Field(captured.[i], "Target"), captured.[i] :: args) :> Expression
-                    let raw = invoke 0 (List.last captured :: args)
-                    if discard then FunctionBuilder.unitOf raw else invoke 1 [ raw ]
-                let body = FunctionBuilder.build (if tupled then Some (List.head ds) else None) argTypes (if discard then typeof<unit> else resultType) captured finish
-                let parameters = siteParams @ [ targetParam ]
-                let factoryType = Expression.GetFuncType(Array.ofList ([ for p in parameters -> p.Type ] @ [ functionType ]))
-                let factory = Expression.Lambda(factoryType, body, parameters).Compile()
+                let factoryType = Expression.GetFuncType(Array.ofList ([ for _ in sites -> typeof<CallSite> ] @ [ typeof<obj>; functionType ]))
+                // The factory depends on the function type and the sites' types, not on the sites:
+                // compiled once per shape, which a per-key site's template (built again per key, for
+                // its sites) then finds here rather than compiling and discarding its own.
+                let factory =
+                    factories.GetOrAdd(struct (functionType, snd sites.Head), fun _ ->
+                        let siteParams = [ for i in 0 .. sites.Length - 1 -> Expression.Parameter(typeof<CallSite>, sprintf "site%d" i) ]
+                        let targetParam = Expression.Parameter(typeof<obj>, "target")
+                        // Captured: each site as its own type, then the target.
+                        let captured = [ for p, (_, t) in List.zip siteParams sites -> Expression.Convert(p, t) :> Expression ] @ [ targetParam ]
+                        let finish (captured: Expression list) (args: Expression list) =
+                            let invoke (i: int) (args: Expression list) =
+                                Expression.Invoke(Expression.Field(captured.[i], "Target"), captured.[i] :: args) :> Expression
+                            let raw = invoke 0 (List.last captured :: args)
+                            if discard then FunctionBuilder.unitOf raw else invoke 1 [ raw ]
+                        let body = FunctionBuilder.build (if tupled then Some (List.head ds) else None) argTypes (if discard then typeof<unit> else resultType) captured finish
+                        Expression.Lambda(factoryType, body, siteParams @ [ targetParam ]).Compile())
                 Expr.Call(Expr.Value(factory, factoryType), factoryType.GetMethod("Invoke"),
                           [ for v, _ in sites -> Expr.Value(v, typeof<CallSite>) ] @ [ target.Expr ])
             elif discard then
