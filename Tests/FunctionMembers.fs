@@ -330,6 +330,10 @@ let ``reading a member or value as a tupled function has no arity limit`` () =
     eight (1, 2, 3, 4, 5, 6, 7, 8) |> should equal 36
     let eightStruct: struct (int * int * int * int * int * int * int * int) -> int = dlr { return h?EightStruct }
     eightStruct (struct (1, 2, 3, 4, 5, 6, 7, 8)) |> should equal 36
+    // Sixteen: the site is past Func's arity, so its delegate type is emitted at run time — which
+    // a quotation must not name (wasm). The site goes in as a CallSite constant, coerced to the base.
+    let sixteen: int * int * int * int * int * int * int * int * int * int * int * int * int * int * int * int -> int = dlr { return h?SixteenTupled }
+    sixteen (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16) |> should equal 136
     let sixUnit: int * int * int * int * int * int -> unit = dlr { return h?SixTupled }               // a unit result: a void site
     sixUnit (1, 2, 3, 4, 5, 6)
     let name = "SixTupled"
