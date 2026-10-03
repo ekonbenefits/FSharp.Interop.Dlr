@@ -139,6 +139,16 @@ let ``an internal delegate invoked with an out or a ref`` () =
     let voidOut = box InternalByRefs.VoidOut
     let twice: int = dlr { return Dlr.call voidOut (21, Dlr.out) }
     twice |> should equal 42
+    // A ref for an out, an out for a ref, a ref for a plain parameter, an unknown name beside a
+    // ref: C#'s errors, which our rule (on .NET Framework) must not bind past.
+    let mutable m = 0
+    let mutable step = 2
+    let refused (f: unit -> unit) = f |> should throw typeof<Microsoft.CSharp.RuntimeBinder.RuntimeBinderException>
+    refused (fun () -> (dlr { return Dlr.call bump (Dlr.out, 2) } : int) |> ignore)
+    refused (fun () -> (dlr { return Dlr.call tryHalf (8, Dlr.ref m) } : bool) |> ignore)
+    refused (fun () -> dlr { Dlr.call bump (Dlr.ref n, Dlr.ref step) })
+    refused (fun () -> dlr { Dlr.call bump (Dlr.ref n, Dlr.named {| nonexistent = 2 |}) })
+    n |> should equal 42
 
 [<Fact>]
 let ``Dlr.new' with a constructor ref`` () =

@@ -1070,7 +1070,7 @@ type FSharpInvokeBinder(csharp: InvokeBinder) =
 /// There, and only there, the rule calls the delegate's own `Invoke`, the byref arguments passed
 /// as the site's own byref parameters so LINQ writes them back; everything else is C#'s.
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
-type FSharpByRefInvokeBinder(csharp: InvokeBinder, discard: bool) =
+type FSharpByRefInvokeBinder(csharp: InvokeBinder, discard: bool, flags: CSharpArgumentInfoFlags[]) =
     inherit InvokeBinder(csharp.CallInfo)
 
     override _.FallbackInvoke(target, args, errorSuggestion) =
@@ -1094,14 +1094,19 @@ type FSharpByRefInvokeBinder(csharp: InvokeBinder, discard: bool) =
                                   && (discard || invoke.ReturnType <> typeof<Void>) ->
                     let passed =
                         List.zip order (List.ofArray args)
-                        |> List.map (fun (slot, a) ->
-                            let pt = ps.[slot].ParameterType
+                        |> List.mapi (fun i (slot, a) ->
+                            let p = ps.[slot]
+                            let pt = p.ParameterType
+                            let isOut = flags.[i].HasFlag CSharpArgumentInfoFlags.IsOut
+                            let isRef = flags.[i].HasFlag CSharpArgumentInfoFlags.IsRef
                             let expr =
                                 if pt.IsByRef then
-                                    // The site's byref parameter itself: anything else would not write back.
+                                    // The site's byref parameter itself, `out` exactly for an out
+                                    // parameter as C# requires: anything else is C#'s to refuse.
                                     match a.Expression with
-                                    | :? ParameterExpression as v when v.IsByRef && v.Type = pt.GetElementType() -> Some(v :> Expression)
+                                    | :? ParameterExpression as v when v.IsByRef && v.Type = pt.GetElementType() && (isOut || isRef) && isOut = p.IsOut -> Some(v :> Expression)
                                     | _ -> None
+                                elif isOut || isRef then None                  // a ref or out for a plain parameter
                                 elif FunctionShapes.isNullValue a then (if pt.IsValueType then None else Some(Expression.Constant(null, pt) :> Expression))
                                 elif Conversions.fits pt a.LimitType then Some(Expression.Convert(Expression.Convert(a.Expression, a.LimitType), pt) :> Expression)
                                 else None
@@ -1695,7 +1700,7 @@ module internal Binders =
     let invokeByRef (context: Type) (discard: bool) (all: Arg list) : Expr =
         callsOnly "invoking a value (Dlr.call / Dlr.apply)" (List.head all)
         let flags = if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None
-        byRefSite (FSharpByRefInvokeBinder(Binder.Invoke(flags, context, [ for a in all -> argInfo a ]) :?> InvokeBinder, discard)) all (if discard then voidType else typeof<obj>)
+        byRefSite (FSharpByRefInvokeBinder(Binder.Invoke(flags, context, [ for a in all -> argInfo a ]) :?> InvokeBinder, discard, [| for a in List.tail all -> a.Flags |])) all (if discard then voidType else typeof<obj>)
 
     /// `Dlr.new'<T>(…, Dlr.out, …)`: C#'s InvokeConstructor over byref parameters; the result is typed `t`.
     let invokeConstructorByRef (context: Type) (t: Type) (args: Arg list) : Expr =
