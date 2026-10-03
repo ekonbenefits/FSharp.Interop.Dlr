@@ -79,9 +79,15 @@ type Unquotable() =
 /// quotation can hold a byref lambda. On .NET Framework C#'s Invoke binder cannot invoke them.
 type internal InternalTryHalf = delegate of int * outref<int> -> bool
 type internal InternalBump = delegate of byref<int> * int -> unit
+type internal InternalNamed = delegate of r: outref<int> * x: int * a: int -> int
+type internal InternalWide = delegate of n: int64 * half: outref<int64> -> bool
+type internal InternalVoidOut = delegate of n: int * twice: outref<int> -> unit
 type internal InternalByRefs() =
     static member TryHalf = InternalTryHalf(fun n half -> half <- n / 2; n % 2 = 0)
     static member Bump = InternalBump(fun x by -> x <- x + by)
+    static member Named = InternalNamed(fun r x a -> r <- x * 100 + a; x - a)
+    static member Wide = InternalWide(fun n half -> half <- n / 2L; n % 2L = 0L)
+    static member VoidOut = InternalVoidOut(fun n twice -> twice <- n * 2)
 
 /// A real CLR event, for the IsEvent branch of += / -=. Not [<ReflectedDefinition>]: the
 /// [<CLIEvent>] accessor's stored quotation is one FSharp.Core cannot decode.

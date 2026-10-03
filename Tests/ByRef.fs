@@ -125,6 +125,20 @@ let ``an internal delegate invoked with an out or a ref`` () =
     let mutable n = 40
     dlr { Dlr.call bump (Dlr.ref n, 2) }
     n |> should equal 42
+    // Named arguments match by name, not position; a wrong name is C#'s error.
+    let named = box InternalByRefs.Named
+    let (d: int), (r: int) = dlr { return Dlr.call named (Dlr.out, Dlr.named {| a = 1; x = 10 |}) }
+    (d, r) |> should equal (9, 1001)
+    (fun () -> (dlr { return Dlr.call named (Dlr.out, Dlr.named {| zz = 1; a = 10 |}) } : int * int) |> ignore)
+    |> should throw typeof<Microsoft.CSharp.RuntimeBinder.RuntimeBinderException>
+    // An int for an int64 parameter widens, as C# does.
+    let wide = box InternalByRefs.Wide
+    let (evenW: bool), (halfW: int64) = dlr { return Dlr.call wide (8, Dlr.out) }
+    (evenW, halfW) |> should equal (true, 4L)
+    // A void delegate: its outs alone when the result is discarded; its result used is C#'s error.
+    let voidOut = box InternalByRefs.VoidOut
+    let twice: int = dlr { return Dlr.call voidOut (21, Dlr.out) }
+    twice |> should equal 42
 
 [<Fact>]
 let ``Dlr.new' with a constructor ref`` () =

@@ -1070,7 +1070,7 @@ type FSharpInvokeBinder(csharp: InvokeBinder) =
 /// There, and only there, the rule calls the delegate's own `Invoke`, the byref arguments passed
 /// as the site's own byref parameters so LINQ writes them back; everything else is C#'s.
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
-type FSharpByRefInvokeBinder(csharp: InvokeBinder) =
+type FSharpByRefInvokeBinder(csharp: InvokeBinder, discard: bool) =
     inherit InvokeBinder(csharp.CallInfo)
 
     override _.FallbackInvoke(target, args, errorSuggestion) =
@@ -1080,29 +1080,45 @@ type FSharpByRefInvokeBinder(csharp: InvokeBinder) =
                 let dt = target.LimitType
                 let invoke = DelegateMembers.invokeOf dt
                 let ps = invoke.GetParameters()
-                if ps.Length <> args.Length then None
-                else
+                // Which parameter each argument is, as C# matches them: the positional ones first,
+                // then each named one by its name (`Dlr.named`). None for an unknown or repeated
+                // name, or a parameter left without an argument.
+                let names = List.ofSeq csharp.CallInfo.ArgumentNames
+                let positional = args.Length - names.Length
+                let slots =
+                    [ for i in 0 .. positional - 1 -> Some i ] @ [ for n in names -> ps |> Array.tryFindIndex (fun p -> p.Name = n) ]
+                let order = if slots |> List.exists Option.isNone then None else Some(List.map Option.get slots)
+                match order with
+                | Some order when ps.Length = args.Length && List.length (List.distinct order) = order.Length
+                                  // A void delegate's result is C#'s error unless the site discards it.
+                                  && (discard || invoke.ReturnType <> typeof<Void>) ->
                     let passed =
-                        Array.map2 (fun (p: ParameterInfo) (a: DynamicMetaObject) ->
-                            let pt = p.ParameterType
-                            if pt.IsByRef then
-                                // The site's byref parameter itself: anything else would not write back.
-                                match a.Expression with
-                                | :? ParameterExpression as v when v.IsByRef && v.Type = pt.GetElementType() -> Some(v :> Expression)
-                                | _ -> None
-                            elif FunctionShapes.isNullValue a then (if pt.IsValueType then None else Some(Expression.Constant(null, pt) :> Expression))
-                            elif a.LimitType = pt || (not pt.IsValueType && pt.IsAssignableFrom a.LimitType) then Some(Expression.Convert(a.Expression, pt) :> Expression)
-                            else None) ps args
-                    if passed |> Array.exists Option.isNone then None
+                        List.zip order (List.ofArray args)
+                        |> List.map (fun (slot, a) ->
+                            let pt = ps.[slot].ParameterType
+                            let expr =
+                                if pt.IsByRef then
+                                    // The site's byref parameter itself: anything else would not write back.
+                                    match a.Expression with
+                                    | :? ParameterExpression as v when v.IsByRef && v.Type = pt.GetElementType() -> Some(v :> Expression)
+                                    | _ -> None
+                                elif FunctionShapes.isNullValue a then (if pt.IsValueType then None else Some(Expression.Constant(null, pt) :> Expression))
+                                elif Conversions.fits pt a.LimitType then Some(Expression.Convert(Expression.Convert(a.Expression, a.LimitType), pt) :> Expression)
+                                else None
+                            slot, expr)
+                    if passed |> List.exists (snd >> Option.isNone) then None
                     else
-                        let call = Expression.Call(Expression.Convert(target.Expression, dt), invoke, passed |> Array.map Option.get)
+                        let byPosition = passed |> List.sortBy fst |> List.map (snd >> Option.get)
+                        let call = Expression.Call(Expression.Convert(target.Expression, dt), invoke, byPosition)
                         let value =
                             if invoke.ReturnType = typeof<Void> then Expression.Block(call, Expression.Constant(null, typeof<obj>)) :> Expression
                             else Expression.Convert(call, typeof<obj>) :> Expression
                         let restrictions =
-                            Array.fold2 (fun (r: BindingRestrictions) (p: ParameterInfo) a -> if p.ParameterType.IsByRef then r else r.Merge(FunctionShapes.restrictArg a))
-                                (BindingRestrictions.GetTypeRestriction(target.Expression, dt)) ps args
+                            List.zip order (List.ofArray args)
+                            |> List.fold (fun (r: BindingRestrictions) (slot, a) -> if ps.[slot].ParameterType.IsByRef then r else r.Merge(FunctionShapes.restrictArg a))
+                                (BindingRestrictions.GetTypeRestriction(target.Expression, dt))
                         Some(DynamicMetaObject(value, restrictions))
+                | _ -> None
         match direct with
         | Some rule -> rule
         | None -> csharp.FallbackInvoke(target, args, errorSuggestion)
@@ -1679,7 +1695,7 @@ module internal Binders =
     let invokeByRef (context: Type) (discard: bool) (all: Arg list) : Expr =
         callsOnly "invoking a value (Dlr.call / Dlr.apply)" (List.head all)
         let flags = if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None
-        byRefSite (FSharpByRefInvokeBinder(Binder.Invoke(flags, context, [ for a in all -> argInfo a ]) :?> InvokeBinder)) all (if discard then voidType else typeof<obj>)
+        byRefSite (FSharpByRefInvokeBinder(Binder.Invoke(flags, context, [ for a in all -> argInfo a ]) :?> InvokeBinder, discard)) all (if discard then voidType else typeof<obj>)
 
     /// `Dlr.new'<T>(…, Dlr.out, …)`: C#'s InvokeConstructor over byref parameters; the result is typed `t`.
     let invokeConstructorByRef (context: Type) (t: Type) (args: Arg list) : Expr =
