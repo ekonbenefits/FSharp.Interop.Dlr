@@ -8,7 +8,7 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Read-only by default; the jobs that write (badges, publish, zizmor) widen it for themselves.
+# Read-only by default; the two jobs that write (badges, publish) widen it for themselves.
 permissions:
   contents: read
 
