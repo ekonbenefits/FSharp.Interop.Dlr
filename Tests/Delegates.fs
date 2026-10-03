@@ -236,3 +236,46 @@ let ``one assignment site over alternating values and targets`` () =
     let e = Fixtures.expando []
     set (box e) (box (fun (a: int) (b: int) -> a - b))
     (dlr { return (box e)?Handler(5, 3) } : int) |> should equal 2
+
+[<Fact>]
+let ``an assignment converted into a boxed struct lands in the box, as C#'s does`` () =
+    let o = box (Tests.CSharp.MutableSlot())
+    dlr { o?Number <- 5 }                                                 // C#'s own: the box mutates
+    dlr { o?Property <- (fun (x: int) -> x + 1) }                         // ours, through the setter
+    dlr { o?Field <- (fun (x: int) -> x + 2) }                            // ours, the field
+    let slot = unbox<Tests.CSharp.MutableSlot> o
+    slot.Number |> should equal 5
+    slot.Property.Invoke 41 |> should equal 42
+    slot.Field.Invoke 40 |> should equal 42
+    // A mutating method called through our fallback (an F# function for its Func): the box too.
+    dlr { o?Store(Func<int, int>(fun x -> x + 3)) }                       // C#'s own call
+    (unbox<Tests.CSharp.MutableSlot> o).Property.Invoke 39 |> should equal 42
+    dlr { o?Store(fun (x: int) -> x + 4) }                                // ours
+    (unbox<Tests.CSharp.MutableSlot> o).Property.Invoke 38 |> should equal 42
+
+[<Fact>]
+let ``an F# function assigned to a Delegate-typed slot is the Func or Action of its signature`` () =
+    // C# would bind FSharpFunc's op_Implicit Converter<Unit, R>, which DynamicInvoke() rejects: ours goes first.
+    let s = Tests.CSharp.AbstractSlots()
+    let o = box s
+    dlr { o?Property <- (fun () -> 42) }
+    s.Property.GetType() |> should equal typeof<Func<int>>
+    s.Property.DynamicInvoke() |> should equal (box 42)
+    dlr { o?Field <- (fun (a: int) (b: int) -> a + b) }
+    s.Field.DynamicInvoke(20, 22) |> should equal (box 42)
+    let map = box s.Map
+    dlr { map |> Dlr.setItem "run" (fun () -> 42) }
+    s.Map.["run"].DynamicInvoke() |> should equal (box 42)
+    // A delegate is C#'s to assign, as it is.
+    let given = Action(ignore)
+    dlr { o?Property <- given }
+    obj.ReferenceEquals(s.Property, given) |> should equal true
+
+[<Fact>]
+let ``an array element converted at any index type C# takes`` () =
+    let array = box (Array.zeroCreate<Func<int, int>> 3)
+    dlr { array |> Dlr.setItem 1L (fun (x: int) -> x + 1) }
+    dlr { array |> Dlr.setItem 2u (fun (x: int) -> x + 2) }
+    let a = unbox<Func<int, int>[]> array
+    a.[1].Invoke 41 |> should equal 42
+    a.[2].Invoke 40 |> should equal 42

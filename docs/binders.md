@@ -118,7 +118,10 @@ through the same `tryInvoke` (indexes, then the value), a field or array element
 converted value — so `x?Handler <- fun a b -> …` against a `Func<int, int, int>` property, or
 `handlers |> Dlr.setItem "k" (fun x -> …)` into a `Dictionary<string, Func<int, int>>`, binds
 where C# reports "cannot implicitly convert". What C# binds itself (a delegate of the slot's type,
-`FSharpFunc`'s own `op_Implicit` to a `Converter`) stays C#'s.
+`FSharpFunc`'s own `op_Implicit` to a `Converter`) stays C#'s — except a slot typed `Delegate`
+itself, where, as for a parameter, ours goes first (`assignsAbstractDelegate`): C# would store
+that `Converter<Unit, R>`. An array is indexed by `int`, `uint`, `long` or `ulong`, as in C#; a
+struct target is assigned (and, by the call fallback, called) in its box, as C# does.
 
 *Meta-object targets* have no parameter types to drive that, so `MetaObjectArguments` converts an
 F# function argument or value by the function's own signature (`int -> unit` to `Action<int>`,
