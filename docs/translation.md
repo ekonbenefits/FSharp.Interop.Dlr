@@ -58,7 +58,11 @@ nested delegates (loop and try bodies), and the copy costs nothing measurable, w
 - **Delegate literals** (`Action<string>(fun s -> …)`) are kept whole, made capturing on wasm, and
   wrapped in `DelegateLiteral<'D>.Over`: compiled with the block they would be `DynamicMethod`
   delegates whose `.Method` starts with a hidden `Closure` parameter, which a consumer marshalling
-  by `.Method` refuses ([binders](binders.md#functions-and-delegates)).
+  by `.Method` refuses ([binders](binders.md#functions-and-delegates)). A *parameterless* one
+  (`Func<int>(fun () -> 7)`, `Action(fun () -> …)`) is quoted with no parameter and a bare body,
+  which FSharp.Core takes apart as the lambda `fun () -> body` but rebuilds only from the bare body,
+  so no rewrite could pass it through: `normalize` turns it into `ParameterlessLiteral<'D, 'R>.Of
+  (fun () -> body)`, which makes the delegate by the literal's own type (#156).
 - **Nested blocks** compile into the outer block: at run time their machine (or closure) would
   be created by the compiled tree, not the compiler, and would have no reflected body.
 - **`unit` bodies** end with the unit constant, since an F# `unit` call is `void` in IL and the

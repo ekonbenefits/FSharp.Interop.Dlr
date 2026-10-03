@@ -457,6 +457,16 @@ module internal Translate =
         | Let(v, (Value _ | Var _ as value), body) when not v.IsMutable && pure' value -> normalize (body.Substitute(fun v' -> if v' = v then Some value else None))
         // The eta-expanded statement form `let clo = x?Foo in clo ()` once its lambda is applied.
         | Let(v, value, Application(Var v', arg)) when v = v' -> applied value arg
+        // A parameterless delegate literal (`Func<int>(fun () -> 7)`, `Action(fun () -> …)`): F#
+        // quotes it with no parameter and a bare body, a node FSharp.Core takes apart as the lambda
+        // `fun () -> body` but rebuilds only from the bare body, so no rewrite can pass it through
+        // (#156). It becomes `ParameterlessLiteral<D, R>.Of (fun () -> body)`, an ordinary call
+        // that makes the delegate by its own type.
+        | NewDelegate(t, [], body) ->
+            let body = normalize body
+            let thunk = Expr.Lambda(Var("unitVar", typeof<unit>), body)
+            let literal = typedefof<ParameterlessLiteral<_, _>>.MakeGenericType(t, body.Type)
+            Expr.Call(literal.GetMethod("Of"), [ thunk ])
         | ShapeVar _ -> e
         | ShapeLambda(v, body) -> Expr.Lambda(v, normalize body)
         | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map normalize args)

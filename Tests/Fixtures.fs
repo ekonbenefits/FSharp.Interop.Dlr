@@ -353,6 +353,7 @@ type internal InternalAdd = delegate of int * int -> int
 type internal InternalSix = delegate of int * int * int * int * int * int -> int
 type internal InternalSixAction = delegate of int * int * int * int * int * int -> unit
 type internal InternalApply = delegate of (int -> int) * int -> int
+type internal InternalThunk = delegate of unit -> string
 type internal InternalWide17 = delegate of int * int * int * int * int * int * int * int * int * int * int * int * int * int * int * int * int -> int
 
 // Delegate and F# function parameters, for the conversions C# does not do (F# lambda -> Func,
@@ -418,6 +419,8 @@ type Slots() =
     member val Handlers = Collections.Generic.Dictionary<string, Func<int, int>>() with get
     member val Functions = Collections.Generic.Dictionary<string, int -> int>() with get
     member val Array: Func<int, int>[] = Array.zeroCreate 2 with get
+    member val Thunk: Func<int> = null with get, set
+    member _.Call(f: Func<int>) = f.Invoke() * 2
 
 type DelegateMembers() =
     member val Run: Func<Func<int, int>, int> = Func<Func<int, int>, int>(fun f -> f.Invoke 21) with get

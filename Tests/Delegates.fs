@@ -30,8 +30,7 @@ let ``a delegate is converted to an F# function parameter`` () =
     (dlr { return o?Apply(20, Func<int, int>(fun x -> x + 1)) } : int) |> should equal 21
     (dlr { return o?Apply2(3, 4, Func<int, int, int>(fun a b -> a * b)) } : int) |> should equal 12
     (dlr { return o?ApplyTupled(3, 4, Func<int, int, int>(fun a b -> a - b)) } : int) |> should equal -1
-    let ran = Func<string>(fun () -> "ran")      // built outside: a zero-argument delegate literal has no quotation form the converter takes
-    (dlr { return o?Run(ran) } : string) |> should equal "ran"
+    (dlr { return o?Run(Func<string>(fun () -> "ran")) } : string) |> should equal "ran"   // parameterless (#156)
     (dlr { return o?Six'(Func<int, int, int, int, int, int, int>(fun a b c d e f -> a + b + c + d + e + f)) } : int) |> should equal 21
     // Past five, a function compiled once per delegate type: curried (each partial application its
     // own), tupled (the tuple nested past seven), and unit for an Action.
@@ -284,3 +283,36 @@ let ``an array element converted at any index type C# takes`` () =
     a.[0].Invoke 39 |> should equal 42
     a.[1].Invoke 38 |> should equal 42
     a.[2].Invoke 40 |> should equal 42
+
+[<Fact>]
+let ``a parameterless delegate literal in a block`` () =
+    // F# quotes `Func<int>(fun () -> 7)` with no parameter and a bare body; FSharp.Core takes that
+    // node apart as `fun () -> 7` and would not put it back together (#156).
+    let made: Func<int> = dlr { return Func<int>(fun () -> 7) }
+    made.Invoke() |> should equal 7
+    made.Method.GetParameters().Length |> should equal 0                    // its own signature through .Method
+    let mutable ran = 0
+    let action: Action = dlr { return Action(fun () -> ran <- ran + 1) }    // capturing a mutable
+    action.Invoke()
+    ran |> should equal 1
+    let s = Slots()
+    let o = box s
+    dlr { o?Thunk <- Func<int>(fun () -> 42) }                              // assigned
+    s.Thunk.Invoke() |> should equal 42
+    (dlr { return o?Call(Func<int>(fun () -> 21)) } : int) |> should equal 42   // passed to a Func<int> parameter
+    let thunk: InternalThunk = dlr { return InternalThunk(fun () -> "internal") }   // an internal delegate type
+    thunk.Invoke() |> should equal "internal"
+    // By the literal's own type, not by guessing from the body: a result that is itself an F#
+    // function, a `unit` result of a non-void delegate, a framework delegate type.
+    let adder: Func<int -> int> = dlr { return Func<int -> int>(fun () -> fun x -> x + 22) }
+    adder.Invoke() 20 |> should equal 42
+    let calls = ResizeArray<int>()
+    let unitFunc: Func<unit> = dlr { return Func<unit>(fun () -> calls.Add 1) }
+    unitFunc.Invoke()
+    List.ofSeq calls |> should equal [ 1 ]
+    let start: Threading.ThreadStart = dlr { return Threading.ThreadStart(fun () -> calls.Add 2) }
+    start.Invoke()
+    List.ofSeq calls |> should equal [ 1; 2 ]
+    // What the body throws arrives as itself.
+    let throws: Func<int> = dlr { return Func<int>(fun () -> invalidOp "boom") }
+    (fun () -> throws.Invoke() |> ignore) |> should throw typeof<InvalidOperationException>
