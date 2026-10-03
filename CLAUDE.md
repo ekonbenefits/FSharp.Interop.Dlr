@@ -25,6 +25,10 @@ dotnet build Tests.Wasm -c Release && (cd Tests.Wasm/bin/Release/net10.0-browser
   `dotnet11` builds and runs the suite on the .NET 11 preview SDK (compiler, runtime, analyzer
   host) as a non-blocking early warning (#67): a red `dotnet11` job is a heads-up to look at, not
   a merge blocker; fold it into `test` when 11 ships.
+  `zizmor` audits the workflows (a finding fails it): actions are pinned by SHA with a
+  `# vX.Y.Z` comment, which Dependabot bumps weekly; a new job sets its own `permissions:` and
+  `persist-credentials: false` on checkout. Run `zizmor .github/` locally before pushing a
+  workflow change.
   The local gate still comes first: CI has no macOS leg, and a red push costs a cycle.
 - A cold review by a general-purpose subagent (read the diff, verify every claim with a test,
   no edits) has caught things Copilot missed; worth one per non-trivial PR when asked.

@@ -1,0 +1,13 @@
+# Keeps the SHA-pinned actions in .github/workflows current (zizmor requires the pins; without
+# this they would go stale). Weekly, grouped into one PR.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ['*']
