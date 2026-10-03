@@ -52,6 +52,11 @@ nested delegates (loop and try bodies), and the copy costs nothing measurable, w
   emitted as calls to `DlrRuntime.*` helpers with the bodies as `Func` delegates (not F#
   lambdas: on browser-wasm the `FuncConvert` wrapper the converter would add lost arguments,
   the same fault behind the [function ↔ delegate conversions](binders.md#functions-and-delegates)).
+  That holds for a `try` anywhere, not only the builder's: under a lambda, in a delegate literal,
+  or used as a value (`let n = try … with _ -> 0`), the raw `TryWith`/`TryFinally` node goes to
+  the same helpers (#158). A handler running as a delegate is outside any catch block, so the
+  `reraise ()` F# puts where no case matches throws the caught exception again through
+  `DlrRuntime.rethrow`, its stack trace kept (`Plumbing.rethrowing`).
   `let rec` is tied through reference cells, and so is a `let mutable` of the block: loop and
   `try` bodies are compiled into delegates, and a tree variable cannot be assigned from inside
   one. A captured mutable already is a cell, so `v <- x` writes its `Value`.

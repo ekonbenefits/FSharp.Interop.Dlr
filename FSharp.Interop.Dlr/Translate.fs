@@ -83,6 +83,8 @@ module internal Translate =
     let private whileLoop = opMethod <@ fun (guard: Func<bool>) (body: Func<unit>) -> DlrRuntime.whileLoop guard body @>
     let private tryWith = opMethod <@ fun (body: Func<obj>) (handler: Func<exn, obj>) -> DlrRuntime.tryWith body handler @>
     let private tryFinally = opMethod <@ fun (body: Func<obj>) (fin: Func<unit>) -> DlrRuntime.tryFinally body fin @>
+    let private rethrow = opMethod <@ fun (e: exn) -> (DlrRuntime.rethrow e : obj) @>
+    let private reraiseMethod = typeof<unit>.Assembly.GetType("Microsoft.FSharp.Core.Operators").GetMethod("Reraise")
     let private using = opMethod <@ fun (r: IDisposable) (body: Func<IDisposable, obj>) -> DlrRuntime.using r body @>
     let private opItem = opMethod <@ fun (i: obj) (t: obj) -> (Dlr.item i t) : obj @>
     let private opSetItem = opMethod <@ fun (i: obj) (v: obj) (t: obj) -> Dlr.setItem i v t @>
@@ -714,7 +716,22 @@ module internal Translate =
         /// A body as a `Func<..>` delegate over `vars` (see DlrRuntime for why not an F# function).
         /// The delegate's type is built from the variables' types and the body's; a `unit` body
         /// (which may compile to a void call) becomes a `Func<.., unit>`, not an `Action`.
-        let private func (block: Block) (rewriteIn: Rewrite) (bound: Set<Var>) (vars: Var list) (body: Expr) : Expr =
+        /// A handler that runs as a delegate (`DlrRuntime.tryWith`) is outside any catch block, so
+        /// its `reraise ()` — F# puts one where no case matches — throws the caught exception `ex`
+        /// again instead (`DlrRuntime.rethrow`, keeping its stack trace). A nested `try … with`
+        /// keeps its own handler's.
+        let rethrowing (ex: Var) (handler: Expr) : Expr =
+            let rec go (e: Expr) =
+                match e with
+                | Call(None, mi, []) when mi.IsGenericMethod && mi.GetGenericMethodDefinition() = reraiseMethod ->
+                    Expr.Call(rethrow.GetGenericMethodDefinition().MakeGenericMethod(e.Type), [ Expr.Var ex ])
+                | TryWith(body, fv, filter, cv, catch) -> Expr.TryWith(go body, fv, filter, cv, catch)
+                | ShapeVar _ -> e
+                | ShapeLambda(v, b) -> Expr.Lambda(v, go b)
+                | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map go args)
+            go handler
+
+        let func (block: Block) (rewriteIn: Rewrite) (bound: Set<Var>) (vars: Var list) (body: Expr) : Expr =
             let bound = vars |> List.fold (fun b v -> Set.add v b) bound
             let body = capturing block (asUnit (rewriteIn bound body))
             let delegateType = Expression.GetFuncType(Array.append (vars |> List.map (fun v -> v.Type) |> Array.ofList) [| body.Type |])
@@ -735,7 +752,7 @@ module internal Translate =
             | "While", [ Lambda(_, guard); Call(_, d, [ Lambda(_, body) ]) ] when d.Name = "Delay" ->
                 Expr.Call(whileLoop, [ func [] guard; func [] body ])
             | "TryWith", [ Call(_, d, [ Lambda(_, body) ]); Lambda(ex, handler) ] when d.Name = "Delay" ->
-                Expr.Call(tryWith.MakeGenericMethod(codeType e.Type), [ func [] body; func [ ex ] handler ])
+                Expr.Call(tryWith.MakeGenericMethod(codeType e.Type), [ func [] body; func [ ex ] (rethrowing ex handler) ])
             | "TryFinally", [ Call(_, d, [ Lambda(_, body) ]); Lambda(_, compensation) ] when d.Name = "Delay" ->
                 Expr.Call(tryFinally.MakeGenericMethod(codeType e.Type), [ func [] body; func [] compensation ])
             | "Using", [ resource; Lambda(r, body) ] ->
@@ -1359,6 +1376,16 @@ module internal Translate =
                     (fun (v: Var, cell: Var) rest ->
                         Expr.Let(cell, Expr.NewObject(cell.Type.GetConstructor [| v.Type |], [ Expr.Value(null, v.Type) ]), rest))
                     cells inner
+            // A `try` that is not the builder's (under a lambda, inside a delegate literal, or a
+            // `try … with` used as a value): LeafExpressionConverter has no form for it, so it runs
+            // through the same delegates as the block's own (#158). F#'s filter only repeats the
+            // handler's match, which ends in `reraise ()` where no case fits; the handler alone does.
+            | TryWith(body, _, _, ex, handler) ->
+                let func = Plumbing.func block rewriteIn bound
+                Expr.Call(tryWith.MakeGenericMethod(e.Type), [ func [] body; func [ ex ] (Plumbing.rethrowing ex handler) ])
+            | TryFinally(body, compensation) ->
+                let func = Plumbing.func block rewriteIn bound
+                Expr.Call(tryFinally.MakeGenericMethod(e.Type), [ func [] body; func [] compensation ])
             | NewDelegate(t, vars, delegateBody) ->
                 // A delegate literal's lambda is the delegate itself, not an F# function: keep it
                 // whole (on wasm, made capturing: see `capturing`). The quotation may give the
