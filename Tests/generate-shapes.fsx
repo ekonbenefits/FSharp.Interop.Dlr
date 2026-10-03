@@ -68,20 +68,33 @@ let unsupported : Map<string * string, string> = Map.empty
 
 let identifier (s: string) = s.Replace("`", "'")
 
-let cell (b: Body) (c: Context) (marker: bool) =
-    // The marker variant reads `x` through the site inside the body itself, wherever it sits.
+/// Where the body's input comes from: read through a marker before the body (`x0`), or inside
+/// the body itself, wherever it sits — through a member read, a computed name (a per-key site),
+/// or an out argument (a byref site).
+type Input = { Suffix: string; Inside: string option }
+
+let inputs =
+    [ { Suffix = ""; Inside = None }
+      { Suffix = ", marker inside"; Inside = Some "let x: int = o?Count in" }
+      { Suffix = ", computed name inside"; Inside = Some "let x: int = (?) o name in" }
+      { Suffix = ", out inside"; Inside = Some "let (_: bool), (x: int) = d?TryGetValue(\"k\", Dlr.out) in" } ]
+
+let cell (b: Body) (c: Context) (input: Input) =
     let code =
-        if marker then
+        match input.Inside with
+        | Some read ->
             c.Code.Replace("let x = x0 in ", "").Replace("fun x ->", "fun (_: int) ->").Replace("for x in", "for _ in")
-                  .Replace("{B}", sprintf "let x: int = o?Count in %s" b.Expr)
-        else c.Code.Replace("{B}", b.Expr)
+                  .Replace("{B}", sprintf "%s %s" read b.Expr)
+        | None -> c.Code.Replace("{B}", b.Expr)
     let code = code.Replace("{T}", b.Type)
-    let name = sprintf "%s — %s%s" b.Name c.Name (if marker then ", marker inside" else "")
+    let name = sprintf "%s — %s%s" b.Name c.Name input.Suffix
     String.Join("\n",
         [ "[<Fact>]"
           sprintf "let ``%s`` () =" (identifier name)
           "    let w = Widget()"
-          "    let o = box w"
+          (if code.Contains "o?" || code.Contains "(?) o" || code.Contains "x0" then "    let o = box w" else "")
+          (if code.Contains "name" then "    let name = \"Count\"" else "")
+          (if code.Contains "d?" then "    let d = box (Collections.Generic.Dictionary<string, int>(dict [ \"k\", 3 ]))" else "")
           sprintf "    let expected: %s = (let x = w.Count in %s)" b.Type b.Expr
           sprintf "    let actual: %s =" b.Type
           "        dlr {"
@@ -104,7 +117,7 @@ open FSharp.Interop.Dlr
 
 let source =
     header
-    + String.Join("\n", [ for b in bodies do for c in contexts do for marker in [ false; true ] -> cell b c marker ])
+    + String.Join("\n", [ for b in bodies do for c in contexts do for input in inputs -> cell b c input ])
 
 File.WriteAllText(Path.Combine(__SOURCE_DIRECTORY__, "Shapes.fs"), source)
-printfn "Shapes.fs: %d bodies × %d contexts × 2 = %d cells" bodies.Length contexts.Length (bodies.Length * contexts.Length * 2)
+printfn "Shapes.fs: %d bodies × %d contexts × %d inputs = %d cells" bodies.Length contexts.Length inputs.Length (bodies.Length * contexts.Length * inputs.Length)

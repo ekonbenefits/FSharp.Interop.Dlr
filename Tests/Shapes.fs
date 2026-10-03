@@ -32,6 +32,29 @@ let ``Value — as the block's value, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Value — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in 42 + x - x)
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in 42 + x - x)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Value — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in 42 + x - x)
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in 42 + x - x)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Value — under a lambda`` () =
     let w = Widget()
     let o = box w
@@ -56,6 +79,32 @@ let ``Value — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Value — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in 42 + x - x)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in 42 + x - x)).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Value — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in 42 + x - x)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in 42 + x - x)).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Value — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -76,6 +125,32 @@ let ``Value — in a delegate literal, marker inside`` () =
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in 42 + x - x).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Value — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in 42 + x - x)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in 42 + x - x).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Value — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in 42 + x - x)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in 42 + x - x).Invoke x0
         }
     actual |> should equal expected
 
@@ -110,6 +185,38 @@ let ``Value — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Value — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in 42 + x - x)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in 42 + x - x)
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Value — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in 42 + x - x)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in 42 + x - x)
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Value — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -132,6 +239,33 @@ let ``Value — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in 42 + x - x)
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Value — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in 42 + x - x)
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in 42 + x - x)
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Value — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in 42 + x - x)
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in 42 + x - x)
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -160,6 +294,29 @@ let ``Value — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Value — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in 42 + x - x)
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in 42 + x - x) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Value — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in 42 + x - x)
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in 42 + x - x) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Var — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -179,6 +336,29 @@ let ``Var — as the block's value, marker inside`` () =
     let actual: int =
         dlr {
             return (let x: int = o?Count in x)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Var — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in x)
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in x)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Var — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in x)
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in x)
         }
     actual |> should equal expected
 
@@ -207,6 +387,32 @@ let ``Var — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Var — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in x)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in x)).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Var — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in x)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in x)).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Var — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -227,6 +433,32 @@ let ``Var — in a delegate literal, marker inside`` () =
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in x).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Var — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in x)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in x).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Var — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in x)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in x).Invoke x0
         }
     actual |> should equal expected
 
@@ -261,6 +493,38 @@ let ``Var — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Var — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in x)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in x)
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Var — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in x)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in x)
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Var — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -283,6 +547,33 @@ let ``Var — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in x)
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Var — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in x)
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in x)
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Var — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in x)
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in x)
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -311,6 +602,29 @@ let ``Var — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Var — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in x)
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in x) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Var — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in x)
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in x) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Call (static) — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -330,6 +644,29 @@ let ``Call (static) — as the block's value, marker inside`` () =
     let actual: int =
         dlr {
             return (let x: int = o?Count in max x 1)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Call (static) — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in max x 1)
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in max x 1)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Call (static) — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in max x 1)
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in max x 1)
         }
     actual |> should equal expected
 
@@ -358,6 +695,32 @@ let ``Call (static) — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Call (static) — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in max x 1)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in max x 1)).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Call (static) — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in max x 1)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in max x 1)).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Call (static) — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -378,6 +741,32 @@ let ``Call (static) — in a delegate literal, marker inside`` () =
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in max x 1).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Call (static) — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in max x 1)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in max x 1).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Call (static) — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in max x 1)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in max x 1).Invoke x0
         }
     actual |> should equal expected
 
@@ -412,6 +801,38 @@ let ``Call (static) — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Call (static) — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in max x 1)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in max x 1)
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Call (static) — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in max x 1)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in max x 1)
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Call (static) — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -434,6 +855,33 @@ let ``Call (static) — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in max x 1)
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Call (static) — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in max x 1)
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in max x 1)
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Call (static) — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in max x 1)
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in max x 1)
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -462,6 +910,29 @@ let ``Call (static) — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Call (static) — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in max x 1)
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in max x 1) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Call (static) — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in max x 1)
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in max x 1) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Call (instance) — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -481,6 +952,29 @@ let ``Call (instance) — as the block's value, marker inside`` () =
     let actual: string =
         dlr {
             return (let x: int = o?Count in x.ToString())
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Call (instance) — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: string = (let x = w.Count in x.ToString())
+    let actual: string =
+        dlr {
+            return (let x: int = (?) o name in x.ToString())
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Call (instance) — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: string = (let x = w.Count in x.ToString())
+    let actual: string =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in x.ToString())
         }
     actual |> should equal expected
 
@@ -509,6 +1003,32 @@ let ``Call (instance) — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Call (instance) — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: string = (let x = w.Count in x.ToString())
+    let actual: string =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in x.ToString())).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Call (instance) — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: string = (let x = w.Count in x.ToString())
+    let actual: string =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in x.ToString())).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Call (instance) — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -529,6 +1049,32 @@ let ``Call (instance) — in a delegate literal, marker inside`` () =
         dlr {
             let x0: int = o?Count
             return Func<int, string>(fun (_: int) -> let x: int = o?Count in x.ToString()).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Call (instance) — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: string = (let x = w.Count in x.ToString())
+    let actual: string =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, string>(fun (_: int) -> let x: int = (?) o name in x.ToString()).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Call (instance) — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: string = (let x = w.Count in x.ToString())
+    let actual: string =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, string>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in x.ToString()).Invoke x0
         }
     actual |> should equal expected
 
@@ -563,6 +1109,38 @@ let ``Call (instance) — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Call (instance) — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: string = (let x = w.Count in x.ToString())
+    let actual: string =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<string>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in x.ToString())
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Call (instance) — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: string = (let x = w.Count in x.ToString())
+    let actual: string =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<string>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in x.ToString())
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Call (instance) — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -585,6 +1163,33 @@ let ``Call (instance) — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in x.ToString())
+            with _ -> return Unchecked.defaultof<string>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Call (instance) — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: string = (let x = w.Count in x.ToString())
+    let actual: string =
+        dlr {
+            try
+                return (let x: int = (?) o name in x.ToString())
+            with _ -> return Unchecked.defaultof<string>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Call (instance) — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: string = (let x = w.Count in x.ToString())
+    let actual: string =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in x.ToString())
             with _ -> return Unchecked.defaultof<string>
         }
     actual |> should equal expected
@@ -613,6 +1218,29 @@ let ``Call (instance) — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Call (instance) — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: string = (let x = w.Count in x.ToString())
+    let actual: string =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in x.ToString()) } : string)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Call (instance) — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: string = (let x = w.Count in x.ToString())
+    let actual: string =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in x.ToString()) } : string)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Let — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -632,6 +1260,29 @@ let ``Let — as the block's value, marker inside`` () =
     let actual: int =
         dlr {
             return (let x: int = o?Count in let y = x + 1 in y * 2)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Let — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in let y = x + 1 in y * 2)
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in let y = x + 1 in y * 2)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Let — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in let y = x + 1 in y * 2)
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in let y = x + 1 in y * 2)
         }
     actual |> should equal expected
 
@@ -660,6 +1311,32 @@ let ``Let — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Let — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in let y = x + 1 in y * 2)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in let y = x + 1 in y * 2)).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Let — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in let y = x + 1 in y * 2)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in let y = x + 1 in y * 2)).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Let — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -680,6 +1357,32 @@ let ``Let — in a delegate literal, marker inside`` () =
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in let y = x + 1 in y * 2).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Let — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in let y = x + 1 in y * 2)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in let y = x + 1 in y * 2).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Let — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in let y = x + 1 in y * 2)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in let y = x + 1 in y * 2).Invoke x0
         }
     actual |> should equal expected
 
@@ -714,6 +1417,38 @@ let ``Let — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Let — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in let y = x + 1 in y * 2)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in let y = x + 1 in y * 2)
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Let — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in let y = x + 1 in y * 2)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in let y = x + 1 in y * 2)
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Let — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -736,6 +1471,33 @@ let ``Let — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in let y = x + 1 in y * 2)
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Let — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in let y = x + 1 in y * 2)
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in let y = x + 1 in y * 2)
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Let — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in let y = x + 1 in y * 2)
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in let y = x + 1 in y * 2)
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -764,6 +1526,29 @@ let ``Let — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Let — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in let y = x + 1 in y * 2)
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in let y = x + 1 in y * 2) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Let — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in let y = x + 1 in y * 2)
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in let y = x + 1 in y * 2) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``LetRecursive — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -783,6 +1568,29 @@ let ``LetRecursive — as the block's value, marker inside`` () =
     let actual: int =
         dlr {
             return (let x: int = o?Count in let rec sum n = if n <= 0 then 0 else n + sum (n - 1) in sum x)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``LetRecursive — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in let rec sum n = if n <= 0 then 0 else n + sum (n - 1) in sum x)
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in let rec sum n = if n <= 0 then 0 else n + sum (n - 1) in sum x)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``LetRecursive — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in let rec sum n = if n <= 0 then 0 else n + sum (n - 1) in sum x)
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in let rec sum n = if n <= 0 then 0 else n + sum (n - 1) in sum x)
         }
     actual |> should equal expected
 
@@ -811,6 +1619,32 @@ let ``LetRecursive — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``LetRecursive — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in let rec sum n = if n <= 0 then 0 else n + sum (n - 1) in sum x)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in let rec sum n = if n <= 0 then 0 else n + sum (n - 1) in sum x)).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``LetRecursive — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in let rec sum n = if n <= 0 then 0 else n + sum (n - 1) in sum x)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in let rec sum n = if n <= 0 then 0 else n + sum (n - 1) in sum x)).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``LetRecursive — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -831,6 +1665,32 @@ let ``LetRecursive — in a delegate literal, marker inside`` () =
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in let rec sum n = if n <= 0 then 0 else n + sum (n - 1) in sum x).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``LetRecursive — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in let rec sum n = if n <= 0 then 0 else n + sum (n - 1) in sum x)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in let rec sum n = if n <= 0 then 0 else n + sum (n - 1) in sum x).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``LetRecursive — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in let rec sum n = if n <= 0 then 0 else n + sum (n - 1) in sum x)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in let rec sum n = if n <= 0 then 0 else n + sum (n - 1) in sum x).Invoke x0
         }
     actual |> should equal expected
 
@@ -865,6 +1725,38 @@ let ``LetRecursive — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``LetRecursive — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in let rec sum n = if n <= 0 then 0 else n + sum (n - 1) in sum x)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in let rec sum n = if n <= 0 then 0 else n + sum (n - 1) in sum x)
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``LetRecursive — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in let rec sum n = if n <= 0 then 0 else n + sum (n - 1) in sum x)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in let rec sum n = if n <= 0 then 0 else n + sum (n - 1) in sum x)
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``LetRecursive — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -887,6 +1779,33 @@ let ``LetRecursive — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in let rec sum n = if n <= 0 then 0 else n + sum (n - 1) in sum x)
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``LetRecursive — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in let rec sum n = if n <= 0 then 0 else n + sum (n - 1) in sum x)
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in let rec sum n = if n <= 0 then 0 else n + sum (n - 1) in sum x)
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``LetRecursive — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in let rec sum n = if n <= 0 then 0 else n + sum (n - 1) in sum x)
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in let rec sum n = if n <= 0 then 0 else n + sum (n - 1) in sum x)
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -915,6 +1834,29 @@ let ``LetRecursive — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``LetRecursive — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in let rec sum n = if n <= 0 then 0 else n + sum (n - 1) in sum x)
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in let rec sum n = if n <= 0 then 0 else n + sum (n - 1) in sum x) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``LetRecursive — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in let rec sum n = if n <= 0 then 0 else n + sum (n - 1) in sum x)
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in let rec sum n = if n <= 0 then 0 else n + sum (n - 1) in sum x) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Lambda / Application — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -934,6 +1876,29 @@ let ``Lambda / Application — as the block's value, marker inside`` () =
     let actual: int =
         dlr {
             return (let x: int = o?Count in (fun y -> y + x) 1)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Lambda / Application — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (fun y -> y + x) 1)
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in (fun y -> y + x) 1)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Lambda / Application — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (fun y -> y + x) 1)
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (fun y -> y + x) 1)
         }
     actual |> should equal expected
 
@@ -962,6 +1927,32 @@ let ``Lambda / Application — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Lambda / Application — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (fun y -> y + x) 1)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in (fun y -> y + x) 1)).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Lambda / Application — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (fun y -> y + x) 1)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (fun y -> y + x) 1)).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Lambda / Application — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -982,6 +1973,32 @@ let ``Lambda / Application — in a delegate literal, marker inside`` () =
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in (fun y -> y + x) 1).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Lambda / Application — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (fun y -> y + x) 1)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in (fun y -> y + x) 1).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Lambda / Application — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (fun y -> y + x) 1)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (fun y -> y + x) 1).Invoke x0
         }
     actual |> should equal expected
 
@@ -1016,6 +2033,38 @@ let ``Lambda / Application — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Lambda / Application — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (fun y -> y + x) 1)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in (fun y -> y + x) 1)
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Lambda / Application — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (fun y -> y + x) 1)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (fun y -> y + x) 1)
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Lambda / Application — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -1038,6 +2087,33 @@ let ``Lambda / Application — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in (fun y -> y + x) 1)
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Lambda / Application — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (fun y -> y + x) 1)
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in (fun y -> y + x) 1)
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Lambda / Application — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (fun y -> y + x) 1)
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (fun y -> y + x) 1)
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -1066,6 +2142,29 @@ let ``Lambda / Application — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Lambda / Application — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (fun y -> y + x) 1)
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in (fun y -> y + x) 1) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Lambda / Application — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (fun y -> y + x) 1)
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (fun y -> y + x) 1) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Lambda returning a lambda — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -1085,6 +2184,29 @@ let ``Lambda returning a lambda — as the block's value, marker inside`` () =
     let actual: int =
         dlr {
             return (let x: int = o?Count in (fun a -> fun b -> a * b) x 2)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Lambda returning a lambda — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (fun a -> fun b -> a * b) x 2)
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in (fun a -> fun b -> a * b) x 2)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Lambda returning a lambda — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (fun a -> fun b -> a * b) x 2)
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (fun a -> fun b -> a * b) x 2)
         }
     actual |> should equal expected
 
@@ -1113,6 +2235,32 @@ let ``Lambda returning a lambda — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Lambda returning a lambda — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (fun a -> fun b -> a * b) x 2)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in (fun a -> fun b -> a * b) x 2)).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Lambda returning a lambda — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (fun a -> fun b -> a * b) x 2)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (fun a -> fun b -> a * b) x 2)).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Lambda returning a lambda — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -1133,6 +2281,32 @@ let ``Lambda returning a lambda — in a delegate literal, marker inside`` () =
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in (fun a -> fun b -> a * b) x 2).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Lambda returning a lambda — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (fun a -> fun b -> a * b) x 2)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in (fun a -> fun b -> a * b) x 2).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Lambda returning a lambda — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (fun a -> fun b -> a * b) x 2)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (fun a -> fun b -> a * b) x 2).Invoke x0
         }
     actual |> should equal expected
 
@@ -1167,6 +2341,38 @@ let ``Lambda returning a lambda — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Lambda returning a lambda — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (fun a -> fun b -> a * b) x 2)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in (fun a -> fun b -> a * b) x 2)
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Lambda returning a lambda — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (fun a -> fun b -> a * b) x 2)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (fun a -> fun b -> a * b) x 2)
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Lambda returning a lambda — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -1189,6 +2395,33 @@ let ``Lambda returning a lambda — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in (fun a -> fun b -> a * b) x 2)
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Lambda returning a lambda — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (fun a -> fun b -> a * b) x 2)
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in (fun a -> fun b -> a * b) x 2)
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Lambda returning a lambda — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (fun a -> fun b -> a * b) x 2)
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (fun a -> fun b -> a * b) x 2)
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -1217,6 +2450,29 @@ let ``Lambda returning a lambda — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Lambda returning a lambda — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (fun a -> fun b -> a * b) x 2)
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in (fun a -> fun b -> a * b) x 2) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Lambda returning a lambda — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (fun a -> fun b -> a * b) x 2)
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (fun a -> fun b -> a * b) x 2) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``IfThenElse — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -1236,6 +2492,29 @@ let ``IfThenElse — as the block's value, marker inside`` () =
     let actual: int =
         dlr {
             return (let x: int = o?Count in if x > 2 then 1 else 0)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``IfThenElse — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in if x > 2 then 1 else 0)
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in if x > 2 then 1 else 0)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``IfThenElse — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in if x > 2 then 1 else 0)
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in if x > 2 then 1 else 0)
         }
     actual |> should equal expected
 
@@ -1264,6 +2543,32 @@ let ``IfThenElse — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``IfThenElse — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in if x > 2 then 1 else 0)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in if x > 2 then 1 else 0)).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``IfThenElse — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in if x > 2 then 1 else 0)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in if x > 2 then 1 else 0)).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``IfThenElse — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -1284,6 +2589,32 @@ let ``IfThenElse — in a delegate literal, marker inside`` () =
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in if x > 2 then 1 else 0).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``IfThenElse — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in if x > 2 then 1 else 0)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in if x > 2 then 1 else 0).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``IfThenElse — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in if x > 2 then 1 else 0)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in if x > 2 then 1 else 0).Invoke x0
         }
     actual |> should equal expected
 
@@ -1318,6 +2649,38 @@ let ``IfThenElse — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``IfThenElse — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in if x > 2 then 1 else 0)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in if x > 2 then 1 else 0)
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``IfThenElse — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in if x > 2 then 1 else 0)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in if x > 2 then 1 else 0)
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``IfThenElse — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -1340,6 +2703,33 @@ let ``IfThenElse — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in if x > 2 then 1 else 0)
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``IfThenElse — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in if x > 2 then 1 else 0)
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in if x > 2 then 1 else 0)
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``IfThenElse — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in if x > 2 then 1 else 0)
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in if x > 2 then 1 else 0)
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -1368,6 +2758,29 @@ let ``IfThenElse — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``IfThenElse — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in if x > 2 then 1 else 0)
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in if x > 2 then 1 else 0) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``IfThenElse — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in if x > 2 then 1 else 0)
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in if x > 2 then 1 else 0) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``VarSet / Sequential — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -1387,6 +2800,29 @@ let ``VarSet / Sequential — as the block's value, marker inside`` () =
     let actual: int =
         dlr {
             return (let x: int = o?Count in (let mutable m = x in m <- m + 1; m))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``VarSet / Sequential — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable m = x in m <- m + 1; m))
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in (let mutable m = x in m <- m + 1; m))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``VarSet / Sequential — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable m = x in m <- m + 1; m))
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable m = x in m <- m + 1; m))
         }
     actual |> should equal expected
 
@@ -1415,6 +2851,32 @@ let ``VarSet / Sequential — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``VarSet / Sequential — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable m = x in m <- m + 1; m))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in (let mutable m = x in m <- m + 1; m))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``VarSet / Sequential — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable m = x in m <- m + 1; m))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable m = x in m <- m + 1; m))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``VarSet / Sequential — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -1435,6 +2897,32 @@ let ``VarSet / Sequential — in a delegate literal, marker inside`` () =
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in (let mutable m = x in m <- m + 1; m)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``VarSet / Sequential — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable m = x in m <- m + 1; m))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in (let mutable m = x in m <- m + 1; m)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``VarSet / Sequential — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable m = x in m <- m + 1; m))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable m = x in m <- m + 1; m)).Invoke x0
         }
     actual |> should equal expected
 
@@ -1469,6 +2957,38 @@ let ``VarSet / Sequential — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``VarSet / Sequential — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable m = x in m <- m + 1; m))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in (let mutable m = x in m <- m + 1; m))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``VarSet / Sequential — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable m = x in m <- m + 1; m))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable m = x in m <- m + 1; m))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``VarSet / Sequential — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -1491,6 +3011,33 @@ let ``VarSet / Sequential — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in (let mutable m = x in m <- m + 1; m))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``VarSet / Sequential — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable m = x in m <- m + 1; m))
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in (let mutable m = x in m <- m + 1; m))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``VarSet / Sequential — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable m = x in m <- m + 1; m))
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable m = x in m <- m + 1; m))
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -1519,6 +3066,29 @@ let ``VarSet / Sequential — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``VarSet / Sequential — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable m = x in m <- m + 1; m))
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in (let mutable m = x in m <- m + 1; m)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``VarSet / Sequential — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable m = x in m <- m + 1; m))
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable m = x in m <- m + 1; m)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``WhileLoop — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -1538,6 +3108,29 @@ let ``WhileLoop — as the block's value, marker inside`` () =
     let actual: int =
         dlr {
             return (let x: int = o?Count in (let mutable i = 0 in (while i < x do i <- i + 1); i))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``WhileLoop — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable i = 0 in (while i < x do i <- i + 1); i))
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in (let mutable i = 0 in (while i < x do i <- i + 1); i))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``WhileLoop — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable i = 0 in (while i < x do i <- i + 1); i))
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable i = 0 in (while i < x do i <- i + 1); i))
         }
     actual |> should equal expected
 
@@ -1566,6 +3159,32 @@ let ``WhileLoop — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``WhileLoop — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable i = 0 in (while i < x do i <- i + 1); i))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in (let mutable i = 0 in (while i < x do i <- i + 1); i))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``WhileLoop — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable i = 0 in (while i < x do i <- i + 1); i))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable i = 0 in (while i < x do i <- i + 1); i))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``WhileLoop — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -1586,6 +3205,32 @@ let ``WhileLoop — in a delegate literal, marker inside`` () =
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in (let mutable i = 0 in (while i < x do i <- i + 1); i)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``WhileLoop — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable i = 0 in (while i < x do i <- i + 1); i))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in (let mutable i = 0 in (while i < x do i <- i + 1); i)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``WhileLoop — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable i = 0 in (while i < x do i <- i + 1); i))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable i = 0 in (while i < x do i <- i + 1); i)).Invoke x0
         }
     actual |> should equal expected
 
@@ -1620,6 +3265,38 @@ let ``WhileLoop — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``WhileLoop — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable i = 0 in (while i < x do i <- i + 1); i))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in (let mutable i = 0 in (while i < x do i <- i + 1); i))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``WhileLoop — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable i = 0 in (while i < x do i <- i + 1); i))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable i = 0 in (while i < x do i <- i + 1); i))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``WhileLoop — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -1642,6 +3319,33 @@ let ``WhileLoop — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in (let mutable i = 0 in (while i < x do i <- i + 1); i))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``WhileLoop — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable i = 0 in (while i < x do i <- i + 1); i))
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in (let mutable i = 0 in (while i < x do i <- i + 1); i))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``WhileLoop — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable i = 0 in (while i < x do i <- i + 1); i))
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable i = 0 in (while i < x do i <- i + 1); i))
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -1670,6 +3374,29 @@ let ``WhileLoop — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``WhileLoop — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable i = 0 in (while i < x do i <- i + 1); i))
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in (let mutable i = 0 in (while i < x do i <- i + 1); i)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``WhileLoop — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable i = 0 in (while i < x do i <- i + 1); i))
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable i = 0 in (while i < x do i <- i + 1); i)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``ForIntegerRangeLoop — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -1689,6 +3416,29 @@ let ``ForIntegerRangeLoop — as the block's value, marker inside`` () =
     let actual: int =
         dlr {
             return (let x: int = o?Count in (let mutable s = 0 in (for i in 1 .. x do s <- s + i); s))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``ForIntegerRangeLoop — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable s = 0 in (for i in 1 .. x do s <- s + i); s))
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in (let mutable s = 0 in (for i in 1 .. x do s <- s + i); s))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``ForIntegerRangeLoop — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable s = 0 in (for i in 1 .. x do s <- s + i); s))
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable s = 0 in (for i in 1 .. x do s <- s + i); s))
         }
     actual |> should equal expected
 
@@ -1717,6 +3467,32 @@ let ``ForIntegerRangeLoop — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``ForIntegerRangeLoop — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable s = 0 in (for i in 1 .. x do s <- s + i); s))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in (let mutable s = 0 in (for i in 1 .. x do s <- s + i); s))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``ForIntegerRangeLoop — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable s = 0 in (for i in 1 .. x do s <- s + i); s))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable s = 0 in (for i in 1 .. x do s <- s + i); s))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``ForIntegerRangeLoop — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -1737,6 +3513,32 @@ let ``ForIntegerRangeLoop — in a delegate literal, marker inside`` () =
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in (let mutable s = 0 in (for i in 1 .. x do s <- s + i); s)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``ForIntegerRangeLoop — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable s = 0 in (for i in 1 .. x do s <- s + i); s))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in (let mutable s = 0 in (for i in 1 .. x do s <- s + i); s)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``ForIntegerRangeLoop — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable s = 0 in (for i in 1 .. x do s <- s + i); s))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable s = 0 in (for i in 1 .. x do s <- s + i); s)).Invoke x0
         }
     actual |> should equal expected
 
@@ -1771,6 +3573,38 @@ let ``ForIntegerRangeLoop — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``ForIntegerRangeLoop — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable s = 0 in (for i in 1 .. x do s <- s + i); s))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in (let mutable s = 0 in (for i in 1 .. x do s <- s + i); s))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``ForIntegerRangeLoop — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable s = 0 in (for i in 1 .. x do s <- s + i); s))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable s = 0 in (for i in 1 .. x do s <- s + i); s))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``ForIntegerRangeLoop — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -1793,6 +3627,33 @@ let ``ForIntegerRangeLoop — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in (let mutable s = 0 in (for i in 1 .. x do s <- s + i); s))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``ForIntegerRangeLoop — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable s = 0 in (for i in 1 .. x do s <- s + i); s))
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in (let mutable s = 0 in (for i in 1 .. x do s <- s + i); s))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``ForIntegerRangeLoop — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable s = 0 in (for i in 1 .. x do s <- s + i); s))
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable s = 0 in (for i in 1 .. x do s <- s + i); s))
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -1821,6 +3682,29 @@ let ``ForIntegerRangeLoop — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``ForIntegerRangeLoop — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable s = 0 in (for i in 1 .. x do s <- s + i); s))
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in (let mutable s = 0 in (for i in 1 .. x do s <- s + i); s)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``ForIntegerRangeLoop — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable s = 0 in (for i in 1 .. x do s <- s + i); s))
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable s = 0 in (for i in 1 .. x do s <- s + i); s)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``TryWith — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -1840,6 +3724,29 @@ let ``TryWith — as the block's value, marker inside`` () =
     let actual: int =
         dlr {
             return (let x: int = o?Count in (try x / (x - x) with _ -> -x))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``TryWith — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (try x / (x - x) with _ -> -x))
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in (try x / (x - x) with _ -> -x))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``TryWith — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (try x / (x - x) with _ -> -x))
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (try x / (x - x) with _ -> -x))
         }
     actual |> should equal expected
 
@@ -1868,6 +3775,32 @@ let ``TryWith — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``TryWith — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (try x / (x - x) with _ -> -x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in (try x / (x - x) with _ -> -x))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``TryWith — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (try x / (x - x) with _ -> -x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (try x / (x - x) with _ -> -x))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``TryWith — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -1888,6 +3821,32 @@ let ``TryWith — in a delegate literal, marker inside`` () =
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in (try x / (x - x) with _ -> -x)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``TryWith — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (try x / (x - x) with _ -> -x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in (try x / (x - x) with _ -> -x)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``TryWith — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (try x / (x - x) with _ -> -x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (try x / (x - x) with _ -> -x)).Invoke x0
         }
     actual |> should equal expected
 
@@ -1922,6 +3881,38 @@ let ``TryWith — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``TryWith — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (try x / (x - x) with _ -> -x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in (try x / (x - x) with _ -> -x))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``TryWith — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (try x / (x - x) with _ -> -x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (try x / (x - x) with _ -> -x))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``TryWith — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -1944,6 +3935,33 @@ let ``TryWith — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in (try x / (x - x) with _ -> -x))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``TryWith — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (try x / (x - x) with _ -> -x))
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in (try x / (x - x) with _ -> -x))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``TryWith — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (try x / (x - x) with _ -> -x))
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (try x / (x - x) with _ -> -x))
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -1972,6 +3990,29 @@ let ``TryWith — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``TryWith — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (try x / (x - x) with _ -> -x))
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in (try x / (x - x) with _ -> -x)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``TryWith — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (try x / (x - x) with _ -> -x))
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (try x / (x - x) with _ -> -x)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``TryWith (type test, unmatched) — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -1991,6 +4032,29 @@ let ``TryWith (type test, unmatched) — as the block's value, marker inside`` (
     let actual: int =
         dlr {
             return (let x: int = o?Count in (try (try x / (x - x) with :? ArgumentException -> 0) with :? DivideByZeroException -> -x))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``TryWith (type test, unmatched) — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (try (try x / (x - x) with :? ArgumentException -> 0) with :? DivideByZeroException -> -x))
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in (try (try x / (x - x) with :? ArgumentException -> 0) with :? DivideByZeroException -> -x))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``TryWith (type test, unmatched) — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (try (try x / (x - x) with :? ArgumentException -> 0) with :? DivideByZeroException -> -x))
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (try (try x / (x - x) with :? ArgumentException -> 0) with :? DivideByZeroException -> -x))
         }
     actual |> should equal expected
 
@@ -2019,6 +4083,32 @@ let ``TryWith (type test, unmatched) — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``TryWith (type test, unmatched) — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (try (try x / (x - x) with :? ArgumentException -> 0) with :? DivideByZeroException -> -x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in (try (try x / (x - x) with :? ArgumentException -> 0) with :? DivideByZeroException -> -x))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``TryWith (type test, unmatched) — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (try (try x / (x - x) with :? ArgumentException -> 0) with :? DivideByZeroException -> -x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (try (try x / (x - x) with :? ArgumentException -> 0) with :? DivideByZeroException -> -x))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``TryWith (type test, unmatched) — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -2039,6 +4129,32 @@ let ``TryWith (type test, unmatched) — in a delegate literal, marker inside`` 
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in (try (try x / (x - x) with :? ArgumentException -> 0) with :? DivideByZeroException -> -x)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``TryWith (type test, unmatched) — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (try (try x / (x - x) with :? ArgumentException -> 0) with :? DivideByZeroException -> -x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in (try (try x / (x - x) with :? ArgumentException -> 0) with :? DivideByZeroException -> -x)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``TryWith (type test, unmatched) — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (try (try x / (x - x) with :? ArgumentException -> 0) with :? DivideByZeroException -> -x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (try (try x / (x - x) with :? ArgumentException -> 0) with :? DivideByZeroException -> -x)).Invoke x0
         }
     actual |> should equal expected
 
@@ -2073,6 +4189,38 @@ let ``TryWith (type test, unmatched) — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``TryWith (type test, unmatched) — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (try (try x / (x - x) with :? ArgumentException -> 0) with :? DivideByZeroException -> -x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in (try (try x / (x - x) with :? ArgumentException -> 0) with :? DivideByZeroException -> -x))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``TryWith (type test, unmatched) — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (try (try x / (x - x) with :? ArgumentException -> 0) with :? DivideByZeroException -> -x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (try (try x / (x - x) with :? ArgumentException -> 0) with :? DivideByZeroException -> -x))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``TryWith (type test, unmatched) — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -2095,6 +4243,33 @@ let ``TryWith (type test, unmatched) — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in (try (try x / (x - x) with :? ArgumentException -> 0) with :? DivideByZeroException -> -x))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``TryWith (type test, unmatched) — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (try (try x / (x - x) with :? ArgumentException -> 0) with :? DivideByZeroException -> -x))
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in (try (try x / (x - x) with :? ArgumentException -> 0) with :? DivideByZeroException -> -x))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``TryWith (type test, unmatched) — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (try (try x / (x - x) with :? ArgumentException -> 0) with :? DivideByZeroException -> -x))
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (try (try x / (x - x) with :? ArgumentException -> 0) with :? DivideByZeroException -> -x))
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -2123,6 +4298,29 @@ let ``TryWith (type test, unmatched) — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``TryWith (type test, unmatched) — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (try (try x / (x - x) with :? ArgumentException -> 0) with :? DivideByZeroException -> -x))
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in (try (try x / (x - x) with :? ArgumentException -> 0) with :? DivideByZeroException -> -x)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``TryWith (type test, unmatched) — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (try (try x / (x - x) with :? ArgumentException -> 0) with :? DivideByZeroException -> -x))
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (try (try x / (x - x) with :? ArgumentException -> 0) with :? DivideByZeroException -> -x)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``TryFinally — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -2142,6 +4340,29 @@ let ``TryFinally — as the block's value, marker inside`` () =
     let actual: int =
         dlr {
             return (let x: int = o?Count in (let mutable f = 0 in (try f <- x finally f <- f * 2); f))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``TryFinally — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable f = 0 in (try f <- x finally f <- f * 2); f))
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in (let mutable f = 0 in (try f <- x finally f <- f * 2); f))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``TryFinally — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable f = 0 in (try f <- x finally f <- f * 2); f))
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable f = 0 in (try f <- x finally f <- f * 2); f))
         }
     actual |> should equal expected
 
@@ -2170,6 +4391,32 @@ let ``TryFinally — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``TryFinally — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable f = 0 in (try f <- x finally f <- f * 2); f))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in (let mutable f = 0 in (try f <- x finally f <- f * 2); f))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``TryFinally — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable f = 0 in (try f <- x finally f <- f * 2); f))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable f = 0 in (try f <- x finally f <- f * 2); f))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``TryFinally — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -2190,6 +4437,32 @@ let ``TryFinally — in a delegate literal, marker inside`` () =
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in (let mutable f = 0 in (try f <- x finally f <- f * 2); f)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``TryFinally — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable f = 0 in (try f <- x finally f <- f * 2); f))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in (let mutable f = 0 in (try f <- x finally f <- f * 2); f)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``TryFinally — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable f = 0 in (try f <- x finally f <- f * 2); f))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable f = 0 in (try f <- x finally f <- f * 2); f)).Invoke x0
         }
     actual |> should equal expected
 
@@ -2224,6 +4497,38 @@ let ``TryFinally — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``TryFinally — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable f = 0 in (try f <- x finally f <- f * 2); f))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in (let mutable f = 0 in (try f <- x finally f <- f * 2); f))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``TryFinally — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable f = 0 in (try f <- x finally f <- f * 2); f))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable f = 0 in (try f <- x finally f <- f * 2); f))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``TryFinally — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -2246,6 +4551,33 @@ let ``TryFinally — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in (let mutable f = 0 in (try f <- x finally f <- f * 2); f))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``TryFinally — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable f = 0 in (try f <- x finally f <- f * 2); f))
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in (let mutable f = 0 in (try f <- x finally f <- f * 2); f))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``TryFinally — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable f = 0 in (try f <- x finally f <- f * 2); f))
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable f = 0 in (try f <- x finally f <- f * 2); f))
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -2274,6 +4606,29 @@ let ``TryFinally — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``TryFinally — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable f = 0 in (try f <- x finally f <- f * 2); f))
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in (let mutable f = 0 in (try f <- x finally f <- f * 2); f)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``TryFinally — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable f = 0 in (try f <- x finally f <- f * 2); f))
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable f = 0 in (try f <- x finally f <- f * 2); f)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Use — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -2293,6 +4648,29 @@ let ``Use — as the block's value, marker inside`` () =
     let actual: int =
         dlr {
             return (let x: int = o?Count in (use s = new IO.MemoryStream() in int s.Length + x))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Use — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (use s = new IO.MemoryStream() in int s.Length + x))
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in (use s = new IO.MemoryStream() in int s.Length + x))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Use — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (use s = new IO.MemoryStream() in int s.Length + x))
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (use s = new IO.MemoryStream() in int s.Length + x))
         }
     actual |> should equal expected
 
@@ -2321,6 +4699,32 @@ let ``Use — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Use — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (use s = new IO.MemoryStream() in int s.Length + x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in (use s = new IO.MemoryStream() in int s.Length + x))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Use — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (use s = new IO.MemoryStream() in int s.Length + x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (use s = new IO.MemoryStream() in int s.Length + x))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Use — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -2341,6 +4745,32 @@ let ``Use — in a delegate literal, marker inside`` () =
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in (use s = new IO.MemoryStream() in int s.Length + x)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Use — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (use s = new IO.MemoryStream() in int s.Length + x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in (use s = new IO.MemoryStream() in int s.Length + x)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Use — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (use s = new IO.MemoryStream() in int s.Length + x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (use s = new IO.MemoryStream() in int s.Length + x)).Invoke x0
         }
     actual |> should equal expected
 
@@ -2375,6 +4805,38 @@ let ``Use — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Use — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (use s = new IO.MemoryStream() in int s.Length + x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in (use s = new IO.MemoryStream() in int s.Length + x))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Use — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (use s = new IO.MemoryStream() in int s.Length + x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (use s = new IO.MemoryStream() in int s.Length + x))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Use — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -2397,6 +4859,33 @@ let ``Use — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in (use s = new IO.MemoryStream() in int s.Length + x))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Use — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (use s = new IO.MemoryStream() in int s.Length + x))
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in (use s = new IO.MemoryStream() in int s.Length + x))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Use — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (use s = new IO.MemoryStream() in int s.Length + x))
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (use s = new IO.MemoryStream() in int s.Length + x))
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -2425,6 +4914,29 @@ let ``Use — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Use — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (use s = new IO.MemoryStream() in int s.Length + x))
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in (use s = new IO.MemoryStream() in int s.Length + x)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Use — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (use s = new IO.MemoryStream() in int s.Length + x))
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (use s = new IO.MemoryStream() in int s.Length + x)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``NewTuple / TupleGet — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -2444,6 +4956,29 @@ let ``NewTuple / TupleGet — as the block's value, marker inside`` () =
     let actual: int =
         dlr {
             return (let x: int = o?Count in (let (a, b) = (x, x + 1) in a + b))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewTuple / TupleGet — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let (a, b) = (x, x + 1) in a + b))
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in (let (a, b) = (x, x + 1) in a + b))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewTuple / TupleGet — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let (a, b) = (x, x + 1) in a + b))
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let (a, b) = (x, x + 1) in a + b))
         }
     actual |> should equal expected
 
@@ -2472,6 +5007,32 @@ let ``NewTuple / TupleGet — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``NewTuple / TupleGet — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let (a, b) = (x, x + 1) in a + b))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in (let (a, b) = (x, x + 1) in a + b))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewTuple / TupleGet — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let (a, b) = (x, x + 1) in a + b))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let (a, b) = (x, x + 1) in a + b))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``NewTuple / TupleGet — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -2492,6 +5053,32 @@ let ``NewTuple / TupleGet — in a delegate literal, marker inside`` () =
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in (let (a, b) = (x, x + 1) in a + b)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewTuple / TupleGet — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let (a, b) = (x, x + 1) in a + b))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in (let (a, b) = (x, x + 1) in a + b)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewTuple / TupleGet — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let (a, b) = (x, x + 1) in a + b))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let (a, b) = (x, x + 1) in a + b)).Invoke x0
         }
     actual |> should equal expected
 
@@ -2526,6 +5113,38 @@ let ``NewTuple / TupleGet — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``NewTuple / TupleGet — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let (a, b) = (x, x + 1) in a + b))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in (let (a, b) = (x, x + 1) in a + b))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewTuple / TupleGet — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let (a, b) = (x, x + 1) in a + b))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let (a, b) = (x, x + 1) in a + b))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``NewTuple / TupleGet — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -2548,6 +5167,33 @@ let ``NewTuple / TupleGet — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in (let (a, b) = (x, x + 1) in a + b))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewTuple / TupleGet — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let (a, b) = (x, x + 1) in a + b))
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in (let (a, b) = (x, x + 1) in a + b))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewTuple / TupleGet — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let (a, b) = (x, x + 1) in a + b))
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let (a, b) = (x, x + 1) in a + b))
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -2576,6 +5222,29 @@ let ``NewTuple / TupleGet — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``NewTuple / TupleGet — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let (a, b) = (x, x + 1) in a + b))
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in (let (a, b) = (x, x + 1) in a + b)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewTuple / TupleGet — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let (a, b) = (x, x + 1) in a + b))
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let (a, b) = (x, x + 1) in a + b)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``NewStructTuple — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -2595,6 +5264,29 @@ let ``NewStructTuple — as the block's value, marker inside`` () =
     let actual: int =
         dlr {
             return (let x: int = o?Count in (let struct (a, b) = struct (x, 2) in a * b))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewStructTuple — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let struct (a, b) = struct (x, 2) in a * b))
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in (let struct (a, b) = struct (x, 2) in a * b))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewStructTuple — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let struct (a, b) = struct (x, 2) in a * b))
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let struct (a, b) = struct (x, 2) in a * b))
         }
     actual |> should equal expected
 
@@ -2623,6 +5315,32 @@ let ``NewStructTuple — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``NewStructTuple — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let struct (a, b) = struct (x, 2) in a * b))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in (let struct (a, b) = struct (x, 2) in a * b))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewStructTuple — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let struct (a, b) = struct (x, 2) in a * b))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let struct (a, b) = struct (x, 2) in a * b))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``NewStructTuple — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -2643,6 +5361,32 @@ let ``NewStructTuple — in a delegate literal, marker inside`` () =
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in (let struct (a, b) = struct (x, 2) in a * b)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewStructTuple — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let struct (a, b) = struct (x, 2) in a * b))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in (let struct (a, b) = struct (x, 2) in a * b)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewStructTuple — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let struct (a, b) = struct (x, 2) in a * b))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let struct (a, b) = struct (x, 2) in a * b)).Invoke x0
         }
     actual |> should equal expected
 
@@ -2677,6 +5421,38 @@ let ``NewStructTuple — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``NewStructTuple — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let struct (a, b) = struct (x, 2) in a * b))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in (let struct (a, b) = struct (x, 2) in a * b))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewStructTuple — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let struct (a, b) = struct (x, 2) in a * b))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let struct (a, b) = struct (x, 2) in a * b))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``NewStructTuple — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -2699,6 +5475,33 @@ let ``NewStructTuple — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in (let struct (a, b) = struct (x, 2) in a * b))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewStructTuple — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let struct (a, b) = struct (x, 2) in a * b))
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in (let struct (a, b) = struct (x, 2) in a * b))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewStructTuple — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let struct (a, b) = struct (x, 2) in a * b))
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let struct (a, b) = struct (x, 2) in a * b))
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -2727,6 +5530,29 @@ let ``NewStructTuple — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``NewStructTuple — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let struct (a, b) = struct (x, 2) in a * b))
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in (let struct (a, b) = struct (x, 2) in a * b)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewStructTuple — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let struct (a, b) = struct (x, 2) in a * b))
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let struct (a, b) = struct (x, 2) in a * b)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``NewRecord (anonymous) — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -2746,6 +5572,29 @@ let ``NewRecord (anonymous) — as the block's value, marker inside`` () =
     let actual: int =
         dlr {
             return (let x: int = o?Count in {| A = x; B = 1 |}.A + 1)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewRecord (anonymous) — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in {| A = x; B = 1 |}.A + 1)
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in {| A = x; B = 1 |}.A + 1)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewRecord (anonymous) — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in {| A = x; B = 1 |}.A + 1)
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in {| A = x; B = 1 |}.A + 1)
         }
     actual |> should equal expected
 
@@ -2774,6 +5623,32 @@ let ``NewRecord (anonymous) — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``NewRecord (anonymous) — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in {| A = x; B = 1 |}.A + 1)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in {| A = x; B = 1 |}.A + 1)).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewRecord (anonymous) — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in {| A = x; B = 1 |}.A + 1)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in {| A = x; B = 1 |}.A + 1)).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``NewRecord (anonymous) — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -2794,6 +5669,32 @@ let ``NewRecord (anonymous) — in a delegate literal, marker inside`` () =
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in {| A = x; B = 1 |}.A + 1).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewRecord (anonymous) — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in {| A = x; B = 1 |}.A + 1)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in {| A = x; B = 1 |}.A + 1).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewRecord (anonymous) — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in {| A = x; B = 1 |}.A + 1)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in {| A = x; B = 1 |}.A + 1).Invoke x0
         }
     actual |> should equal expected
 
@@ -2828,6 +5729,38 @@ let ``NewRecord (anonymous) — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``NewRecord (anonymous) — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in {| A = x; B = 1 |}.A + 1)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in {| A = x; B = 1 |}.A + 1)
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewRecord (anonymous) — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in {| A = x; B = 1 |}.A + 1)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in {| A = x; B = 1 |}.A + 1)
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``NewRecord (anonymous) — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -2850,6 +5783,33 @@ let ``NewRecord (anonymous) — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in {| A = x; B = 1 |}.A + 1)
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewRecord (anonymous) — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in {| A = x; B = 1 |}.A + 1)
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in {| A = x; B = 1 |}.A + 1)
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewRecord (anonymous) — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in {| A = x; B = 1 |}.A + 1)
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in {| A = x; B = 1 |}.A + 1)
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -2878,6 +5838,29 @@ let ``NewRecord (anonymous) — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``NewRecord (anonymous) — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in {| A = x; B = 1 |}.A + 1)
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in {| A = x; B = 1 |}.A + 1) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewRecord (anonymous) — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in {| A = x; B = 1 |}.A + 1)
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in {| A = x; B = 1 |}.A + 1) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``NewUnionCase / UnionCaseTest (option) — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -2897,6 +5880,29 @@ let ``NewUnionCase / UnionCaseTest (option) — as the block's value, marker ins
     let actual: int =
         dlr {
             return (let x: int = o?Count in (match Some x with Some v -> v | None -> 0))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewUnionCase / UnionCaseTest (option) — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (match Some x with Some v -> v | None -> 0))
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in (match Some x with Some v -> v | None -> 0))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewUnionCase / UnionCaseTest (option) — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (match Some x with Some v -> v | None -> 0))
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (match Some x with Some v -> v | None -> 0))
         }
     actual |> should equal expected
 
@@ -2925,6 +5931,32 @@ let ``NewUnionCase / UnionCaseTest (option) — under a lambda, marker inside`` 
     actual |> should equal expected
 
 [<Fact>]
+let ``NewUnionCase / UnionCaseTest (option) — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (match Some x with Some v -> v | None -> 0))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in (match Some x with Some v -> v | None -> 0))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewUnionCase / UnionCaseTest (option) — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (match Some x with Some v -> v | None -> 0))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (match Some x with Some v -> v | None -> 0))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``NewUnionCase / UnionCaseTest (option) — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -2945,6 +5977,32 @@ let ``NewUnionCase / UnionCaseTest (option) — in a delegate literal, marker in
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in (match Some x with Some v -> v | None -> 0)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewUnionCase / UnionCaseTest (option) — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (match Some x with Some v -> v | None -> 0))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in (match Some x with Some v -> v | None -> 0)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewUnionCase / UnionCaseTest (option) — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (match Some x with Some v -> v | None -> 0))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (match Some x with Some v -> v | None -> 0)).Invoke x0
         }
     actual |> should equal expected
 
@@ -2979,6 +6037,38 @@ let ``NewUnionCase / UnionCaseTest (option) — in a for body, marker inside`` (
     actual |> should equal expected
 
 [<Fact>]
+let ``NewUnionCase / UnionCaseTest (option) — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (match Some x with Some v -> v | None -> 0))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in (match Some x with Some v -> v | None -> 0))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewUnionCase / UnionCaseTest (option) — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (match Some x with Some v -> v | None -> 0))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (match Some x with Some v -> v | None -> 0))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``NewUnionCase / UnionCaseTest (option) — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -3001,6 +6091,33 @@ let ``NewUnionCase / UnionCaseTest (option) — in a try body, marker inside`` (
         dlr {
             try
                 return (let x: int = o?Count in (match Some x with Some v -> v | None -> 0))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewUnionCase / UnionCaseTest (option) — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (match Some x with Some v -> v | None -> 0))
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in (match Some x with Some v -> v | None -> 0))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewUnionCase / UnionCaseTest (option) — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (match Some x with Some v -> v | None -> 0))
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (match Some x with Some v -> v | None -> 0))
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -3029,6 +6146,29 @@ let ``NewUnionCase / UnionCaseTest (option) — in a nested dlr, marker inside``
     actual |> should equal expected
 
 [<Fact>]
+let ``NewUnionCase / UnionCaseTest (option) — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (match Some x with Some v -> v | None -> 0))
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in (match Some x with Some v -> v | None -> 0)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewUnionCase / UnionCaseTest (option) — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (match Some x with Some v -> v | None -> 0))
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (match Some x with Some v -> v | None -> 0)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``NewUnionCase / UnionCaseTest (list) — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -3048,6 +6188,29 @@ let ``NewUnionCase / UnionCaseTest (list) — as the block's value, marker insid
     let actual: int =
         dlr {
             return (let x: int = o?Count in (match [ x; 1 ] with h :: _ -> h | [] -> 0))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewUnionCase / UnionCaseTest (list) — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (match [ x; 1 ] with h :: _ -> h | [] -> 0))
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in (match [ x; 1 ] with h :: _ -> h | [] -> 0))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewUnionCase / UnionCaseTest (list) — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (match [ x; 1 ] with h :: _ -> h | [] -> 0))
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (match [ x; 1 ] with h :: _ -> h | [] -> 0))
         }
     actual |> should equal expected
 
@@ -3076,6 +6239,32 @@ let ``NewUnionCase / UnionCaseTest (list) — under a lambda, marker inside`` ()
     actual |> should equal expected
 
 [<Fact>]
+let ``NewUnionCase / UnionCaseTest (list) — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (match [ x; 1 ] with h :: _ -> h | [] -> 0))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in (match [ x; 1 ] with h :: _ -> h | [] -> 0))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewUnionCase / UnionCaseTest (list) — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (match [ x; 1 ] with h :: _ -> h | [] -> 0))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (match [ x; 1 ] with h :: _ -> h | [] -> 0))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``NewUnionCase / UnionCaseTest (list) — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -3096,6 +6285,32 @@ let ``NewUnionCase / UnionCaseTest (list) — in a delegate literal, marker insi
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in (match [ x; 1 ] with h :: _ -> h | [] -> 0)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewUnionCase / UnionCaseTest (list) — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (match [ x; 1 ] with h :: _ -> h | [] -> 0))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in (match [ x; 1 ] with h :: _ -> h | [] -> 0)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewUnionCase / UnionCaseTest (list) — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (match [ x; 1 ] with h :: _ -> h | [] -> 0))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (match [ x; 1 ] with h :: _ -> h | [] -> 0)).Invoke x0
         }
     actual |> should equal expected
 
@@ -3130,6 +6345,38 @@ let ``NewUnionCase / UnionCaseTest (list) — in a for body, marker inside`` () 
     actual |> should equal expected
 
 [<Fact>]
+let ``NewUnionCase / UnionCaseTest (list) — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (match [ x; 1 ] with h :: _ -> h | [] -> 0))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in (match [ x; 1 ] with h :: _ -> h | [] -> 0))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewUnionCase / UnionCaseTest (list) — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (match [ x; 1 ] with h :: _ -> h | [] -> 0))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (match [ x; 1 ] with h :: _ -> h | [] -> 0))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``NewUnionCase / UnionCaseTest (list) — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -3152,6 +6399,33 @@ let ``NewUnionCase / UnionCaseTest (list) — in a try body, marker inside`` () 
         dlr {
             try
                 return (let x: int = o?Count in (match [ x; 1 ] with h :: _ -> h | [] -> 0))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewUnionCase / UnionCaseTest (list) — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (match [ x; 1 ] with h :: _ -> h | [] -> 0))
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in (match [ x; 1 ] with h :: _ -> h | [] -> 0))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewUnionCase / UnionCaseTest (list) — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (match [ x; 1 ] with h :: _ -> h | [] -> 0))
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (match [ x; 1 ] with h :: _ -> h | [] -> 0))
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -3180,6 +6454,29 @@ let ``NewUnionCase / UnionCaseTest (list) — in a nested dlr, marker inside`` (
     actual |> should equal expected
 
 [<Fact>]
+let ``NewUnionCase / UnionCaseTest (list) — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (match [ x; 1 ] with h :: _ -> h | [] -> 0))
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in (match [ x; 1 ] with h :: _ -> h | [] -> 0)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewUnionCase / UnionCaseTest (list) — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (match [ x; 1 ] with h :: _ -> h | [] -> 0))
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (match [ x; 1 ] with h :: _ -> h | [] -> 0)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``NewArray / array index — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -3199,6 +6496,29 @@ let ``NewArray / array index — as the block's value, marker inside`` () =
     let actual: int =
         dlr {
             return (let x: int = o?Count in [| x; x * 2 |].[1])
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewArray / array index — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in [| x; x * 2 |].[1])
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in [| x; x * 2 |].[1])
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewArray / array index — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in [| x; x * 2 |].[1])
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in [| x; x * 2 |].[1])
         }
     actual |> should equal expected
 
@@ -3227,6 +6547,32 @@ let ``NewArray / array index — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``NewArray / array index — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in [| x; x * 2 |].[1])
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in [| x; x * 2 |].[1])).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewArray / array index — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in [| x; x * 2 |].[1])
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in [| x; x * 2 |].[1])).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``NewArray / array index — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -3247,6 +6593,32 @@ let ``NewArray / array index — in a delegate literal, marker inside`` () =
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in [| x; x * 2 |].[1]).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewArray / array index — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in [| x; x * 2 |].[1])
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in [| x; x * 2 |].[1]).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewArray / array index — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in [| x; x * 2 |].[1])
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in [| x; x * 2 |].[1]).Invoke x0
         }
     actual |> should equal expected
 
@@ -3281,6 +6653,38 @@ let ``NewArray / array index — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``NewArray / array index — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in [| x; x * 2 |].[1])
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in [| x; x * 2 |].[1])
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewArray / array index — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in [| x; x * 2 |].[1])
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in [| x; x * 2 |].[1])
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``NewArray / array index — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -3303,6 +6707,33 @@ let ``NewArray / array index — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in [| x; x * 2 |].[1])
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewArray / array index — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in [| x; x * 2 |].[1])
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in [| x; x * 2 |].[1])
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewArray / array index — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in [| x; x * 2 |].[1])
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in [| x; x * 2 |].[1])
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -3331,6 +6762,29 @@ let ``NewArray / array index — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``NewArray / array index — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in [| x; x * 2 |].[1])
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in [| x; x * 2 |].[1]) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewArray / array index — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in [| x; x * 2 |].[1])
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in [| x; x * 2 |].[1]) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``NewObject / PropertyGet — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -3350,6 +6804,29 @@ let ``NewObject / PropertyGet — as the block's value, marker inside`` () =
     let actual: string =
         dlr {
             return (let x: int = o?Count in Text.StringBuilder().Append(x).ToString())
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewObject / PropertyGet — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: string = (let x = w.Count in Text.StringBuilder().Append(x).ToString())
+    let actual: string =
+        dlr {
+            return (let x: int = (?) o name in Text.StringBuilder().Append(x).ToString())
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewObject / PropertyGet — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: string = (let x = w.Count in Text.StringBuilder().Append(x).ToString())
+    let actual: string =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in Text.StringBuilder().Append(x).ToString())
         }
     actual |> should equal expected
 
@@ -3378,6 +6855,32 @@ let ``NewObject / PropertyGet — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``NewObject / PropertyGet — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: string = (let x = w.Count in Text.StringBuilder().Append(x).ToString())
+    let actual: string =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in Text.StringBuilder().Append(x).ToString())).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewObject / PropertyGet — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: string = (let x = w.Count in Text.StringBuilder().Append(x).ToString())
+    let actual: string =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in Text.StringBuilder().Append(x).ToString())).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``NewObject / PropertyGet — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -3398,6 +6901,32 @@ let ``NewObject / PropertyGet — in a delegate literal, marker inside`` () =
         dlr {
             let x0: int = o?Count
             return Func<int, string>(fun (_: int) -> let x: int = o?Count in Text.StringBuilder().Append(x).ToString()).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewObject / PropertyGet — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: string = (let x = w.Count in Text.StringBuilder().Append(x).ToString())
+    let actual: string =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, string>(fun (_: int) -> let x: int = (?) o name in Text.StringBuilder().Append(x).ToString()).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewObject / PropertyGet — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: string = (let x = w.Count in Text.StringBuilder().Append(x).ToString())
+    let actual: string =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, string>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in Text.StringBuilder().Append(x).ToString()).Invoke x0
         }
     actual |> should equal expected
 
@@ -3432,6 +6961,38 @@ let ``NewObject / PropertyGet — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``NewObject / PropertyGet — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: string = (let x = w.Count in Text.StringBuilder().Append(x).ToString())
+    let actual: string =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<string>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in Text.StringBuilder().Append(x).ToString())
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewObject / PropertyGet — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: string = (let x = w.Count in Text.StringBuilder().Append(x).ToString())
+    let actual: string =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<string>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in Text.StringBuilder().Append(x).ToString())
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``NewObject / PropertyGet — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -3454,6 +7015,33 @@ let ``NewObject / PropertyGet — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in Text.StringBuilder().Append(x).ToString())
+            with _ -> return Unchecked.defaultof<string>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewObject / PropertyGet — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: string = (let x = w.Count in Text.StringBuilder().Append(x).ToString())
+    let actual: string =
+        dlr {
+            try
+                return (let x: int = (?) o name in Text.StringBuilder().Append(x).ToString())
+            with _ -> return Unchecked.defaultof<string>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewObject / PropertyGet — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: string = (let x = w.Count in Text.StringBuilder().Append(x).ToString())
+    let actual: string =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in Text.StringBuilder().Append(x).ToString())
             with _ -> return Unchecked.defaultof<string>
         }
     actual |> should equal expected
@@ -3482,6 +7070,29 @@ let ``NewObject / PropertyGet — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``NewObject / PropertyGet — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: string = (let x = w.Count in Text.StringBuilder().Append(x).ToString())
+    let actual: string =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in Text.StringBuilder().Append(x).ToString()) } : string)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewObject / PropertyGet — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: string = (let x = w.Count in Text.StringBuilder().Append(x).ToString())
+    let actual: string =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in Text.StringBuilder().Append(x).ToString()) } : string)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``PropertySet — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -3501,6 +7112,29 @@ let ``PropertySet — as the block's value, marker inside`` () =
     let actual: int =
         dlr {
             return (let x: int = o?Count in (let r = ref x in r.Value <- r.Value + 1; r.Value))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``PropertySet — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let r = ref x in r.Value <- r.Value + 1; r.Value))
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in (let r = ref x in r.Value <- r.Value + 1; r.Value))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``PropertySet — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let r = ref x in r.Value <- r.Value + 1; r.Value))
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let r = ref x in r.Value <- r.Value + 1; r.Value))
         }
     actual |> should equal expected
 
@@ -3529,6 +7163,32 @@ let ``PropertySet — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``PropertySet — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let r = ref x in r.Value <- r.Value + 1; r.Value))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in (let r = ref x in r.Value <- r.Value + 1; r.Value))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``PropertySet — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let r = ref x in r.Value <- r.Value + 1; r.Value))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let r = ref x in r.Value <- r.Value + 1; r.Value))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``PropertySet — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -3549,6 +7209,32 @@ let ``PropertySet — in a delegate literal, marker inside`` () =
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in (let r = ref x in r.Value <- r.Value + 1; r.Value)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``PropertySet — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let r = ref x in r.Value <- r.Value + 1; r.Value))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in (let r = ref x in r.Value <- r.Value + 1; r.Value)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``PropertySet — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let r = ref x in r.Value <- r.Value + 1; r.Value))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let r = ref x in r.Value <- r.Value + 1; r.Value)).Invoke x0
         }
     actual |> should equal expected
 
@@ -3583,6 +7269,38 @@ let ``PropertySet — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``PropertySet — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let r = ref x in r.Value <- r.Value + 1; r.Value))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in (let r = ref x in r.Value <- r.Value + 1; r.Value))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``PropertySet — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let r = ref x in r.Value <- r.Value + 1; r.Value))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let r = ref x in r.Value <- r.Value + 1; r.Value))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``PropertySet — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -3605,6 +7323,33 @@ let ``PropertySet — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in (let r = ref x in r.Value <- r.Value + 1; r.Value))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``PropertySet — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let r = ref x in r.Value <- r.Value + 1; r.Value))
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in (let r = ref x in r.Value <- r.Value + 1; r.Value))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``PropertySet — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let r = ref x in r.Value <- r.Value + 1; r.Value))
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let r = ref x in r.Value <- r.Value + 1; r.Value))
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -3633,6 +7378,29 @@ let ``PropertySet — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``PropertySet — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let r = ref x in r.Value <- r.Value + 1; r.Value))
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in (let r = ref x in r.Value <- r.Value + 1; r.Value)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``PropertySet — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let r = ref x in r.Value <- r.Value + 1; r.Value))
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let r = ref x in r.Value <- r.Value + 1; r.Value)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Void call as a statement — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -3652,6 +7420,29 @@ let ``Void call as a statement — as the block's value, marker inside`` () =
     let actual: int =
         dlr {
             return (let x: int = o?Count in (let l = ResizeArray<int>() in l.Add x; l.Count))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Void call as a statement — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let l = ResizeArray<int>() in l.Add x; l.Count))
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in (let l = ResizeArray<int>() in l.Add x; l.Count))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Void call as a statement — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let l = ResizeArray<int>() in l.Add x; l.Count))
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let l = ResizeArray<int>() in l.Add x; l.Count))
         }
     actual |> should equal expected
 
@@ -3680,6 +7471,32 @@ let ``Void call as a statement — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Void call as a statement — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let l = ResizeArray<int>() in l.Add x; l.Count))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in (let l = ResizeArray<int>() in l.Add x; l.Count))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Void call as a statement — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let l = ResizeArray<int>() in l.Add x; l.Count))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let l = ResizeArray<int>() in l.Add x; l.Count))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Void call as a statement — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -3700,6 +7517,32 @@ let ``Void call as a statement — in a delegate literal, marker inside`` () =
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in (let l = ResizeArray<int>() in l.Add x; l.Count)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Void call as a statement — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let l = ResizeArray<int>() in l.Add x; l.Count))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in (let l = ResizeArray<int>() in l.Add x; l.Count)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Void call as a statement — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let l = ResizeArray<int>() in l.Add x; l.Count))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let l = ResizeArray<int>() in l.Add x; l.Count)).Invoke x0
         }
     actual |> should equal expected
 
@@ -3734,6 +7577,38 @@ let ``Void call as a statement — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Void call as a statement — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let l = ResizeArray<int>() in l.Add x; l.Count))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in (let l = ResizeArray<int>() in l.Add x; l.Count))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Void call as a statement — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let l = ResizeArray<int>() in l.Add x; l.Count))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let l = ResizeArray<int>() in l.Add x; l.Count))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Void call as a statement — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -3756,6 +7631,33 @@ let ``Void call as a statement — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in (let l = ResizeArray<int>() in l.Add x; l.Count))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Void call as a statement — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let l = ResizeArray<int>() in l.Add x; l.Count))
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in (let l = ResizeArray<int>() in l.Add x; l.Count))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Void call as a statement — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let l = ResizeArray<int>() in l.Add x; l.Count))
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let l = ResizeArray<int>() in l.Add x; l.Count))
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -3784,6 +7686,29 @@ let ``Void call as a statement — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Void call as a statement — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let l = ResizeArray<int>() in l.Add x; l.Count))
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in (let l = ResizeArray<int>() in l.Add x; l.Count)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Void call as a statement — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let l = ResizeArray<int>() in l.Add x; l.Count))
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let l = ResizeArray<int>() in l.Add x; l.Count)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``FieldGet — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -3803,6 +7728,29 @@ let ``FieldGet — as the block's value, marker inside`` () =
     let actual: int =
         dlr {
             return (let x: int = o?Count in int (Numerics.Vector2(float32 x, 2.0f).X))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``FieldGet — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in int (Numerics.Vector2(float32 x, 2.0f).X))
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in int (Numerics.Vector2(float32 x, 2.0f).X))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``FieldGet — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in int (Numerics.Vector2(float32 x, 2.0f).X))
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in int (Numerics.Vector2(float32 x, 2.0f).X))
         }
     actual |> should equal expected
 
@@ -3831,6 +7779,32 @@ let ``FieldGet — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``FieldGet — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in int (Numerics.Vector2(float32 x, 2.0f).X))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in int (Numerics.Vector2(float32 x, 2.0f).X))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``FieldGet — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in int (Numerics.Vector2(float32 x, 2.0f).X))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in int (Numerics.Vector2(float32 x, 2.0f).X))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``FieldGet — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -3851,6 +7825,32 @@ let ``FieldGet — in a delegate literal, marker inside`` () =
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in int (Numerics.Vector2(float32 x, 2.0f).X)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``FieldGet — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in int (Numerics.Vector2(float32 x, 2.0f).X))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in int (Numerics.Vector2(float32 x, 2.0f).X)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``FieldGet — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in int (Numerics.Vector2(float32 x, 2.0f).X))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in int (Numerics.Vector2(float32 x, 2.0f).X)).Invoke x0
         }
     actual |> should equal expected
 
@@ -3885,6 +7885,38 @@ let ``FieldGet — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``FieldGet — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in int (Numerics.Vector2(float32 x, 2.0f).X))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in int (Numerics.Vector2(float32 x, 2.0f).X))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``FieldGet — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in int (Numerics.Vector2(float32 x, 2.0f).X))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in int (Numerics.Vector2(float32 x, 2.0f).X))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``FieldGet — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -3907,6 +7939,33 @@ let ``FieldGet — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in int (Numerics.Vector2(float32 x, 2.0f).X))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``FieldGet — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in int (Numerics.Vector2(float32 x, 2.0f).X))
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in int (Numerics.Vector2(float32 x, 2.0f).X))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``FieldGet — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in int (Numerics.Vector2(float32 x, 2.0f).X))
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in int (Numerics.Vector2(float32 x, 2.0f).X))
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -3935,6 +7994,29 @@ let ``FieldGet — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``FieldGet — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in int (Numerics.Vector2(float32 x, 2.0f).X))
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in int (Numerics.Vector2(float32 x, 2.0f).X)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``FieldGet — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in int (Numerics.Vector2(float32 x, 2.0f).X))
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in int (Numerics.Vector2(float32 x, 2.0f).X)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``FieldSet on a mutable struct — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -3954,6 +8036,29 @@ let ``FieldSet on a mutable struct — as the block's value, marker inside`` () 
     let actual: int =
         dlr {
             return (let x: int = o?Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- float32 x; int v.X))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``FieldSet on a mutable struct — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- float32 x; int v.X))
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- float32 x; int v.X))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``FieldSet on a mutable struct — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- float32 x; int v.X))
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- float32 x; int v.X))
         }
     actual |> should equal expected
 
@@ -3982,6 +8087,32 @@ let ``FieldSet on a mutable struct — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``FieldSet on a mutable struct — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- float32 x; int v.X))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- float32 x; int v.X))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``FieldSet on a mutable struct — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- float32 x; int v.X))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- float32 x; int v.X))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``FieldSet on a mutable struct — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -4002,6 +8133,32 @@ let ``FieldSet on a mutable struct — in a delegate literal, marker inside`` ()
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- float32 x; int v.X)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``FieldSet on a mutable struct — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- float32 x; int v.X))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- float32 x; int v.X)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``FieldSet on a mutable struct — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- float32 x; int v.X))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- float32 x; int v.X)).Invoke x0
         }
     actual |> should equal expected
 
@@ -4036,6 +8193,38 @@ let ``FieldSet on a mutable struct — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``FieldSet on a mutable struct — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- float32 x; int v.X))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- float32 x; int v.X))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``FieldSet on a mutable struct — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- float32 x; int v.X))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- float32 x; int v.X))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``FieldSet on a mutable struct — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -4058,6 +8247,33 @@ let ``FieldSet on a mutable struct — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- float32 x; int v.X))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``FieldSet on a mutable struct — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- float32 x; int v.X))
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- float32 x; int v.X))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``FieldSet on a mutable struct — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- float32 x; int v.X))
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- float32 x; int v.X))
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -4086,6 +8302,29 @@ let ``FieldSet on a mutable struct — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``FieldSet on a mutable struct — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- float32 x; int v.X))
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- float32 x; int v.X)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``FieldSet on a mutable struct — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- float32 x; int v.X))
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- float32 x; int v.X)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``PropertySet on a mutable struct — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -4105,6 +8344,29 @@ let ``PropertySet on a mutable struct — as the block's value, marker inside`` 
     let actual: int =
         dlr {
             return (let x: int = o?Count in (let mutable s = Tests.CSharp.MutableSlot() in s.Number <- x; s.Number))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``PropertySet on a mutable struct — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable s = Tests.CSharp.MutableSlot() in s.Number <- x; s.Number))
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in (let mutable s = Tests.CSharp.MutableSlot() in s.Number <- x; s.Number))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``PropertySet on a mutable struct — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable s = Tests.CSharp.MutableSlot() in s.Number <- x; s.Number))
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable s = Tests.CSharp.MutableSlot() in s.Number <- x; s.Number))
         }
     actual |> should equal expected
 
@@ -4133,6 +8395,32 @@ let ``PropertySet on a mutable struct — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``PropertySet on a mutable struct — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable s = Tests.CSharp.MutableSlot() in s.Number <- x; s.Number))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in (let mutable s = Tests.CSharp.MutableSlot() in s.Number <- x; s.Number))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``PropertySet on a mutable struct — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable s = Tests.CSharp.MutableSlot() in s.Number <- x; s.Number))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable s = Tests.CSharp.MutableSlot() in s.Number <- x; s.Number))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``PropertySet on a mutable struct — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -4153,6 +8441,32 @@ let ``PropertySet on a mutable struct — in a delegate literal, marker inside``
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in (let mutable s = Tests.CSharp.MutableSlot() in s.Number <- x; s.Number)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``PropertySet on a mutable struct — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable s = Tests.CSharp.MutableSlot() in s.Number <- x; s.Number))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in (let mutable s = Tests.CSharp.MutableSlot() in s.Number <- x; s.Number)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``PropertySet on a mutable struct — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable s = Tests.CSharp.MutableSlot() in s.Number <- x; s.Number))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable s = Tests.CSharp.MutableSlot() in s.Number <- x; s.Number)).Invoke x0
         }
     actual |> should equal expected
 
@@ -4187,6 +8501,38 @@ let ``PropertySet on a mutable struct — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``PropertySet on a mutable struct — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable s = Tests.CSharp.MutableSlot() in s.Number <- x; s.Number))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in (let mutable s = Tests.CSharp.MutableSlot() in s.Number <- x; s.Number))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``PropertySet on a mutable struct — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable s = Tests.CSharp.MutableSlot() in s.Number <- x; s.Number))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable s = Tests.CSharp.MutableSlot() in s.Number <- x; s.Number))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``PropertySet on a mutable struct — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -4209,6 +8555,33 @@ let ``PropertySet on a mutable struct — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in (let mutable s = Tests.CSharp.MutableSlot() in s.Number <- x; s.Number))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``PropertySet on a mutable struct — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable s = Tests.CSharp.MutableSlot() in s.Number <- x; s.Number))
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in (let mutable s = Tests.CSharp.MutableSlot() in s.Number <- x; s.Number))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``PropertySet on a mutable struct — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable s = Tests.CSharp.MutableSlot() in s.Number <- x; s.Number))
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable s = Tests.CSharp.MutableSlot() in s.Number <- x; s.Number))
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -4237,6 +8610,29 @@ let ``PropertySet on a mutable struct — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``PropertySet on a mutable struct — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable s = Tests.CSharp.MutableSlot() in s.Number <- x; s.Number))
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in (let mutable s = Tests.CSharp.MutableSlot() in s.Number <- x; s.Number)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``PropertySet on a mutable struct — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable s = Tests.CSharp.MutableSlot() in s.Number <- x; s.Number))
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable s = Tests.CSharp.MutableSlot() in s.Number <- x; s.Number)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Mutating method on a mutable struct — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -4256,6 +8652,29 @@ let ``Mutating method on a mutable struct — as the block's value, marker insid
     let actual: int =
         dlr {
             return (let x: int = o?Count in (let mutable s = Tests.CSharp.MutableSlot() in s.Store(Func<int, int>(fun y -> y + x)); s.Property.Invoke 1))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Mutating method on a mutable struct — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable s = Tests.CSharp.MutableSlot() in s.Store(Func<int, int>(fun y -> y + x)); s.Property.Invoke 1))
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in (let mutable s = Tests.CSharp.MutableSlot() in s.Store(Func<int, int>(fun y -> y + x)); s.Property.Invoke 1))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Mutating method on a mutable struct — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable s = Tests.CSharp.MutableSlot() in s.Store(Func<int, int>(fun y -> y + x)); s.Property.Invoke 1))
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable s = Tests.CSharp.MutableSlot() in s.Store(Func<int, int>(fun y -> y + x)); s.Property.Invoke 1))
         }
     actual |> should equal expected
 
@@ -4284,6 +8703,32 @@ let ``Mutating method on a mutable struct — under a lambda, marker inside`` ()
     actual |> should equal expected
 
 [<Fact>]
+let ``Mutating method on a mutable struct — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable s = Tests.CSharp.MutableSlot() in s.Store(Func<int, int>(fun y -> y + x)); s.Property.Invoke 1))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in (let mutable s = Tests.CSharp.MutableSlot() in s.Store(Func<int, int>(fun y -> y + x)); s.Property.Invoke 1))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Mutating method on a mutable struct — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable s = Tests.CSharp.MutableSlot() in s.Store(Func<int, int>(fun y -> y + x)); s.Property.Invoke 1))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable s = Tests.CSharp.MutableSlot() in s.Store(Func<int, int>(fun y -> y + x)); s.Property.Invoke 1))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Mutating method on a mutable struct — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -4304,6 +8749,32 @@ let ``Mutating method on a mutable struct — in a delegate literal, marker insi
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in (let mutable s = Tests.CSharp.MutableSlot() in s.Store(Func<int, int>(fun y -> y + x)); s.Property.Invoke 1)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Mutating method on a mutable struct — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable s = Tests.CSharp.MutableSlot() in s.Store(Func<int, int>(fun y -> y + x)); s.Property.Invoke 1))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in (let mutable s = Tests.CSharp.MutableSlot() in s.Store(Func<int, int>(fun y -> y + x)); s.Property.Invoke 1)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Mutating method on a mutable struct — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable s = Tests.CSharp.MutableSlot() in s.Store(Func<int, int>(fun y -> y + x)); s.Property.Invoke 1))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable s = Tests.CSharp.MutableSlot() in s.Store(Func<int, int>(fun y -> y + x)); s.Property.Invoke 1)).Invoke x0
         }
     actual |> should equal expected
 
@@ -4338,6 +8809,38 @@ let ``Mutating method on a mutable struct — in a for body, marker inside`` () 
     actual |> should equal expected
 
 [<Fact>]
+let ``Mutating method on a mutable struct — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable s = Tests.CSharp.MutableSlot() in s.Store(Func<int, int>(fun y -> y + x)); s.Property.Invoke 1))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in (let mutable s = Tests.CSharp.MutableSlot() in s.Store(Func<int, int>(fun y -> y + x)); s.Property.Invoke 1))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Mutating method on a mutable struct — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable s = Tests.CSharp.MutableSlot() in s.Store(Func<int, int>(fun y -> y + x)); s.Property.Invoke 1))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable s = Tests.CSharp.MutableSlot() in s.Store(Func<int, int>(fun y -> y + x)); s.Property.Invoke 1))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Mutating method on a mutable struct — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -4360,6 +8863,33 @@ let ``Mutating method on a mutable struct — in a try body, marker inside`` () 
         dlr {
             try
                 return (let x: int = o?Count in (let mutable s = Tests.CSharp.MutableSlot() in s.Store(Func<int, int>(fun y -> y + x)); s.Property.Invoke 1))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Mutating method on a mutable struct — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable s = Tests.CSharp.MutableSlot() in s.Store(Func<int, int>(fun y -> y + x)); s.Property.Invoke 1))
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in (let mutable s = Tests.CSharp.MutableSlot() in s.Store(Func<int, int>(fun y -> y + x)); s.Property.Invoke 1))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Mutating method on a mutable struct — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable s = Tests.CSharp.MutableSlot() in s.Store(Func<int, int>(fun y -> y + x)); s.Property.Invoke 1))
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable s = Tests.CSharp.MutableSlot() in s.Store(Func<int, int>(fun y -> y + x)); s.Property.Invoke 1))
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -4388,6 +8918,29 @@ let ``Mutating method on a mutable struct — in a nested dlr, marker inside`` (
     actual |> should equal expected
 
 [<Fact>]
+let ``Mutating method on a mutable struct — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable s = Tests.CSharp.MutableSlot() in s.Store(Func<int, int>(fun y -> y + x)); s.Property.Invoke 1))
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in (let mutable s = Tests.CSharp.MutableSlot() in s.Store(Func<int, int>(fun y -> y + x)); s.Property.Invoke 1)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Mutating method on a mutable struct — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable s = Tests.CSharp.MutableSlot() in s.Store(Func<int, int>(fun y -> y + x)); s.Property.Invoke 1))
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable s = Tests.CSharp.MutableSlot() in s.Store(Func<int, int>(fun y -> y + x)); s.Property.Invoke 1)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Coerce / TypeTest — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -4407,6 +8960,29 @@ let ``Coerce / TypeTest — as the block's value, marker inside`` () =
     let actual: int =
         dlr {
             return (let x: int = o?Count in (match box x with :? int as i -> i | _ -> 0))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Coerce / TypeTest — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (match box x with :? int as i -> i | _ -> 0))
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in (match box x with :? int as i -> i | _ -> 0))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Coerce / TypeTest — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (match box x with :? int as i -> i | _ -> 0))
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (match box x with :? int as i -> i | _ -> 0))
         }
     actual |> should equal expected
 
@@ -4435,6 +9011,32 @@ let ``Coerce / TypeTest — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Coerce / TypeTest — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (match box x with :? int as i -> i | _ -> 0))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in (match box x with :? int as i -> i | _ -> 0))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Coerce / TypeTest — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (match box x with :? int as i -> i | _ -> 0))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (match box x with :? int as i -> i | _ -> 0))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Coerce / TypeTest — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -4455,6 +9057,32 @@ let ``Coerce / TypeTest — in a delegate literal, marker inside`` () =
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in (match box x with :? int as i -> i | _ -> 0)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Coerce / TypeTest — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (match box x with :? int as i -> i | _ -> 0))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in (match box x with :? int as i -> i | _ -> 0)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Coerce / TypeTest — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (match box x with :? int as i -> i | _ -> 0))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (match box x with :? int as i -> i | _ -> 0)).Invoke x0
         }
     actual |> should equal expected
 
@@ -4489,6 +9117,38 @@ let ``Coerce / TypeTest — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Coerce / TypeTest — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (match box x with :? int as i -> i | _ -> 0))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in (match box x with :? int as i -> i | _ -> 0))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Coerce / TypeTest — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (match box x with :? int as i -> i | _ -> 0))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (match box x with :? int as i -> i | _ -> 0))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Coerce / TypeTest — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -4511,6 +9171,33 @@ let ``Coerce / TypeTest — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in (match box x with :? int as i -> i | _ -> 0))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Coerce / TypeTest — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (match box x with :? int as i -> i | _ -> 0))
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in (match box x with :? int as i -> i | _ -> 0))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Coerce / TypeTest — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (match box x with :? int as i -> i | _ -> 0))
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (match box x with :? int as i -> i | _ -> 0))
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -4539,6 +9226,29 @@ let ``Coerce / TypeTest — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Coerce / TypeTest — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (match box x with :? int as i -> i | _ -> 0))
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in (match box x with :? int as i -> i | _ -> 0)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Coerce / TypeTest — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (match box x with :? int as i -> i | _ -> 0))
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (match box x with :? int as i -> i | _ -> 0)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``DefaultValue — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -4558,6 +9268,29 @@ let ``DefaultValue — as the block's value, marker inside`` () =
     let actual: int =
         dlr {
             return (let x: int = o?Count in Unchecked.defaultof<int> + x)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``DefaultValue — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in Unchecked.defaultof<int> + x)
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in Unchecked.defaultof<int> + x)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``DefaultValue — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in Unchecked.defaultof<int> + x)
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in Unchecked.defaultof<int> + x)
         }
     actual |> should equal expected
 
@@ -4586,6 +9319,32 @@ let ``DefaultValue — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``DefaultValue — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in Unchecked.defaultof<int> + x)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in Unchecked.defaultof<int> + x)).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``DefaultValue — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in Unchecked.defaultof<int> + x)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in Unchecked.defaultof<int> + x)).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``DefaultValue — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -4606,6 +9365,32 @@ let ``DefaultValue — in a delegate literal, marker inside`` () =
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in Unchecked.defaultof<int> + x).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``DefaultValue — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in Unchecked.defaultof<int> + x)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in Unchecked.defaultof<int> + x).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``DefaultValue — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in Unchecked.defaultof<int> + x)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in Unchecked.defaultof<int> + x).Invoke x0
         }
     actual |> should equal expected
 
@@ -4640,6 +9425,38 @@ let ``DefaultValue — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``DefaultValue — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in Unchecked.defaultof<int> + x)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in Unchecked.defaultof<int> + x)
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``DefaultValue — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in Unchecked.defaultof<int> + x)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in Unchecked.defaultof<int> + x)
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``DefaultValue — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -4662,6 +9479,33 @@ let ``DefaultValue — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in Unchecked.defaultof<int> + x)
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``DefaultValue — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in Unchecked.defaultof<int> + x)
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in Unchecked.defaultof<int> + x)
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``DefaultValue — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in Unchecked.defaultof<int> + x)
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in Unchecked.defaultof<int> + x)
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -4690,6 +9534,29 @@ let ``DefaultValue — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``DefaultValue — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in Unchecked.defaultof<int> + x)
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in Unchecked.defaultof<int> + x) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``DefaultValue — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in Unchecked.defaultof<int> + x)
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in Unchecked.defaultof<int> + x) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``NewDelegate — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -4709,6 +9576,29 @@ let ``NewDelegate — as the block's value, marker inside`` () =
     let actual: int =
         dlr {
             return (let x: int = o?Count in Func<int, int>(fun y -> y + x).Invoke 1)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewDelegate — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in Func<int, int>(fun y -> y + x).Invoke 1)
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in Func<int, int>(fun y -> y + x).Invoke 1)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewDelegate — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in Func<int, int>(fun y -> y + x).Invoke 1)
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in Func<int, int>(fun y -> y + x).Invoke 1)
         }
     actual |> should equal expected
 
@@ -4737,6 +9627,32 @@ let ``NewDelegate — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``NewDelegate — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in Func<int, int>(fun y -> y + x).Invoke 1)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in Func<int, int>(fun y -> y + x).Invoke 1)).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewDelegate — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in Func<int, int>(fun y -> y + x).Invoke 1)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in Func<int, int>(fun y -> y + x).Invoke 1)).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``NewDelegate — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -4757,6 +9673,32 @@ let ``NewDelegate — in a delegate literal, marker inside`` () =
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in Func<int, int>(fun y -> y + x).Invoke 1).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewDelegate — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in Func<int, int>(fun y -> y + x).Invoke 1)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in Func<int, int>(fun y -> y + x).Invoke 1).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewDelegate — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in Func<int, int>(fun y -> y + x).Invoke 1)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in Func<int, int>(fun y -> y + x).Invoke 1).Invoke x0
         }
     actual |> should equal expected
 
@@ -4791,6 +9733,38 @@ let ``NewDelegate — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``NewDelegate — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in Func<int, int>(fun y -> y + x).Invoke 1)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in Func<int, int>(fun y -> y + x).Invoke 1)
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewDelegate — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in Func<int, int>(fun y -> y + x).Invoke 1)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in Func<int, int>(fun y -> y + x).Invoke 1)
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``NewDelegate — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -4813,6 +9787,33 @@ let ``NewDelegate — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in Func<int, int>(fun y -> y + x).Invoke 1)
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewDelegate — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in Func<int, int>(fun y -> y + x).Invoke 1)
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in Func<int, int>(fun y -> y + x).Invoke 1)
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewDelegate — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in Func<int, int>(fun y -> y + x).Invoke 1)
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in Func<int, int>(fun y -> y + x).Invoke 1)
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -4841,6 +9842,29 @@ let ``NewDelegate — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``NewDelegate — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in Func<int, int>(fun y -> y + x).Invoke 1)
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in Func<int, int>(fun y -> y + x).Invoke 1) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewDelegate — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in Func<int, int>(fun y -> y + x).Invoke 1)
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in Func<int, int>(fun y -> y + x).Invoke 1) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``NewDelegate (parameterless) — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -4860,6 +9884,29 @@ let ``NewDelegate (parameterless) — as the block's value, marker inside`` () =
     let actual: int =
         dlr {
             return (let x: int = o?Count in Func<int>(fun () -> x).Invoke())
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewDelegate (parameterless) — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in Func<int>(fun () -> x).Invoke())
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in Func<int>(fun () -> x).Invoke())
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewDelegate (parameterless) — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in Func<int>(fun () -> x).Invoke())
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in Func<int>(fun () -> x).Invoke())
         }
     actual |> should equal expected
 
@@ -4888,6 +9935,32 @@ let ``NewDelegate (parameterless) — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``NewDelegate (parameterless) — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in Func<int>(fun () -> x).Invoke())
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in Func<int>(fun () -> x).Invoke())).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewDelegate (parameterless) — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in Func<int>(fun () -> x).Invoke())
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in Func<int>(fun () -> x).Invoke())).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``NewDelegate (parameterless) — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -4908,6 +9981,32 @@ let ``NewDelegate (parameterless) — in a delegate literal, marker inside`` () 
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in Func<int>(fun () -> x).Invoke()).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewDelegate (parameterless) — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in Func<int>(fun () -> x).Invoke())
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in Func<int>(fun () -> x).Invoke()).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewDelegate (parameterless) — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in Func<int>(fun () -> x).Invoke())
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in Func<int>(fun () -> x).Invoke()).Invoke x0
         }
     actual |> should equal expected
 
@@ -4942,6 +10041,38 @@ let ``NewDelegate (parameterless) — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``NewDelegate (parameterless) — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in Func<int>(fun () -> x).Invoke())
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in Func<int>(fun () -> x).Invoke())
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewDelegate (parameterless) — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in Func<int>(fun () -> x).Invoke())
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in Func<int>(fun () -> x).Invoke())
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``NewDelegate (parameterless) — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -4964,6 +10095,33 @@ let ``NewDelegate (parameterless) — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in Func<int>(fun () -> x).Invoke())
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewDelegate (parameterless) — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in Func<int>(fun () -> x).Invoke())
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in Func<int>(fun () -> x).Invoke())
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewDelegate (parameterless) — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in Func<int>(fun () -> x).Invoke())
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in Func<int>(fun () -> x).Invoke())
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -4992,6 +10150,29 @@ let ``NewDelegate (parameterless) — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``NewDelegate (parameterless) — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in Func<int>(fun () -> x).Invoke())
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in Func<int>(fun () -> x).Invoke()) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``NewDelegate (parameterless) — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in Func<int>(fun () -> x).Invoke())
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in Func<int>(fun () -> x).Invoke()) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Raise caught — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -5011,6 +10192,29 @@ let ``Raise caught — as the block's value, marker inside`` () =
     let actual: int =
         dlr {
             return (let x: int = o?Count in (try raise (InvalidOperationException()) with _ -> x))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Raise caught — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (try raise (InvalidOperationException()) with _ -> x))
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in (try raise (InvalidOperationException()) with _ -> x))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Raise caught — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (try raise (InvalidOperationException()) with _ -> x))
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (try raise (InvalidOperationException()) with _ -> x))
         }
     actual |> should equal expected
 
@@ -5039,6 +10243,32 @@ let ``Raise caught — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Raise caught — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (try raise (InvalidOperationException()) with _ -> x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in (try raise (InvalidOperationException()) with _ -> x))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Raise caught — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (try raise (InvalidOperationException()) with _ -> x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (try raise (InvalidOperationException()) with _ -> x))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Raise caught — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -5059,6 +10289,32 @@ let ``Raise caught — in a delegate literal, marker inside`` () =
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in (try raise (InvalidOperationException()) with _ -> x)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Raise caught — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (try raise (InvalidOperationException()) with _ -> x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in (try raise (InvalidOperationException()) with _ -> x)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Raise caught — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (try raise (InvalidOperationException()) with _ -> x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (try raise (InvalidOperationException()) with _ -> x)).Invoke x0
         }
     actual |> should equal expected
 
@@ -5093,6 +10349,38 @@ let ``Raise caught — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Raise caught — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (try raise (InvalidOperationException()) with _ -> x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in (try raise (InvalidOperationException()) with _ -> x))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Raise caught — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (try raise (InvalidOperationException()) with _ -> x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (try raise (InvalidOperationException()) with _ -> x))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Raise caught — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -5115,6 +10403,33 @@ let ``Raise caught — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in (try raise (InvalidOperationException()) with _ -> x))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Raise caught — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (try raise (InvalidOperationException()) with _ -> x))
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in (try raise (InvalidOperationException()) with _ -> x))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Raise caught — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (try raise (InvalidOperationException()) with _ -> x))
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (try raise (InvalidOperationException()) with _ -> x))
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -5143,6 +10458,29 @@ let ``Raise caught — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Raise caught — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (try raise (InvalidOperationException()) with _ -> x))
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in (try raise (InvalidOperationException()) with _ -> x)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Raise caught — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (try raise (InvalidOperationException()) with _ -> x))
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (try raise (InvalidOperationException()) with _ -> x)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``List comprehension — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -5162,6 +10500,29 @@ let ``List comprehension — as the block's value, marker inside`` () =
     let actual: int =
         dlr {
             return (let x: int = o?Count in [ for i in 1 .. x -> i * i ] |> List.sum)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``List comprehension — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in [ for i in 1 .. x -> i * i ] |> List.sum)
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in [ for i in 1 .. x -> i * i ] |> List.sum)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``List comprehension — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in [ for i in 1 .. x -> i * i ] |> List.sum)
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in [ for i in 1 .. x -> i * i ] |> List.sum)
         }
     actual |> should equal expected
 
@@ -5190,6 +10551,32 @@ let ``List comprehension — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``List comprehension — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in [ for i in 1 .. x -> i * i ] |> List.sum)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in [ for i in 1 .. x -> i * i ] |> List.sum)).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``List comprehension — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in [ for i in 1 .. x -> i * i ] |> List.sum)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in [ for i in 1 .. x -> i * i ] |> List.sum)).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``List comprehension — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -5210,6 +10597,32 @@ let ``List comprehension — in a delegate literal, marker inside`` () =
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in [ for i in 1 .. x -> i * i ] |> List.sum).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``List comprehension — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in [ for i in 1 .. x -> i * i ] |> List.sum)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in [ for i in 1 .. x -> i * i ] |> List.sum).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``List comprehension — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in [ for i in 1 .. x -> i * i ] |> List.sum)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in [ for i in 1 .. x -> i * i ] |> List.sum).Invoke x0
         }
     actual |> should equal expected
 
@@ -5244,6 +10657,38 @@ let ``List comprehension — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``List comprehension — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in [ for i in 1 .. x -> i * i ] |> List.sum)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in [ for i in 1 .. x -> i * i ] |> List.sum)
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``List comprehension — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in [ for i in 1 .. x -> i * i ] |> List.sum)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in [ for i in 1 .. x -> i * i ] |> List.sum)
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``List comprehension — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -5266,6 +10711,33 @@ let ``List comprehension — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in [ for i in 1 .. x -> i * i ] |> List.sum)
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``List comprehension — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in [ for i in 1 .. x -> i * i ] |> List.sum)
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in [ for i in 1 .. x -> i * i ] |> List.sum)
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``List comprehension — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in [ for i in 1 .. x -> i * i ] |> List.sum)
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in [ for i in 1 .. x -> i * i ] |> List.sum)
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -5294,6 +10766,29 @@ let ``List comprehension — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``List comprehension — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in [ for i in 1 .. x -> i * i ] |> List.sum)
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in [ for i in 1 .. x -> i * i ] |> List.sum) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``List comprehension — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in [ for i in 1 .. x -> i * i ] |> List.sum)
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in [ for i in 1 .. x -> i * i ] |> List.sum) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Seq expression — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -5313,6 +10808,29 @@ let ``Seq expression — as the block's value, marker inside`` () =
     let actual: int =
         dlr {
             return (let x: int = o?Count in seq { yield x; yield 1 } |> Seq.sum)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Seq expression — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in seq { yield x; yield 1 } |> Seq.sum)
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in seq { yield x; yield 1 } |> Seq.sum)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Seq expression — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in seq { yield x; yield 1 } |> Seq.sum)
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in seq { yield x; yield 1 } |> Seq.sum)
         }
     actual |> should equal expected
 
@@ -5341,6 +10859,32 @@ let ``Seq expression — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Seq expression — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in seq { yield x; yield 1 } |> Seq.sum)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in seq { yield x; yield 1 } |> Seq.sum)).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Seq expression — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in seq { yield x; yield 1 } |> Seq.sum)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in seq { yield x; yield 1 } |> Seq.sum)).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Seq expression — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -5361,6 +10905,32 @@ let ``Seq expression — in a delegate literal, marker inside`` () =
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in seq { yield x; yield 1 } |> Seq.sum).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Seq expression — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in seq { yield x; yield 1 } |> Seq.sum)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in seq { yield x; yield 1 } |> Seq.sum).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Seq expression — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in seq { yield x; yield 1 } |> Seq.sum)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in seq { yield x; yield 1 } |> Seq.sum).Invoke x0
         }
     actual |> should equal expected
 
@@ -5395,6 +10965,38 @@ let ``Seq expression — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Seq expression — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in seq { yield x; yield 1 } |> Seq.sum)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in seq { yield x; yield 1 } |> Seq.sum)
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Seq expression — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in seq { yield x; yield 1 } |> Seq.sum)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in seq { yield x; yield 1 } |> Seq.sum)
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Seq expression — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -5417,6 +11019,33 @@ let ``Seq expression — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in seq { yield x; yield 1 } |> Seq.sum)
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Seq expression — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in seq { yield x; yield 1 } |> Seq.sum)
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in seq { yield x; yield 1 } |> Seq.sum)
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Seq expression — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in seq { yield x; yield 1 } |> Seq.sum)
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in seq { yield x; yield 1 } |> Seq.sum)
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -5445,6 +11074,29 @@ let ``Seq expression — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Seq expression — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in seq { yield x; yield 1 } |> Seq.sum)
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in seq { yield x; yield 1 } |> Seq.sum) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Seq expression — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in seq { yield x; yield 1 } |> Seq.sum)
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in seq { yield x; yield 1 } |> Seq.sum) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``String interpolation — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -5464,6 +11116,29 @@ let ``String interpolation — as the block's value, marker inside`` () =
     let actual: string =
         dlr {
             return (let x: int = o?Count in $"n={x}")
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``String interpolation — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: string = (let x = w.Count in $"n={x}")
+    let actual: string =
+        dlr {
+            return (let x: int = (?) o name in $"n={x}")
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``String interpolation — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: string = (let x = w.Count in $"n={x}")
+    let actual: string =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in $"n={x}")
         }
     actual |> should equal expected
 
@@ -5492,6 +11167,32 @@ let ``String interpolation — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``String interpolation — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: string = (let x = w.Count in $"n={x}")
+    let actual: string =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in $"n={x}")).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``String interpolation — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: string = (let x = w.Count in $"n={x}")
+    let actual: string =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in $"n={x}")).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``String interpolation — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -5512,6 +11213,32 @@ let ``String interpolation — in a delegate literal, marker inside`` () =
         dlr {
             let x0: int = o?Count
             return Func<int, string>(fun (_: int) -> let x: int = o?Count in $"n={x}").Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``String interpolation — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: string = (let x = w.Count in $"n={x}")
+    let actual: string =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, string>(fun (_: int) -> let x: int = (?) o name in $"n={x}").Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``String interpolation — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: string = (let x = w.Count in $"n={x}")
+    let actual: string =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, string>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in $"n={x}").Invoke x0
         }
     actual |> should equal expected
 
@@ -5546,6 +11273,38 @@ let ``String interpolation — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``String interpolation — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: string = (let x = w.Count in $"n={x}")
+    let actual: string =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<string>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in $"n={x}")
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``String interpolation — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: string = (let x = w.Count in $"n={x}")
+    let actual: string =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<string>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in $"n={x}")
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``String interpolation — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -5568,6 +11327,33 @@ let ``String interpolation — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in $"n={x}")
+            with _ -> return Unchecked.defaultof<string>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``String interpolation — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: string = (let x = w.Count in $"n={x}")
+    let actual: string =
+        dlr {
+            try
+                return (let x: int = (?) o name in $"n={x}")
+            with _ -> return Unchecked.defaultof<string>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``String interpolation — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: string = (let x = w.Count in $"n={x}")
+    let actual: string =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in $"n={x}")
             with _ -> return Unchecked.defaultof<string>
         }
     actual |> should equal expected
@@ -5596,6 +11382,29 @@ let ``String interpolation — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``String interpolation — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: string = (let x = w.Count in $"n={x}")
+    let actual: string =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in $"n={x}") } : string)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``String interpolation — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: string = (let x = w.Count in $"n={x}")
+    let actual: string =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in $"n={x}") } : string)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Lazy — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -5615,6 +11424,29 @@ let ``Lazy — as the block's value, marker inside`` () =
     let actual: int =
         dlr {
             return (let x: int = o?Count in (lazy (x + 1)).Value)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Lazy — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (lazy (x + 1)).Value)
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in (lazy (x + 1)).Value)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Lazy — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (lazy (x + 1)).Value)
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (lazy (x + 1)).Value)
         }
     actual |> should equal expected
 
@@ -5643,6 +11475,32 @@ let ``Lazy — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Lazy — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (lazy (x + 1)).Value)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in (lazy (x + 1)).Value)).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Lazy — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (lazy (x + 1)).Value)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (lazy (x + 1)).Value)).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Lazy — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -5663,6 +11521,32 @@ let ``Lazy — in a delegate literal, marker inside`` () =
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in (lazy (x + 1)).Value).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Lazy — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (lazy (x + 1)).Value)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in (lazy (x + 1)).Value).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Lazy — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (lazy (x + 1)).Value)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (lazy (x + 1)).Value).Invoke x0
         }
     actual |> should equal expected
 
@@ -5697,6 +11581,38 @@ let ``Lazy — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Lazy — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (lazy (x + 1)).Value)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in (lazy (x + 1)).Value)
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Lazy — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (lazy (x + 1)).Value)
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (lazy (x + 1)).Value)
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Lazy — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -5719,6 +11635,33 @@ let ``Lazy — in a try body, marker inside`` () =
         dlr {
             try
                 return (let x: int = o?Count in (lazy (x + 1)).Value)
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Lazy — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (lazy (x + 1)).Value)
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in (lazy (x + 1)).Value)
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Lazy — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (lazy (x + 1)).Value)
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (lazy (x + 1)).Value)
             with _ -> return Unchecked.defaultof<int>
         }
     actual |> should equal expected
@@ -5747,6 +11690,29 @@ let ``Lazy — in a nested dlr, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Lazy — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (lazy (x + 1)).Value)
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in (lazy (x + 1)).Value) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Lazy — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (lazy (x + 1)).Value)
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (lazy (x + 1)).Value) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Pipe and composition — as the block's value`` () =
     let w = Widget()
     let o = box w
@@ -5766,6 +11732,29 @@ let ``Pipe and composition — as the block's value, marker inside`` () =
     let actual: int =
         dlr {
             return (let x: int = o?Count in x |> ((+) 1 >> (*) 2))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Pipe and composition — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in x |> ((+) 1 >> (*) 2))
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in x |> ((+) 1 >> (*) 2))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Pipe and composition — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in x |> ((+) 1 >> (*) 2))
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in x |> ((+) 1 >> (*) 2))
         }
     actual |> should equal expected
 
@@ -5794,6 +11783,32 @@ let ``Pipe and composition — under a lambda, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Pipe and composition — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in x |> ((+) 1 >> (*) 2))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in x |> ((+) 1 >> (*) 2))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Pipe and composition — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in x |> ((+) 1 >> (*) 2))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in x |> ((+) 1 >> (*) 2))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Pipe and composition — in a delegate literal`` () =
     let w = Widget()
     let o = box w
@@ -5814,6 +11829,32 @@ let ``Pipe and composition — in a delegate literal, marker inside`` () =
         dlr {
             let x0: int = o?Count
             return Func<int, int>(fun (_: int) -> let x: int = o?Count in x |> ((+) 1 >> (*) 2)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Pipe and composition — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in x |> ((+) 1 >> (*) 2))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in x |> ((+) 1 >> (*) 2)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Pipe and composition — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in x |> ((+) 1 >> (*) 2))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in x |> ((+) 1 >> (*) 2)).Invoke x0
         }
     actual |> should equal expected
 
@@ -5848,6 +11889,38 @@ let ``Pipe and composition — in a for body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Pipe and composition — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in x |> ((+) 1 >> (*) 2))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in x |> ((+) 1 >> (*) 2))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Pipe and composition — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in x |> ((+) 1 >> (*) 2))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in x |> ((+) 1 >> (*) 2))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Pipe and composition — in a try body`` () =
     let w = Widget()
     let o = box w
@@ -5875,6 +11948,33 @@ let ``Pipe and composition — in a try body, marker inside`` () =
     actual |> should equal expected
 
 [<Fact>]
+let ``Pipe and composition — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in x |> ((+) 1 >> (*) 2))
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in x |> ((+) 1 >> (*) 2))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Pipe and composition — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in x |> ((+) 1 >> (*) 2))
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in x |> ((+) 1 >> (*) 2))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Pipe and composition — in a nested dlr`` () =
     let w = Widget()
     let o = box w
@@ -5894,5 +11994,28 @@ let ``Pipe and composition — in a nested dlr, marker inside`` () =
     let actual: int =
         dlr {
             return (dlr { return (let x: int = o?Count in x |> ((+) 1 >> (*) 2)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Pipe and composition — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in x |> ((+) 1 >> (*) 2))
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in x |> ((+) 1 >> (*) 2)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Pipe and composition — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in x |> ((+) 1 >> (*) 2))
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in x |> ((+) 1 >> (*) 2)) } : int)
         }
     actual |> should equal expected
