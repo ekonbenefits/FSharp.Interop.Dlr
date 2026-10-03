@@ -35,6 +35,10 @@ module DlrRuntime =
     let whileLoop (guard: Func<bool>) (body: Func<unit>) : unit =
         while guard.Invoke() do body.Invoke()
 
+    /// `for i in low .. high do body i` (F#'s ForIntegerRangeLoop: step 1, bounds evaluated once)
+    let forRange (low: int) (high: int) (body: Func<int, unit>) : unit =
+        for i in low .. high do body.Invoke i
+
     /// `try body () with e -> handler e` (F# already puts the rethrow of unmatched exceptions in `handler`)
     let tryWith (body: Func<'T>) (handler: Func<exn, 'T>) : 'T =
         try body.Invoke() with e -> handler.Invoke e

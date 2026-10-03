@@ -68,6 +68,7 @@
     <Compile Include="..\Tests\Com.fs" Link="Com.fs" />
     <Compile Include="..\Tests\HotPath.fs" Link="HotPath.fs" />
     <Compile Include="..\Tests\FSharpInBlocks.fs" Link="FSharpInBlocks.fs" />
+    <Compile Include="..\Tests\Shapes.fs" Link="Shapes.fs" />
     <Compile Include="..\Tests\RulesEverywhere.fs" Link="RulesEverywhere.fs" />
     <Compile Include="..\Tests\Unreflected.fs" Link="Unreflected.fs" />
     <!-- Undecodable.fs is left out: Mono asserts (reflection.c) on its typeof<System.Void> quotation. -->

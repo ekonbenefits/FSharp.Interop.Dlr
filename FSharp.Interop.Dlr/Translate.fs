@@ -81,6 +81,7 @@ module internal Translate =
         ]
     let private forEach = opMethod <@ fun (items: seq<obj>) (body: Func<obj, unit>) -> DlrRuntime.forEach items body @>
     let private whileLoop = opMethod <@ fun (guard: Func<bool>) (body: Func<unit>) -> DlrRuntime.whileLoop guard body @>
+    let private forRange = opMethod <@ fun (low: int) (high: int) (body: Func<int, unit>) -> DlrRuntime.forRange low high body @>
     let private tryWith = opMethod <@ fun (body: Func<obj>) (handler: Func<exn, obj>) -> DlrRuntime.tryWith body handler @>
     let private tryFinally = opMethod <@ fun (body: Func<obj>) (fin: Func<unit>) -> DlrRuntime.tryFinally body fin @>
     let private rethrow = opMethod <@ fun (e: exn) -> (DlrRuntime.rethrow e : obj) @>
@@ -1359,9 +1360,28 @@ module internal Translate =
             | Let(v, def, letBody) when v.IsMutable ->
                 let cell = Var(v.Name, typedefof<Ref<_>>.MakeGenericType v.Type)
                 let value = cell.Type.GetProperty("Value")
+                // A struct read back from the cell is a copy, so an operation that mutates it in place
+                // (a field set, a property setter, a method) runs on a temporary that is then written
+                // back, or the change is lost (#162). The temporary is immutable to F# — so it is not
+                // celled again — but a LINQ variable, which a field set or a call mutates in place.
+                let inPlace (op: Expr -> Expr) =
+                    let copy = Var(v.Name + "Copy", v.Type)
+                    let result = op (Expr.Var copy)
+                    let writeBack = Expr.PropertySet(Expr.Var cell, value, Expr.Var copy)
+                    let read = Expr.PropertyGet(Expr.Var cell, value)
+                    if result.Type = typeof<unit> then Expr.Let(copy, read, Expr.Sequential(result, writeBack))
+                    else
+                        let r = Var("result", result.Type)
+                        Expr.Let(copy, read, Expr.Let(r, result, Expr.Sequential(writeBack, Expr.Var r)))
                 let rec subst (e: Expr) =
                     match e with
                     | VarSet(v', x) when v' = v -> Expr.PropertySet(Expr.Var cell, value, subst x)
+                    | FieldSet(Some(Var v'), f, x) when v' = v && v.Type.IsValueType ->
+                        inPlace (fun copy -> Expr.FieldSet(copy, f, subst x))
+                    | PropertySet(Some(Var v'), p, indexes, x) when v' = v && v.Type.IsValueType ->
+                        inPlace (fun copy -> Expr.PropertySet(copy, p, subst x, List.map subst indexes))
+                    | Call(Some(Var v'), mi, args) when v' = v && v.Type.IsValueType ->
+                        inPlace (fun copy -> Expr.Call(copy, mi, List.map subst args))
                     | Var v' when v' = v -> Expr.PropertyGet(Expr.Var cell, value)
                     | ShapeVar _ -> e
                     | ShapeLambda(x, b) -> Expr.Lambda(x, subst b)
@@ -1392,6 +1412,19 @@ module internal Translate =
             | TryWith(body, _, _, ex, handler) ->
                 let func = Plumbing.func block rewriteIn bound
                 Expr.Call(tryWith.MakeGenericMethod(e.Type), [ func [] body; func [ ex ] (Plumbing.rethrowing ex handler) ])
+            // `while` and `for i in a .. b` that are not the builder's (under a lambda, in a delegate
+            // literal, inside an expression): no LINQ form either, so the same delegates (#162).
+            | WhileLoop(guard, body) ->
+                let func = Plumbing.func block rewriteIn bound
+                Expr.Call(whileLoop, [ func [] guard; func [] body ])
+            | ForIntegerRangeLoop(i, low, high, body) ->
+                let func = Plumbing.func block rewriteIn bound
+                Expr.Call(forRange, [ rewrite low; rewrite high; func [ i ] body ])
+            // An element of a struct tuple: the converter's TupleGet looks for a reference tuple's
+            // property and rejects a ValueTuple's index (#162), so it is the field itself
+            // (`Item1`…`Item7`, then `Rest`), as the byref holder reads it.
+            | TupleGet(tuple, index) when tuple.Type.IsValueType ->
+                Binders.byRefHolderPath tuple.Type index |> List.fold (fun e f -> Expr.FieldGet(e, f)) (rewrite tuple)
             | TryFinally(body, compensation) ->
                 let func = Plumbing.func block rewriteIn bound
                 // `use`'s compensation is `if (d :? IDisposable) then d.Dispose() else ()`: a void
