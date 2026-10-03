@@ -81,6 +81,7 @@ module internal Translate =
         ]
     let private forEach = opMethod <@ fun (items: seq<obj>) (body: Func<obj, unit>) -> DlrRuntime.forEach items body @>
     let private whileLoop = opMethod <@ fun (guard: Func<bool>) (body: Func<unit>) -> DlrRuntime.whileLoop guard body @>
+    let private forRange = opMethod <@ fun (low: int) (high: int) (body: Func<int, unit>) -> DlrRuntime.forRange low high body @>
     let private tryWith = opMethod <@ fun (body: Func<obj>) (handler: Func<exn, obj>) -> DlrRuntime.tryWith body handler @>
     let private tryFinally = opMethod <@ fun (body: Func<obj>) (fin: Func<unit>) -> DlrRuntime.tryFinally body fin @>
     let private rethrow = opMethod <@ fun (e: exn) -> (DlrRuntime.rethrow e : obj) @>
@@ -586,6 +587,9 @@ module internal Translate =
                     Expression.New(t.GetConstructor fields, args) :> Expression
                 let values = holder node.Type (result :: [ for i in 0 .. elements.Count - 1 do if parameters.[i + 1].ParameterType.IsByRef then yield (tempAt.[i] :> Expression) ])
                 Expression.Block(node.Type, temps, List.ofSeq inits @ [ callStep; values ]) :> Expression
+            // An in-place struct operation's write-back (`Binders.InPlace`): in a finally.
+            elif node.Method.DeclaringType = typeof<Binders.InPlace> then
+                Expression.TryFinally(this.Visit node.Arguments.[0], this.Visit node.Arguments.[1]) :> Expression
             else base.VisitMethodCall node
 
     let private onWasm =
@@ -647,6 +651,53 @@ module internal Translate =
 
     /// Where a free variable of the body comes from: the Delay closure, or failing that the
     /// enclosing member's body.
+    /// The struct variable a receiver is rooted at, with the struct fields down from it:
+    /// `v`, `v.Inner`, `v.Inner.Point`.
+    let rec private structPath (e: Expr) : (Var * Reflection.FieldInfo list) option =
+        match e with
+        | Var v when v.Type.IsValueType -> Some(v, [])
+        | FieldGet(Some inner, f) when f.FieldType.IsValueType -> structPath inner |> Option.map (fun (v, fs) -> v, fs @ [ f ])
+        | _ -> None
+
+    /// A struct variable that lives in a cell — a `let mutable` of the block, or a mutable captured
+    /// from outside it, which the compiler stores as an FSharpRef — reads back as a copy, so an
+    /// operation that mutates it in place (a field set, a property setter or a method, on the
+    /// variable or a struct field of it) would be lost (#162). It runs on a temporary copy that is
+    /// written back, in a finally. The arguments are evaluated first, left to right, into temporaries: the
+    /// receiver is a variable, so this is F#'s order, and an argument that mutates the variable
+    /// itself is not overwritten by a copy read before it ran. The copy is immutable to F# — so it
+    /// is not celled again — but a LINQ variable, which a field set or call mutates in place.
+    /// `isTarget` picks the cell variables; `read` and `write` are the cell's; `recurse` rewrites
+    /// the arguments. None when `e` is not such an operation.
+    let private inPlace (isTarget: Var -> bool) (read: Var -> Expr) (write: Var -> Expr -> Expr) (recurse: Expr -> Expr) (e: Expr) : Expr option =
+        let rooted (receiver: Expr) =
+            match structPath receiver with
+            | Some(v, fields) when isTarget v -> Some(v, fields)
+            | _ -> None
+        let apply (v: Var) (fields: Reflection.FieldInfo list) (args: Expr list) (op: Expr -> Expr list -> Expr) =
+            let temps = args |> List.mapi (fun i a -> Var(sprintf "arg%d" i, a.Type), recurse a)
+            let copy = Var(v.Name + "Copy", v.Type)
+            let receiver = fields |> List.fold (fun r f -> Expr.FieldGet(r, f)) (Expr.Var copy)
+            let result = op receiver [ for t, _ in temps -> Expr.Var t ]
+            // Unit-typed both, as values: a void call or setter cannot be an argument.
+            let asValue (e: Expr) = if e.Type = typeof<unit> then Expr.Sequential(e, Expr.Value(())) else e
+            // The write-back in a finally (`Binders.InPlace`, made a TryFinally after conversion),
+            // so a member that mutates then throws keeps its mutation, as in plain F#; the
+            // arguments ran before, outside it, so a throwing argument writes nothing back.
+            let body =
+                Expr.Call(typeof<Binders.InPlace>.GetMethod("Then", Reflection.BindingFlags.Static ||| Reflection.BindingFlags.Public ||| Reflection.BindingFlags.NonPublic).MakeGenericMethod(result.Type),
+                          [ asValue result; asValue (write v (Expr.Var copy)) ])
+            List.foldBack (fun (t, a) inner -> Expr.Let(t, a, inner)) temps (Expr.Let(copy, read v, body))
+        match e with
+        | FieldSet(Some receiver, f, x) ->
+            rooted receiver |> Option.map (fun (v, fields) -> apply v fields [ x ] (fun r a -> Expr.FieldSet(r, f, List.head a)))
+        | PropertySet(Some receiver, p, indexes, x) ->
+            rooted receiver |> Option.map (fun (v, fields) ->
+                apply v fields (indexes @ [ x ]) (fun r a -> Expr.PropertySet(r, p, List.last a, List.take indexes.Length a)))
+        | Call(Some receiver, mi, args) ->
+            rooted receiver |> Option.map (fun (v, fields) -> apply v fields args (fun r a -> Expr.Call(r, mi, a)))
+        | _ -> None
+
     module private Captures =
 
         /// The container's fields by name. A state machine also has fields of its own, `Data`
@@ -700,6 +751,12 @@ module internal Translate =
                                     v.Name block.ClosureType.Name (String.Join(", ", block.Fields.Keys))))
 
         /// `v <- value` on a captured `let mutable`: a write through its FSharpRef cell.
+        /// Whether a captured variable is a mutable, stored in an FSharpRef cell.
+        let isCell (block: Block) (v: Var) =
+            match block.Fields.TryGetValue v.Name with
+            | true, f -> isRefCell f v.Type
+            | _ -> false
+
         let assign (block: Block) (v: Var) (value: Expr) : Expr =
             match block.Fields.TryGetValue v.Name with
             | true, f when isRefCell f v.Type ->
@@ -1345,6 +1402,10 @@ module internal Translate =
             match Members.tryOperation block rewriteIn bound e with
             | Some rewritten -> rewritten
             | None ->
+            // A mutable struct captured from outside the block, mutated in place (see `inPlace`).
+            match inPlace (fun v -> isCaptured bound v && Captures.isCell block v) (Captures.read block rewrite) (Captures.assign block) rewrite e with
+            | Some written -> written
+            | None ->
             match e with
             | Var v when isCaptured bound v -> Captures.read block (rewriteIn bound) v
             | VarSet(v, value) when isCaptured bound v -> Captures.assign block v (rewrite value)
@@ -1360,6 +1421,9 @@ module internal Translate =
                 let cell = Var(v.Name, typedefof<Ref<_>>.MakeGenericType v.Type)
                 let value = cell.Type.GetProperty("Value")
                 let rec subst (e: Expr) =
+                    match inPlace ((=) v) (fun _ -> Expr.PropertyGet(Expr.Var cell, value)) (fun _ x -> Expr.PropertySet(Expr.Var cell, value, x)) subst e with
+                    | Some written -> written
+                    | None ->
                     match e with
                     | VarSet(v', x) when v' = v -> Expr.PropertySet(Expr.Var cell, value, subst x)
                     | Var v' when v' = v -> Expr.PropertyGet(Expr.Var cell, value)
@@ -1392,6 +1456,19 @@ module internal Translate =
             | TryWith(body, _, _, ex, handler) ->
                 let func = Plumbing.func block rewriteIn bound
                 Expr.Call(tryWith.MakeGenericMethod(e.Type), [ func [] body; func [ ex ] (Plumbing.rethrowing ex handler) ])
+            // `while` and `for i in a .. b` that are not the builder's (under a lambda, in a delegate
+            // literal, inside an expression): no LINQ form either, so the same delegates (#162).
+            | WhileLoop(guard, body) ->
+                let func = Plumbing.func block rewriteIn bound
+                Expr.Call(whileLoop, [ func [] guard; func [] body ])
+            | ForIntegerRangeLoop(i, low, high, body) ->
+                let func = Plumbing.func block rewriteIn bound
+                Expr.Call(forRange, [ rewrite low; rewrite high; func [ i ] body ])
+            // An element of a struct tuple: the converter's TupleGet looks for a reference tuple's
+            // property and rejects a ValueTuple's index (#162), so it is the field itself
+            // (`Item1`…`Item7`, then `Rest`), as the byref holder reads it.
+            | TupleGet(tuple, index) when tuple.Type.IsValueType ->
+                Binders.byRefHolderPath tuple.Type index |> List.fold (fun e f -> Expr.FieldGet(e, f)) (rewrite tuple)
             | TryFinally(body, compensation) ->
                 let func = Plumbing.func block rewriteIn bound
                 // `use`'s compensation is `if (d :? IDisposable) then d.Dispose() else ()`: a void

@@ -63,16 +63,16 @@ let ``every operator and marker throws outside dlr`` () =
 
 // fsharpanalyzer: ignore-region-end
 [<Fact>]
-let ``unsupported quotation node is reported`` () =
+let ``a loop inside a lambda, once an unsupported node, translates`` () =
+    // A raw loop node has no expression-tree form; it runs through the same delegates as the
+    // block's own loops (#162). No shape the corpus (Shapes.fs) covers is unsupported any more.
     let w = box (Widget())
-    (fun () ->
-        // A loop inside a lambda is a raw loop node, which has no expression-tree form
-        // (loops at block level go through the builder and are translated).
+    let picked: string =
         dlr {
             let f () = for i in 1 .. 2 do ignore i
-            return (w?Pick(f) : string)
-        } |> ignore)
-    |> should throw typeof<DlrTranslationException>
+            return w?Pick(f)
+        }
+    picked |> should equal "obj"
 
 [<Fact>]
 let ``two blocks on one line are detected`` () =

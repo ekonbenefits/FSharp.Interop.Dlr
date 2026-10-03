@@ -21,4 +21,20 @@ namespace Tests.CSharp
         public Delegate? Field;
         public Dictionary<string, Delegate> Map { get; } = new Dictionary<string, Delegate>();
     }
+
+    /// <summary>Structs within a struct, for in-place mutation through a field path and an
+    /// argument that mutates the receiver (#162).</summary>
+    public struct InnerPoint
+    {
+        public int X;
+    }
+
+    public struct OuterPoint
+    {
+        public InnerPoint Inner;
+        public int N;
+        public int Total { get; set; }
+        public int Next() { N++; return N; }
+        public void BumpThenThrow() { N++; throw new System.InvalidOperationException("after the mutation"); }
+    }
 }

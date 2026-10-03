@@ -52,15 +52,22 @@ nested delegates (loop and try bodies), and the copy costs nothing measurable, w
   emitted as calls to `DlrRuntime.*` helpers with the bodies as `Func` delegates (not F#
   lambdas: on browser-wasm the `FuncConvert` wrapper the converter would add lost arguments,
   the same fault behind the [function ↔ delegate conversions](binders.md#functions-and-delegates)).
-  That holds for a `try` anywhere, not only the builder's: under a lambda, in a delegate literal,
-  or used as a value (`let n = try … with _ -> 0`), the raw `TryWith`/`TryFinally` node goes to
-  the same helpers (#158), and so does a `use` there. Its handler, running as a delegate, is outside
+  That holds for a `try`, `while` or `for i in a .. b` anywhere, not only the builder's: under a
+  lambda, in a delegate literal, or used as a value (`let n = try … with _ -> 0`), the raw
+  `TryWith`/`TryFinally`/`WhileLoop`/`ForIntegerRangeLoop` node goes to the same helpers (#158,
+  #162), and so does a `use` there. A struct tuple's element is read as its field: the
+  converter's `TupleGet` rejects a `ValueTuple`. Its handler, running as a delegate, is outside
   any catch block, so the `reraise ()` F# puts where no case matches throws the caught exception
   again through `DlrRuntime.rethrow`, its stack trace kept (`Plumbing.rethrowing`); the builder's
   handlers have no `reraise ()` (the compiler's unmatched case there is already a rethrow).
   `let rec` is tied through reference cells, and so is a `let mutable` of the block: loop and
   `try` bodies are compiled into delegates, and a tree variable cannot be assigned from inside
-  one. A captured mutable already is a cell, so `v <- x` writes its `Value`.
+  one. A captured mutable already is a cell, so `v <- x` writes its `Value`. A struct in a cell
+  — the block's own or a captured one — reads back as a copy, so a field set, property setter or
+  method on it, or on a struct field of it (`v.Inner.X <- 3`), runs on a temporary that is written
+  back, its arguments evaluated first so one that mutates the variable is not overwritten, and the
+  write-back in a finally so a member that mutates then throws keeps the mutation (`inPlace`;
+  `Binders.InPlace`, which the `SiteHoister` makes a TryFinally the converter has no form for, #162).
 - **Delegate literals** (`Action<string>(fun s -> …)`) are kept whole, made capturing on wasm, and
   wrapped in `DelegateLiteral<'D>.Over`: compiled with the block they would be `DynamicMethod`
   delegates whose `.Method` starts with a hidden `Closure` parameter, which a consumer marshalling

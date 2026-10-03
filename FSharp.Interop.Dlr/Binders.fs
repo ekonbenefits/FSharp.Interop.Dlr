@@ -35,6 +35,10 @@ module DlrRuntime =
     let whileLoop (guard: Func<bool>) (body: Func<unit>) : unit =
         while guard.Invoke() do body.Invoke()
 
+    /// `for i in low .. high do body i` (F#'s ForIntegerRangeLoop: step 1, bounds evaluated once)
+    let forRange (low: int) (high: int) (body: Func<int, unit>) : unit =
+        for i in low .. high do body.Invoke i
+
     /// `try body () with e -> handler e` (F# already puts the rethrow of unmatched exceptions in `handler`)
     let tryWith (body: Func<'T>) (handler: Func<exn, 'T>) : 'T =
         try body.Invoke() with e -> handler.Invoke e
@@ -1619,6 +1623,13 @@ module internal Binders =
     let private wideInvoke (site: CallSite) (args: obj[]) =
         let target = site.GetType().GetField("Target").GetValue site :?> Delegate
         target.DynamicInvoke(Array.append [| box site |] args)
+    /// An in-place operation on a struct copy, then its write-back (`inPlace` in Translate): the
+    /// write-back must run even when the operation throws after mutating, as plain F# keeps the
+    /// mutation — a `finally`, which the quotation converter has no form for. This placeholder is
+    /// what the translator emits; the LINQ `SiteHoister` rewrites it into a TryFinally. The body is
+    /// the slow path, for a tree the hoister has not seen (the write-back then only on success).
+    type InPlace =
+        static member Then<'T>(operation: 'T, writeBack: unit) : 'T = ignore writeBack; operation
     type WideSite =
         static member Invoke(site: CallSite, delegateType: Type, args: obj[]) : obj = ignore delegateType; wideInvoke site args
         static member InvokeVoid(site: CallSite, delegateType: Type, args: obj[]) : unit = ignore delegateType; wideInvoke site args |> ignore

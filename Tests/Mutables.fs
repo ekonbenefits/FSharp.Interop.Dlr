@@ -93,3 +93,18 @@ let ``a let snapshot of a mutable keeps the value at that point`` () =
             return w?Greet(string snapshot, string m)
         }
     inner |> should equal "1, 2"
+
+[<Fact>]
+let ``a captured mutable struct is mutated in place: a field, a field of a field, a method`` () =
+    // The compiler stores it as an FSharpRef, read back as a copy; the mutation is written back (#162).
+    let w = box (Widget())
+    let mutable v = Tests.CSharp.OuterPoint()
+    let n: int = dlr { v.N <- (w?Count : int); return v.N }
+    n |> should equal 3
+    v.N |> should equal 3
+    let inner: int = dlr { v.Inner.X <- (w?Count : int) * 2; return v.Inner.X }
+    inner |> should equal 6
+    v.Inner.X |> should equal 6
+    let next: int = dlr { return v.Next() + v.Next() }       // 4 + 5, each on the updated value
+    next |> should equal 9
+    v.N |> should equal 5
