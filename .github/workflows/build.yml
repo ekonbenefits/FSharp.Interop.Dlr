@@ -53,6 +53,11 @@ jobs:
       - name: Build
         run: dotnet build --configuration ${{ matrix.configuration }} -p:TestNet48=false
 
+      # Every identifier and path the docs name in backticks still exists (#161); once is enough.
+      - name: Docs identifiers
+        if: matrix.os == 'ubuntu-latest' && matrix.configuration == 'Debug'
+        run: dotnet fsi docs/check-identifiers.fsx
+
       # The test project is an MTP executable (AnyUnit.TestingPlatform's
       # EnableAnyUnitRunner); each target framework's build is run
       # directly so each writes its own AnyUnit results file. The
