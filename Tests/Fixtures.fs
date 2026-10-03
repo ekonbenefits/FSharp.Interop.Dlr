@@ -406,6 +406,19 @@ type CtorF(f: Func<int, int>) =
     member _.Value = f.Invoke 21
 type CtorFn(f: int -> int) =
     member _.Value = f 21
+/// Slots typed as a delegate or an F# function, assigned the other kind (#153).
+type Slots() =
+    member val Handler: Func<int, int, int> = Func<int, int, int>(fun a b -> a + b) with get, set
+    member val Notify: Action<string> = Action<string>(ignore) with get, set
+    member val internal Adder: InternalAdd = InternalAdd(fun a b -> a + b) with get, set
+    member val Fn: int -> int -> int = (fun a b -> a + b) with get, set
+    member val Wide: Func<int, int, int, int, int, int, int> = null with get, set
+    member val Conv: Converter<int, int> = null with get, set
+    [<DefaultValue>] val mutable Field: Func<int, int>
+    member val Handlers = Collections.Generic.Dictionary<string, Func<int, int>>() with get
+    member val Functions = Collections.Generic.Dictionary<string, int -> int>() with get
+    member val Array: Func<int, int>[] = Array.zeroCreate 2 with get
+
 type DelegateMembers() =
     member val Run: Func<Func<int, int>, int> = Func<Func<int, int>, int>(fun f -> f.Invoke 21) with get
     member val Apply: (int -> int) -> int = (fun f -> f 21) with get

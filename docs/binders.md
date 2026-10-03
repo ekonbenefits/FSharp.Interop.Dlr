@@ -111,7 +111,14 @@ accepts the other kind too.
 ## Functions and delegates
 
 The fallback (`OptionalArguments.tryCall`, C#'s error suggestion) converts an F# function
-argument for a delegate parameter and a delegate argument for a function parameter.
+argument for a delegate parameter and a delegate argument for a function parameter. Assignment
+takes the same conversions (#153): `FSharpSetMemberBinder` and `FSharpSetIndexBinder` offer
+`OptionalArguments.trySet` as C#'s error suggestion — a property's or indexer's setter called
+through the same `tryInvoke` (indexes, then the value), a field or array element assigned the
+converted value — so `x?Handler <- fun a b -> …` against a `Func<int, int, int>` property, or
+`handlers |> Dlr.setItem "k" (fun x -> …)` into a `Dictionary<string, Func<int, int>>`, binds
+where C# reports "cannot implicitly convert". What C# binds itself (a delegate of the slot's type,
+`FSharpFunc`'s own `op_Implicit` to a `Converter`) stays C#'s.
 
 *Meta-object targets* have no parameter types to drive that, so `MetaObjectArguments` converts an
 F# function argument or value by the function's own signature (`int -> unit` to `Action<int>`,
