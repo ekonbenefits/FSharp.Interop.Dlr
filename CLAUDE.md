@@ -76,6 +76,12 @@ dotnet build Tests.Wasm -c Release && (cd Tests.Wasm/bin/Release/net10.0-browser
 - No lambda-form API; `Dlr.cast` is conversion only (explicit interfaces: static cast); no
   static property/field/event access — `Dlr.Static<T>.Overloads` is for calls only, a static
   property is `T.P` in plain F#.
+- A user's delegate type's members go through `DelegateMembers.invokeOf`/`constructorOf`, never
+  `GetMethod("Invoke")`/`GetConstructor`: F# compiles an `internal` delegate's `Invoke` and
+  constructor internal, and the public lookup returns null (#121 fixed the literal paths, #150 the
+  conversions it missed). A plain lookup is fine only on always-public types: `Func`/`Action`,
+  `FSharpFunc`, the generated adapters, site and factory delegates. Tests: the `Internal*`
+  delegate fixtures (`Tests/Fixtures.fs`) give each delegate shape an internal variant.
 - The F# binder rules are the *seam* (`docs/binders.md`): where C# fails or binds against F#'s
   expectation on what F# hands it. A rule goes before C#'s only where C# would bind *wrongly*
   rather than fail (structural `==`, a `Delegate`-typed slot); otherwise ours is C#'s error
