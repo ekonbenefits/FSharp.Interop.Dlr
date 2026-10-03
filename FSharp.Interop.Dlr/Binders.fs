@@ -321,41 +321,6 @@ module internal FunctionShapes =
     /// `obj`, an interface, an abstract class. Its value then goes through a nested site.
     let opaque (t: Type) = t = typeof<obj> || t.IsInterface || (t.IsAbstract && not t.IsSealed)
 
-/// `DynamicInvoke`, with what is thrown arriving as itself, as at any other site: a binder's error
-/// or the callee's, not wrapped in a TargetInvocationException (ByRefSite does the same).
-module internal DynamicCall =
-    let invoke (d: Delegate) (args: obj[]) : obj =
-        try d.DynamicInvoke args
-        with :? System.Reflection.TargetInvocationException as e when not (isNull e.InnerException) ->
-            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.InnerException).Throw()
-            null
-
-/// One step of a curried F# function over a delegate whose signature the function's does not
-/// match exactly (`DelegateFunction.Make`): each step collects one argument and returns the next,
-/// and the last invokes the delegate with all of them (`DynamicInvoke`, which converts).
-[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
-type CurryStep<'A, 'R>(collected: obj list, next: obj list -> obj) =
-    inherit FSharpFunc<'A, 'R>()
-    override _.Invoke(a: 'A) : 'R = unbox<'R> (next (collected @ [ box a ]))
-
-module internal CurriedInvoker =
-    /// A curried F# function of the given domain types (nested `FSharpFunc`s) whose final result
-    /// is `finish` applied to all the collected arguments: the untyped fallback, for a delegate
-    /// whose signature the function's does not match exactly (`DelegateFunction.Make`).
-    let buildWith (domains: Type list) (resultType: Type) (finish: obj list -> obj) : obj =
-        // The function type of the step taking domains.[i]: FSharpFunc<d_i, type of the rest>.
-        let rec stepType (ds: Type list) =
-            match ds with
-            | [] -> resultType
-            | d :: rest -> typedefof<FSharpFunc<_, _>>.MakeGenericType(d, stepType rest)
-        let rec step (collected: obj list) (ds: Type list) : obj =
-            match ds with
-            | [] -> finish collected
-            | d :: rest ->
-                let next (args: obj list) = step args rest
-                Activator.CreateInstance(typedefof<CurryStep<_, _>>.MakeGenericType(d, stepType rest), [| box collected; box next |])
-        step [] domains
-
 /// One step of a function `FunctionBuilder` builds: the step before it (`Prev`; for the first, the
 /// captured values as a `Tuple`), the argument that step took (`Own`; for the first, null), and
 /// `next`, compiled once, which takes this step with its argument — the whole tuple, for a tupled
@@ -479,7 +444,9 @@ module internal DelegateConversions =
                     let ds = if ds = [ typeof<unit> ] then [] else ds
                     let n = ds.Length
                     let unitResult = result = typeof<unit>
-                    if ds <> ps || (tupled && n < 2) || (isVoid <> unitResult) || (not isVoid && invoke.ReturnType <> result) then None
+                    // A void delegate for a `unit` result, or one whose return type is the result's,
+                    // `Unit` itself included (a `Func<int, unit>`: its wrapper is the generic Func one).
+                    if ds <> ps || (tupled && n < 2) || (isVoid && not unitResult) || (not isVoid && invoke.ReturnType <> result) then None
                     elif n > 5 then
                         // Past the typed wrappers: a factory compiled once (FunctionBuilder) calling
                         // this delegate type's own Invoke.
@@ -516,32 +483,14 @@ module internal DelegateConversions =
             maker
 
 
-/// An F# function over a delegate, for a delegate argument passed to a function-typed parameter
-/// whose signature the delegate's does not match exactly (no typed wrapper): tupled (or one
-/// parameter) as one closure, curried as a `CurryStep` chain, the delegate invoked with
-/// `DynamicInvoke` when all arguments are in.
-[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
-type TupledDelegateFunction<'T, 'R>(d: Delegate) =
-    inherit FSharpFunc<'T, 'R>()
-    override _.Invoke(t: 'T) : 'R =
-        let n = (DelegateMembers.invokeOf (d.GetType())).GetParameters().Length   // not d.Method: an interpreted delegate's is synthetic
-        let args =
-            if n = 0 then [||]
-            elif n > 1 && FSharp.Reflection.FSharpType.IsTuple typeof<'T> then FSharp.Reflection.FSharpValue.GetTupleFields(box t)
-            else [| box t |]
-        unbox<'R> (DynamicCall.invoke d args)
-
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 module DelegateFunction =
+    /// The F# function of `funcType` over `d` — always a typed wrapper: the binder offers the
+    /// conversion only when `DelegateConversions.tryTyped` has one (`delegateToFunction`).
     let Make (funcType: Type) (d: Delegate) : obj =
         match DelegateConversions.tryTyped funcType (d.GetType()) with
         | Some make -> make d
-        | None ->
-        match FunctionShapes.domains funcType with
-        | Some(domains, false, result) when domains.Length > 1 -> CurriedInvoker.buildWith domains result (fun args -> DynamicCall.invoke d (Array.ofList args))
-        | _ ->
-            let ga = funcType.GetGenericArguments()
-            Activator.CreateInstance(typedefof<TupledDelegateFunction<_, _>>.MakeGenericType(ga.[0], ga.[1]), [| box d |])
+        | None -> invalidOp (sprintf "No conversion of %s to %s: the binder offers only those tryTyped makes." (d.GetType().Name) funcType.Name)
 
     /// `Make` as a method, for the expression tree of a bound call to name it.
     let makeMethod : MethodInfo =
@@ -717,20 +666,15 @@ module internal OptionalArguments =
             let make = FunctionConversions.makeMethod
             Some(Expression.Convert(Expression.Call(make, Expression.Constant delegateType, Expression.Convert(a.Expression, typeof<obj>)), delegateType) :> Expression)
 
-    /// A delegate for an F# function-typed parameter: `DelegateFunction` (`DynamicInvoke`, any
-    /// shape; not `FuncConvert`, whose wrapper loses arguments on Mono's browser-wasm runtime).
+    /// A delegate for an F# function-typed parameter: `DelegateFunction`'s typed wrapper, offered
+    /// exactly when `DelegateConversions.tryTyped` has one for this pair (the same signature: domains,
+    /// a void delegate for a `unit` result, or the same return type).
     let private delegateToFunction (funcType: Type) (a: DynamicMetaObject) : Expression option =
-        let dt = a.LimitType
-        let invoke = DelegateMembers.invokeOf dt
-        let paramTypes = [ for p in invoke.GetParameters() -> p.ParameterType ]
-        // `unit -> R` takes a parameterless delegate.
-        let domainsOf = FunctionShapes.domains funcType |> Option.map (fun (ds, tupled, r) -> (if ds = [ typeof<unit> ] then [] else ds), tupled, r)
-        match domainsOf with
-        | Some(domains, _, result) when domains.Length = paramTypes.Length && List.forall2 (fun (d: Type) (p: Type) -> d = p) domains paramTypes
-                                          && (invoke.ReturnType = result || (invoke.ReturnType = typeof<Void> && result = typeof<unit>)) ->
+        match DelegateConversions.tryTyped funcType a.LimitType with
+        | Some _ ->
             let make = DelegateFunction.makeMethod
             Some(Expression.Convert(Expression.Call(make, Expression.Constant funcType, Expression.Convert(a.Expression, typeof<Delegate>)), funcType) :> Expression)
-        | _ -> None
+        | None -> None
 
     /// The argument converted to the parameter type, or None if it does not fit: assignable or
     /// C#-widened, a null for a reference slot, a bare value for an optional as `Some`, an F#
@@ -787,7 +731,7 @@ module internal OptionalArguments =
     /// omitted parameters; a tie is ambiguous and left to C#'s error. `instance` is the receiver
     /// for instance methods, None for static methods and constructors; `call` builds the
     /// invocation of the chosen candidate.
-    let private tryInvoke (candidates: MethodBase[]) (call: MethodBase -> Expression list -> Expression) (target: DynamicMetaObject) (targetRestriction: BindingRestrictions) (args: DynamicMetaObject[]) : DynamicMetaObject option =
+    let private tryInvoke (candidates: MethodBase[]) (call: MethodBase -> Expression list -> Expression) (targetRestriction: BindingRestrictions) (args: DynamicMetaObject[]) : DynamicMetaObject option =
         let fitting =
             candidates
             |> Array.choose (fun m ->
@@ -810,7 +754,6 @@ module internal OptionalArguments =
                 if invocation.Type = typeof<Void> then Expression.Block(invocation, Expression.Constant(null, typeof<obj>)) :> Expression
                 else Expression.Convert(invocation, typeof<obj>) :> Expression
             let restrictions = Array.fold (fun (r: BindingRestrictions) a -> r.Merge(FunctionShapes.restrictArg a)) targetRestriction args
-            ignore target
             Some(DynamicMetaObject(value, restrictions))
         | [] -> None
 
@@ -822,7 +765,7 @@ module internal OptionalArguments =
             |> Array.map (fun m -> m :> MethodBase)
         // A struct target is called in its box, as C# calls it: a mutating method mutates the box.
         let self = if t.IsValueType then Expression.Unbox(target.Expression, t) :> Expression else Expression.Convert(target.Expression, t) :> Expression
-        tryInvoke candidates (fun m ps -> Expression.Call(self, m :?> MethodInfo, ps) :> Expression) target (BindingRestrictions.GetTypeRestriction(target.Expression, t)) args
+        tryInvoke candidates (fun m ps -> Expression.Call(self, m :?> MethodInfo, ps) :> Expression) (BindingRestrictions.GetTypeRestriction(target.Expression, t)) args
 
     /// The index types C# takes for an array: int, uint, long, ulong, and those that widen to them.
     let private arrayIndexTypes =
@@ -874,7 +817,7 @@ module internal OptionalArguments =
                 Expression.Block([ v ], Expression.Assign(v, List.last ps),
                                  Expression.Call(self, m :?> MethodInfo, List.take (ps.Length - 1) ps @ [ v :> Expression ]),
                                  v) :> Expression
-            tryInvoke setters call target targetRestriction (Array.append indexes [| value |])
+            tryInvoke setters call targetRestriction (Array.append indexes [| value |])
         else
             match name with
             | Some name when indexes.Length = 0 ->
@@ -897,7 +840,7 @@ module internal OptionalArguments =
             t.GetMethods(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Static ||| BindingFlags.FlattenHierarchy)
             |> Array.filter (fun m -> m.Name = name && not m.IsGenericMethodDefinition && Accessibility.method' context null m)
             |> Array.map (fun m -> m :> MethodBase)
-        tryInvoke candidates (fun m ps -> Expression.Call(m :?> MethodInfo, ps) :> Expression) target (BindingRestrictions.GetInstanceRestriction(target.Expression, target.Value)) args
+        tryInvoke candidates (fun m ps -> Expression.Call(m :?> MethodInfo, ps) :> Expression) (BindingRestrictions.GetInstanceRestriction(target.Expression, target.Value)) args
 
     /// A constructor of `t` the arguments fit (`Dlr.new'<T>`).
     let tryConstruct (context: Type) (t: Type) (target: DynamicMetaObject) (args: DynamicMetaObject[]) : DynamicMetaObject option =
@@ -905,7 +848,7 @@ module internal OptionalArguments =
             t.GetConstructors(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance)
             |> Array.filter (fun c -> Accessibility.method' context null c)
             |> Array.map (fun c -> c :> MethodBase)
-        tryInvoke candidates (fun c ps -> Expression.New(c :?> ConstructorInfo, ps) :> Expression) target (BindingRestrictions.GetInstanceRestriction(target.Expression, target.Value)) args
+        tryInvoke candidates (fun c ps -> Expression.New(c :?> ConstructorInfo, ps) :> Expression) (BindingRestrictions.GetInstanceRestriction(target.Expression, target.Value)) args
 
     /// A delegate target's `Invoke` the arguments fit (`Dlr.call` on a delegate, a delegate-typed
     /// member, an Expando's delegate member): the conversions above apply to its parameters.
@@ -915,7 +858,7 @@ module internal OptionalArguments =
         else
             let invoke = DelegateMembers.invokeOf dt
             let self = Expression.Convert(target.Expression, dt)
-            tryInvoke [| invoke |] (fun m ps -> Expression.Call(self, m :?> MethodInfo, ps) :> Expression) target (BindingRestrictions.GetTypeRestriction(target.Expression, dt)) args
+            tryInvoke [| invoke |] (fun m ps -> Expression.Call(self, m :?> MethodInfo, ps) :> Expression) (BindingRestrictions.GetTypeRestriction(target.Expression, dt)) args
 
 /// Equality and ordering with F# semantics where C# has none: records, unions, tuples, lists,
 /// options, sets and any other type without the CLR operator get `=`/`compare` (structural,
@@ -1162,12 +1105,14 @@ type FSharpInvokeMemberBinder(context: Type, name: string, csharp: InvokeMemberB
         let hasMethod =
             t.GetMethods(Accessibility.all) |> Array.exists (fun m -> m.Name = name && Accessibility.method' context t m)
         let allValues = target.HasValue && (args |> Array.forall (fun a -> a.HasValue))
-        match direct with
-        | Some rule when not hasMethod -> rule
-        | _ when allValues && OptionalArguments.hasAbstractDelegateSlot context t name args
-                 && (OptionalArguments.tryCall context t name target args).IsSome ->
-            // Bound once per rule, so the second lookup is bind-time only; kept for the guard's shape.
-            (OptionalArguments.tryCall context t name target args).Value
+        // A function argument for a `Delegate`-typed parameter: C# would bind FSharpFunc's
+        // op_Implicit Converter, wrongly, so our call goes first there.
+        let abstractDelegateCall =
+            if allValues && OptionalArguments.hasAbstractDelegateSlot context t name args then OptionalArguments.tryCall context t name target args
+            else None
+        match direct, abstractDelegateCall with
+        | Some rule, _ when not hasMethod -> rule
+        | _, Some rule -> rule
         | _ ->
             // A method of that name exists: C# binds it; our rules (a function-valued member of
             // the same name, or F# optional parameters) are only its error suggestion.
@@ -1413,12 +1358,6 @@ type SiteCache<'Key when 'Key: equality>(template: 'Key -> Expr) =
     /// `sites.[i]`, for the quotation (array indexing has no direct quotation form the converter takes).
     static member At(sites: CallSite[], i: int) : CallSite = sites.[i]
 
-/// For `Dlr.argsOf` / `Dlr.namedOf`: the site's operation compiled once per distinct argument
-/// shape — the ordered names, an empty name standing for a positional argument (`argsOf`
-/// values first, then `namedOf` names) — since the shape changes the site's arity, so the
-/// whole delegate is per key, not only its sites; bounded like `SiteCache`. The delegate takes
-/// the target, the fixed arguments and the splatted values as one `obj[]` (positional, then
-/// named).
 /// One compiled `NamedOfCache` shape: its names (an empty name per positional), their hash, the delegate.
 [<AllowNullLiteral; System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type NamedOfEntry(names: string[], hash: int, d: Delegate) =
@@ -1426,6 +1365,12 @@ type NamedOfEntry(names: string[], hash: int, d: Delegate) =
     member _.Hash = hash
     member _.Delegate = d
 
+/// For `Dlr.argsOf` / `Dlr.namedOf`: the site's operation compiled once per distinct argument
+/// shape — the ordered names, an empty name standing for a positional argument (`argsOf`
+/// values first, then `namedOf` names) — since the shape changes the site's arity, so the
+/// whole delegate is per key, not only its sites; bounded like `SiteCache`. The delegate takes
+/// the target, the fixed arguments and the splatted values as one `obj[]` (positional, then
+/// named).
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type NamedOfCache(compile: string list -> Delegate) =
     /// The entries by the hash of their names, an immutable snapshot replaced whole under the
@@ -1605,8 +1550,6 @@ module internal Binders =
 
     let private argInfo (a: Arg) = CSharpArgumentInfo.Create(a.Flags, a.Name)
 
-    /// Emits the call-site invocation for `binder` over `args`, returning `resultType`
-    /// (`Void` for a discarded result, which yields an Action-shaped site).
     /// A `CallSite<_>` for `binder` over `args`, as a `Value` node (a constant in the compiled tree).
     let private site (binder: CallSiteBinder) (args: Arg list) (resultType: Type) =
         let delegateType =
@@ -1614,6 +1557,13 @@ module internal Binders =
         let siteType = typedefof<CallSite<_>>.MakeGenericType delegateType
         Expr.Value(siteType.GetMethod("Create").Invoke(null, [| box binder |]), siteType)
 
+    /// An in-place operation on a struct copy, then its write-back (`inPlace` in Translate): the
+    /// write-back must run even when the operation throws after mutating, as plain F# keeps the
+    /// mutation — a `finally`, which the quotation converter has no form for. This placeholder is
+    /// what the translator emits; the LINQ `SiteHoister` rewrites it into a TryFinally. The body is
+    /// the slow path, for a tree the hoister has not seen (the write-back then only on success).
+    type InPlace =
+        static member Then<'T>(operation: 'T, writeBack: unit) : 'T = ignore writeBack; operation
     /// Past Func's 17 type parameters (15 arguments and up) a site's delegate is a type emitted at run time,
     /// which must not be named in a quotation: FSharp.Core's checks ask its assembly
     /// `ReflectionOnly`, unimplemented on browser-wasm. Such a call is written as one of these
@@ -1623,13 +1573,6 @@ module internal Binders =
     let private wideInvoke (site: CallSite) (args: obj[]) =
         let target = site.GetType().GetField("Target").GetValue site :?> Delegate
         target.DynamicInvoke(Array.append [| box site |] args)
-    /// An in-place operation on a struct copy, then its write-back (`inPlace` in Translate): the
-    /// write-back must run even when the operation throws after mutating, as plain F# keeps the
-    /// mutation — a `finally`, which the quotation converter has no form for. This placeholder is
-    /// what the translator emits; the LINQ `SiteHoister` rewrites it into a TryFinally. The body is
-    /// the slow path, for a tree the hoister has not seen (the write-back then only on success).
-    type InPlace =
-        static member Then<'T>(operation: 'T, writeBack: unit) : 'T = ignore writeBack; operation
     type WideSite =
         static member Invoke(site: CallSite, delegateType: Type, args: obj[]) : obj = ignore delegateType; wideInvoke site args
         static member InvokeVoid(site: CallSite, delegateType: Type, args: obj[]) : unit = ignore delegateType; wideInvoke site args |> ignore
@@ -1718,6 +1661,8 @@ module internal Binders =
         let all = staticTarget t :: args
         byRefSite (Binder.InvokeConstructor(CSharpBinderFlags.None, context, [ for a in all -> argInfo a ])) all t
 
+    /// Emits the call-site invocation for `binder` over `args`, returning `resultType`
+    /// (`Void` for a discarded result, which yields an Action-shaped site).
     let siteCall (binder: CallSiteBinder) (args: Arg list) (resultType: Type) : Expr =
         let siteExpr = site binder args resultType
         let siteValue = match siteExpr with FSharp.Quotations.Patterns.Value(v, _) -> v | _ -> null
@@ -1792,14 +1737,14 @@ module internal Binders =
             else FSharpInvokeBinder(csharp :?> InvokeBinder) :> CallSiteBinder
         siteCall (MetaObjectAwareBinder(binder :?> DynamicMetaObjectBinder)) all (if discard then voidType else typeof<obj>)
 
+    /// `asFunction`'s factories past five, per (function type, invoke site type).
+    let private factories = System.Collections.Concurrent.ConcurrentDictionary<struct (Type * Type), Delegate>(TypePairComparer.Instance)
+
     /// A value read as an F# function type (see FunctionMember): the argument types come from the
     /// function type's domains, curried or tupled; `binderFor` gives the site's binder for those
     /// typed argument slots (`unit -> R` gets an empty list), and `shortcut` says to return the
     /// target itself when it already is a function of that type (a bare value, not a member read).
     /// Any arity, curried or tupled: typed helpers up to five, functions built at run time past it.
-    /// `asFunction`'s factories past five, per (function type, invoke site type).
-    let private factories = System.Collections.Concurrent.ConcurrentDictionary<struct (Type * Type), Delegate>(TypePairComparer.Instance)
-
     let private asFunction (context: Type) (functionType: Type) (original: Arg) (shortcut: bool) (binderFor: Arg list -> bool -> CallSiteBinder) : Expr =
         let target = original
         let rec domains (t: Type) =
