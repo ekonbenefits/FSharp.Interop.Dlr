@@ -75,6 +75,14 @@ type Unquotable() =
     member _.SpanLength(s: Span<int>) = s.Length
     member _.ByRef(x: byref<int>) = x <- x + 1
 
+/// Internal delegates with byref parameters (F# compiles their Invoke internal), built here: no
+/// quotation can hold a byref lambda. On .NET Framework C#'s Invoke binder cannot invoke them.
+type internal InternalTryHalf = delegate of int * outref<int> -> bool
+type internal InternalBump = delegate of byref<int> * int -> unit
+type internal InternalByRefs() =
+    static member TryHalf = InternalTryHalf(fun n half -> half <- n / 2; n % 2 = 0)
+    static member Bump = InternalBump(fun x by -> x <- x + by)
+
 /// A real CLR event, for the IsEvent branch of += / -=. Not [<ReflectedDefinition>]: the
 /// [<CLIEvent>] accessor's stored quotation is one FSharp.Core cannot decode.
 type Clicker() =
