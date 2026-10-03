@@ -716,10 +716,12 @@ module internal Translate =
         /// A body as a `Func<..>` delegate over `vars` (see DlrRuntime for why not an F# function).
         /// The delegate's type is built from the variables' types and the body's; a `unit` body
         /// (which may compile to a void call) becomes a `Func<.., unit>`, not an `Action`.
-        /// A handler that runs as a delegate (`DlrRuntime.tryWith`) is outside any catch block, so
-        /// its `reraise ()` — F# puts one where no case matches — throws the caught exception `ex`
-        /// again instead (`DlrRuntime.rethrow`, keeping its stack trace). A nested `try … with`
-        /// keeps its own handler's.
+        /// A raw `try … with`'s handler, run as a delegate (`DlrRuntime.tryWith`), is outside any
+        /// catch block, so its `reraise ()` — F# puts one where no case matches — throws the
+        /// caught exception `ex` again instead (`DlrRuntime.rethrow`, keeping its stack trace). A
+        /// nested `try … with` keeps its own handler's. (The builder's handlers need none: there
+        /// the compiler's unmatched case is already an ExceptionDispatchInfo rethrow, and an
+        /// explicit `reraise ()` does not compile.)
         let rethrowing (ex: Var) (handler: Expr) : Expr =
             let rec go (e: Expr) =
                 match e with
@@ -734,6 +736,13 @@ module internal Translate =
         let func (block: Block) (rewriteIn: Rewrite) (bound: Set<Var>) (vars: Var list) (body: Expr) : Expr =
             let bound = vars |> List.fold (fun b v -> Set.add v b) bound
             let body = capturing block (asUnit (rewriteIn bound body))
+            // A parameterless delegate whose body is itself a lambda (`try (fun x -> …) with …`)
+            // reads back from FSharp.Core as a delegate of that lambda's parameter: hold the lambda
+            // in a `let` so it stays the result.
+            let body =
+                match vars, body with
+                | [], Lambda _ -> let result = Var("result", body.Type) in Expr.Let(result, body, Expr.Var result)
+                | _ -> body
             let delegateType = Expression.GetFuncType(Array.append (vars |> List.map (fun v -> v.Type) |> Array.ofList) [| body.Type |])
             Expr.NewDelegate(delegateType, vars, body)
 
@@ -752,7 +761,7 @@ module internal Translate =
             | "While", [ Lambda(_, guard); Call(_, d, [ Lambda(_, body) ]) ] when d.Name = "Delay" ->
                 Expr.Call(whileLoop, [ func [] guard; func [] body ])
             | "TryWith", [ Call(_, d, [ Lambda(_, body) ]); Lambda(ex, handler) ] when d.Name = "Delay" ->
-                Expr.Call(tryWith.MakeGenericMethod(codeType e.Type), [ func [] body; func [ ex ] (rethrowing ex handler) ])
+                Expr.Call(tryWith.MakeGenericMethod(codeType e.Type), [ func [] body; func [ ex ] handler ])
             | "TryFinally", [ Call(_, d, [ Lambda(_, body) ]); Lambda(_, compensation) ] when d.Name = "Delay" ->
                 Expr.Call(tryFinally.MakeGenericMethod(codeType e.Type), [ func [] body; func [] compensation ])
             | "Using", [ resource; Lambda(r, body) ] ->
@@ -1385,7 +1394,14 @@ module internal Translate =
                 Expr.Call(tryWith.MakeGenericMethod(e.Type), [ func [] body; func [ ex ] (Plumbing.rethrowing ex handler) ])
             | TryFinally(body, compensation) ->
                 let func = Plumbing.func block rewriteIn bound
-                Expr.Call(tryFinally.MakeGenericMethod(e.Type), [ func [] body; func [] compensation ])
+                // `use`'s compensation is `if (d :? IDisposable) then d.Dispose() else ()`: a void
+                // call and `()` as the branches, which the converter rejects as mismatched.
+                let rec unitBranches (c: Expr) =
+                    match c with
+                    | IfThenElse(cond, a, b) when c.Type = typeof<unit> -> Expr.IfThenElse(cond, unitBranches a, unitBranches b)
+                    | _ when isUnitCall c -> Expr.Sequential(c, Expr.Value(()))
+                    | _ -> c
+                Expr.Call(tryFinally.MakeGenericMethod(e.Type), [ func [] body; func [] (unitBranches compensation) ])
             | NewDelegate(t, vars, delegateBody) ->
                 // A delegate literal's lambda is the delegate itself, not an F# function: keep it
                 // whole (on wasm, made capturing: see `capturing`). The quotation may give the

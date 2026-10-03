@@ -54,9 +54,10 @@ nested delegates (loop and try bodies), and the copy costs nothing measurable, w
   the same fault behind the [function ↔ delegate conversions](binders.md#functions-and-delegates)).
   That holds for a `try` anywhere, not only the builder's: under a lambda, in a delegate literal,
   or used as a value (`let n = try … with _ -> 0`), the raw `TryWith`/`TryFinally` node goes to
-  the same helpers (#158). A handler running as a delegate is outside any catch block, so the
-  `reraise ()` F# puts where no case matches throws the caught exception again through
-  `DlrRuntime.rethrow`, its stack trace kept (`Plumbing.rethrowing`).
+  the same helpers (#158), and so does a `use` there. Its handler, running as a delegate, is outside
+  any catch block, so the `reraise ()` F# puts where no case matches throws the caught exception
+  again through `DlrRuntime.rethrow`, its stack trace kept (`Plumbing.rethrowing`); the builder's
+  handlers have no `reraise ()` (the compiler's unmatched case there is already a rethrow).
   `let rec` is tied through reference cells, and so is a `let mutable` of the block: loop and
   `try` bodies are compiled into delegates, and a tree variable cannot be assigned from inside
   one. A captured mutable already is a cell, so `v <- x` writes its `Value`.

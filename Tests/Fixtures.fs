@@ -407,6 +407,12 @@ type CtorF(f: Func<int, int>) =
     member _.Value = f.Invoke 21
 type CtorFn(f: int -> int) =
     member _.Value = f 21
+/// A disposable that records its disposal, for `use` inside a block.
+type Disposal(log: Collections.Generic.List<string>, name: string) =
+    member _.Name = name
+    interface IDisposable with
+        member _.Dispose() = log.Add("disposed " + name)
+
 /// Slots typed as a delegate or an F# function, assigned the other kind (#153).
 type Slots() =
     member val Handler: Func<int, int, int> = Func<int, int, int>(fun a b -> a + b) with get, set

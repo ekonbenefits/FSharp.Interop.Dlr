@@ -140,6 +140,19 @@ let ``an exception no case matches is rethrown as itself, with its stack trace``
     nested |> should equal 7
 
 [<Fact>]
+let ``a try returning a function, and use under a lambda`` () =
+    // A function-typed try body: a parameterless delegate whose body is a lambda (builder and raw).
+    let viaBuilder: int -> int = dlr { try return (fun x -> x + 1) with _ -> return (fun x -> x - 1) }
+    viaBuilder 41 |> should equal 42
+    let asValue: int -> int = dlr { return (try (fun x -> x + 2) with _ -> (fun x -> x - 2)) }
+    asValue 40 |> should equal 42
+    // `use` under a lambda: its try … finally disposes per call.
+    let log = Collections.Generic.List<string>()
+    let total: int = dlr { return [ 1; 2 ] |> List.sumBy (fun x -> use d = new Disposal(log, string x) in x * 10) }
+    total |> should equal 30
+    List.ofSeq log |> should equal [ "disposed 1"; "disposed 2" ]
+
+[<Fact>]
 let ``async and task inside a block`` () =
     let o = box (Widget())
     // StartImmediateAsTask, not RunSynchronously: on single-threaded browser-wasm the latter would
