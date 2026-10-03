@@ -3,7 +3,10 @@
 // `dlr { }` (its input read through a marker) and as plain F#, and the two must agree.
 //   dotnet fsi Tests/generate-shapes.fsx
 // A cell the translator does not support is listed in `unsupported` with the reason, and its
-// test pins the DlrTranslationException instead; every other cell must pass.
+// test pins the DlrTranslationException instead; every other cell must pass. "In a for body" is
+// the builder's own `for`; the raw loop nodes are the WhileLoop / ForIntegerRangeLoop bodies.
+// Not rows: `for … downto` (no quotation can hold it) and a stepped range (a while over an
+// enumerator, so the WhileLoop row).
 open System
 open System.IO
 
@@ -40,6 +43,8 @@ let bodies =
       { Name = "FieldSet on a mutable struct"; Type = "int"; Expr = "(let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- float32 x; int v.X)" }
       { Name = "PropertySet on a mutable struct"; Type = "int"; Expr = "(let mutable s = Tests.CSharp.MutableSlot() in s.Number <- x; s.Number)" }
       { Name = "Mutating method on a mutable struct"; Type = "int"; Expr = "(let mutable s = Tests.CSharp.MutableSlot() in s.Store(Func<int, int>(fun y -> y + x)); s.Property.Invoke 1)" }
+      { Name = "Field set through a struct field"; Type = "int"; Expr = "(let mutable v = Tests.CSharp.OuterPoint() in v.Inner.X <- x; v.Inner.X)" }
+      { Name = "Argument mutating the struct it is passed to"; Type = "int"; Expr = "(let mutable v = Tests.CSharp.OuterPoint() in v.Total <- v.Next() + v.Next() + x; v.N * 100 + v.Total)" }
       { Name = "Coerce / TypeTest"; Type = "int"; Expr = "(match box x with :? int as i -> i | _ -> 0)" }
       { Name = "DefaultValue"; Type = "int"; Expr = "Unchecked.defaultof<int> + x" }
       { Name = "NewDelegate"; Type = "int"; Expr = "Func<int, int>(fun y -> y + x).Invoke 1" }

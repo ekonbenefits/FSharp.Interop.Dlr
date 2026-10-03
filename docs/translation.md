@@ -63,8 +63,10 @@ nested delegates (loop and try bodies), and the copy costs nothing measurable, w
   `let rec` is tied through reference cells, and so is a `let mutable` of the block: loop and
   `try` bodies are compiled into delegates, and a tree variable cannot be assigned from inside
   one. A captured mutable already is a cell, so `v <- x` writes its `Value`. A struct in a cell
-  reads back as a copy, so a field set, property setter or method on it runs on a temporary that
-  is written back (`v.X <- 3` would otherwise be lost, #162).
+  — the block's own or a captured one — reads back as a copy, so a field set, property setter or
+  method on it, or on a struct field of it (`v.Inner.X <- 3`), runs on a temporary that is written
+  back, its arguments evaluated first so one that mutates the variable is not overwritten
+  (`inPlace`, #162).
 - **Delegate literals** (`Action<string>(fun s -> …)`) are kept whole, made capturing on wasm, and
   wrapped in `DelegateLiteral<'D>.Over`: compiled with the block they would be `DynamicMethod`
   delegates whose `.Method` starts with a hidden `Closure` parameter, which a consumer marshalling

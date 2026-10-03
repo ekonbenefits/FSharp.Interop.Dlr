@@ -648,6 +648,51 @@ module internal Translate =
 
     /// Where a free variable of the body comes from: the Delay closure, or failing that the
     /// enclosing member's body.
+    /// The struct variable a receiver is rooted at, with the struct fields down from it:
+    /// `v`, `v.Inner`, `v.Inner.Point`.
+    let rec private structPath (e: Expr) : (Var * Reflection.FieldInfo list) option =
+        match e with
+        | Var v when v.Type.IsValueType -> Some(v, [])
+        | FieldGet(Some inner, f) when f.FieldType.IsValueType -> structPath inner |> Option.map (fun (v, fs) -> v, fs @ [ f ])
+        | _ -> None
+
+    /// A struct variable that lives in a cell — a `let mutable` of the block, or a mutable captured
+    /// from outside it, which the compiler stores as an FSharpRef — reads back as a copy, so an
+    /// operation that mutates it in place (a field set, a property setter or a method, on the
+    /// variable or a struct field of it) would be lost (#162). It runs on a temporary copy that is
+    /// written back. The arguments are evaluated first, left to right, into temporaries: the
+    /// receiver is a variable, so this is F#'s order, and an argument that mutates the variable
+    /// itself is not overwritten by a copy read before it ran. The copy is immutable to F# — so it
+    /// is not celled again — but a LINQ variable, which a field set or call mutates in place.
+    /// `isTarget` picks the cell variables; `read` and `write` are the cell's; `recurse` rewrites
+    /// the arguments. None when `e` is not such an operation.
+    let private inPlace (isTarget: Var -> bool) (read: Var -> Expr) (write: Var -> Expr -> Expr) (recurse: Expr -> Expr) (e: Expr) : Expr option =
+        let rooted (receiver: Expr) =
+            match structPath receiver with
+            | Some(v, fields) when isTarget v -> Some(v, fields)
+            | _ -> None
+        let apply (v: Var) (fields: Reflection.FieldInfo list) (args: Expr list) (op: Expr -> Expr list -> Expr) =
+            let temps = args |> List.mapi (fun i a -> Var(sprintf "arg%d" i, a.Type), recurse a)
+            let copy = Var(v.Name + "Copy", v.Type)
+            let receiver = fields |> List.fold (fun r f -> Expr.FieldGet(r, f)) (Expr.Var copy)
+            let result = op receiver [ for t, _ in temps -> Expr.Var t ]
+            let writeBack = write v (Expr.Var copy)
+            let body =
+                if result.Type = typeof<unit> then Expr.Sequential(result, writeBack)
+                else
+                    let r = Var("result", result.Type)
+                    Expr.Let(r, result, Expr.Sequential(writeBack, Expr.Var r))
+            List.foldBack (fun (t, a) inner -> Expr.Let(t, a, inner)) temps (Expr.Let(copy, read v, body))
+        match e with
+        | FieldSet(Some receiver, f, x) ->
+            rooted receiver |> Option.map (fun (v, fields) -> apply v fields [ x ] (fun r a -> Expr.FieldSet(r, f, List.head a)))
+        | PropertySet(Some receiver, p, indexes, x) ->
+            rooted receiver |> Option.map (fun (v, fields) ->
+                apply v fields (indexes @ [ x ]) (fun r a -> Expr.PropertySet(r, p, List.last a, List.take indexes.Length a)))
+        | Call(Some receiver, mi, args) ->
+            rooted receiver |> Option.map (fun (v, fields) -> apply v fields args (fun r a -> Expr.Call(r, mi, a)))
+        | _ -> None
+
     module private Captures =
 
         /// The container's fields by name. A state machine also has fields of its own, `Data`
@@ -701,6 +746,12 @@ module internal Translate =
                                     v.Name block.ClosureType.Name (String.Join(", ", block.Fields.Keys))))
 
         /// `v <- value` on a captured `let mutable`: a write through its FSharpRef cell.
+        /// Whether a captured variable is a mutable, stored in an FSharpRef cell.
+        let isCell (block: Block) (v: Var) =
+            match block.Fields.TryGetValue v.Name with
+            | true, f -> isRefCell f v.Type
+            | _ -> false
+
         let assign (block: Block) (v: Var) (value: Expr) : Expr =
             match block.Fields.TryGetValue v.Name with
             | true, f when isRefCell f v.Type ->
@@ -1346,6 +1397,10 @@ module internal Translate =
             match Members.tryOperation block rewriteIn bound e with
             | Some rewritten -> rewritten
             | None ->
+            // A mutable struct captured from outside the block, mutated in place (see `inPlace`).
+            match inPlace (fun v -> isCaptured bound v && Captures.isCell block v) (Captures.read block rewrite) (Captures.assign block) rewrite e with
+            | Some written -> written
+            | None ->
             match e with
             | Var v when isCaptured bound v -> Captures.read block (rewriteIn bound) v
             | VarSet(v, value) when isCaptured bound v -> Captures.assign block v (rewrite value)
@@ -1360,28 +1415,12 @@ module internal Translate =
             | Let(v, def, letBody) when v.IsMutable ->
                 let cell = Var(v.Name, typedefof<Ref<_>>.MakeGenericType v.Type)
                 let value = cell.Type.GetProperty("Value")
-                // A struct read back from the cell is a copy, so an operation that mutates it in place
-                // (a field set, a property setter, a method) runs on a temporary that is then written
-                // back, or the change is lost (#162). The temporary is immutable to F# — so it is not
-                // celled again — but a LINQ variable, which a field set or a call mutates in place.
-                let inPlace (op: Expr -> Expr) =
-                    let copy = Var(v.Name + "Copy", v.Type)
-                    let result = op (Expr.Var copy)
-                    let writeBack = Expr.PropertySet(Expr.Var cell, value, Expr.Var copy)
-                    let read = Expr.PropertyGet(Expr.Var cell, value)
-                    if result.Type = typeof<unit> then Expr.Let(copy, read, Expr.Sequential(result, writeBack))
-                    else
-                        let r = Var("result", result.Type)
-                        Expr.Let(copy, read, Expr.Let(r, result, Expr.Sequential(writeBack, Expr.Var r)))
                 let rec subst (e: Expr) =
+                    match inPlace ((=) v) (fun _ -> Expr.PropertyGet(Expr.Var cell, value)) (fun _ x -> Expr.PropertySet(Expr.Var cell, value, x)) subst e with
+                    | Some written -> written
+                    | None ->
                     match e with
                     | VarSet(v', x) when v' = v -> Expr.PropertySet(Expr.Var cell, value, subst x)
-                    | FieldSet(Some(Var v'), f, x) when v' = v && v.Type.IsValueType ->
-                        inPlace (fun copy -> Expr.FieldSet(copy, f, subst x))
-                    | PropertySet(Some(Var v'), p, indexes, x) when v' = v && v.Type.IsValueType ->
-                        inPlace (fun copy -> Expr.PropertySet(copy, p, subst x, List.map subst indexes))
-                    | Call(Some(Var v'), mi, args) when v' = v && v.Type.IsValueType ->
-                        inPlace (fun copy -> Expr.Call(copy, mi, List.map subst args))
                     | Var v' when v' = v -> Expr.PropertyGet(Expr.Var cell, value)
                     | ShapeVar _ -> e
                     | ShapeLambda(x, b) -> Expr.Lambda(x, subst b)
