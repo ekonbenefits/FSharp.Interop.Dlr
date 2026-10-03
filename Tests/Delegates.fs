@@ -302,3 +302,17 @@ let ``a parameterless delegate literal in a block`` () =
     (dlr { return o?Call(Func<int>(fun () -> 21)) } : int) |> should equal 42   // passed to a Func<int> parameter
     let thunk: InternalThunk = dlr { return InternalThunk(fun () -> "internal") }   // an internal delegate type
     thunk.Invoke() |> should equal "internal"
+    // By the literal's own type, not by guessing from the body: a result that is itself an F#
+    // function, a `unit` result of a non-void delegate, a framework delegate type.
+    let adder: Func<int -> int> = dlr { return Func<int -> int>(fun () -> fun x -> x + 22) }
+    adder.Invoke() 20 |> should equal 42
+    let calls = ResizeArray<int>()
+    let unitFunc: Func<unit> = dlr { return Func<unit>(fun () -> calls.Add 1) }
+    unitFunc.Invoke()
+    List.ofSeq calls |> should equal [ 1 ]
+    let start: Threading.ThreadStart = dlr { return Threading.ThreadStart(fun () -> calls.Add 2) }
+    start.Invoke()
+    List.ofSeq calls |> should equal [ 1; 2 ]
+    // What the body throws arrives as itself.
+    let throws: Func<int> = dlr { return Func<int>(fun () -> invalidOp "boom") }
+    (fun () -> throws.Invoke() |> ignore) |> should throw typeof<InvalidOperationException>

@@ -574,6 +574,29 @@ type DelegateLiteral<'D when 'D :> Delegate> private () =
     static member From(inner: Delegate) : 'D =
         DelegateLiteral<'D>.Over(Delegate.CreateDelegate(typeof<'D>, inner, DelegateMembers.invokeOf (inner.GetType())) :?> 'D)
 
+/// A parameterless delegate literal in a block (`Func<int>(fun () -> 7)`, `Action(fun () -> …)`,
+/// #156): F# quotes it in a form no rewrite can rebuild, so the translator hands its body over as
+/// the thunk `fun () -> body` and this makes the `'D` over it — by the literal's own type, which
+/// the compiler fixed, not by the shape of the thunk (a `Func<unit>`, or a `Func<int -> int>` whose
+/// result is itself a function, are what a run-time conversion would misread). A factory compiled
+/// once per delegate type: `'D` calling the thunk, re-wrapped as `DelegateLiteral.Over` does, and
+/// on .NET Framework built at the public stand-in for an `internal` type. Public: compiled blocks
+/// call `Of`.
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+type ParameterlessLiteral<'D, 'R when 'D :> Delegate> private () =
+    static let factory : Func<FSharpFunc<unit, 'R>, 'D> =
+        let delegateType = typeof<'D>
+        let f = Expression.Parameter(typeof<FSharpFunc<unit, 'R>>, "f")
+        let call = Expression.Call(f, typeof<FSharpFunc<unit, 'R>>.GetMethod("Invoke"), Expression.Constant(null, typeof<unit>)) :> Expression
+        let invoke = DelegateMembers.invokeOf delegateType
+        let body = if invoke.ReturnType = typeof<Void> then Expression.Block(typeof<Void>, [| call |]) :> Expression else call
+        let honest =
+            match DelegateMembers.standIn delegateType with
+            | Some standIn -> Expression.Call(typeof<DelegateLiteral<'D>>.GetMethod("From"), Expression.Convert(Expression.Lambda(standIn, body), typeof<Delegate>))
+            | None -> Expression.Call(typeof<DelegateLiteral<'D>>.GetMethod("Over"), Expression.Lambda(delegateType, body))
+        Expression.Lambda<Func<FSharpFunc<unit, 'R>, 'D>>(honest, [ f ]).Compile()
+    static member Of(thunk: FSharpFunc<unit, 'R>) : 'D = factory.Invoke thunk
+
 /// A delegate over an F# function (`FunctionAdapters`, in Adapters.fs): per (function type,
 /// delegate type) a factory emitted once as IL — `new Adapter(f)` and the delegate constructor
 /// over its `Invoke` — so a conversion costs an allocation, not `Delegate.CreateDelegate`'s
