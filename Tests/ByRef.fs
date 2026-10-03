@@ -114,6 +114,19 @@ let ``Dlr.call and Dlr.apply invoke a delegate with an out`` () =
     (even, half, odd, half2) |> should equal (true, 3, false, 3)
 
 [<Fact>]
+let ``an internal delegate invoked with an out or a ref`` () =
+    // Its Invoke is internal: on .NET Framework C#'s Invoke binder cannot invoke it, ours does.
+    let tryHalf = box InternalByRefs.TryHalf
+    let (even: bool), (half: int) = dlr { return Dlr.call tryHalf (8, Dlr.out) }
+    (even, half) |> should equal (true, 4)
+    let (odd: bool), (half2: int) = dlr { return tryHalf |> Dlr.apply (9, Dlr.out) }
+    (odd, half2) |> should equal (false, 4)
+    let bump = box InternalByRefs.Bump
+    let mutable n = 40
+    dlr { Dlr.call bump (Dlr.ref n, 2) }
+    n |> should equal 42
+
+[<Fact>]
 let ``Dlr.new' with a constructor ref`` () =
     // Dlr.new'<T> returns T, so a constructor's out has no room in the result; a ref writes back.
     let mutable count = 0

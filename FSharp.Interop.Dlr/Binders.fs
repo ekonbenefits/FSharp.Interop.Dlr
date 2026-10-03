@@ -1064,6 +1064,49 @@ type FSharpInvokeBinder(csharp: InvokeBinder) =
                 | Some rule when DelegateMembers.csharpCannotInvoke target.LimitType -> rule
                 | ours -> csharp.FallbackInvoke(target, args, defaultArg ours errorSuggestion)
 
+/// C#'s Invoke over byref parameters (`Dlr.call f (…, Dlr.out)`, `Dlr.apply`), with the one case
+/// C#'s binder cannot do: on .NET Framework it crashes invoking an F# `internal` delegate (its
+/// `Expression.Invoke` looks `Invoke` up public-only; see `DelegateMembers.csharpCannotInvoke`).
+/// There, and only there, the rule calls the delegate's own `Invoke`, the byref arguments passed
+/// as the site's own byref parameters so LINQ writes them back; everything else is C#'s.
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+type FSharpByRefInvokeBinder(csharp: InvokeBinder) =
+    inherit InvokeBinder(csharp.CallInfo)
+
+    override _.FallbackInvoke(target, args, errorSuggestion) =
+        let direct =
+            if not target.HasValue || not (DelegateMembers.csharpCannotInvoke target.LimitType) then None
+            else
+                let dt = target.LimitType
+                let invoke = DelegateMembers.invokeOf dt
+                let ps = invoke.GetParameters()
+                if ps.Length <> args.Length then None
+                else
+                    let passed =
+                        Array.map2 (fun (p: ParameterInfo) (a: DynamicMetaObject) ->
+                            let pt = p.ParameterType
+                            if pt.IsByRef then
+                                // The site's byref parameter itself: anything else would not write back.
+                                match a.Expression with
+                                | :? ParameterExpression as v when v.IsByRef && v.Type = pt.GetElementType() -> Some(v :> Expression)
+                                | _ -> None
+                            elif FunctionShapes.isNullValue a then (if pt.IsValueType then None else Some(Expression.Constant(null, pt) :> Expression))
+                            elif a.LimitType = pt || (not pt.IsValueType && pt.IsAssignableFrom a.LimitType) then Some(Expression.Convert(a.Expression, pt) :> Expression)
+                            else None) ps args
+                    if passed |> Array.exists Option.isNone then None
+                    else
+                        let call = Expression.Call(Expression.Convert(target.Expression, dt), invoke, passed |> Array.map Option.get)
+                        let value =
+                            if invoke.ReturnType = typeof<Void> then Expression.Block(call, Expression.Constant(null, typeof<obj>)) :> Expression
+                            else Expression.Convert(call, typeof<obj>) :> Expression
+                        let restrictions =
+                            Array.fold2 (fun (r: BindingRestrictions) (p: ParameterInfo) a -> if p.ParameterType.IsByRef then r else r.Merge(FunctionShapes.restrictArg a))
+                                (BindingRestrictions.GetTypeRestriction(target.Expression, dt)) ps args
+                        Some(DynamicMetaObject(value, restrictions))
+        match direct with
+        | Some rule -> rule
+        | None -> csharp.FallbackInvoke(target, args, errorSuggestion)
+
 /// C#'s InvokeMember binder, aware of F# function values: when C# cannot invoke a member because
 /// it holds an `FSharpFunc` rather than a delegate, the rule applies the function instead. The
 /// decision is a binding rule restricted to the runtime type, so a site that sees several kinds of
@@ -1636,7 +1679,7 @@ module internal Binders =
     let invokeByRef (context: Type) (discard: bool) (all: Arg list) : Expr =
         callsOnly "invoking a value (Dlr.call / Dlr.apply)" (List.head all)
         let flags = if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None
-        byRefSite (Binder.Invoke(flags, context, [ for a in all -> argInfo a ])) all (if discard then voidType else typeof<obj>)
+        byRefSite (FSharpByRefInvokeBinder(Binder.Invoke(flags, context, [ for a in all -> argInfo a ]) :?> InvokeBinder)) all (if discard then voidType else typeof<obj>)
 
     /// `Dlr.new'<T>(…, Dlr.out, …)`: C#'s InvokeConstructor over byref parameters; the result is typed `t`.
     let invokeConstructorByRef (context: Type) (t: Type) (args: Arg list) : Expr =

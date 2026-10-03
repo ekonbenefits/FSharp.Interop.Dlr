@@ -183,7 +183,8 @@ of its own: `Expression.Lambda` (a lambda at such a delegate type is compiled at
 the same signature, `Func`/`Action` or emitted past sixteen, and rebound: `DelegateMembers.standIn`)
 and `Expression.Invoke`, which C#'s Invoke binder builds and so crashes on one — there, and only
 there, `FSharpInvokeBinder` puts our delegate rule (an explicit `Invoke` call) before C#'s
-(`DelegateMembers.csharpCannotInvoke`).
+(`DelegateMembers.csharpCannotInvoke`); a byref invoke (`Dlr.call f (…, Dlr.out)`) gets the same
+from `FSharpByRefInvokeBinder`, its byref arguments passed as the site's byref parameters.
 
 A parameter typed `Delegate` itself (WinForms `Control.Invoke`) gets the `Func`/`Action` F# would
 build for the function, and this rule goes *before* C#'s: left to C#, `FSharpFunc`'s own
