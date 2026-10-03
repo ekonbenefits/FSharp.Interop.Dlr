@@ -1064,6 +1064,70 @@ type FSharpInvokeBinder(csharp: InvokeBinder) =
                 | Some rule when DelegateMembers.csharpCannotInvoke target.LimitType -> rule
                 | ours -> csharp.FallbackInvoke(target, args, defaultArg ours errorSuggestion)
 
+/// C#'s Invoke over byref parameters (`Dlr.call f (…, Dlr.out)`, `Dlr.apply`), with the one case
+/// C#'s binder cannot do: on .NET Framework it crashes invoking an F# `internal` delegate (its
+/// `Expression.Invoke` looks `Invoke` up public-only; see `DelegateMembers.csharpCannotInvoke`).
+/// There, and only there, the rule calls the delegate's own `Invoke`, the byref arguments passed
+/// as the site's own byref parameters so LINQ writes them back; everything else is C#'s.
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+type FSharpByRefInvokeBinder(csharp: InvokeBinder, discard: bool, flags: CSharpArgumentInfoFlags[]) =
+    inherit InvokeBinder(csharp.CallInfo)
+
+    override _.FallbackInvoke(target, args, errorSuggestion) =
+        let direct =
+            if not target.HasValue || not (DelegateMembers.csharpCannotInvoke target.LimitType) then None
+            else
+                let dt = target.LimitType
+                let invoke = DelegateMembers.invokeOf dt
+                let ps = invoke.GetParameters()
+                // Which parameter each argument is, as C# matches them: the positional ones first,
+                // then each named one by its name (`Dlr.named`). None for an unknown or repeated
+                // name, or a parameter left without an argument.
+                let names = List.ofSeq csharp.CallInfo.ArgumentNames
+                let positional = args.Length - names.Length
+                let slots =
+                    [ for i in 0 .. positional - 1 -> Some i ] @ [ for n in names -> ps |> Array.tryFindIndex (fun p -> p.Name = n) ]
+                let order = if slots |> List.exists Option.isNone then None else Some(List.map Option.get slots)
+                match order with
+                | Some order when ps.Length = args.Length && List.length (List.distinct order) = order.Length
+                                  // A void delegate's result is C#'s error unless the site discards it.
+                                  && (discard || invoke.ReturnType <> typeof<Void>) ->
+                    let passed =
+                        List.zip order (List.ofArray args)
+                        |> List.mapi (fun i (slot, a) ->
+                            let p = ps.[slot]
+                            let pt = p.ParameterType
+                            let isOut = flags.[i].HasFlag CSharpArgumentInfoFlags.IsOut
+                            let isRef = flags.[i].HasFlag CSharpArgumentInfoFlags.IsRef
+                            let expr =
+                                if pt.IsByRef then
+                                    // The site's byref parameter itself, `out` exactly for an out
+                                    // parameter as C# requires: anything else is C#'s to refuse.
+                                    match a.Expression with
+                                    | :? ParameterExpression as v when v.IsByRef && v.Type = pt.GetElementType() && (isOut || isRef) && isOut = p.IsOut -> Some(v :> Expression)
+                                    | _ -> None
+                                elif isOut || isRef then None                  // a ref or out for a plain parameter
+                                elif FunctionShapes.isNullValue a then (if pt.IsValueType then None else Some(Expression.Constant(null, pt) :> Expression))
+                                elif Conversions.fits pt a.LimitType then Some(Expression.Convert(Expression.Convert(a.Expression, a.LimitType), pt) :> Expression)
+                                else None
+                            slot, expr)
+                    if passed |> List.exists (snd >> Option.isNone) then None
+                    else
+                        let byPosition = passed |> List.sortBy fst |> List.map (snd >> Option.get)
+                        let call = Expression.Call(Expression.Convert(target.Expression, dt), invoke, byPosition)
+                        let value =
+                            if invoke.ReturnType = typeof<Void> then Expression.Block(call, Expression.Constant(null, typeof<obj>)) :> Expression
+                            else Expression.Convert(call, typeof<obj>) :> Expression
+                        let restrictions =
+                            List.zip order (List.ofArray args)
+                            |> List.fold (fun (r: BindingRestrictions) (slot, a) -> if ps.[slot].ParameterType.IsByRef then r else r.Merge(FunctionShapes.restrictArg a))
+                                (BindingRestrictions.GetTypeRestriction(target.Expression, dt))
+                        Some(DynamicMetaObject(value, restrictions))
+                | _ -> None
+        match direct with
+        | Some rule -> rule
+        | None -> csharp.FallbackInvoke(target, args, errorSuggestion)
+
 /// C#'s InvokeMember binder, aware of F# function values: when C# cannot invoke a member because
 /// it holds an `FSharpFunc` rather than a delegate, the rule applies the function instead. The
 /// decision is a binding rule restricted to the runtime type, so a site that sees several kinds of
@@ -1636,7 +1700,7 @@ module internal Binders =
     let invokeByRef (context: Type) (discard: bool) (all: Arg list) : Expr =
         callsOnly "invoking a value (Dlr.call / Dlr.apply)" (List.head all)
         let flags = if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None
-        byRefSite (Binder.Invoke(flags, context, [ for a in all -> argInfo a ])) all (if discard then voidType else typeof<obj>)
+        byRefSite (FSharpByRefInvokeBinder(Binder.Invoke(flags, context, [ for a in all -> argInfo a ]) :?> InvokeBinder, discard, [| for a in List.tail all -> a.Flags |])) all (if discard then voidType else typeof<obj>)
 
     /// `Dlr.new'<T>(…, Dlr.out, …)`: C#'s InvokeConstructor over byref parameters; the result is typed `t`.
     let invokeConstructorByRef (context: Type) (t: Type) (args: Arg list) : Expr =

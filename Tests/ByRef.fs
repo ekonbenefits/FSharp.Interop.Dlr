@@ -114,6 +114,43 @@ let ``Dlr.call and Dlr.apply invoke a delegate with an out`` () =
     (even, half, odd, half2) |> should equal (true, 3, false, 3)
 
 [<Fact>]
+let ``an internal delegate invoked with an out or a ref`` () =
+    // Its Invoke is internal: on .NET Framework C#'s Invoke binder cannot invoke it, ours does.
+    let tryHalf = box InternalByRefs.TryHalf
+    let (even: bool), (half: int) = dlr { return Dlr.call tryHalf (8, Dlr.out) }
+    (even, half) |> should equal (true, 4)
+    let (odd: bool), (half2: int) = dlr { return tryHalf |> Dlr.apply (9, Dlr.out) }
+    (odd, half2) |> should equal (false, 4)
+    let bump = box InternalByRefs.Bump
+    let mutable n = 40
+    dlr { Dlr.call bump (Dlr.ref n, 2) }
+    n |> should equal 42
+    // Named arguments match by name, not position; a wrong name is C#'s error.
+    let named = box InternalByRefs.Named
+    let (d: int), (r: int) = dlr { return Dlr.call named (Dlr.out, Dlr.named {| a = 1; x = 10 |}) }
+    (d, r) |> should equal (9, 1001)
+    (fun () -> (dlr { return Dlr.call named (Dlr.out, Dlr.named {| zz = 1; a = 10 |}) } : int * int) |> ignore)
+    |> should throw typeof<Microsoft.CSharp.RuntimeBinder.RuntimeBinderException>
+    // An int for an int64 parameter widens, as C# does.
+    let wide = box InternalByRefs.Wide
+    let (evenW: bool), (halfW: int64) = dlr { return Dlr.call wide (8, Dlr.out) }
+    (evenW, halfW) |> should equal (true, 4L)
+    // A void delegate: its outs alone when the result is discarded; its result used is C#'s error.
+    let voidOut = box InternalByRefs.VoidOut
+    let twice: int = dlr { return Dlr.call voidOut (21, Dlr.out) }
+    twice |> should equal 42
+    // A ref for an out, an out for a ref, a ref for a plain parameter, an unknown name beside a
+    // ref: C#'s errors, which our rule (on .NET Framework) must not bind past.
+    let mutable m = 0
+    let mutable step = 2
+    let refused (f: unit -> unit) = f |> should throw typeof<Microsoft.CSharp.RuntimeBinder.RuntimeBinderException>
+    refused (fun () -> (dlr { return Dlr.call bump (Dlr.out, 2) } : int) |> ignore)
+    refused (fun () -> (dlr { return Dlr.call tryHalf (8, Dlr.ref m) } : bool) |> ignore)
+    refused (fun () -> dlr { Dlr.call bump (Dlr.ref n, Dlr.ref step) })
+    refused (fun () -> dlr { Dlr.call bump (Dlr.ref n, Dlr.named {| nonexistent = 2 |}) })
+    n |> should equal 42
+
+[<Fact>]
 let ``Dlr.new' with a constructor ref`` () =
     // Dlr.new'<T> returns T, so a constructor's out has no room in the result; a ref writes back.
     let mutable count = 0
