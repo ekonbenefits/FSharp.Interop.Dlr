@@ -791,7 +791,9 @@ module internal OptionalArguments =
         let self = if t.IsValueType then Expression.Unbox(target.Expression, t) :> Expression else Expression.Convert(target.Expression, t) :> Expression
         tryInvoke candidates (fun m ps -> Expression.Call(self, m :?> MethodInfo, ps) :> Expression) target (BindingRestrictions.GetTypeRestriction(target.Expression, t)) args
 
-    let private arrayIndexTypes = [| typeof<int>; typeof<uint32>; typeof<int64>; typeof<uint64> |]
+    /// The index types C# takes for an array: int, uint, long, ulong, and those that widen to them.
+    let private arrayIndexTypes =
+        [| typeof<int>; typeof<uint32>; typeof<int64>; typeof<uint64>; typeof<sbyte>; typeof<byte>; typeof<int16>; typeof<uint16>; typeof<char> |]
 
     /// The settable slots of `t` an assignment names: the property or field `name`, or with
     /// `indexes` the indexer (the `DefaultMember`) of that many indexes, or an array's element.
@@ -851,7 +853,7 @@ module internal OptionalArguments =
             | None when t.IsArray && t.GetArrayRank() = indexes.Length && indexes |> Array.forall (fun i -> arrayIndexTypes |> Array.contains i.LimitType) ->
                 convertSlot (t.GetElementType())
                 |> Option.map (fun converted ->
-                    // C# indexes an array by int, uint, long or ulong: checked to int here, as its index would overflow.
+                    // Unboxed at its runtime type, then checked to int, as C#'s index would overflow.
                     let element = Expression.ArrayAccess(self, [ for i in indexes -> Expression.ConvertChecked(Expression.Convert(i.Expression, i.LimitType), typeof<int>) :> Expression ])
                     DynamicMetaObject(assigned element converted, restrictions ()))
             | _ -> None

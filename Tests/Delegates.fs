@@ -276,6 +276,11 @@ let ``an array element converted at any index type C# takes`` () =
     let array = box (Array.zeroCreate<Func<int, int>> 3)
     dlr { array |> Dlr.setItem 1L (fun (x: int) -> x + 1) }
     dlr { array |> Dlr.setItem 2u (fun (x: int) -> x + 2) }
+    let small: byte = 0uy
+    dlr { array |> Dlr.setItem small (fun (x: int) -> x + 3) }                  // typed, widening to int
+    let boxed: obj = box 1s
+    dlr { array |> Dlr.setItem boxed (fun (x: int) -> x + 4) }                  // boxed: unboxed at its runtime type
     let a = unbox<Func<int, int>[]> array
-    a.[1].Invoke 41 |> should equal 42
+    a.[0].Invoke 39 |> should equal 42
+    a.[1].Invoke 38 |> should equal 42
     a.[2].Invoke 40 |> should equal 42

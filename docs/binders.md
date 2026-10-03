@@ -120,7 +120,7 @@ converted value — so `x?Handler <- fun a b -> …` against a `Func<int, int, i
 where C# reports "cannot implicitly convert". What C# binds itself (a delegate of the slot's type,
 `FSharpFunc`'s own `op_Implicit` to a `Converter`) stays C#'s — except a slot typed `Delegate`
 itself, where, as for a parameter, ours goes first (`assignsAbstractDelegate`): C# would store
-that `Converter<Unit, R>`. An array is indexed by `int`, `uint`, `long` or `ulong`, as in C#; a
+that `Converter<Unit, R>`. An array is indexed by any integer type C# takes (`int`, `uint`, `long`, `ulong` and the narrower ones); a
 struct target is assigned (and, by the call fallback, called) in its box, as C# does.
 
 *Meta-object targets* have no parameter types to drive that, so `MetaObjectArguments` converts an
