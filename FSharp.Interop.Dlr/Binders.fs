@@ -422,7 +422,8 @@ type TypePairComparer() =
 
 /// A delegate type's own members. F# compiles a delegate at the *type's* accessibility, so an
 /// `internal` delegate has a non-public `Invoke` and constructor where C#'s stay public; asking for
-/// the public one gives null and a null-reference error far from the cause.
+/// the public one gives null — a null-reference error far from the cause, or a rule that silently
+/// does not apply and C#'s own "invalid arguments" in its place (#121, #150).
 module internal DelegateMembers =
     let private flags = BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic
     let invokeOf (delegateType: Type) : MethodInfo = delegateType.GetMethod("Invoke", flags)

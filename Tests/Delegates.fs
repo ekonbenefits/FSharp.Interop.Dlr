@@ -70,6 +70,11 @@ let ``a delegate literal in a block reports its own signature through .Method`` 
     let fromFunction: InternalHandler = dlr { return o?KeepInternal(fun (x: int) -> x * 2) }
     fromFunction.Invoke 21 |> should equal 42
 
+type private PrivateHandler = delegate of int -> int
+type private PrivateHolder() =
+    member _.Keep(f: PrivateHandler) = f
+    member _.Apply(x: int, f: int -> int) = f x
+
 [<Fact>]
 let ``an internal F# delegate converts to an F# function parameter`` () =
     // Its `Invoke` is internal (#150): a typed wrapper up to five, a compiled factory past it.
@@ -92,6 +97,37 @@ let ``an internal F# delegate converts to an F# function parameter`` () =
     // Through our rule (C# cannot pass a Func for its F# function parameter): the internal Invoke too.
     let apply = box (InternalApply(fun f x -> f x))
     (dlr { return Dlr.call apply (Func<int, int>(fun x -> x + 1), 41) } : int) |> should equal 42
+
+[<Fact>]
+let ``internal delegates past sixteen parameters, events of one, and a private delegate`` () =
+    let o = box (Callbacks())
+    // Past sixteen: a function to the delegate is a compiled lambda, the delegate to a function a factory.
+    (dlr { return o?WideInternal(fun (a: int, b: int, c: int, d: int, e: int, f: int, g: int, h: int, i: int, j: int, k: int, l: int, m: int, n: int, p: int, q: int, r: int) ->
+                                     a + b + c + d + e + f + g + h + i + j + k + l + m + n + p + q + r) } : int) |> should equal 153
+    let wide = InternalWide17(fun a b c d e f g h i j k l m n p q r -> a + b + c + d + e + f + g + h + i + j + k + l + m + n + p + q + r)
+    (dlr { return o?Wide17Tupled(wide) } : int) |> should equal 153
+    (dlr { return o?Wide17Curried(wide) } : int) |> should equal 153
+    (dlr { return Dlr.call (box wide) (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17) } : int) |> should equal 153
+    // An event of an internal delegate type: a delegate, then an F# function converted to it.
+    let clicker = InternalClicker()
+    let c = box clicker
+    let seen = ResizeArray<int>()
+    let handler = InternalNotify(fun _ n -> seen.Add n)
+    dlr { c |> Dlr.addAssign "Changed" handler }
+    clicker.Raise 1
+    dlr { c |> Dlr.subtractAssign "Changed" handler }
+    clicker.Raise 2
+    dlr { c |> Dlr.addAssign "Changed" (fun (_: obj) (n: int) -> seen.Add(n * 10)) }
+    clicker.Raise 3
+    List.ofSeq seen |> should equal [ 1; 30 ]
+    // A private delegate type: a literal in the block, from a function, to a function, invoked.
+    let h = box (PrivateHolder())
+    let kept: PrivateHandler = dlr { return h?Keep(PrivateHandler(fun x -> x + 1)) }
+    kept.Invoke 41 |> should equal 42
+    let fromFunction: PrivateHandler = dlr { return h?Keep(fun (x: int) -> x * 2) }
+    fromFunction.Invoke 21 |> should equal 42
+    (dlr { return h?Apply(20, PrivateHandler(fun x -> x + 1)) } : int) |> should equal 21
+    (dlr { return Dlr.call (box kept) 41 } : int) |> should equal 42
 
 [<Fact>]
 let ``overloads: the delegate parameter is one candidate among others`` () =

@@ -82,6 +82,13 @@ type Clicker() =
     [<CLIEvent>]
     member _.Clicked = clicked.Publish
     member _.Raise(n: int) = clicked.Trigger(n)
+/// An event of an internal delegate type, whose Invoke and constructor F# compiles internal (#150).
+type internal InternalNotify = delegate of obj * int -> unit
+type InternalClicker() =
+    let changed = Event<InternalNotify, int>()
+    [<CLIEvent>]
+    member internal _.Changed = changed.Publish
+    member _.Raise(n: int) = changed.Trigger(null, n)
 /// A DynamicObject with a Count, for the polymorphic-site tests (Recorder logs; this one is quiet).
 type Counter(n: int) =
     inherit DynamicObject()
@@ -346,6 +353,7 @@ type internal InternalAdd = delegate of int * int -> int
 type internal InternalSix = delegate of int * int * int * int * int * int -> int
 type internal InternalSixAction = delegate of int * int * int * int * int * int -> unit
 type internal InternalApply = delegate of (int -> int) * int -> int
+type internal InternalWide17 = delegate of int * int * int * int * int * int * int * int * int * int * int * int * int * int * int * int * int -> int
 
 // Delegate and F# function parameters, for the conversions C# does not do (F# lambda -> Func,
 // Func -> F# function) at a dynamic call.
@@ -366,6 +374,9 @@ type Callbacks() =
     member _.SixTupled'(f: int * int * int * int * int * int -> int) = f (1, 2, 3, 4, 5, 6)
     member _.EightTupled'(f: int * int * int * int * int * int * int * int -> int) = f (1, 2, 3, 4, 5, 6, 7, 8)
     member _.SixUnit'(f: int -> int -> int -> int -> int -> int -> unit) = f 1 2 3 4 5 6
+    member internal _.WideInternal(f: InternalWide17) = f.Invoke(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17)
+    member _.Wide17Tupled(f: int * int * int * int * int * int * int * int * int * int * int * int * int * int * int * int * int -> int) = f (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17)
+    member _.Wide17Curried(f: int -> int -> int -> int -> int -> int -> int -> int -> int -> int -> int -> int -> int -> int -> int -> int -> int -> int) = f 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17
     member _.Keep(f: Func<int, int>) = f
     member _.Wide(f: Wide17) = f.Invoke(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17)
     member internal _.KeepInternal(f: InternalHandler) = f
