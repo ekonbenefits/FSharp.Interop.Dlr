@@ -420,6 +420,33 @@ type TypePairComparer() =
         member _.Equals(struct (a1, a2), struct (b1, b2)) = obj.ReferenceEquals(a1, b1) && obj.ReferenceEquals(a2, b2)
         member _.GetHashCode(struct (a, b)) = RuntimeHelpers.GetHashCode a * 31 + RuntimeHelpers.GetHashCode b
 
+/// A delegate type's own members. F# compiles a delegate at the *type's* accessibility, so an
+/// `internal` delegate has a non-public `Invoke` and constructor where C#'s stay public; asking for
+/// the public one gives null — a null-reference error far from the cause, or a rule that silently
+/// does not apply and C#'s own "invalid arguments" in its place (#121, #150).
+module internal DelegateMembers =
+    let private flags = BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic
+    let invokeOf (delegateType: Type) : MethodInfo = delegateType.GetMethod("Invoke", flags)
+    let constructorOf (delegateType: Type) : ConstructorInfo =
+        delegateType.GetConstructor(flags, null, [| typeof<obj>; typeof<nativeint> |], null)
+    let onNetFramework = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription.StartsWith ".NET Framework"
+    /// Whether C#'s binder would crash invoking a value of this type: .NET Framework's
+    /// `Expression.Invoke` (which C#'s Invoke binder builds) finds `Invoke` by public lookup only,
+    /// and throws a NullReferenceException for an F# `internal` delegate's (#151).
+    let csharpCannotInvoke (t: Type) =
+        onNetFramework && typeof<Delegate>.IsAssignableFrom t && (let i = invokeOf t in not (isNull i) && not i.IsPublic)
+    /// .NET Framework's `Expression.Lambda` finds a delegate type's `Invoke` by public lookup only,
+    /// so a lambda at an F# `internal` delegate type fails there: the public delegate type of the
+    /// same signature to compile it at instead (`Func`/`Action`, or one emitted past sixteen
+    /// parameters), which `DelegateLiteral.From` rebinds (#125). None where no stand-in is needed,
+    /// or for a byref signature (left as it was).
+    let standIn (delegateType: Type) : Type option =
+        let invoke = invokeOf delegateType
+        let ps = invoke.GetParameters() |> Array.map (fun p -> p.ParameterType)
+        if onNetFramework && not invoke.IsPublic && not (ps |> Array.exists (fun p -> p.IsByRef)) then
+            Some(Expression.GetDelegateType(Array.append ps [| invoke.ReturnType |]))
+        else None
+
 /// The typed wrapper (`DelegateFunctions`, in Adapters.fs) for a delegate passed to a
 /// function-typed parameter.
 module internal DelegateConversions =
@@ -433,7 +460,7 @@ module internal DelegateConversions =
         match makers.TryGetValue(struct (funcType, delegateType)) with
         | true, m -> m
         | _ ->
-            let invoke = delegateType.GetMethod("Invoke")
+            let invoke = DelegateMembers.invokeOf delegateType
             let ps = [ for p in invoke.GetParameters() -> p.ParameterType ]
             let isVoid = invoke.ReturnType = typeof<Void>
             let maker =
@@ -487,7 +514,7 @@ module internal DelegateConversions =
 type TupledDelegateFunction<'T, 'R>(d: Delegate) =
     inherit FSharpFunc<'T, 'R>()
     override _.Invoke(t: 'T) : 'R =
-        let n = d.GetType().GetMethod("Invoke").GetParameters().Length   // not d.Method: an interpreted delegate's is synthetic
+        let n = (DelegateMembers.invokeOf (d.GetType())).GetParameters().Length   // not d.Method: an interpreted delegate's is synthetic
         let args =
             if n = 0 then [||]
             elif n > 1 && FSharp.Reflection.FSharpType.IsTuple typeof<'T> then FSharp.Reflection.FSharpValue.GetTupleFields(box t)
@@ -511,15 +538,6 @@ module DelegateFunction =
         match <@ Make typeof<obj> null @> with
         | Patterns.Call(_, mi, _) -> mi
         | _ -> failwith "unreachable"
-
-/// A delegate type's own members. F# compiles a delegate at the *type's* accessibility, so an
-/// `internal` delegate has a non-public `Invoke` and constructor where C#'s stay public; asking for
-/// the public one gives null and a null-reference error far from the cause.
-module internal DelegateMembers =
-    let private flags = BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic
-    let invokeOf (delegateType: Type) : MethodInfo = delegateType.GetMethod("Invoke", flags)
-    let constructorOf (delegateType: Type) : ConstructorInfo =
-        delegateType.GetConstructor(flags, null, [| typeof<obj>; typeof<nativeint> |], null)
 
 
 /// A delegate literal written inside a block (`w?Each(Action<string>(fun s -> …))`) compiles with
@@ -577,7 +595,7 @@ module FunctionConversions =
             il.Emit(System.Reflection.Emit.OpCodes.Castclass, ctor.GetParameters().[0].ParameterType)
             il.Emit(System.Reflection.Emit.OpCodes.Newobj, ctor)
             il.Emit(System.Reflection.Emit.OpCodes.Ldftn, invoke)
-            il.Emit(System.Reflection.Emit.OpCodes.Newobj, delegateType.GetConstructor([| typeof<obj>; typeof<nativeint> |]))
+            il.Emit(System.Reflection.Emit.OpCodes.Newobj, DelegateMembers.constructorOf delegateType)
             il.Emit(System.Reflection.Emit.OpCodes.Ret)
             dm.CreateDelegate(typeof<Func<obj, Delegate>>) :?> Func<obj, Delegate>
         with :? PlatformNotSupportedException | :? NotSupportedException ->
@@ -590,7 +608,7 @@ module FunctionConversions =
         match conversions.TryGetValue(struct (funcType, delegateType)) with
         | true, c -> c
         | _ ->
-            let invoke = delegateType.GetMethod("Invoke")
+            let invoke = DelegateMembers.invokeOf delegateType
             let ps = [ for p in invoke.GetParameters() -> p.ParameterType ]
             let isVoid = invoke.ReturnType = typeof<Void>
             let conversion =
@@ -617,8 +635,11 @@ module FunctionConversions =
                             let body =
                                 if isVoid then Expression.Block(typeof<Void>, [| call |]) :> Expression
                                 else Expression.Convert(call, invoke.ReturnType) :> Expression
-                            let inner = Expression.Lambda(delegateType, body, parameters)
-                            let honest = Expression.Call(typedefof<DelegateLiteral<_>>.MakeGenericType(delegateType).GetMethod("Over"), inner)
+                            let literalOf = typedefof<DelegateLiteral<_>>.MakeGenericType delegateType
+                            let honest =
+                                match DelegateMembers.standIn delegateType with
+                                | Some standIn -> Expression.Call(literalOf.GetMethod("From"), Expression.Convert(Expression.Lambda(standIn, body, parameters), typeof<Delegate>))
+                                | None -> Expression.Call(literalOf.GetMethod("Over"), Expression.Lambda(delegateType, body, parameters))
                             Expression.Lambda<Func<obj, Delegate>>(Expression.Convert(honest, typeof<Delegate>), fParam).Compile())
                 | None -> None
             conversions.[struct (funcType, delegateType)] <- conversion
@@ -650,7 +671,7 @@ module internal OptionalArguments =
     let private isNullValue = FunctionShapes.isNullValue
 
     /// A concrete delegate type: `Delegate` and `MulticastDelegate` themselves have no `Invoke`.
-    let private isDelegate (t: Type) = typeof<Delegate>.IsAssignableFrom t && not (isNull (t.GetMethod "Invoke"))
+    let private isDelegate (t: Type) = typeof<Delegate>.IsAssignableFrom t && not (isNull (DelegateMembers.invokeOf t))
     let private isAbstractDelegate (t: Type) = t = typeof<Delegate> || t = typeof<MulticastDelegate>
 
     /// An F# function value for a delegate-typed parameter: a delegate over the function
@@ -667,7 +688,7 @@ module internal OptionalArguments =
     /// shape; not `FuncConvert`, whose wrapper loses arguments on Mono's browser-wasm runtime).
     let private delegateToFunction (funcType: Type) (a: DynamicMetaObject) : Expression option =
         let dt = a.LimitType
-        let invoke = dt.GetMethod("Invoke")
+        let invoke = DelegateMembers.invokeOf dt
         let paramTypes = [ for p in invoke.GetParameters() -> p.ParameterType ]
         // `unit -> R` takes a parameterless delegate.
         let domainsOf = FunctionShapes.domains funcType |> Option.map (fun (ds, tupled, r) -> (if ds = [ typeof<unit> ] then [] else ds), tupled, r)
@@ -786,9 +807,9 @@ module internal OptionalArguments =
     /// member, an Expando's delegate member): the conversions above apply to its parameters.
     let tryInvokeDelegate (target: DynamicMetaObject) (args: DynamicMetaObject[]) : DynamicMetaObject option =
         let dt = target.LimitType
-        if not (typeof<Delegate>.IsAssignableFrom dt) || isNull (dt.GetMethod "Invoke") then None
+        if not (typeof<Delegate>.IsAssignableFrom dt) || isNull (DelegateMembers.invokeOf dt) then None
         else
-            let invoke = dt.GetMethod "Invoke"
+            let invoke = DelegateMembers.invokeOf dt
             let self = Expression.Convert(target.Expression, dt)
             tryInvoke [| invoke |] (fun m ps -> Expression.Call(self, m :?> MethodInfo, ps) :> Expression) target (BindingRestrictions.GetTypeRestriction(target.Expression, dt)) args
 
@@ -937,12 +958,11 @@ type FSharpInvokeBinder(csharp: InvokeBinder) =
             | Some rule -> rule
             | None ->
                 // A delegate target: C# invokes it, and our rule for F# function / delegate /
-                // optional-parameter arguments is its error suggestion.
-                let suggestion =
-                    match OptionalArguments.tryInvokeDelegate target args with
-                    | Some rule -> rule
-                    | None -> errorSuggestion
-                csharp.FallbackInvoke(target, args, suggestion)
+                // optional-parameter arguments is its error suggestion — or goes first where C#
+                // would crash rather than bind (an internal delegate on .NET Framework).
+                match OptionalArguments.tryInvokeDelegate target args with
+                | Some rule when DelegateMembers.csharpCannotInvoke target.LimitType -> rule
+                | ours -> csharp.FallbackInvoke(target, args, defaultArg ours errorSuggestion)
 
 /// C#'s InvokeMember binder, aware of F# function values: when C# cannot invoke a member because
 /// it holds an `FSharpFunc` rather than a delegate, the rule applies the function instead. The

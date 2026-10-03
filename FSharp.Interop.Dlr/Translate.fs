@@ -579,9 +579,6 @@ module internal Translate =
     let private onWasm =
         string System.Runtime.InteropServices.RuntimeInformation.OSArchitecture = "Wasm"   // no Architecture.Wasm on netstandard2.0
 
-    let private onNetFramework =
-        System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription.StartsWith ".NET Framework"
-
     /// What every part of the translation of one block needs: where it is (the builder and the
     /// member it sits in) and where its values come from (the state machine struct or the Delay
     /// closure — the same contract: the captured variables are its fields, by name).
@@ -1366,16 +1363,11 @@ module internal Translate =
                 let inner = allVars |> List.fold (fun b v -> Set.add v b) bound
                 let body = capturing block (asUnit (rewriteIn inner body))
                 // .NET Framework's Expression.Lambda finds `Invoke` by public lookup only, and an F#
-                // `internal` delegate's is internal: there, the lambda is the Func or Action of the
-                // same signature and the delegate is bound over it (#125).
-                let invoke = DelegateMembers.invokeOf t
-                let parameterTypes = invoke.GetParameters() |> Array.map (fun p -> p.ParameterType)
-                let standIn =
-                    if onNetFramework && not invoke.IsPublic && parameterTypes.Length <= 16
-                       && not (parameterTypes |> Array.exists (fun p -> p.IsByRef)) then
-                        Some(if invoke.ReturnType = typeof<Void> then Expression.GetActionType parameterTypes
-                             else Expression.GetFuncType(Array.append parameterTypes [| invoke.ReturnType |]))
-                    else None
+                // `internal` delegate's is internal: there, the lambda is at the public delegate type
+                // of the same signature and the delegate is bound over it (#125). Past sixteen
+                // parameters that stand-in is emitted at run time, which a quotation must not name
+                // on wasm (see Binders.WideSite) — never reached there: .NET Framework only.
+                let standIn = DelegateMembers.standIn t
                 let literalOf = typedefof<DelegateLiteral<_>>.MakeGenericType t
                 match standIn with
                 | Some standIn -> Expr.Call(literalOf.GetMethod("From"), [ Expr.Coerce(Expr.NewDelegate(standIn, allVars, body), typeof<Delegate>) ])

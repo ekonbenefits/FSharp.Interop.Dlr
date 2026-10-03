@@ -66,6 +66,77 @@ let ``a delegate literal in a block reports its own signature through .Method`` 
     let internal': InternalHandler = dlr { return o?KeepInternal(InternalHandler(fun x -> x + 1)) }
     [ for p in internal'.Method.GetParameters() -> p.ParameterType ] |> should equal [ typeof<int> ]
     internal'.Invoke 41 |> should equal 42
+    // An F# function for that internal delegate parameter: the conversion reads its internal Invoke.
+    let fromFunction: InternalHandler = dlr { return o?KeepInternal(fun (x: int) -> x * 2) }
+    fromFunction.Invoke 21 |> should equal 42
+
+type private PrivateHandler = delegate of int -> int
+type private PrivateHolder() =
+    member _.Keep(f: PrivateHandler) = f
+    member _.Apply(x: int, f: int -> int) = f x
+
+[<Fact>]
+let ``an internal F# delegate converts to an F# function parameter`` () =
+    // Its `Invoke` is internal (#150): a typed wrapper up to five, a compiled factory past it.
+    let o = box (Callbacks())
+    (dlr { return o?Apply2(3, 4, InternalAdd(fun a b -> a * 10 + b)) } : int) |> should equal 34
+    (dlr { return o?ApplyTupled(3, 4, InternalAdd(fun a b -> a - b)) } : int) |> should equal -1
+    (dlr { return o?Six'(InternalSix(fun a b c d e f -> a + b + c + d + e + f)) } : int) |> should equal 21
+    (dlr { return o?SixTupled'(InternalSix(fun a b c d e f -> a * b * c * d * e * f)) } : int) |> should equal 720
+    let seen = ResizeArray<int>()
+    let record = InternalSixAction(fun a b c d e f -> seen.AddRange [ a; b; c; d; e; f ])   // built outside the block too
+    (dlr { return o?SixUnit'(record) } : unit)
+    List.ofSeq seen |> should equal [ 1; 2; 3; 4; 5; 6 ]
+    // And an internal delegate value invoked or read as a function, `Dlr.call`.
+    let add = box (InternalAdd(fun a b -> a * 10 + b))
+    let six = box (InternalSix(fun a b c d e f -> a + b + c + d + e + f))
+    (dlr { return Dlr.call add (3, 4) } : int) |> should equal 34
+    (dlr { return Dlr.call six (1, 2, 3, 4, 5, 6) } : int) |> should equal 21
+    (dlr { return Dlr.call add } : int -> int -> int) 3 4 |> should equal 34
+    (dlr { return Dlr.call six } : int -> int -> int -> int -> int -> int -> int) 1 2 3 4 5 6 |> should equal 21
+    // Through our rule (C# cannot pass a Func for its F# function parameter): the internal Invoke too.
+    let apply = box (InternalApply(fun f x -> f x))
+    (dlr { return Dlr.call apply (Func<int, int>(fun x -> x + 1), 41) } : int) |> should equal 42
+
+[<Fact>]
+let ``an internal delegate value is invoked: a member of its type, an Expando's, Dlr.call`` () =
+    // On .NET Framework C#'s Invoke binder cannot (Expression.Invoke's public-only lookup): ours goes first there.
+    let o = box (Callbacks())
+    (dlr { return o?Adder(2, 3) } : int) |> should equal 203
+    let e = box (Fixtures.expando [ "Add", box (InternalAdd(fun a b -> a + b)) ])
+    (dlr { return e?Add(20, 22) } : int) |> should equal 42
+    (dlr { return Dlr.call (box (InternalAdd(fun a b -> a - b))) (5, 3) } : int) |> should equal 2
+
+[<Fact>]
+let ``internal delegates past sixteen parameters, events of one, and a private delegate`` () =
+    let o = box (Callbacks())
+    // Past sixteen: a function to the delegate is a compiled lambda, the delegate to a function a factory.
+    (dlr { return o?WideInternal(fun (a: int, b: int, c: int, d: int, e: int, f: int, g: int, h: int, i: int, j: int, k: int, l: int, m: int, n: int, p: int, q: int, r: int) ->
+                                     a + b + c + d + e + f + g + h + i + j + k + l + m + n + p + q + r) } : int) |> should equal 153
+    let wide = InternalWide17(fun a b c d e f g h i j k l m n p q r -> a + b + c + d + e + f + g + h + i + j + k + l + m + n + p + q + r)
+    (dlr { return o?Wide17Tupled(wide) } : int) |> should equal 153
+    (dlr { return o?Wide17Curried(wide) } : int) |> should equal 153
+    (dlr { return Dlr.call (box wide) (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17) } : int) |> should equal 153
+    // An event of an internal delegate type: a delegate, then an F# function converted to it.
+    let clicker = InternalClicker()
+    let c = box clicker
+    let seen = ResizeArray<int>()
+    let handler = InternalNotify(fun _ n -> seen.Add n)
+    dlr { c |> Dlr.addAssign "Changed" handler }
+    clicker.Raise 1
+    dlr { c |> Dlr.subtractAssign "Changed" handler }
+    clicker.Raise 2
+    dlr { c |> Dlr.addAssign "Changed" (fun (_: obj) (n: int) -> seen.Add(n * 10)) }
+    clicker.Raise 3
+    List.ofSeq seen |> should equal [ 1; 30 ]
+    // A private delegate type: a literal in the block, from a function, to a function, invoked.
+    let h = box (PrivateHolder())
+    let kept: PrivateHandler = dlr { return h?Keep(PrivateHandler(fun x -> x + 1)) }
+    kept.Invoke 41 |> should equal 42
+    let fromFunction: PrivateHandler = dlr { return h?Keep(fun (x: int) -> x * 2) }
+    fromFunction.Invoke 21 |> should equal 42
+    (dlr { return h?Apply(20, PrivateHandler(fun x -> x + 1)) } : int) |> should equal 21
+    (dlr { return Dlr.call (box kept) 41 } : int) |> should equal 42
 
 [<Fact>]
 let ``overloads: the delegate parameter is one candidate among others`` () =
