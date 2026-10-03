@@ -35,5 +35,6 @@ namespace Tests.CSharp
         public int N;
         public int Total { get; set; }
         public int Next() { N++; return N; }
+        public void BumpThenThrow() { N++; throw new System.InvalidOperationException("after the mutation"); }
     }
 }

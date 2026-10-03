@@ -9557,6 +9557,622 @@ let ``Argument mutating the struct it is passed to — in a nested dlr, out insi
     actual |> should equal expected
 
 [<Fact>]
+let ``Assigned value mutating the struct — as the block's value`` () =
+    let w = Widget()
+    let o = box w
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let x = x0 in return ((let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Assigned value mutating the struct — as the block's value, marker inside`` () =
+    let w = Widget()
+    let o = box w
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+    let actual: int =
+        dlr {
+            return (let x: int = o?Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Assigned value mutating the struct — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Assigned value mutating the struct — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Assigned value mutating the struct — under a lambda`` () =
+    let w = Widget()
+    let o = box w
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun x -> (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Assigned value mutating the struct — under a lambda, marker inside`` () =
+    let w = Widget()
+    let o = box w
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = o?Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Assigned value mutating the struct — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Assigned value mutating the struct — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Assigned value mutating the struct — in a delegate literal`` () =
+    let w = Widget()
+    let o = box w
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun x -> (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Assigned value mutating the struct — in a delegate literal, marker inside`` () =
+    let w = Widget()
+    let o = box w
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = o?Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Assigned value mutating the struct — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Assigned value mutating the struct — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Assigned value mutating the struct — in a for body`` () =
+    let w = Widget()
+    let o = box w
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for x in [ x0 ] do
+                r <- ((let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Assigned value mutating the struct — in a for body, marker inside`` () =
+    let w = Widget()
+    let o = box w
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = o?Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Assigned value mutating the struct — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Assigned value mutating the struct — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Assigned value mutating the struct — in a try body`` () =
+    let w = Widget()
+    let o = box w
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            try
+                let x = x0 in return ((let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Assigned value mutating the struct — in a try body, marker inside`` () =
+    let w = Widget()
+    let o = box w
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = o?Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Assigned value mutating the struct — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Assigned value mutating the struct — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Assigned value mutating the struct — in a nested dlr`` () =
+    let w = Widget()
+    let o = box w
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return (dlr { let x = x0 in return ((let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Assigned value mutating the struct — in a nested dlr, marker inside`` () =
+    let w = Widget()
+    let o = box w
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = o?Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Assigned value mutating the struct — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Assigned value mutating the struct — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X))
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Struct member mutating then throwing — as the block's value`` () =
+    let w = Widget()
+    let o = box w
+    let expected: int = (let x = w.Count in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let x = x0 in return ((let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Struct member mutating then throwing — as the block's value, marker inside`` () =
+    let w = Widget()
+    let o = box w
+    let expected: int = (let x = w.Count in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+    let actual: int =
+        dlr {
+            return (let x: int = o?Count in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Struct member mutating then throwing — as the block's value, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+    let actual: int =
+        dlr {
+            return (let x: int = (?) o name in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Struct member mutating then throwing — as the block's value, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+    let actual: int =
+        dlr {
+            return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Struct member mutating then throwing — under a lambda`` () =
+    let w = Widget()
+    let o = box w
+    let expected: int = (let x = w.Count in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun x -> (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Struct member mutating then throwing — under a lambda, marker inside`` () =
+    let w = Widget()
+    let o = box w
+    let expected: int = (let x = w.Count in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = o?Count in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Struct member mutating then throwing — under a lambda, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let x: int = (?) o name in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Struct member mutating then throwing — under a lambda, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return ([ x0 ] |> List.map (fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))).Head
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Struct member mutating then throwing — in a delegate literal`` () =
+    let w = Widget()
+    let o = box w
+    let expected: int = (let x = w.Count in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun x -> (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Struct member mutating then throwing — in a delegate literal, marker inside`` () =
+    let w = Widget()
+    let o = box w
+    let expected: int = (let x = w.Count in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = o?Count in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Struct member mutating then throwing — in a delegate literal, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let x: int = (?) o name in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Struct member mutating then throwing — in a delegate literal, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return Func<int, int>(fun (_: int) -> let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x)).Invoke x0
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Struct member mutating then throwing — in a for body`` () =
+    let w = Widget()
+    let o = box w
+    let expected: int = (let x = w.Count in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for x in [ x0 ] do
+                r <- ((let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Struct member mutating then throwing — in a for body, marker inside`` () =
+    let w = Widget()
+    let o = box w
+    let expected: int = (let x = w.Count in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = o?Count in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Struct member mutating then throwing — in a for body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let x: int = (?) o name in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Struct member mutating then throwing — in a for body, out inside`` () =
+    let w = Widget()
+    let o = box w
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            let mutable r = Unchecked.defaultof<int>
+            for _ in [ x0 ] do
+                r <- (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+            return r
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Struct member mutating then throwing — in a try body`` () =
+    let w = Widget()
+    let o = box w
+    let expected: int = (let x = w.Count in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            try
+                let x = x0 in return ((let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Struct member mutating then throwing — in a try body, marker inside`` () =
+    let w = Widget()
+    let o = box w
+    let expected: int = (let x = w.Count in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = o?Count in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Struct member mutating then throwing — in a try body, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+    let actual: int =
+        dlr {
+            try
+                return (let x: int = (?) o name in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Struct member mutating then throwing — in a try body, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+    let actual: int =
+        dlr {
+            try
+                return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+            with _ -> return Unchecked.defaultof<int>
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Struct member mutating then throwing — in a nested dlr`` () =
+    let w = Widget()
+    let o = box w
+    let expected: int = (let x = w.Count in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+    let actual: int =
+        dlr {
+            let x0: int = o?Count
+            return (dlr { let x = x0 in return ((let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Struct member mutating then throwing — in a nested dlr, marker inside`` () =
+    let w = Widget()
+    let o = box w
+    let expected: int = (let x = w.Count in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = o?Count in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Struct member mutating then throwing — in a nested dlr, computed name inside`` () =
+    let w = Widget()
+    let o = box w
+    let name = "Count"
+    let expected: int = (let x = w.Count in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+    let actual: int =
+        dlr {
+            return (dlr { return (let x: int = (?) o name in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
+let ``Struct member mutating then throwing — in a nested dlr, out inside`` () =
+    let w = Widget()
+    let d = box (Collections.Generic.Dictionary<string, int>(dict [ "k", 3 ]))
+    let expected: int = (let x = w.Count in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x))
+    let actual: int =
+        dlr {
+            return (dlr { return (let (_: bool), (x: int) = d?TryGetValue("k", Dlr.out) in (let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x)) } : int)
+        }
+    actual |> should equal expected
+
+[<Fact>]
 let ``Coerce / TypeTest — as the block's value`` () =
     let w = Widget()
     let o = box w

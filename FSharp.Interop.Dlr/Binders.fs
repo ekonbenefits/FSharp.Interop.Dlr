@@ -1623,6 +1623,13 @@ module internal Binders =
     let private wideInvoke (site: CallSite) (args: obj[]) =
         let target = site.GetType().GetField("Target").GetValue site :?> Delegate
         target.DynamicInvoke(Array.append [| box site |] args)
+    /// An in-place operation on a struct copy, then its write-back (`inPlace` in Translate): the
+    /// write-back must run even when the operation throws after mutating, as plain F# keeps the
+    /// mutation — a `finally`, which the quotation converter has no form for. This placeholder is
+    /// what the translator emits; the LINQ `SiteHoister` rewrites it into a TryFinally. The body is
+    /// the slow path, for a tree the hoister has not seen (the write-back then only on success).
+    type InPlace =
+        static member Then<'T>(operation: 'T, writeBack: unit) : 'T = ignore writeBack; operation
     type WideSite =
         static member Invoke(site: CallSite, delegateType: Type, args: obj[]) : obj = ignore delegateType; wideInvoke site args
         static member InvokeVoid(site: CallSite, delegateType: Type, args: obj[]) : unit = ignore delegateType; wideInvoke site args |> ignore

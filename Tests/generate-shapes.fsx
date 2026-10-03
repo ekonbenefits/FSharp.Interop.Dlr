@@ -45,6 +45,8 @@ let bodies =
       { Name = "Mutating method on a mutable struct"; Type = "int"; Expr = "(let mutable s = Tests.CSharp.MutableSlot() in s.Store(Func<int, int>(fun y -> y + x)); s.Property.Invoke 1)" }
       { Name = "Field set through a struct field"; Type = "int"; Expr = "(let mutable v = Tests.CSharp.OuterPoint() in v.Inner.X <- x; v.Inner.X)" }
       { Name = "Argument mutating the struct it is passed to"; Type = "int"; Expr = "(let mutable v = Tests.CSharp.OuterPoint() in v.Total <- v.Next() + v.Next() + x; v.N * 100 + v.Total)" }
+      { Name = "Assigned value mutating the struct"; Type = "int"; Expr = "(let mutable v = Numerics.Vector2(1.0f, 2.0f) in v.X <- (v.Y <- float32 x; 4.0f); int v.Y * 10 + int v.X)" }
+      { Name = "Struct member mutating then throwing"; Type = "int"; Expr = "(let mutable v = Tests.CSharp.OuterPoint() in (try v.BumpThenThrow() with _ -> ()); v.N + x)" }
       { Name = "Coerce / TypeTest"; Type = "int"; Expr = "(match box x with :? int as i -> i | _ -> 0)" }
       { Name = "DefaultValue"; Type = "int"; Expr = "Unchecked.defaultof<int> + x" }
       { Name = "NewDelegate"; Type = "int"; Expr = "Func<int, int>(fun y -> y + x).Invoke 1" }

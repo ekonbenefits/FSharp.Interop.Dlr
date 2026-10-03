@@ -65,8 +65,9 @@ nested delegates (loop and try bodies), and the copy costs nothing measurable, w
   one. A captured mutable already is a cell, so `v <- x` writes its `Value`. A struct in a cell
   — the block's own or a captured one — reads back as a copy, so a field set, property setter or
   method on it, or on a struct field of it (`v.Inner.X <- 3`), runs on a temporary that is written
-  back, its arguments evaluated first so one that mutates the variable is not overwritten
-  (`inPlace`, #162).
+  back, its arguments evaluated first so one that mutates the variable is not overwritten, and the
+  write-back in a finally so a member that mutates then throws keeps the mutation (`inPlace`;
+  `Binders.InPlace`, which the `SiteHoister` makes a TryFinally the converter has no form for, #162).
 - **Delegate literals** (`Action<string>(fun s -> …)`) are kept whole, made capturing on wasm, and
   wrapped in `DelegateLiteral<'D>.Over`: compiled with the block they would be `DynamicMethod`
   delegates whose `.Method` starts with a hidden `Closure` parameter, which a consumer marshalling

@@ -587,6 +587,9 @@ module internal Translate =
                     Expression.New(t.GetConstructor fields, args) :> Expression
                 let values = holder node.Type (result :: [ for i in 0 .. elements.Count - 1 do if parameters.[i + 1].ParameterType.IsByRef then yield (tempAt.[i] :> Expression) ])
                 Expression.Block(node.Type, temps, List.ofSeq inits @ [ callStep; values ]) :> Expression
+            // An in-place struct operation's write-back (`Binders.InPlace`): in a finally.
+            elif node.Method.DeclaringType = typeof<Binders.InPlace> then
+                Expression.TryFinally(this.Visit node.Arguments.[0], this.Visit node.Arguments.[1]) :> Expression
             else base.VisitMethodCall node
 
     let private onWasm =
@@ -660,7 +663,7 @@ module internal Translate =
     /// from outside it, which the compiler stores as an FSharpRef — reads back as a copy, so an
     /// operation that mutates it in place (a field set, a property setter or a method, on the
     /// variable or a struct field of it) would be lost (#162). It runs on a temporary copy that is
-    /// written back. The arguments are evaluated first, left to right, into temporaries: the
+    /// written back, in a finally. The arguments are evaluated first, left to right, into temporaries: the
     /// receiver is a variable, so this is F#'s order, and an argument that mutates the variable
     /// itself is not overwritten by a copy read before it ran. The copy is immutable to F# — so it
     /// is not celled again — but a LINQ variable, which a field set or call mutates in place.
@@ -676,12 +679,14 @@ module internal Translate =
             let copy = Var(v.Name + "Copy", v.Type)
             let receiver = fields |> List.fold (fun r f -> Expr.FieldGet(r, f)) (Expr.Var copy)
             let result = op receiver [ for t, _ in temps -> Expr.Var t ]
-            let writeBack = write v (Expr.Var copy)
+            // Unit-typed both, as values: a void call or setter cannot be an argument.
+            let asValue (e: Expr) = if e.Type = typeof<unit> then Expr.Sequential(e, Expr.Value(())) else e
+            // The write-back in a finally (`Binders.InPlace`, made a TryFinally after conversion),
+            // so a member that mutates then throws keeps its mutation, as in plain F#; the
+            // arguments ran before, outside it, so a throwing argument writes nothing back.
             let body =
-                if result.Type = typeof<unit> then Expr.Sequential(result, writeBack)
-                else
-                    let r = Var("result", result.Type)
-                    Expr.Let(r, result, Expr.Sequential(writeBack, Expr.Var r))
+                Expr.Call(typeof<Binders.InPlace>.GetMethod("Then", Reflection.BindingFlags.Static ||| Reflection.BindingFlags.Public ||| Reflection.BindingFlags.NonPublic).MakeGenericMethod(result.Type),
+                          [ asValue result; asValue (write v (Expr.Var copy)) ])
             List.foldBack (fun (t, a) inner -> Expr.Let(t, a, inner)) temps (Expr.Let(copy, read v, body))
         match e with
         | FieldSet(Some receiver, f, x) ->
