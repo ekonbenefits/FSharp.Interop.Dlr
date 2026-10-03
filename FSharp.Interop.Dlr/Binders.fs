@@ -430,6 +430,11 @@ module internal DelegateMembers =
     let constructorOf (delegateType: Type) : ConstructorInfo =
         delegateType.GetConstructor(flags, null, [| typeof<obj>; typeof<nativeint> |], null)
     let onNetFramework = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription.StartsWith ".NET Framework"
+    /// Whether C#'s binder would crash invoking a value of this type: .NET Framework's
+    /// `Expression.Invoke` (which C#'s Invoke binder builds) finds `Invoke` by public lookup only,
+    /// and throws a NullReferenceException for an F# `internal` delegate's (#151).
+    let csharpCannotInvoke (t: Type) =
+        onNetFramework && typeof<Delegate>.IsAssignableFrom t && (let i = invokeOf t in not (isNull i) && not i.IsPublic)
     /// .NET Framework's `Expression.Lambda` finds a delegate type's `Invoke` by public lookup only,
     /// so a lambda at an F# `internal` delegate type fails there: the public delegate type of the
     /// same signature to compile it at instead (`Func`/`Action`, or one emitted past sixteen
@@ -953,12 +958,11 @@ type FSharpInvokeBinder(csharp: InvokeBinder) =
             | Some rule -> rule
             | None ->
                 // A delegate target: C# invokes it, and our rule for F# function / delegate /
-                // optional-parameter arguments is its error suggestion.
-                let suggestion =
-                    match OptionalArguments.tryInvokeDelegate target args with
-                    | Some rule -> rule
-                    | None -> errorSuggestion
-                csharp.FallbackInvoke(target, args, suggestion)
+                // optional-parameter arguments is its error suggestion — or goes first where C#
+                // would crash rather than bind (an internal delegate on .NET Framework).
+                match OptionalArguments.tryInvokeDelegate target args with
+                | Some rule when DelegateMembers.csharpCannotInvoke target.LimitType -> rule
+                | ours -> csharp.FallbackInvoke(target, args, defaultArg ours errorSuggestion)
 
 /// C#'s InvokeMember binder, aware of F# function values: when C# cannot invoke a member because
 /// it holds an `FSharpFunc` rather than a delegate, the rule applies the function instead. The

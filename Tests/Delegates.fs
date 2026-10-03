@@ -99,6 +99,15 @@ let ``an internal F# delegate converts to an F# function parameter`` () =
     (dlr { return Dlr.call apply (Func<int, int>(fun x -> x + 1), 41) } : int) |> should equal 42
 
 [<Fact>]
+let ``an internal delegate value is invoked: a member of its type, an Expando's, Dlr.call`` () =
+    // On .NET Framework C#'s Invoke binder cannot (Expression.Invoke's public-only lookup): ours goes first there.
+    let o = box (Callbacks())
+    (dlr { return o?Adder(2, 3) } : int) |> should equal 203
+    let e = box (Fixtures.expando [ "Add", box (InternalAdd(fun a b -> a + b)) ])
+    (dlr { return e?Add(20, 22) } : int) |> should equal 42
+    (dlr { return Dlr.call (box (InternalAdd(fun a b -> a - b))) (5, 3) } : int) |> should equal 2
+
+[<Fact>]
 let ``internal delegates past sixteen parameters, events of one, and a private delegate`` () =
     let o = box (Callbacks())
     // Past sixteen: a function to the delegate is a compiled lambda, the delegate to a function a factory.

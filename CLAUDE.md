@@ -84,8 +84,8 @@ dotnet build Tests.Wasm -c Release && (cd Tests.Wasm/bin/Release/net10.0-browser
   delegate fixtures (`Tests/Fixtures.fs`) give each delegate shape an internal variant.
 - The F# binder rules are the *seam* (`docs/binders.md`): where C# fails or binds against F#'s
   expectation on what F# hands it. A rule goes before C#'s only where C# would bind *wrongly*
-  rather than fail (structural `==`, a `Delegate`-typed slot); otherwise ours is C#'s error
-  suggestion. See `new-binder`.
+  or crash rather than fail (structural `==`, a `Delegate`-typed slot, invoking an `internal`
+  delegate on .NET Framework); otherwise ours is C#'s error suggestion. See `new-binder`.
 - wasm: a nested non-capturing lambda loses its arguments on Mono's interpreter, and
   `FuncConvert` wrappers do too; `capturing` in `Translate.fs` and the typed wrappers in
   `Binders.fs` exist for that — do not "simplify" them away. A delegate type emitted at run
