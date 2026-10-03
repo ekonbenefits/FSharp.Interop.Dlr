@@ -165,6 +165,11 @@ whose arguments need no conversion — the adapter allocation and the second del
 literal. Calls of a curried F# function member go through `InvokeFast` (one call, no intermediate
 closures); the `w?Fn(1, 2)` row there is that path, a small constant over a CLR method call.
 
+A delegate's own members are looked up through `DelegateMembers`, public or not: F# compiles a
+delegate's `Invoke` and constructor at the type's accessibility, so an `internal` F# delegate's
+are internal where C#'s stay public, and a public-only lookup missed every conversion and
+`Dlr.call` fallback for it (#150).
+
 A parameter typed `Delegate` itself (WinForms `Control.Invoke`) gets the `Func`/`Action` F# would
 build for the function, and this rule goes *before* C#'s: left to C#, `FSharpFunc`'s own
 `op_Implicit` yields a `Converter<Unit, R>` for a `unit -> R`, a one-parameter delegate that a

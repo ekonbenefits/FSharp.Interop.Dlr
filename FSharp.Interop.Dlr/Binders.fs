@@ -420,6 +420,15 @@ type TypePairComparer() =
         member _.Equals(struct (a1, a2), struct (b1, b2)) = obj.ReferenceEquals(a1, b1) && obj.ReferenceEquals(a2, b2)
         member _.GetHashCode(struct (a, b)) = RuntimeHelpers.GetHashCode a * 31 + RuntimeHelpers.GetHashCode b
 
+/// A delegate type's own members. F# compiles a delegate at the *type's* accessibility, so an
+/// `internal` delegate has a non-public `Invoke` and constructor where C#'s stay public; asking for
+/// the public one gives null and a null-reference error far from the cause.
+module internal DelegateMembers =
+    let private flags = BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic
+    let invokeOf (delegateType: Type) : MethodInfo = delegateType.GetMethod("Invoke", flags)
+    let constructorOf (delegateType: Type) : ConstructorInfo =
+        delegateType.GetConstructor(flags, null, [| typeof<obj>; typeof<nativeint> |], null)
+
 /// The typed wrapper (`DelegateFunctions`, in Adapters.fs) for a delegate passed to a
 /// function-typed parameter.
 module internal DelegateConversions =
@@ -433,7 +442,7 @@ module internal DelegateConversions =
         match makers.TryGetValue(struct (funcType, delegateType)) with
         | true, m -> m
         | _ ->
-            let invoke = delegateType.GetMethod("Invoke")
+            let invoke = DelegateMembers.invokeOf delegateType
             let ps = [ for p in invoke.GetParameters() -> p.ParameterType ]
             let isVoid = invoke.ReturnType = typeof<Void>
             let maker =
@@ -487,7 +496,7 @@ module internal DelegateConversions =
 type TupledDelegateFunction<'T, 'R>(d: Delegate) =
     inherit FSharpFunc<'T, 'R>()
     override _.Invoke(t: 'T) : 'R =
-        let n = d.GetType().GetMethod("Invoke").GetParameters().Length   // not d.Method: an interpreted delegate's is synthetic
+        let n = (DelegateMembers.invokeOf (d.GetType())).GetParameters().Length   // not d.Method: an interpreted delegate's is synthetic
         let args =
             if n = 0 then [||]
             elif n > 1 && FSharp.Reflection.FSharpType.IsTuple typeof<'T> then FSharp.Reflection.FSharpValue.GetTupleFields(box t)
@@ -511,15 +520,6 @@ module DelegateFunction =
         match <@ Make typeof<obj> null @> with
         | Patterns.Call(_, mi, _) -> mi
         | _ -> failwith "unreachable"
-
-/// A delegate type's own members. F# compiles a delegate at the *type's* accessibility, so an
-/// `internal` delegate has a non-public `Invoke` and constructor where C#'s stay public; asking for
-/// the public one gives null and a null-reference error far from the cause.
-module internal DelegateMembers =
-    let private flags = BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic
-    let invokeOf (delegateType: Type) : MethodInfo = delegateType.GetMethod("Invoke", flags)
-    let constructorOf (delegateType: Type) : ConstructorInfo =
-        delegateType.GetConstructor(flags, null, [| typeof<obj>; typeof<nativeint> |], null)
 
 
 /// A delegate literal written inside a block (`w?Each(Action<string>(fun s -> …))`) compiles with
@@ -590,7 +590,7 @@ module FunctionConversions =
         match conversions.TryGetValue(struct (funcType, delegateType)) with
         | true, c -> c
         | _ ->
-            let invoke = delegateType.GetMethod("Invoke")
+            let invoke = DelegateMembers.invokeOf delegateType
             let ps = [ for p in invoke.GetParameters() -> p.ParameterType ]
             let isVoid = invoke.ReturnType = typeof<Void>
             let conversion =
@@ -650,7 +650,7 @@ module internal OptionalArguments =
     let private isNullValue = FunctionShapes.isNullValue
 
     /// A concrete delegate type: `Delegate` and `MulticastDelegate` themselves have no `Invoke`.
-    let private isDelegate (t: Type) = typeof<Delegate>.IsAssignableFrom t && not (isNull (t.GetMethod "Invoke"))
+    let private isDelegate (t: Type) = typeof<Delegate>.IsAssignableFrom t && not (isNull (DelegateMembers.invokeOf t))
     let private isAbstractDelegate (t: Type) = t = typeof<Delegate> || t = typeof<MulticastDelegate>
 
     /// An F# function value for a delegate-typed parameter: a delegate over the function
@@ -667,7 +667,7 @@ module internal OptionalArguments =
     /// shape; not `FuncConvert`, whose wrapper loses arguments on Mono's browser-wasm runtime).
     let private delegateToFunction (funcType: Type) (a: DynamicMetaObject) : Expression option =
         let dt = a.LimitType
-        let invoke = dt.GetMethod("Invoke")
+        let invoke = DelegateMembers.invokeOf dt
         let paramTypes = [ for p in invoke.GetParameters() -> p.ParameterType ]
         // `unit -> R` takes a parameterless delegate.
         let domainsOf = FunctionShapes.domains funcType |> Option.map (fun (ds, tupled, r) -> (if ds = [ typeof<unit> ] then [] else ds), tupled, r)
@@ -786,9 +786,9 @@ module internal OptionalArguments =
     /// member, an Expando's delegate member): the conversions above apply to its parameters.
     let tryInvokeDelegate (target: DynamicMetaObject) (args: DynamicMetaObject[]) : DynamicMetaObject option =
         let dt = target.LimitType
-        if not (typeof<Delegate>.IsAssignableFrom dt) || isNull (dt.GetMethod "Invoke") then None
+        if not (typeof<Delegate>.IsAssignableFrom dt) || isNull (DelegateMembers.invokeOf dt) then None
         else
-            let invoke = dt.GetMethod "Invoke"
+            let invoke = DelegateMembers.invokeOf dt
             let self = Expression.Convert(target.Expression, dt)
             tryInvoke [| invoke |] (fun m ps -> Expression.Call(self, m :?> MethodInfo, ps) :> Expression) target (BindingRestrictions.GetTypeRestriction(target.Expression, dt)) args
 

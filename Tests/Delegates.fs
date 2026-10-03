@@ -68,6 +68,29 @@ let ``a delegate literal in a block reports its own signature through .Method`` 
     internal'.Invoke 41 |> should equal 42
 
 [<Fact>]
+let ``an internal F# delegate converts to an F# function parameter`` () =
+    // Its `Invoke` is internal (#150): a typed wrapper up to five, a compiled factory past it.
+    let o = box (Callbacks())
+    (dlr { return o?Apply2(3, 4, InternalAdd(fun a b -> a * 10 + b)) } : int) |> should equal 34
+    (dlr { return o?ApplyTupled(3, 4, InternalAdd(fun a b -> a - b)) } : int) |> should equal -1
+    (dlr { return o?Six'(InternalSix(fun a b c d e f -> a + b + c + d + e + f)) } : int) |> should equal 21
+    (dlr { return o?SixTupled'(InternalSix(fun a b c d e f -> a * b * c * d * e * f)) } : int) |> should equal 720
+    let seen = ResizeArray<int>()
+    let record = InternalSixAction(fun a b c d e f -> seen.AddRange [ a; b; c; d; e; f ])   // built outside the block too
+    (dlr { return o?SixUnit'(record) } : unit)
+    List.ofSeq seen |> should equal [ 1; 2; 3; 4; 5; 6 ]
+    // And an internal delegate value invoked or read as a function, `Dlr.call`.
+    let add = box (InternalAdd(fun a b -> a * 10 + b))
+    let six = box (InternalSix(fun a b c d e f -> a + b + c + d + e + f))
+    (dlr { return Dlr.call add (3, 4) } : int) |> should equal 34
+    (dlr { return Dlr.call six (1, 2, 3, 4, 5, 6) } : int) |> should equal 21
+    (dlr { return Dlr.call add } : int -> int -> int) 3 4 |> should equal 34
+    (dlr { return Dlr.call six } : int -> int -> int -> int -> int -> int -> int) 1 2 3 4 5 6 |> should equal 21
+    // Through our rule (C# cannot pass a Func for its F# function parameter): the internal Invoke too.
+    let apply = box (InternalApply(fun f x -> f x))
+    (dlr { return Dlr.call apply (Func<int, int>(fun x -> x + 1), 41) } : int) |> should equal 42
+
+[<Fact>]
 let ``overloads: the delegate parameter is one candidate among others`` () =
     let o = box (Callbacks())
     (dlr { return o?Pick(1, fun (x: int) -> x + 1) } : string) |> should equal "func:2"

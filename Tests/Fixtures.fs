@@ -342,6 +342,10 @@ type Wide17 = delegate of int * int * int * int * int * int * int * int * int * 
 
 /// F# compiles a delegate's `Invoke` at the type's own accessibility, so this one's is not public.
 type internal InternalHandler = delegate of int -> int
+type internal InternalAdd = delegate of int * int -> int
+type internal InternalSix = delegate of int * int * int * int * int * int -> int
+type internal InternalSixAction = delegate of int * int * int * int * int * int -> unit
+type internal InternalApply = delegate of (int -> int) * int -> int
 
 // Delegate and F# function parameters, for the conversions C# does not do (F# lambda -> Func,
 // Func -> F# function) at a dynamic call.
