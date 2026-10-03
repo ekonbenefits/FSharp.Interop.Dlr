@@ -66,6 +66,9 @@ let ``a delegate literal in a block reports its own signature through .Method`` 
     let internal': InternalHandler = dlr { return o?KeepInternal(InternalHandler(fun x -> x + 1)) }
     [ for p in internal'.Method.GetParameters() -> p.ParameterType ] |> should equal [ typeof<int> ]
     internal'.Invoke 41 |> should equal 42
+    // An F# function for that internal delegate parameter: the conversion reads its internal Invoke.
+    let fromFunction: InternalHandler = dlr { return o?KeepInternal(fun (x: int) -> x * 2) }
+    fromFunction.Invoke 21 |> should equal 42
 
 [<Fact>]
 let ``an internal F# delegate converts to an F# function parameter`` () =

@@ -577,7 +577,7 @@ module FunctionConversions =
             il.Emit(System.Reflection.Emit.OpCodes.Castclass, ctor.GetParameters().[0].ParameterType)
             il.Emit(System.Reflection.Emit.OpCodes.Newobj, ctor)
             il.Emit(System.Reflection.Emit.OpCodes.Ldftn, invoke)
-            il.Emit(System.Reflection.Emit.OpCodes.Newobj, delegateType.GetConstructor([| typeof<obj>; typeof<nativeint> |]))
+            il.Emit(System.Reflection.Emit.OpCodes.Newobj, DelegateMembers.constructorOf delegateType)
             il.Emit(System.Reflection.Emit.OpCodes.Ret)
             dm.CreateDelegate(typeof<Func<obj, Delegate>>) :?> Func<obj, Delegate>
         with :? PlatformNotSupportedException | :? NotSupportedException ->
