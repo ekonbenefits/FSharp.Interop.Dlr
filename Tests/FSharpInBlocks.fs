@@ -91,6 +91,68 @@ let ``failwith and raise propagate as themselves`` () =
     r |> should equal "caught too many"
 
 [<Fact>]
+let ``try with and try finally anywhere: under a lambda, in a delegate literal, as a value`` () =
+    // Not the builder's own `try` (#158): a raw TryWith / TryFinally node, run through the same delegates.
+    let o = box (Widget())
+    let safe: int list = dlr { return [ 0; 2; 5 ] |> List.map (fun x -> try 100 / x with _ -> -1) }
+    safe |> should equal [ -1; 50; 20 ]
+    let divide: Func<int, int> = dlr { return Func<int, int>(fun x -> try 100 / x with :? DivideByZeroException -> 0) }
+    divide.Invoke 0 |> should equal 0
+    divide.Invoke 4 |> should equal 25
+    let value: int = dlr {
+        let n = (try (o?Count : int) / 0 with _ -> -(o?Count : int))       // a value, markers on both sides
+        return n }
+    value |> should equal -3
+    let mutable cleaned = 0
+    let total: int = dlr { return [ 1; 2 ] |> List.sumBy (fun x -> try x * 10 finally cleaned <- cleaned + 1) }
+    total |> should equal 30
+    cleaned |> should equal 2
+
+[<Fact>]
+let ``an exception no case matches is rethrown as itself, with its stack trace`` () =
+    let o = box (Widget())
+    let thrown = InvalidOperationException "original"
+    // Under a lambda: F# quotes the unmatched case as `reraise ()`.
+    let caught =
+        try
+            dlr { return [ 1 ] |> List.map (fun _ -> try raise thrown with :? ArgumentException -> 0) } |> ignore
+            None
+        with e -> Some e
+    caught |> should equal (Some (thrown :> exn))
+    // The builder's own `try` too, and an explicit `reraise ()`.
+    let viaBuilder =
+        try
+            (dlr {
+                try return (if (o?Count : int) > 0 then raise thrown else 0)
+                with :? ArgumentException -> return -1 } : int) |> ignore
+            None
+        with e -> Some e
+    viaBuilder |> should equal (Some (thrown :> exn))
+    let explicit' =
+        try
+            dlr { return [ 1 ] |> List.map (fun _ -> try raise thrown with _ -> reraise ()) } |> ignore
+            None
+        with e -> Some e
+    explicit' |> should equal (Some (thrown :> exn))
+    thrown.StackTrace |> should not' (be NullOrEmptyString)
+    // A nested try in a handler keeps its own handler's rethrow.
+    let nested: int = dlr { return [ 0 ] |> List.sumBy (fun x -> try 1 / x with _ -> (try failwith "inner" with _ -> 7)) }
+    nested |> should equal 7
+
+[<Fact>]
+let ``a try returning a function, and use under a lambda`` () =
+    // A function-typed try body: a parameterless delegate whose body is a lambda (builder and raw).
+    let viaBuilder: int -> int = dlr { try return (fun x -> x + 1) with _ -> return (fun x -> x - 1) }
+    viaBuilder 41 |> should equal 42
+    let asValue: int -> int = dlr { return (try (fun x -> x + 2) with _ -> (fun x -> x - 2)) }
+    asValue 40 |> should equal 42
+    // `use` under a lambda: its try … finally disposes per call.
+    let log = Collections.Generic.List<string>()
+    let total: int = dlr { return [ 1; 2 ] |> List.sumBy (fun x -> use d = new Disposal(log, string x) in x * 10) }
+    total |> should equal 30
+    List.ofSeq log |> should equal [ "disposed 1"; "disposed 2" ]
+
+[<Fact>]
 let ``async and task inside a block`` () =
     let o = box (Widget())
     // StartImmediateAsTask, not RunSynchronously: on single-threaded browser-wasm the latter would

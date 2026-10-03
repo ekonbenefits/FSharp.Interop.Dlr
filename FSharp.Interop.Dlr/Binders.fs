@@ -39,6 +39,12 @@ module DlrRuntime =
     let tryWith (body: Func<'T>) (handler: Func<exn, 'T>) : 'T =
         try body.Invoke() with e -> handler.Invoke e
 
+    /// `reraise ()` in a handler that runs as a delegate (above), outside any catch block: the
+    /// caught exception thrown again with its original stack trace, as a rethrow keeps it.
+    let rethrow<'T> (e: exn) : 'T =
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e).Throw()
+        Unchecked.defaultof<'T>
+
     /// `try body () finally compensation ()`
     let tryFinally (body: Func<'T>) (compensation: Func<unit>) : 'T =
         try body.Invoke() finally compensation.Invoke()
