@@ -429,6 +429,18 @@ module internal DelegateMembers =
     let invokeOf (delegateType: Type) : MethodInfo = delegateType.GetMethod("Invoke", flags)
     let constructorOf (delegateType: Type) : ConstructorInfo =
         delegateType.GetConstructor(flags, null, [| typeof<obj>; typeof<nativeint> |], null)
+    let onNetFramework = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription.StartsWith ".NET Framework"
+    /// .NET Framework's `Expression.Lambda` finds a delegate type's `Invoke` by public lookup only,
+    /// so a lambda at an F# `internal` delegate type fails there: the public delegate type of the
+    /// same signature to compile it at instead (`Func`/`Action`, or one emitted past sixteen
+    /// parameters), which `DelegateLiteral.From` rebinds (#125). None where no stand-in is needed,
+    /// or for a byref signature (left as it was).
+    let standIn (delegateType: Type) : Type option =
+        let invoke = invokeOf delegateType
+        let ps = invoke.GetParameters() |> Array.map (fun p -> p.ParameterType)
+        if onNetFramework && not invoke.IsPublic && not (ps |> Array.exists (fun p -> p.IsByRef)) then
+            Some(Expression.GetDelegateType(Array.append ps [| invoke.ReturnType |]))
+        else None
 
 /// The typed wrapper (`DelegateFunctions`, in Adapters.fs) for a delegate passed to a
 /// function-typed parameter.
@@ -618,8 +630,11 @@ module FunctionConversions =
                             let body =
                                 if isVoid then Expression.Block(typeof<Void>, [| call |]) :> Expression
                                 else Expression.Convert(call, invoke.ReturnType) :> Expression
-                            let inner = Expression.Lambda(delegateType, body, parameters)
-                            let honest = Expression.Call(typedefof<DelegateLiteral<_>>.MakeGenericType(delegateType).GetMethod("Over"), inner)
+                            let literalOf = typedefof<DelegateLiteral<_>>.MakeGenericType delegateType
+                            let honest =
+                                match DelegateMembers.standIn delegateType with
+                                | Some standIn -> Expression.Call(literalOf.GetMethod("From"), Expression.Convert(Expression.Lambda(standIn, body, parameters), typeof<Delegate>))
+                                | None -> Expression.Call(literalOf.GetMethod("Over"), Expression.Lambda(delegateType, body, parameters))
                             Expression.Lambda<Func<obj, Delegate>>(Expression.Convert(honest, typeof<Delegate>), fParam).Compile())
                 | None -> None
             conversions.[struct (funcType, delegateType)] <- conversion
