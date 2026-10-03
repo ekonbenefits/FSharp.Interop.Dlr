@@ -1,7 +1,8 @@
 // Checks that what docs/*.md (and the README) name in backticks still exists (#161):
 //   - an identifier (`DelegateMembers.standIn`, `FunctionBuilder`, `DelegateLiteral<'D>.Over`)
 //     has every dotted segment either in the repository's sources or among the types and
-//     members of the framework and FSharp.Core;
+//     members of the framework and FSharp.Core, and a member of one of our types (`A.B`, `A`
+//     ours) is in `A`'s own declaration;
 //   - a repository path (`Tests/HotPath.fs`, `generate-adapters.fsx`) exists.
 // Snippets (anything with spaces, operators or `?`) are not checked. Exit code 1 on any miss.
 //   dotnet fsi docs/check-identifiers.fsx
@@ -29,7 +30,9 @@ let ours =
 // `A.B` with `A` ours requires `B` inside `A`, not just anywhere (`CurriedInvoker.build` when
 // only `FunctionBuilder.build` exists).
 let owners =
-    let decl = Regex(@"^(\s*)(?:\[<[^>]*>\]\s*)?(?:type|module)\s+(?:(?:internal|private|public|rec)\s+)*([A-Za-z_][\w']*)")
+    // `type`/`module`, and `and` before an upper-case name (a mutually recursive type; an `and`
+    // function binding is lower-case).
+    let decl = Regex(@"^(\s*)(?:\[<[^>]*>\]\s*)?(?:(?:type|module)\s+(?:(?:internal|private|public|rec)\s+)*([A-Za-z_][\w']*)|and\s+(?:\[<[^>]*>\]\s*)?(?:(?:internal|private|public)\s+)*([A-Z][\w']*))")
     let indentOf (l: string) = l.Length - l.TrimStart().Length
     [ for f in files [ "*.fs"; "*.fsi" ] do
         let lines = File.ReadAllLines f
@@ -42,7 +45,7 @@ let owners =
                     |> Seq.skip (i + 1)
                     |> Seq.takeWhile (fun l -> l.Trim() = "" || indentOf l > indent || l.TrimStart().StartsWith "//" || l.TrimStart().StartsWith "[<")
                     |> String.concat "\n"
-                yield m.Groups.[2].Value, set [ for w in Regex.Matches(line + "\n" + body, @"[A-Za-z_][\w']*") -> w.Value ] ]
+                yield (if m.Groups.[2].Success then m.Groups.[2].Value else m.Groups.[3].Value), set [ for w in Regex.Matches(line + "\n" + body, @"[A-Za-z_][\w']*") -> w.Value ] ]
     |> List.groupBy fst
     |> List.map (fun (name, bodies) -> name, Set.unionMany (List.map snd bodies))
     |> Map.ofList
@@ -107,10 +110,11 @@ let docs = [ yield! Directory.EnumerateFiles(Path.Combine(root, "docs"), "*.md")
 let misses =
     [ for doc in docs do
         let lines = File.ReadAllLines doc
-        // Words in the doc's own fenced blocks: a diagram's node names the prose refers to.
+        // Words in the doc's own mermaid diagrams: node names the prose refers to. Not code
+        // samples, which could otherwise vouch for a removed name the prose repeats.
         let local =
             let text = File.ReadAllText doc
-            [ for b in Regex.Matches(text, @"```[\s\S]*?```") do for w in Regex.Matches(b.Value, @"[A-Za-z_][\w']*") -> w.Value ] |> set
+            [ for b in Regex.Matches(text, @"```mermaid[\s\S]*?```") do for w in Regex.Matches(b.Value, @"[A-Za-z_][\w']*") -> w.Value ] |> set
         let mutable fenced = false
         for i, line in Array.indexed lines do
             if line.TrimStart().StartsWith "```" then fenced <- not fenced
@@ -138,7 +142,7 @@ let misses =
                                     |> Array.pairwise
                                     |> Array.choose (fun (a, b) ->
                                         match owners.TryFind a with
-                                        | Some body when not (orFamily (fun s -> body.Contains s || framework.Contains s) b) -> Some(a + "." + b)
+                                        | Some body when not (orFamily body.Contains b) -> Some(a + "." + b)
                                         | _ -> None)
                             if unknown.Length > 0 then
                                 yield sprintf "%s:%d: `%s` — not found: %s" relative (i + 1) span (String.Join(", ", unknown))
