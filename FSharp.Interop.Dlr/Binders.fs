@@ -702,6 +702,19 @@ module internal OptionalArguments =
     /// The argument converted to the parameter type, or None if it does not fit: assignable or
     /// C#-widened, a null for a reference slot, a bare value for an optional as `Some`, an F#
     /// function for a delegate parameter or a delegate for a function parameter.
+    /// An F# function for a slot typed `Delegate` itself (Control.Invoke): the Func/Action F#
+    /// would build for the function. Left to C#, FSharpFunc's own op_Implicit makes a
+    /// Converter<Unit, R> of a `unit -> R` — a one-parameter delegate, wrong for a
+    /// `DynamicInvoke()` — so this goes first wherever such a slot is the target.
+    let private toAbstractDelegate (a: DynamicMetaObject) : Expression option =
+        match FunctionShapes.domains a.LimitType with
+        | Some(ds, _, _) when ds.Length > 16 -> None     // no Func/Action of that many parameters
+        | Some(ds, _, result) ->
+            let ds = if ds = [ typeof<unit> ] then [] else ds
+            let delegateType = if result = typeof<unit> then Expression.GetActionType(Array.ofList ds) else Expression.GetFuncType(Array.ofList (ds @ [ result ]))
+            functionToDelegate delegateType a
+        | None -> None
+
     let private fit (p: ParameterInfo) (a: DynamicMetaObject) : Expression option =
         let pt = p.ParameterType
         let at = a.LimitType
@@ -715,17 +728,7 @@ module internal OptionalArguments =
             Some(Expression.Call(pt.GetMethod("Some"), converted inner) :> Expression)
         elif isDelegate pt && (FunctionShapes.domains at).IsSome then functionToDelegate pt a
         elif isDelegate at && (FunctionShapes.domains pt).IsSome then delegateToFunction pt a
-        elif isAbstractDelegate pt && (FunctionShapes.domains at).IsSome then
-            // `Delegate` itself (Control.Invoke): the Func/Action F# would build for the function.
-            // Left to C#, FSharpFunc's own op_Implicit makes a Converter<Unit, R> of a `unit -> R`
-            // — a one-parameter delegate, wrong for a `DynamicInvoke()` — so this goes first.
-            match FunctionShapes.domains at with
-            | Some(ds, _, _) when ds.Length > 16 -> None     // no Func/Action of that many parameters
-            | Some(ds, _, result) ->
-                let ds = if ds = [ typeof<unit> ] then [] else ds
-                let delegateType = if result = typeof<unit> then Expression.GetActionType(Array.ofList ds) else Expression.GetFuncType(Array.ofList (ds @ [ result ]))
-                functionToDelegate delegateType a
-            | None -> None
+        elif isAbstractDelegate pt && (FunctionShapes.domains at).IsSome then toAbstractDelegate a
         else None
 
     /// A call has an argument that is an F# function in a slot typed `Delegate` in some candidate
@@ -784,8 +787,76 @@ module internal OptionalArguments =
             t.GetMethods(Accessibility.all)
             |> Array.filter (fun m -> m.Name = name && not m.IsGenericMethodDefinition && Accessibility.method' context t m)
             |> Array.map (fun m -> m :> MethodBase)
-        let self = Expression.Convert(target.Expression, t)
+        // A struct target is called in its box, as C# calls it: a mutating method mutates the box.
+        let self = if t.IsValueType then Expression.Unbox(target.Expression, t) :> Expression else Expression.Convert(target.Expression, t) :> Expression
         tryInvoke candidates (fun m ps -> Expression.Call(self, m :?> MethodInfo, ps) :> Expression) target (BindingRestrictions.GetTypeRestriction(target.Expression, t)) args
+
+    /// The index types C# takes for an array: int, uint, long, ulong, and those that widen to them.
+    let private arrayIndexTypes =
+        [| typeof<int>; typeof<uint32>; typeof<int64>; typeof<uint64>; typeof<sbyte>; typeof<byte>; typeof<int16>; typeof<uint16>; typeof<char> |]
+
+    /// The settable slots of `t` an assignment names: the property or field `name`, or with
+    /// `indexes` the indexer (the `DefaultMember`) of that many indexes, or an array's element.
+    let private slotTypes (t: Type) (name: string option) (indexCount: int) : Type list =
+        let indexerName = match t.GetCustomAttributes(typeof<DefaultMemberAttribute>, true) with [| :? DefaultMemberAttribute as d |] -> d.MemberName | _ -> "Item"
+        [ for p in t.GetProperties(Accessibility.all) do
+            if p.Name = defaultArg name indexerName && p.GetIndexParameters().Length = indexCount && p.CanWrite then yield p.PropertyType
+          match name with
+          | Some n when indexCount = 0 ->
+              for f in t.GetFields(Accessibility.all) do if f.Name = n && not f.IsInitOnly && not f.IsLiteral then yield f.FieldType
+          | None when t.IsArray && t.GetArrayRank() = indexCount -> yield t.GetElementType()
+          | _ -> () ]
+
+    /// An F# function assigned to a slot typed `Delegate` itself: C# would bind it, wrongly, through
+    /// FSharpFunc's op_Implicit (see `toAbstractDelegate`), so `trySet` goes first there.
+    let assignsAbstractDelegate (t: Type) (name: string option) (indexCount: int) (value: DynamicMetaObject) =
+        (FunctionShapes.domains value.LimitType).IsSome && slotTypes t name indexCount |> List.exists isAbstractDelegate
+
+    /// An assignment C# could not bind because the value needs one of the conversions above (an F#
+    /// function for a delegate-typed slot, a delegate for a function-typed one; #153): a property's
+    /// setter, or with `indexes` an indexer's, called with the indexes then the value through
+    /// `tryInvoke`; a field or an array element assigned the converted value. The result is the
+    /// value as assigned, boxed, as C#'s assignment's is. None when nothing of that name fits.
+    let trySet (context: Type) (t: Type) (name: string option) (target: DynamicMetaObject) (indexes: DynamicMetaObject[]) (value: DynamicMetaObject) : DynamicMetaObject option =
+        // A struct target is assigned in its box, as C#'s assignment is (Convert would unbox a copy).
+        let self = if t.IsValueType then Expression.Unbox(target.Expression, t) :> Expression else Expression.Convert(target.Expression, t) :> Expression
+        let targetRestriction = BindingRestrictions.GetTypeRestriction(target.Expression, t)
+        let convertSlot (slotType: Type) =
+            if isAbstractDelegate slotType && (FunctionShapes.domains value.LimitType).IsSome then toAbstractDelegate value
+            else convertArgument slotType value
+        let restrictions () = Array.fold (fun (r: BindingRestrictions) a -> r.Merge(FunctionShapes.restrictArg a)) targetRestriction (Array.append indexes [| value |])
+        let assigned (slot: Expression) (converted: Expression) =
+            let v = Expression.Variable(slot.Type, "value")
+            Expression.Block([ v ], Expression.Assign(v, converted), Expression.Assign(slot, v), Expression.Convert(v, typeof<obj>)) :> Expression
+        let indexerName = match t.GetCustomAttributes(typeof<DefaultMemberAttribute>, true) with [| :? DefaultMemberAttribute as d |] -> d.MemberName | _ -> "Item"
+        let setters =
+            t.GetProperties(Accessibility.all)
+            |> Array.filter (fun p ->
+                p.Name = defaultArg name indexerName && p.GetIndexParameters().Length = indexes.Length
+                && (let m = p.GetSetMethod(true) in not (isNull m) && Accessibility.method' context t m))
+            |> Array.map (fun p -> p.GetSetMethod(true) :> MethodBase)
+        if setters.Length > 0 then
+            let call (m: MethodBase) (ps: Expression list) =
+                let v = Expression.Variable((List.last ps).Type, "value")
+                Expression.Block([ v ], Expression.Assign(v, List.last ps),
+                                 Expression.Call(self, m :?> MethodInfo, List.take (ps.Length - 1) ps @ [ v :> Expression ]),
+                                 v) :> Expression
+            tryInvoke setters call target targetRestriction (Array.append indexes [| value |])
+        else
+            match name with
+            | Some name when indexes.Length = 0 ->
+                t.GetFields(Accessibility.all)
+                |> Array.tryFind (fun f -> f.Name = name && not f.IsInitOnly && not f.IsLiteral && Accessibility.field context t f)
+                |> Option.bind (fun f ->
+                    convertSlot f.FieldType
+                    |> Option.map (fun converted -> DynamicMetaObject(assigned (Expression.Field(self, f)) converted, restrictions ())))
+            | None when t.IsArray && t.GetArrayRank() = indexes.Length && indexes |> Array.forall (fun i -> arrayIndexTypes |> Array.contains i.LimitType) ->
+                convertSlot (t.GetElementType())
+                |> Option.map (fun converted ->
+                    // Unboxed at its runtime type, then checked to int, as C#'s index would overflow.
+                    let element = Expression.ArrayAccess(self, [ for i in indexes -> Expression.ConvertChecked(Expression.Convert(i.Expression, i.LimitType), typeof<int>) :> Expression ])
+                    DynamicMetaObject(assigned element converted, restrictions ()))
+            | _ -> None
 
     /// A static method of `t` named `name` the arguments fit (`Dlr.Static<T>.Overloads`).
     let tryStaticCall (context: Type) (t: Type) (name: string) (target: DynamicMetaObject) (args: DynamicMetaObject[]) : DynamicMetaObject option =
@@ -1061,11 +1132,35 @@ type FSharpInvokeConstructorBinder(context: Type, t: Type, csharp: DynamicMetaOb
         else csharpRule
 
 /// C#'s SetMember, with an F# function value handed to a meta-object as the delegate of its
-/// signature (`w?onClick <- fun () -> …` on a script object).
+/// signature (`w?onClick <- fun () -> …` on a script object, through MetaObjectAwareBinder); on a
+/// CLR target, our conversion of the value to the slot's type (an F# function to a delegate-typed
+/// property or field, a delegate to a function-typed one) as C#'s error suggestion (#153).
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
-type FSharpSetMemberBinder(name: string, csharp: SetMemberBinder) =
+type FSharpSetMemberBinder(context: Type, name: string, csharp: SetMemberBinder) =
     inherit SetMemberBinder(name, false)
-    override _.FallbackSetMember(target, value, errorSuggestion) = csharp.FallbackSetMember(target, value, errorSuggestion)
+    override _.FallbackSetMember(target, value, errorSuggestion) =
+        let ours =
+            if target.HasValue && value.HasValue && not (isNull target.Value) then
+                OptionalArguments.trySet context target.LimitType (Some name) target [||] value
+            else None
+        match ours with
+        | Some rule when OptionalArguments.assignsAbstractDelegate target.LimitType (Some name) 0 value -> rule   // C# would bind it wrongly
+        | _ -> csharp.FallbackSetMember(target, value, defaultArg ours errorSuggestion)
+
+/// C#'s SetIndex, with the same conversion of the value as C#'s error suggestion: an F# function
+/// into a delegate-typed indexer slot or array element (a `Dictionary<string, Func<…>>`), a
+/// delegate into a function-typed one (#153).
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+type FSharpSetIndexBinder(context: Type, csharp: SetIndexBinder) =
+    inherit SetIndexBinder(csharp.CallInfo)
+    override this.FallbackSetIndex(target, indexes, value, errorSuggestion) =
+        if not target.HasValue || not value.HasValue || indexes |> Array.exists (fun i -> not i.HasValue) then
+            this.Defer(Array.concat [ [| target |]; indexes; [| value |] ])
+        else
+            let ours = if isNull target.Value then None else OptionalArguments.trySet context target.LimitType None target indexes value
+            match ours with
+            | Some rule when OptionalArguments.assignsAbstractDelegate target.LimitType None indexes.Length value -> rule   // C# would bind it wrongly
+            | _ -> csharp.FallbackSetIndex(target, indexes, value, defaultArg ours errorSuggestion)
 
 /// The value of a member read as `unit -> R`: an F# function is applied, a delegate invoked, any
 /// other value is the result itself.
@@ -1542,7 +1637,7 @@ module internal Binders =
     let setMember (context: Type) (name: string) (target: Arg) (value: Arg) =
         callsOnly "setting a member" target
         let csharp = Binder.SetMember(CSharpBinderFlags.None, name, context, [ argInfo target; argInfo value ]) :?> SetMemberBinder
-        siteCall (MetaObjectAwareBinder(FSharpSetMemberBinder(name, csharp))) [ target; value ] typeof<obj>
+        siteCall (MetaObjectAwareBinder(FSharpSetMemberBinder(context, name, csharp))) [ target; value ] typeof<obj>
 
     /// C#'s InvokeMember binder wrapped to apply F# function values (see FSharpInvokeMemberBinder)
     /// for positional, non-generic calls of any arity; otherwise C#'s binder as is.
@@ -1699,8 +1794,10 @@ module internal Binders =
     let setIndex (context: Type) (target: Arg) (indexes: Arg list) (value: Arg) =
         callsOnly "indexing" target
         let all = target :: indexes @ [ value ]
-        // C#'s SetIndex binder as it is; a meta-object target with an F# function value gets the delegate.
-        siteCall (MetaObjectAwareBinder(Binder.SetIndex(CSharpBinderFlags.None, context, [ for a in all -> argInfo a ]) :?> DynamicMetaObjectBinder)) all typeof<obj>
+        // C#'s SetIndex binder, our value conversion as its error suggestion; a meta-object target
+        // with an F# function value gets the delegate.
+        let csharp = Binder.SetIndex(CSharpBinderFlags.None, context, [ for a in all -> argInfo a ]) :?> SetIndexBinder
+        siteCall (MetaObjectAwareBinder(FSharpSetIndexBinder(context, csharp))) all typeof<obj>
 
     /// C#'s `d.Name += v` / `-=`: an IsEvent site decides at run time between the event
     /// accessor (`add_Name`/`remove_Name`, invoked as a special name) and read-modify-write

@@ -61,8 +61,9 @@ constructors, delegate-typed members and delegate values.
   dlr { return w?Add }`; curried or tupled, any arity), which C# has no form for.
 - **An F# function fits a delegate parameter, and a delegate fits a function parameter**:
   `x?Each(items, fun i -> …)` against an `Action<int>`, `x?Apply(3, Func<int, int>(…))` against
-  an `int -> int` — the conversions F# does at a static call. C#'s binder sees an `FSharpFunc`
-  and a `Func` as unrelated types. And **an F# function handed to a dynamic object** — a script
+  an `int -> int` — the conversions F# does at a static call — and the same for an assignment
+  to a delegate- or function-typed property, field, indexer or array element (`x?Handler <- fun
+  a b -> …`). C#'s binder sees an `FSharpFunc` and a `Func` as unrelated types. And **an F# function handed to a dynamic object** — a script
   host's object, a `DynamicObject` — arrives as the delegate of its own signature (`int -> unit`
   an `Action<int>`), as an argument (`arr?forEach(fun n -> …)`), a value set on it
   (`el?onclick <- fun () -> …`) or a handler added to its event (`com |> Dlr.addAssign

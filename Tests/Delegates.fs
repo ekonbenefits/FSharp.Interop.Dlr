@@ -175,3 +175,112 @@ let ``a delegate's exception through an F# function parameter past five arrives 
     let throwing = Func<int, int, int, int, int, int, int>(fun _ _ _ _ _ _ -> raise (InvalidOperationException "boom"))
     (fun () -> (dlr { return t?ApplyCurried6(throwing) } : int) |> ignore) |> should throw typeof<InvalidOperationException>
     (fun () -> (dlr { return t?ApplyTupled6(throwing) } : int) |> ignore) |> should throw typeof<InvalidOperationException>
+
+[<Fact>]
+let ``an F# function assigned to a delegate-typed property, field, indexer or array element`` () =
+    // C# cannot assign an FSharpFunc to a delegate slot; ours converts by the slot's type (#153).
+    let s = Slots()
+    let o = box s
+    dlr { o?Handler <- (fun (a: int) (b: int) -> a - b) }
+    s.Handler.Invoke(5, 3) |> should equal 2
+    dlr { o?Handler <- (fun (a: int, b: int) -> a * b) }                 // tupled too
+    s.Handler.Invoke(5, 3) |> should equal 15
+    let said = ResizeArray<string>()
+    dlr { o?Notify <- (fun (m: string) -> said.Add m) }                  // unit result: an Action
+    s.Notify.Invoke "hi"
+    List.ofSeq said |> should equal [ "hi" ]
+    dlr { o?Adder <- (fun (a: int) (b: int) -> a * 10 + b) }             // an internal delegate type
+    s.Adder.Invoke(3, 4) |> should equal 34
+    dlr { o?Wide <- (fun a b c d e (f: int) -> a + b + c + d + e + f) }  // past five
+    s.Wide.Invoke(1, 2, 3, 4, 5, 6) |> should equal 21
+    dlr { o?Field <- (fun (x: int) -> x + 1) }                           // a field
+    s.Field.Invoke 41 |> should equal 42
+    let handlers = box s.Handlers
+    dlr { handlers |> Dlr.setItem "double" (fun (x: int) -> x * 2) }             // an indexer
+    s.Handlers.["double"].Invoke 21 |> should equal 42
+    let array = box s.Array
+    dlr { array |> Dlr.setItem 1 (fun (x: int) -> x - 1) }                       // an array element
+    s.Array.[1].Invoke 43 |> should equal 42
+
+[<Fact>]
+let ``a delegate assigned to an F# function-typed property or indexer`` () =
+    let s = Slots()
+    let o = box s
+    dlr { o?Fn <- Func<int, int, int>(fun a b -> a * b) }
+    s.Fn 6 7 |> should equal 42
+    let functions = box s.Functions
+    dlr { functions |> Dlr.setItem "inc" (Func<int, int>(fun x -> x + 1)) }
+    s.Functions.["inc"] 41 |> should equal 42
+
+[<Fact>]
+let ``assignments C# binds itself stay C#'s, and a slot no conversion fits is C#'s error`` () =
+    let s = Slots()
+    let o = box s
+    dlr { o?Handler <- Func<int, int, int>(fun a b -> a - b) }           // a delegate of the slot's type
+    s.Handler.Invoke(5, 3) |> should equal 2
+    dlr { o?Conv <- (fun (x: int) -> x + 1) }                            // FSharpFunc's op_Implicit: C# binds it
+    s.Conv.Invoke 41 |> should equal 42
+    // A function of the wrong shape for the slot: no conversion, C#'s error.
+    (fun () -> dlr { o?Handler <- (fun (x: string) -> x.Length) }) |> should throw typeof<Microsoft.CSharp.RuntimeBinder.RuntimeBinderException>
+
+[<Fact>]
+let ``one assignment site over alternating values and targets`` () =
+    // Polymorphic: a function, a delegate, a function again into the same slot; then an Expando.
+    let s = Slots()
+    let set (target: obj) (value: obj) = dlr { target?Handler <- value }
+    for i in 1 .. 3 do
+        set (box s) (box (fun (a: int) (b: int) -> a + b + i))
+        s.Handler.Invoke(1, 1) |> should equal (2 + i)
+        set (box s) (box (Func<int, int, int>(fun a b -> a * b * i)))
+        s.Handler.Invoke(2, 3) |> should equal (6 * i)
+    let e = Fixtures.expando []
+    set (box e) (box (fun (a: int) (b: int) -> a - b))
+    (dlr { return (box e)?Handler(5, 3) } : int) |> should equal 2
+
+[<Fact>]
+let ``an assignment converted into a boxed struct lands in the box, as C#'s does`` () =
+    let o = box (Tests.CSharp.MutableSlot())
+    dlr { o?Number <- 5 }                                                 // C#'s own: the box mutates
+    dlr { o?Property <- (fun (x: int) -> x + 1) }                         // ours, through the setter
+    dlr { o?Field <- (fun (x: int) -> x + 2) }                            // ours, the field
+    let slot = unbox<Tests.CSharp.MutableSlot> o
+    slot.Number |> should equal 5
+    slot.Property.Invoke 41 |> should equal 42
+    slot.Field.Invoke 40 |> should equal 42
+    // A mutating method called through our fallback (an F# function for its Func): the box too.
+    dlr { o?Store(Func<int, int>(fun x -> x + 3)) }                       // C#'s own call
+    (unbox<Tests.CSharp.MutableSlot> o).Property.Invoke 39 |> should equal 42
+    dlr { o?Store(fun (x: int) -> x + 4) }                                // ours
+    (unbox<Tests.CSharp.MutableSlot> o).Property.Invoke 38 |> should equal 42
+
+[<Fact>]
+let ``an F# function assigned to a Delegate-typed slot is the Func or Action of its signature`` () =
+    // C# would bind FSharpFunc's op_Implicit Converter<Unit, R>, which DynamicInvoke() rejects: ours goes first.
+    let s = Tests.CSharp.AbstractSlots()
+    let o = box s
+    dlr { o?Property <- (fun () -> 42) }
+    s.Property.GetType() |> should equal typeof<Func<int>>
+    s.Property.DynamicInvoke() |> should equal (box 42)
+    dlr { o?Field <- (fun (a: int) (b: int) -> a + b) }
+    s.Field.DynamicInvoke(20, 22) |> should equal (box 42)
+    let map = box s.Map
+    dlr { map |> Dlr.setItem "run" (fun () -> 42) }
+    s.Map.["run"].DynamicInvoke() |> should equal (box 42)
+    // A delegate is C#'s to assign, as it is.
+    let given = Action(ignore)
+    dlr { o?Property <- given }
+    obj.ReferenceEquals(s.Property, given) |> should equal true
+
+[<Fact>]
+let ``an array element converted at any index type C# takes`` () =
+    let array = box (Array.zeroCreate<Func<int, int>> 3)
+    dlr { array |> Dlr.setItem 1L (fun (x: int) -> x + 1) }
+    dlr { array |> Dlr.setItem 2u (fun (x: int) -> x + 2) }
+    let small: byte = 0uy
+    dlr { array |> Dlr.setItem small (fun (x: int) -> x + 3) }                  // typed, widening to int
+    let boxed: obj = box 1s
+    dlr { array |> Dlr.setItem boxed (fun (x: int) -> x + 4) }                  // boxed: unboxed at its runtime type
+    let a = unbox<Func<int, int>[]> array
+    a.[0].Invoke 39 |> should equal 42
+    a.[1].Invoke 38 |> should equal 42
+    a.[2].Invoke 40 |> should equal 42
