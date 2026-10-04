@@ -59,7 +59,7 @@ FSharp.Interop.Dlr/check-internals.sh  # each idiom fixed more than once has one
   (`typeof<System.Void>`, DLR006) stays out of `Tests.Wasm` entirely — Mono asserts and the
   whole process dies (`Tests/Undecodable.fs`).
 - Translator forms that hoist a binding ahead of the site call (a `Dlr.named` record's
-  temporaries, a splat list, a tuple, a computed key) go through `sequenced` in `Translate.fs`,
+  temporaries, a splat list, a tuple, a computed key) go through `sequenced` in `TranslatePatterns.fs`,
   or C#'s order (target, then arguments left to right) breaks silently; the order test in
   `Tests/Invoke.fs` covers only the forms that exist. A cache keyed by a run-time value
   validates the key on the miss path only (`SiteCache.Get`, `NamedOfCache.Get`): the hit path
@@ -93,12 +93,12 @@ FSharp.Interop.Dlr/check-internals.sh  # each idiom fixed more than once has one
   or crash rather than fail (structural `==`, a `Delegate`-typed slot, invoking an `internal`
   delegate on .NET Framework); otherwise ours is C#'s error suggestion. See `new-binder`.
 - wasm: a nested non-capturing lambda loses its arguments on Mono's interpreter, and
-  `FuncConvert` wrappers do too; `capturing` in `Translate.fs` and the typed wrappers in
+  `FuncConvert` wrappers do too; `capturing` in `TranslateBlock.fs` and the typed wrappers in
   `Functions.fs` exist for that — do not "simplify" them away. A delegate type emitted at run
   time (a site or per-key delegate past `Func`'s 17 type parameters, i.e. 15 arguments and up) must never be
   named in a quotation: FSharp.Core's checks call `Assembly.ReflectionOnly` on it, unimplemented
   on Mono wasm — `Binders.WideSite` (a placeholder the LINQ `SiteHoister` rewrites) and the
-  packed `Func<obj[], obj>` of `lambdaOver` in `Translate.fs` exist for that.
+  packed `Func<obj[], obj>` of `lambdaOver` in `TranslateMembers.fs` exist for that.
 - .NET SDK 10 only: 8 and 9 were dropped (#126; end of support November 2026, and their compilers
   warn FS3511 on every block in Debug — caller info on `Run`); no `compilers` CI job.
 - FSharp.Core floor 10.1.201 (older converters reject `Sequential`/`PropertySet`, so unit blocks,

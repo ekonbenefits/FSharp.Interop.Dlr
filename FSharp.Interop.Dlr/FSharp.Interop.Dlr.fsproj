@@ -43,6 +43,10 @@
     <Compile Include="Seam.fs" />
     <Compile Include="SiteCaches.fs" />
     <Compile Include="Binders.fs" />
+    <Compile Include="TranslatePatterns.fs" />
+    <Compile Include="SiteHoister.fs" />
+    <Compile Include="TranslateBlock.fs" />
+    <Compile Include="TranslateMembers.fs" />
     <Compile Include="Translate.fs" />
     <Compile Include="Discover.fs" />
     <Compile Include="Cache.fs" />

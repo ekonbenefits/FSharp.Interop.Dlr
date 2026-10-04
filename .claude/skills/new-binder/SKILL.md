@@ -13,7 +13,7 @@ Read `docs/binders.md` and `docs/call-sites.md` first (index: `docs/internals.md
 (`DlrRuntime`), `Reflection.fs` (`Accessibility`, `Conversions`, `Tuples`, `DelegateMembers`,
 `Signatures`, `Emit`), `Functions.fs` (`FunctionShapes`, the function ↔ delegate conversions,
 `FunctionMember`), `Seam.fs` (`Fallback`, `Seam`, the binders), `SiteCaches.fs`, and
-`Binders.fs` (the `Binders` module that `Translate.fs` calls to emit `siteCall` nodes); the generated delegate/function adapter types are
+`Binders.fs` (the `Binders` module the translator (`TranslateMembers.fs`) calls to emit `siteCall` nodes); the generated delegate/function adapter types are
 in `Adapters.fs` (`generate-adapters.fsx`).
 
 ## Shape of a binder

@@ -166,7 +166,7 @@ counts as an exact match, so overloads differing only by variance resolve as bef
 open-instance delegate over a virtual method dispatches non-virtually once rebound: a Mono quirk.) Not `FuncConvert`, whose
 wrapper loses arguments on Mono's browser-wasm runtime. A related wasm fault, a nested
 non-capturing lambda losing its arguments, is why every lambda and delegate literal written in a
-block is made to capture the closure parameter there (`capturing` in `Translate.fs`, a no-op
+block is made to capture the closure parameter there (`capturing` in `TranslateBlock.fs`, a no-op
 elsewhere).
 
 *Delegate literals in a block* (`w?Each(Action<string>(fun s -> …))`) compile with the block, as
