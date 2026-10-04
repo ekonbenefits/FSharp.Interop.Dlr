@@ -129,6 +129,18 @@ let ``argsOf: two counts alternate at one site; Dlr.apply, a constructor, a stat
     // fsharpanalyzer: ignore-region-end DLR005
 
 [<Fact>]
+let ``argsOf: three counts in turn at one site, past the two shapes it remembers`` () =
+    let w: obj = Widget()
+    let sum (xs: obj list) : int = dlr { return w?SumAll(Dlr.argsOf xs) }
+    for i in 1 .. 10 do
+        let one = sum [ box i ]
+        one |> should equal i
+        let two = sum [ box i; box 1 ]
+        two |> should equal (i + 1)
+        let three = sum [ box i; box 1; box 1 ]
+        three |> should equal (i + 2)
+
+[<Fact>]
 let ``a null or empty name from data is an argument error, not a positional slot`` () =
     let w: obj = Widget()
     let add (kw: (string * obj) list) : int = dlr { return w?Add(Dlr.namedOf kw) }
