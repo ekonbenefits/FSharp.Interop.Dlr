@@ -30,9 +30,7 @@ module internal Translate =
 
     /// A compiled `dlr { }` site: a `DlrReader<'SM, 'T>` over the state machine struct, or in the
     /// fallback path a `Func<obj, 'T>` over the Delay closure object.
-    type Compiled =
-        { Delegate: Delegate
-          ResultType: Type }
+    type Compiled = { Delegate: Delegate }
 
     let private unsupported (what: string) (e: Expr) =
         raise (DlrTranslationException(sprintf "dlr { } does not support %s: %A" what e))
@@ -198,7 +196,6 @@ module internal Translate =
         | Value(o, _) -> Some o
         | _ -> None
 
-    let private isLiteral (e: Expr) = match e with Value _ -> true | _ -> false
 
     /// Strips the boxing F# inserts on the way to an `obj` parameter, so the binder can see the
     /// real static type.
@@ -649,8 +646,6 @@ module internal Translate =
     let private capturing (block: Block) (body: Expr) =
         if onWasm then Expr.Let(Var("captured", block.Closure.Type), Expr.Var block.Closure, body) else body
 
-    /// Where a free variable of the body comes from: the Delay closure, or failing that the
-    /// enclosing member's body.
     /// The struct variable a receiver is rooted at, with the struct fields down from it:
     /// `v`, `v.Inner`, `v.Inner.Point`.
     let rec private structPath (e: Expr) : (Var * Reflection.FieldInfo list) option =
@@ -698,6 +693,8 @@ module internal Translate =
             rooted receiver |> Option.map (fun (v, fields) -> apply v fields args (fun r a -> Expr.Call(r, mi, a)))
         | _ -> None
 
+    /// Where a free variable of the body comes from: the Delay closure, or failing that the
+    /// enclosing member's body.
     module private Captures =
 
         /// The container's fields by name. A state machine also has fields of its own, `Data`
@@ -750,13 +747,13 @@ module internal Translate =
                                 sprintf "dlr { } could not find captured variable '%s' on closure %s (fields: %s), a let binding for it, or a single application supplying it (the optimizer inlined it; give the enclosing local function more than one call site or hoist the block)."
                                     v.Name block.ClosureType.Name (String.Join(", ", block.Fields.Keys))))
 
-        /// `v <- value` on a captured `let mutable`: a write through its FSharpRef cell.
         /// Whether a captured variable is a mutable, stored in an FSharpRef cell.
         let isCell (block: Block) (v: Var) =
             match block.Fields.TryGetValue v.Name with
             | true, f -> isRefCell f v.Type
             | _ -> false
 
+        /// `v <- value` on a captured `let mutable`: a write through its FSharpRef cell.
         let assign (block: Block) (v: Var) (value: Expr) : Expr =
             match block.Fields.TryGetValue v.Name with
             | true, f when isRefCell f v.Type ->
@@ -932,14 +929,13 @@ module internal Translate =
             // The holder (Binders.byRefHolderType): the result as obj, then each byref's value, typed.
             let results = Var("byRefResults", call.Type)
             let at (i: int) = Binders.byRefHolderPath call.Type i |> List.fold (fun (e: Expr) f -> Expr.FieldGet(e, f)) (Expr.Var results)
-            let unboxAt (_: Type) (i: int) = at i
             let bound' = Set.add results bound
             let writeBacks =
                 [ for i, b in Seq.indexed byRefs do
                     match b with
-                    | Choice2Of2(t, write) -> yield rewriteIn bound' (write (unboxAt t (i + 1)))
+                    | Choice2Of2(_, write) -> yield rewriteIn bound' (write (at (i + 1)))
                     | Choice1Of2 _ -> () ]
-            let outValues = [ for i, b in Seq.indexed byRefs do match b with Choice1Of2 t -> yield unboxAt t (i + 1) | Choice2Of2 _ -> () ]
+            let outValues = [ for i, b in Seq.indexed byRefs do match b with Choice1Of2 _ -> yield at (i + 1) | Choice2Of2 _ -> () ]
             // The result tuple, of the result type's kind: a struct one is the ValueTuple constructor,
             // nested in its `Rest` past seven elements.
             let rec newStructTuple (t: Type) (values: Expr list) =
@@ -1047,8 +1043,7 @@ module internal Translate =
             let linq = LeafExpressionConverter.QuotationToExpression (lambdaOver parameters boxed) :?> LambdaExpression
             let compiled = (SiteHoister().Visit linq :?> LambdaExpression).Compile()
             let invocation = Expr.Call(Expr.Value(compiled, delegateType), delegateType.GetMethod("Invoke"), packArguments parameters arguments)
-            let call = Expr.Let(sitesVar, Expr.Call(Expr.Value(cache, cacheType), cacheType.GetMethod("Get"), [ Expr.NewTuple [ nameE; typesE ] ]), invocation)
-            call
+            Expr.Let(sitesVar, Expr.Call(Expr.Value(cache, cacheType), cacheType.GetMethod("Get"), [ Expr.NewTuple [ nameE; typesE ] ]), invocation)
 
         /// `keyedSiteRaw`'s call (an `obj`) converted to `resultType`.
         let private keyedSiteCore (block: Block) (key: KeySpec) (targetInfo: Binders.Arg) (argInfos: Binders.Arg list) (resultType: Type) (site: string -> Type list -> Binders.Arg -> Binders.Arg list -> Expr) : Expr =
@@ -1535,5 +1530,4 @@ module internal Translate =
                // error, as it would be at the call for an instance target.
                | :? Microsoft.CSharp.RuntimeBinder.RuntimeBinderException -> reraise ()
                | ex -> raise (DlrTranslationException(sprintf "dlr { } could not compile this body: %s\n%A" ex.Message body, ex))
-        { Delegate = compiled
-          ResultType = resultType }
+        { Delegate = compiled }

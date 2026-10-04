@@ -7,8 +7,8 @@ open System
 /// Typed F# functions over delegates, for a delegate argument passed to a function-typed
 /// parameter: the delegate is rebound once to the `Func`/`Action` of its signature (any delegate
 /// type with that signature works) and each wrapper calls `Invoke` directly — curried ones
-/// through `OptimizedClosures`, so `f a b` is one call. Up to five parameters; past that, or for
-/// a shape these do not cover, `DelegateFunction` falls back to `DynamicInvoke`. The `Action`
+/// through `OptimizedClosures`, so `f a b` is one call. Up to five parameters; past that, a
+/// factory compiled once per pair (`FunctionBuilder`); no other shape is converted. The `Action`
 /// wrappers take a result type parameter (instantiated to `unit`) because an `FSharpFunc<_, unit>`
 /// must return the `Unit` object, which a method declared `: unit` (void) cannot.
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]

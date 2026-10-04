@@ -150,10 +150,10 @@ lambda applying the function.
 delegate's `Invoke`; `OptimizedClosures` for curried, so `f a b` is one call) over the delegate
 rebound to the `Func`/`Action` of its signature, again constructed by emitted IL; past five
 parameters a `FunctionBuilder` factory compiled once per (function type, delegate type), calling
-the delegate type's own `Invoke`. The binder converts only a delegate whose signature matches the
-function's exactly (a mismatch is C#'s binder error); `DelegateFunction.Make` called with a
-non-matching pair falls back to `TupledDelegateFunction`/`CurryStep` with `DynamicInvoke`, which
-no bound call reaches. Not `FuncConvert`, whose
+the delegate type's own `Invoke`. One rule (`DelegateConversions.tryTyped`) decides both whether
+the binder offers the conversion and how it is made: the same domains, and a `void` delegate for
+a `unit` result or the same return type (`Func<int, unit>` included); anything else is C#'s
+binder error. Not `FuncConvert`, whose
 wrapper loses arguments on Mono's browser-wasm runtime. A related wasm fault, a nested
 non-capturing lambda losing its arguments, is why every lambda and delegate literal written in a
 block is made to capture the closure parameter there (`capturing` in `Translate.fs`, a no-op

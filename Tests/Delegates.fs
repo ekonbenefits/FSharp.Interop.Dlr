@@ -43,6 +43,24 @@ let ``a delegate is converted to an F# function parameter`` () =
     List.ofSeq seen |> should equal [ 1; 2; 3; 4; 5; 6 ]
 
 [<Fact>]
+let ``a delegate returning F#'s unit converts to an F# function returning unit`` () =
+    // A Func<…, unit> (not an Action): its CLR return type is FSharp.Core.Unit itself.
+    let o = box (Callbacks())
+    let seen = ResizeArray<int>()
+    (dlr { return o?Do(41, Func<int, unit>(fun x -> seen.Add(x + 1))) } : unit)
+    (dlr { return o?Do2(Func<int, int, unit>(fun a b -> seen.Add(a + b))) } : unit)
+    (dlr { return o?SixUnit'(Func<int, int, int, int, int, int, unit>(fun a b c d e f -> seen.Add(a + b + c + d + e + f))) } : unit)
+    List.ofSeq seen |> should equal [ 42; 3; 21 ]
+
+[<Fact>]
+let ``a delegate for a function over a one-element tuple is C#'s error`` () =
+    // No typed wrapper takes a 1-tuple domain; the binder does not offer the conversion (it once
+    // bound through a DynamicInvoke fallback and failed mid-call).
+    let o = box (Callbacks())
+    (fun () -> (dlr { return o?OneTuple(Func<int, int>(fun x -> x + 1)) } : int) |> ignore)
+    |> should throw typeof<Microsoft.CSharp.RuntimeBinder.RuntimeBinderException>
+
+[<Fact>]
 let ``a tupled F# function reaches a delegate parameter past the adapter classes`` () =
     let o = box (Callbacks())
     // Seventeen parameters: no adapter class, so the conversion applies the function itself and
