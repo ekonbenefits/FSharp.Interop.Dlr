@@ -752,9 +752,6 @@ module internal OptionalArguments =
             Some(Expression.Convert(Expression.Call(make, Expression.Constant funcType, Expression.Convert(a.Expression, typeof<Delegate>)), funcType) :> Expression)
         | None -> None
 
-    /// The argument converted to the parameter type, or None if it does not fit: assignable or
-    /// C#-widened, a null for a reference slot, a bare value for an optional as `Some`, an F#
-    /// function for a delegate parameter or a delegate for a function parameter.
     /// An F# function for a slot typed `Delegate` itself (Control.Invoke): the Func/Action F#
     /// would build for the function. Left to C#, FSharpFunc's own op_Implicit makes a
     /// Converter<Unit, R> of a `unit -> R` — a one-parameter delegate, wrong for a
@@ -767,21 +764,37 @@ module internal OptionalArguments =
             functionToDelegate delegateType a
         | None -> None
 
+    /// The conversions an argument can need for a typed slot that neither assignment nor widening
+    /// gives: an F# function for a delegate slot, a delegate for a function slot (both by the one
+    /// rule, `Signatures`), an F# function for a slot typed `Delegate` itself.
+    let conversion (slot: Type) (a: DynamicMetaObject) : Expression option =
+        let at = a.LimitType
+        if isDelegate slot && (FunctionShapes.domains at).IsSome then functionToDelegate slot a
+        elif isDelegate at && (FunctionShapes.domains slot).IsSome then delegateToFunction slot a
+        elif isAbstractDelegate slot && (FunctionShapes.domains at).IsSome then toAbstractDelegate a
+        else None
+
+    /// The one place a dynamic argument meets a typed slot: the argument as a `slot`, or None if it
+    /// does not fit — assignable or C#-widened (unboxed at its runtime type first: converting `obj`
+    /// straight to `int64` would unbox a boxed `int` as `int64` and throw), a null for a reference
+    /// or nullable slot, or one of the `conversion`s.
+    let convertValue (slot: Type) (a: DynamicMetaObject) : Expression option =
+        if isNullValue a then
+            if slot.IsValueType && isNull (Nullable.GetUnderlyingType slot) then None
+            else Some(Expression.Constant(null, slot) :> Expression)
+        elif Conversions.fits slot a.LimitType then Some(Expression.Convert(Expression.Convert(a.Expression, a.LimitType), slot) :> Expression)
+        else conversion slot a
+
+    /// An argument for a method parameter: `convertValue`, or a bare value for an F# optional
+    /// parameter (`?x`, an `FSharpOption`) as `Some`.
     let private fit (p: ParameterInfo) (a: DynamicMetaObject) : Expression option =
         let pt = p.ParameterType
-        let at = a.LimitType
-        let converted (toType: Type) = Expression.Convert(Expression.Convert(a.Expression, at), toType) :> Expression
-        if isNullValue a then
-            if pt.IsValueType && isNull (Nullable.GetUnderlyingType pt) then None
-            else Some(Expression.Constant(null, pt) :> Expression)
-        elif Conversions.fits pt at then Some(converted pt)
-        elif isOptional p && Conversions.fits (pt.GetGenericArguments().[0]) at then
+        match convertValue pt a with
+        | Some e -> Some e
+        | None when isOptional p && Conversions.fits (pt.GetGenericArguments().[0]) a.LimitType ->
             let inner = pt.GetGenericArguments().[0]
-            Some(Expression.Call(pt.GetMethod("Some"), converted inner) :> Expression)
-        elif isDelegate pt && (FunctionShapes.domains at).IsSome then functionToDelegate pt a
-        elif isDelegate at && (FunctionShapes.domains pt).IsSome then delegateToFunction pt a
-        elif isAbstractDelegate pt && (FunctionShapes.domains at).IsSome then toAbstractDelegate a
-        else None
+            Some(Expression.Call(pt.GetMethod("Some"), Expression.Convert(Expression.Convert(a.Expression, a.LimitType), inner)) :> Expression)
+        | None -> None
 
     /// A call has an argument that is an F# function in a slot typed `Delegate` in some candidate
     /// method: C# would bind it through op_Implicit to a `Converter`, wrongly, so our rule goes first.
@@ -793,13 +806,9 @@ module internal OptionalArguments =
                 ps.Length >= args.Length
                 && Array.exists2 (fun (p: ParameterInfo) (a: DynamicMetaObject) -> isAbstractDelegate p.ParameterType && (FunctionShapes.domains a.LimitType).IsSome) (Array.sub ps 0 args.Length) args))
 
-    /// The conversions above, for `FunctionShapes.applyCall`'s domains (no optional wrapping there).
-    let convertArgument (domain: Type) (a: DynamicMetaObject) : Expression option =
-        if isDelegate domain && (FunctionShapes.domains a.LimitType).IsSome then functionToDelegate domain a
-        elif isDelegate a.LimitType && (FunctionShapes.domains domain).IsSome then delegateToFunction domain a
-        else None
-
-    do FunctionShapes.convertArgument <- convertArgument
+    // `FunctionShapes.applyCall` (defined before the conversions, which use it for the largest
+    // delegates) takes them through this hook for an F# function's domains.
+    do FunctionShapes.convertArgument <- conversion
 
     /// Not C#'s overload resolution, but deterministic: among the candidates the arguments fit,
     /// the one with the most exactly-typed argument slots wins, then the one with the fewest
@@ -875,9 +884,7 @@ module internal OptionalArguments =
     let trySet (context: Type) (t: Type) (name: string option) (target: DynamicMetaObject) (indexes: DynamicMetaObject[]) (value: DynamicMetaObject) : DynamicMetaObject option =
         let self = receiver t target
         let targetRestriction = BindingRestrictions.GetTypeRestriction(target.Expression, t)
-        let convertSlot (slotType: Type) =
-            if isAbstractDelegate slotType && (FunctionShapes.domains value.LimitType).IsSome then toAbstractDelegate value
-            else convertArgument slotType value
+        let convertSlot (slotType: Type) = conversion slotType value
         let restrictions () = Array.fold (fun (r: BindingRestrictions) a -> r.Merge(FunctionShapes.restrictArg a)) targetRestriction (Array.append indexes [| value |])
         let assigned (slot: Expression) (converted: Expression) =
             let v = Expression.Variable(slot.Type, "value")
@@ -1138,9 +1145,7 @@ type FSharpByRefInvokeBinder(csharp: InvokeBinder, discard: bool, flags: CSharpA
                                     | :? ParameterExpression as v when v.IsByRef && v.Type = pt.GetElementType() && (isOut || isRef) && isOut = p.IsOut -> Some(v :> Expression)
                                     | _ -> None
                                 elif isOut || isRef then None                  // a ref or out for a plain parameter
-                                elif FunctionShapes.isNullValue a then (if pt.IsValueType then None else Some(Expression.Constant(null, pt) :> Expression))
-                                elif Conversions.fits pt a.LimitType then Some(Expression.Convert(Expression.Convert(a.Expression, a.LimitType), pt) :> Expression)
-                                else None
+                                else OptionalArguments.convertValue pt a
                             slot, expr)
                     if passed |> List.exists (snd >> Option.isNone) then None
                     else

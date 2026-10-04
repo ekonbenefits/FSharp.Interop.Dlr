@@ -65,6 +65,8 @@ let ``delegates and functions convert by one rule: the receiving side accepts th
     let seen = ResizeArray<int>()
     (dlr { return o?RunUnit(fun (x: int) -> seen.Add x) } : unit)
     List.ofSeq seen |> should equal [ 7 ]
+    // A function-valued member whose domain is `Delegate` itself: the Func of the argument's signature.
+    (dlr { return o?Kind(fun () -> 1) } : string) |> should equal "Func`1"
 
 [<Fact>]
 let ``a delegate for a function over a one-element tuple is C#'s error`` () =
