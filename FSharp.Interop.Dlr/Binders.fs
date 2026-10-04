@@ -428,7 +428,8 @@ module internal DelegateConversions =
     let private makers = System.Collections.Concurrent.ConcurrentDictionary<struct (Type * Type), (Delegate -> obj) option>(TypePairComparer.Instance)
 
     /// A maker of the typed wrapper for a function type from a delegate type, or None when the
-    /// signatures do not match exactly (then `DynamicInvoke`). The delegate is rebound to the
+    /// signatures do not match exactly — then the binder does not offer the conversion
+    /// (`delegateToFunction`), and None is cached like a maker. The delegate is rebound to the
     /// `Func`/`Action` of its signature, which any delegate with that signature allows; past five
     /// parameters, a factory compiled once calls the delegate type's own `Invoke`.
     let tryTyped (funcType: Type) (delegateType: Type) : (Delegate -> obj) option =
