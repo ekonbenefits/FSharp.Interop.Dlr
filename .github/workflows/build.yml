@@ -338,14 +338,19 @@ jobs:
           name: nuget-package
           path: packages/*.nupkg
 
-  # After a green master run, rewrite the README's test and coverage badges
+  # After a green master run, publish the README's test and coverage badges
   # from that run's own numbers (the net10 Linux Release leg's test count,
-  # the coverage job's merged cobertura), and commit only if a number changed.
-  # [skip ci] so the badge commit does not start another run.
+  # the coverage job's merged cobertura) as shields.io endpoint files on the
+  # `badges` branch, committing only if a number changed. One at a time
+  # (concurrency), and only for the commit still at master's head, so an
+  # older run finishing last cannot overwrite newer numbers.
   badges:
     needs: [test, net48, wasm-mtp, coverage]
     if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
+    concurrency:
+      group: badges
+      cancel-in-progress: false
     permissions:
       contents: write
     steps:
@@ -388,12 +393,16 @@ jobs:
           badge tests tests "${tests} passed" brightgreen
           badge line "line coverage" "${line}%" "$(color $line)"
           badge branch "branch coverage" "${branch}%" "$(color $branch)"
+          # A newer master commit has its own run, which publishes its numbers.
+          head=$(git ls-remote origin refs/heads/master | cut -f1)
+          if [ "$head" != "$GITHUB_SHA" ]; then echo "master moved on to ${head::7}; leaving the badges to its run"; exit 0; fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if git ls-remote --exit-code --heads origin badges > /dev/null; then
             git fetch --quiet origin badges
             git checkout --quiet -B badges origin/badges
           else
+            git branch -D badges 2>/dev/null || true
             git checkout --quiet --orphan badges
             git rm -rf --quiet .
           fi
