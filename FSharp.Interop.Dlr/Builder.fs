@@ -26,8 +26,9 @@ type DlrBuilder() =
     member inline _.Delay([<InlineIfLambda>] delayed: unit -> ResumableCode<'D, 'T>) : ResumableCode<'D, 'T> =
         ResumableCode<'D, 'T>(fun sm -> (delayed ()).Invoke(&sm))
 
-    // Return through Using are always inlined: their compiled methods are never called, so they
-    // are excluded from coverage.
+    // Return through Using are inlined at every call site in Debug and Release alike, so their
+    // compiled methods are never called and are excluded from coverage. (Delay and Run are
+    // called in Debug, so they stay.)
     [<ExcludeFromCodeCoverage>]
     member inline _.Return(value: 'T) : ResumableCode<DlrData<'T>, 'T> =
         ResumableCode<DlrData<'T>, 'T>(fun sm -> sm.Data.Result <- value; true)
