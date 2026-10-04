@@ -8,7 +8,7 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Read-only by default; the two jobs that write (badges, publish) widen it for themselves.
+# Read-only by default; the three jobs that write (badges, publish, pages) widen it for themselves.
 permissions:
   contents: read
 
@@ -305,12 +305,20 @@ jobs:
           dotnet tool install --global dotnet-reportgenerator-globaltool
           reportgenerator -reports:'coverage/*/coverage.cobertura.*.xml' -targetdir:coverage/merged -reporttypes:'Cobertura;MarkdownSummaryGithub'
           cat coverage/merged/SummaryGithub.md >> "$GITHUB_STEP_SUMMARY"
+          # The browsable report the README's coverage badges link to (published by `pages`).
+          reportgenerator -reports:'coverage/*/coverage.cobertura.*.xml' -targetdir:coverage/html -reporttypes:'Html' -title:'FSharp.Interop.Dlr'
 
       - name: Upload coverage
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverage
           path: coverage/merged/Cobertura.xml
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coverage-html
+          path: coverage/html
 
   # The package at the version MinVer computed for this commit, as an
   # artifact - so the version a tag would ship is visible on every run
@@ -483,6 +491,75 @@ jobs:
         with:
           name: test-report-html
           path: report/report.html
+
+  # After a green master run, the HTML reports the README's badges link to, on GitHub Pages:
+  # the test report (`report`'s, every OS x configuration x framework, per-test drill-down) at
+  # /tests/ and the coverage report at /coverage/. Deployed by the Pages actions, not committed:
+  # nothing touches a branch, so master's ruleset is not involved. One deployment at a time,
+  # and only for the commit still at master's head.
+  pages:
+    needs: [test, net48, wasm-mtp, coverage, report]
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      # Only the commit still at master's head deploys: an older run finishing last must not
+      # replace a newer run's reports (its own run deploys them).
+      - id: head
+        shell: bash
+        run: |
+          head=$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}" refs/heads/master | cut -f1)
+          if [ "$head" = "$GITHUB_SHA" ]; then echo "current=true" >> "$GITHUB_OUTPUT"
+          else echo "master moved on to ${head::7}; leaving the reports to its run"; echo "current=false" >> "$GITHUB_OUTPUT"; fi
+
+      - if: steps.head.outputs.current == 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: test-report-html
+          path: site/tests
+
+      - if: steps.head.outputs.current == 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: coverage-html
+          path: site/coverage
+
+      - name: Assemble the site
+        if: steps.head.outputs.current == 'true'
+        shell: bash
+        run: |
+          set -e
+          mv site/tests/report.html site/tests/index.html
+          cat > site/index.html <<'HTML'
+          <!doctype html>
+          <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>FSharp.Interop.Dlr reports</title>
+          <style>body{font:16px/1.5 system-ui,sans-serif;max-width:40rem;margin:3rem auto;padding:0 1rem}a{display:block;margin:.5rem 0}</style>
+          </head><body>
+          <h1>FSharp.Interop.Dlr</h1>
+          <p>Reports from the latest green run on master.</p>
+          <a href="tests/">Test report</a>
+          <a href="coverage/">Coverage report</a>
+          <a href="https://github.com/ekonbenefits/FSharp.Interop.Dlr">Repository</a>
+          </body></html>
+          HTML
+
+      - if: steps.head.outputs.current == 'true'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+
+      - id: deploy
+        if: steps.head.outputs.current == 'true'
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
 
   # Static analysis of the workflows themselves (unpinned actions, template injection, token
   # permissions, ...): a finding fails the job, so a change to this file is checked like code.

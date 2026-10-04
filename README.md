@@ -1,9 +1,9 @@
 # FSharp.Interop.Dlr
 
 [![CI](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml/badge.svg)](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml)
-[![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fekonbenefits%2FFSharp.Interop.Dlr%2Fbadges%2Ftests.json)](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml)
-[![Line coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fekonbenefits%2FFSharp.Interop.Dlr%2Fbadges%2Fline.json)](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml)
-[![Branch coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fekonbenefits%2FFSharp.Interop.Dlr%2Fbadges%2Fbranch.json)](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml)
+[![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fekonbenefits%2FFSharp.Interop.Dlr%2Fbadges%2Ftests.json)](https://ekonbenefits.github.io/FSharp.Interop.Dlr/tests/)
+[![Line coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fekonbenefits%2FFSharp.Interop.Dlr%2Fbadges%2Fline.json)](https://ekonbenefits.github.io/FSharp.Interop.Dlr/coverage/)
+[![Branch coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fekonbenefits%2FFSharp.Interop.Dlr%2Fbadges%2Fbranch.json)](https://ekonbenefits.github.io/FSharp.Interop.Dlr/coverage/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](License.txt)
 
 Experimental: not on NuGet yet, and the spelling of the API may still change.
