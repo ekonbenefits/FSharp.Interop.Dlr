@@ -72,6 +72,11 @@ let onlyIn (a: Map<_, _>) (b: Map<_, _>) = [ for KeyValue(k, _) in a do if isDlr
 printfn "%d dlr cells compared, %d improved" (common |> List.filter (fun (k, _, _) -> isDlr k) |> List.length) improved.Length
 for section, row, _ in onlyIn after before do printfn "new (no baseline): %s / %s" section row
 for section, row, _ in onlyIn before after do printfn "gone or renamed: %s / %s" section row
+// Nothing compared is not "no regressions": the regenerated table is empty or broken (a failed run).
+let compared = common |> List.filter (fun (k, _, _) -> isDlr k) |> List.length
+if compared = 0 then
+    printfn "nothing to compare: the regenerated docs/benchmarks.md has no dlr cells in common with the baseline (did the run fail?)"
+    exit 1
 if regressions.IsEmpty then printfn "no regressions"
 else
     printfn "%d regression(s):" regressions.Length
