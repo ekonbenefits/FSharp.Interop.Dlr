@@ -14,7 +14,7 @@ flowchart TD
     cache["<b>DlrCache</b> (Cache.fs)<br/>machine Type → Compiled"]
     discover["<b>Discover</b> (Discover.fs)<br/>the block's body, from the enclosing member's<br/>[&lt;ReflectedDefinition&gt;] by file and line"]
     translate["<b>Translate.translate</b> (Translate*.fs)<br/>normalize → Plumbing / Members / Captures<br/>→ quotation with CallSites baked in"]
-    binders["<b>Binders</b> (Binders.fs, Seam.fs)<br/>one CallSite per operation: C#'s binder<br/>wrapped by the F#-aware ones"]
+    binders["<b>Binders</b> (Binders.fs; Seam.fs, Functions.fs, SiteCaches.fs)<br/>one CallSite per operation: C#'s binder<br/>wrapped by the F#-aware ones"]
     conv["<b>LeafExpressionConverter</b> (FSharp.Core)<br/>quotation → LINQ tree"]
     hoist["<b>SiteHoister</b> (SiteHoister.fs)<br/>CallSite constants → locals per lambda"]
     compile["<b>Compile()</b><br/>DlrReader&lt;'SM, 'T&gt; (inref&lt;'SM&gt; -> 'T)"]
@@ -53,7 +53,8 @@ reader compiled once per result type — `Delayed<'T>` — not by reflection per
 optimizer has inlined it, the target itself is the closure) and continues on the closure path:
 the closure's type is the key, its fields the captured values, and [`Sites<'T>`](caches.md) the
 typed cache (last-hit compare, then a dictionary). Same contract, same `Discover` and `Translate`; the cost
-is the closure allocation, `GetType()` and a field read. Both paths are exercised: the suite
+is three allocations (the Delay closure, the builder's wrapper and the `ResumableCode` delegate),
+two `GetType()` calls with a reference compare each, and a compiled field read. Both paths are exercised: the suite
 runs in Debug and in Release.
 
 Every `dlr { }` desugars to `Run(Delay(fun () -> …))` in one expression, which the compiler
@@ -66,8 +67,8 @@ That goes to the `else` branch in Release too, with the `Delay` wrapper inlined:
 target is the closure itself when the block captures a value, and null — a static method on the
 closure class — when it captures nothing, in which case `DlrRun.Closure` compiles from that
 class (`code.Method.DeclaringType`) and passes no closure. (The builder's members called by
-hand with the `Delay` result bound or passed separately are the other way in — FS3501/FS3511
-from the compiler — and nobody writes that.)
+hand with the `Delay` result bound or passed separately are the other way in — FS3501 (or
+FS3511) from the compiler — and nobody writes that.)
 
 ## One call on the hot path
 
@@ -119,14 +120,14 @@ sequenceDiagram
     participant B as Binders
     participant L as LeafExpressionConverter + SiteHoister
 
-    S->>DC: getOrCompile(typeof<'SM>, file, line)
+    S->>DC: getOrCompile(builder type, typeof<'SM>, file, line, typeof<'T>)
     DC->>Di: findBody(builderType, machineType, file, line)
     Di->>Di: reflected definitions of the machine's declaring type<br/>(decoded once per type, assembly-wide fallback)
     Di-->>DC: Found (Context, MemberBody, Body)
     DC->>T: translate
-    T->>T: normalize (pipes, curried markers, literal lets)
+    T->>T: normalize (pipes, curried markers, literal lets,<br/>eta-expanded calls, parameterless delegate literals)
     loop each marker
-        T->>B: getMember / invokeMember / … (context, name, args)
+        T->>B: getMember / invokeMemberOrApply / … (context, name, args)
         B-->>T: quotation Call on a baked CallSite
     end
     T->>L: NewDelegate over the machine → LINQ → hoist sites → rewrap over inref → Compile()

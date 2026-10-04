@@ -189,10 +189,10 @@ type CurriedStep<'Prev, 'Own, 'A, 'R>(prev: 'Prev, own: 'Own, next: Func<Curried
     member _.Own = own
     override this.Invoke(a: 'A) : 'R = next.Invoke(this, a)
 
-/// F# functions past five arguments as LINQ, compiled once per site (or per delegate and function
-/// type): tupled, one `CurriedStep` taking the whole tuple, its elements read through `Rest`;
-/// curried, a `CurriedStep` per argument — what F# emits for a curried function beyond
-/// OptimizedClosures, minus InvokeFast. Typed throughout: no boxing, no `DynamicInvoke`, and what
+/// F# functions past five arguments as LINQ, compiled once per (function type, site type) — or
+/// per (function type, delegate type): tupled, one `CurriedStep` taking the whole tuple, its
+/// elements read through `Rest`; curried, a `CurriedStep` per argument — what F# emits for a
+/// curried function beyond OptimizedClosures, minus InvokeFast. Typed throughout: no boxing, no `DynamicInvoke`, and what
 /// the call throws arrives as itself.
 module internal FunctionBuilder =
     /// The F# function whose result is `call captured args`: tupled over `tupleType` when given
