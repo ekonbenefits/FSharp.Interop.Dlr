@@ -40,16 +40,7 @@ module internal Translate =
 
     /// The generic definition of the method a marker quotation calls. Curried static members
     /// quote as applications of an inner lambda, so this looks for the first call anywhere.
-    let private opMethod (e: Expr<_>) =
-        let rec find (e: Expr) =
-            match e with
-            | Call(None, mi, _) -> Some(genericDef mi)
-            | ShapeVar _ -> None
-            | ShapeLambda(_, body) -> find body
-            | ShapeCombination(_, args) -> args |> List.tryPick find
-        match find e with
-        | Some mi -> mi
-        | None -> failwith "operator definition expected"
+    let private opMethod (e: Expr<_>) = genericDef (Quotation.methodOf e)
 
     let private opDynamic = opMethod <@ fun (t: obj) (n: string) -> ((?) t n) : obj @>
     let private opDynamicAssign = opMethod <@ fun (t: obj) (n: string) (v: obj) -> (?<-) t n v @>
@@ -467,9 +458,7 @@ module internal Translate =
             let thunk = Expr.Lambda(Var("unitVar", typeof<unit>), body)
             let literal = typedefof<ParameterlessLiteral<_, _>>.MakeGenericType(t, body.Type)
             Expr.Call(literal.GetMethod("Of"), [ thunk ])
-        | ShapeVar _ -> e
-        | ShapeLambda(v, body) -> Expr.Lambda(v, normalize body)
-        | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map normalize args)
+        | _ -> Quotation.rebuild normalize e
 
     /// The call sites of a compiled block hoisted into locals of the lambda that uses them.
     /// `LambdaExpression.Compile` keeps a reference-type constant in its closure's `Constants`
@@ -778,9 +767,7 @@ module internal Translate =
                 | Call(None, mi, []) when mi.IsGenericMethod && mi.GetGenericMethodDefinition() = reraiseMethod ->
                     Expr.Call(rethrow.GetGenericMethodDefinition().MakeGenericMethod(e.Type), [ Expr.Var ex ])
                 | TryWith(body, fv, filter, cv, catch) -> Expr.TryWith(go body, fv, filter, cv, catch)
-                | ShapeVar _ -> e
-                | ShapeLambda(v, b) -> Expr.Lambda(v, go b)
-                | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map go args)
+                | _ -> Quotation.rebuild go e
             go handler
 
         let func (block: Block) (rewriteIn: Rewrite) (bound: Set<Var>) (vars: Var list) (body: Expr) : Expr =
@@ -1012,9 +999,7 @@ module internal Translate =
                     match siteVars |> List.tryFind (fun (s, _) -> obj.ReferenceEquals(s, v)) with
                     | Some(_, var) -> Expr.Var var
                     | None -> e
-                | ShapeVar _ -> e
-                | ShapeLambda(v, body) -> Expr.Lambda(v, lift body)
-                | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map lift args)
+                | _ -> Quotation.rebuild lift e
             let body = lift placeholder
             // A discarded result is a void site: the delegate still returns obj, so hand back null.
             let boxed =
@@ -1413,9 +1398,7 @@ module internal Translate =
                     match e with
                     | VarSet(v', x) when v' = v -> Expr.PropertySet(Expr.Var cell, value, subst x)
                     | Var v' when v' = v -> Expr.PropertyGet(Expr.Var cell, value)
-                    | ShapeVar _ -> e
-                    | ShapeLambda(x, b) -> Expr.Lambda(x, subst b)
-                    | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map subst args)
+                    | _ -> Quotation.rebuild subst e
                 Expr.Let(cell, Expr.NewObject(cell.Type.GetConstructor([| v.Type |]), [ rewrite def ]), rewriteIn (bound.Add cell) (subst letBody))
             | Let(v, def, letBody) -> Expr.Let(v, rewrite def, rewriteIn (bound.Add v) letBody)
             // `let rec` has no expression-tree form; tie the knot through reference cells, as the
@@ -1498,7 +1481,7 @@ module internal Translate =
                 | Some r -> Expr.Call(rewrite r, mi, args')
                 | None -> Expr.Call(mi, args')
             | Application(f, arg) when isUnitCall arg -> Expr.Application(rewrite f, asUnit (rewrite arg))
-            | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map rewrite args)
+            | _ -> Quotation.rebuild rewrite e
 
         let delegateType = typedefof<Func<_, _>>.MakeGenericType(closure.Type, resultType)
         let compiled =

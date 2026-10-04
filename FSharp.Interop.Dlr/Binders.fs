@@ -151,6 +151,29 @@ module internal Conversions =
     /// Assignable, or a C# implicit numeric widening (`Expression.Convert` does the widening in the rule).
     let fits (paramType: Type) (argType: Type) = paramType.IsAssignableFrom argType || widens argType paramType
 
+/// Two generic helpers over quotations, each the one place its idiom is spelled out.
+module internal Quotation =
+    /// The method the first call in `e` calls: how a MethodInfo is taken from a quotation of a
+    /// call (`<@ f x @>`; a curried static member quotes as an application of a lambda around it).
+    let methodOf (e: Expr) : MethodInfo =
+        let rec find (e: Expr) =
+            match e with
+            | Patterns.Call(_, mi, _) -> Some mi
+            | ExprShape.ShapeVar _ -> None
+            | ExprShape.ShapeLambda(_, body) -> find body
+            | ExprShape.ShapeCombination(_, args) -> List.tryPick find args
+        match find e with
+        | Some mi -> mi
+        | None -> invalidArg "e" (sprintf "a quotation of a call, not %A" e)
+
+    /// One level of a rewrite: `f` on each child of `e`, the node rebuilt around the results. The
+    /// fallthrough of every walk that rewrites the nodes it knows and recurses into the rest.
+    let rebuild (f: Expr -> Expr) (e: Expr) : Expr =
+        match e with
+        | ExprShape.ShapeVar _ -> e
+        | ExprShape.ShapeLambda(v, body) -> Expr.Lambda(v, f body)
+        | ExprShape.ShapeCombination(shape, args) -> ExprShape.RebuildShapeCombination(shape, List.map f args)
+
 /// CLR tuples past seven elements, `Tuple` and `ValueTuple` alike: the first seven, then the rest
 /// as an eighth, `Rest`, itself a tuple. The one place that nesting is spelled out — for building
 /// a tuple's type, reading an element, constructing one in a LINQ tree or a quotation, or at run time.
@@ -525,10 +548,7 @@ module DelegateFunction =
         | None -> invalidOp (sprintf "No conversion of %s to %s: the binder offers only those tryTyped makes." (d.GetType().Name) funcType.Name)
 
     /// `Make` as a method, for the expression tree of a bound call to name it.
-    let makeMethod : MethodInfo =
-        match <@ Make typeof<obj> null @> with
-        | Patterns.Call(_, mi, _) -> mi
-        | _ -> failwith "unreachable"
+    let makeMethod : MethodInfo = Quotation.methodOf <@ Make typeof<obj> null @>
 
 
 /// A delegate literal written inside a block (`w?Each(Action<string>(fun s -> …))`) compiles with
@@ -666,10 +686,7 @@ module FunctionConversions =
         | None -> raise (RuntimeBinderException(sprintf "Cannot convert an F# function of type '%s' to '%s'" (f.GetType().Name) delegateType.Name))
 
     /// `Make` as a method, for the expression tree of a bound call to name it.
-    let makeMethod : MethodInfo =
-        match <@ Make typeof<obj> null @> with
-        | Patterns.Call(_, mi, _) -> mi
-        | _ -> failwith "unreachable"
+    let makeMethod : MethodInfo = Quotation.methodOf <@ Make typeof<obj> null @>
 
 /// F# optional parameters (`?arg`) compile to `FSharpOption<'T>` parameters carrying
 /// `[<OptionalArgument>]` and nothing the C# binder recognises, so it can neither omit them nor,
@@ -906,15 +923,11 @@ type FSharpBinaryOperationBinder(csharp: BinaryOperationBinder) =
                ExpressionType.LessThan, "op_LessThan"; ExpressionType.LessThanOrEqual, "op_LessThanOrEqual"
                ExpressionType.GreaterThan, "op_GreaterThan"; ExpressionType.GreaterThanOrEqual, "op_GreaterThanOrEqual" ]
 
-    static let equality =
-        match <@ LanguagePrimitives.GenericEquality (box 1) (box 2) @> with
-        | Patterns.Call(_, mi, _) -> mi
-        | _ -> failwith "unreachable"
+    static let equality = Quotation.methodOf <@ LanguagePrimitives.GenericEquality (box 1) (box 2) @>
 
     static let comparison =
-        match <@ LanguagePrimitives.GenericComparison (box 1 :?> IComparable) (box 2 :?> IComparable) @> with
-        | Patterns.Call(_, mi, _) -> mi.GetGenericMethodDefinition().MakeGenericMethod typeof<obj>
-        | _ -> failwith "unreachable"
+        (Quotation.methodOf <@ LanguagePrimitives.GenericComparison (box 1 :?> IComparable) (box 2 :?> IComparable) @>)
+            .GetGenericMethodDefinition().MakeGenericMethod typeof<obj>
 
     /// A type C#'s own operators cover, or that binds for itself (a dynamic object, whose own
     /// rule reaches us as the error suggestion through C#). Strings and bools have C# equality
