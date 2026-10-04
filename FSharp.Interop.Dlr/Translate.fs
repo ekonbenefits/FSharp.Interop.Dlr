@@ -40,16 +40,7 @@ module internal Translate =
 
     /// The generic definition of the method a marker quotation calls. Curried static members
     /// quote as applications of an inner lambda, so this looks for the first call anywhere.
-    let private opMethod (e: Expr<_>) =
-        let rec find (e: Expr) =
-            match e with
-            | Call(None, mi, _) -> Some(genericDef mi)
-            | ShapeVar _ -> None
-            | ShapeLambda(_, body) -> find body
-            | ShapeCombination(_, args) -> args |> List.tryPick find
-        match find e with
-        | Some mi -> mi
-        | None -> failwith "operator definition expected"
+    let private opMethod (e: Expr<_>) = genericDef (Quotation.methodOf e)
 
     let private opDynamic = opMethod <@ fun (t: obj) (n: string) -> ((?) t n) : obj @>
     let private opDynamicAssign = opMethod <@ fun (t: obj) (n: string) (v: obj) -> (?<-) t n v @>
@@ -467,9 +458,7 @@ module internal Translate =
             let thunk = Expr.Lambda(Var("unitVar", typeof<unit>), body)
             let literal = typedefof<ParameterlessLiteral<_, _>>.MakeGenericType(t, body.Type)
             Expr.Call(literal.GetMethod("Of"), [ thunk ])
-        | ShapeVar _ -> e
-        | ShapeLambda(v, body) -> Expr.Lambda(v, normalize body)
-        | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map normalize args)
+        | _ -> Quotation.rebuild normalize e
 
     /// The call sites of a compiled block hoisted into locals of the lambda that uses them.
     /// `LambdaExpression.Compile` keeps a reference-type constant in its closure's `Constants`
@@ -483,6 +472,18 @@ module internal Translate =
     type private SiteHoister() =
         inherit ExpressionVisitor()
         let mutable current : System.Collections.Generic.Dictionary<CallSite, ParameterExpression> = null
+
+        /// A placeholder's argument, boxed to `obj` in its array, back at the parameter type it was
+        /// boxed from (the box dropped when it is that type already).
+        static let unboxed (e: Expression) (wanted: Type) =
+            match e with
+            | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert && u.Type = typeof<obj> && u.Operand.Type = wanted -> u.Operand
+            | e when e.Type = wanted -> e
+            | e -> Expression.Convert(e, wanted) :> Expression
+
+        /// The site's `Target` delegate, the site cast from the placeholder's `CallSite` to its type.
+        static let siteTarget (site: Expression) (siteDelegate: Type) =
+            Expression.Field(Expression.Convert(site, typedefof<CallSite<_>>.MakeGenericType siteDelegate), "Target")
 
         override this.VisitLambda<'T>(node: Expression<'T>) : Expression =
             let saved = current
@@ -513,19 +514,11 @@ module internal Translate =
         override this.VisitMethodCall(node: MethodCallExpression) : Expression =
             if node.Method.DeclaringType = typeof<Binders.WideSite> then
                 let site = this.Visit node.Arguments.[0]
-                let delegateType = (node.Arguments.[1] :?> ConstantExpression).Value :?> Type
-                let parameters = delegateType.GetMethod("Invoke").GetParameters()
+                let siteDelegate = (node.Arguments.[1] :?> ConstantExpression).Value :?> Type
+                let parameters = siteDelegate.GetMethod("Invoke").GetParameters()
                 let elements = (node.Arguments.[2] :?> NewArrayExpression).Expressions
-                let args =
-                    [ for i in 0 .. elements.Count - 1 ->
-                        let wanted = parameters.[i + 1].ParameterType
-                        match this.Visit elements.[i] with
-                        | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert && u.Type = typeof<obj> && u.Operand.Type = wanted -> u.Operand
-                        | e when e.Type = wanted -> e
-                        | e -> Expression.Convert(e, wanted) :> Expression ]
-                let siteType = typedefof<CallSite<_>>.MakeGenericType delegateType
-                let target = Expression.Field(Expression.Convert(site, siteType), "Target")
-                let invoke = Expression.Invoke(target, (Expression.Convert(site, typeof<CallSite>) :> Expression) :: args)
+                let args = [ for i in 0 .. elements.Count - 1 -> unboxed (this.Visit elements.[i]) parameters.[i + 1].ParameterType ]
+                let invoke = Expression.Invoke(siteTarget site siteDelegate, (Expression.Convert(site, typeof<CallSite>) :> Expression) :: args)
                 if node.Method.Name = "InvokeVoid" then invoke :> Expression
                 elif invoke.Type = typeof<obj> then invoke :> Expression
                 else Expression.Convert(invoke, typeof<obj>) :> Expression
@@ -535,8 +528,8 @@ module internal Translate =
             // translator unpacks. Required on wasm, where DynamicInvoke does not write byrefs back.
             elif node.Method.DeclaringType = typeof<Binders.ByRefSite> then
                 let site = this.Visit node.Arguments.[0]
-                let delegateType = (node.Arguments.[1] :?> ConstantExpression).Value :?> Type
-                let invokeMethod = delegateType.GetMethod("Invoke")
+                let siteDelegate = (node.Arguments.[1] :?> ConstantExpression).Value :?> Type
+                let invokeMethod = siteDelegate.GetMethod("Invoke")
                 let parameters = invokeMethod.GetParameters()
                 let elements = (node.Arguments.[2] :?> NewArrayExpression).Expressions
                 // Out positions are explicit: in a per-key template an out's value in is a parameter,
@@ -544,11 +537,6 @@ module internal Translate =
                 let outs = (node.Arguments.[4] :?> ConstantExpression).Value :?> int[]
                 let sameAs = (node.Arguments.[5] :?> ConstantExpression).Value :?> int[]
                 let tempAt = System.Collections.Generic.Dictionary<int, ParameterExpression>()
-                let unboxed (e: Expression) (wanted: Type) =
-                    match e with
-                    | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert && u.Type = typeof<obj> && u.Operand.Type = wanted -> u.Operand
-                    | e when e.Type = wanted -> e
-                    | e -> Expression.Convert(e, wanted) :> Expression
                 let temps = ResizeArray<ParameterExpression>()
                 let inits = ResizeArray<Expression>()
                 let args =
@@ -568,21 +556,15 @@ module internal Translate =
                             inits.Add(Expression.Assign(temp, initial))
                             temp :> Expression
                         else unboxed e p.ParameterType ]
-                let siteType = typedefof<CallSite<_>>.MakeGenericType delegateType
-                let target = Expression.Field(Expression.Convert(site, siteType), "Target")
-                let call = Expression.Call(target, invokeMethod, (Expression.Convert(site, typeof<CallSite>) :> Expression) :: args)
+                let call = Expression.Call(siteTarget site siteDelegate, invokeMethod, (Expression.Convert(site, typeof<CallSite>) :> Expression) :: args)
                 let result, callStep =
                     if invokeMethod.ReturnType = typeof<Void> then (Expression.Constant(null, typeof<obj>) :> Expression), (call :> Expression)
                     else
                         let r = Expression.Variable(invokeMethod.ReturnType, "result")
                         temps.Add r
                         (Expression.Convert(r, typeof<obj>) :> Expression), (Expression.Assign(r, call) :> Expression)
-                // The holder `node.Type` (Binders.byRefHolderType), nested in `Rest` past seven.
-                let rec holder (t: Type) (values: Expression list) : Expression =
-                    let fields = t.GetGenericArguments()
-                    let args = if fields.Length = 8 then List.take 7 values @ [ holder fields.[7] (List.skip 7 values) ] else values
-                    Expression.New(t.GetConstructor fields, args) :> Expression
-                let values = holder node.Type (result :: [ for i in 0 .. elements.Count - 1 do if parameters.[i + 1].ParameterType.IsByRef then yield (tempAt.[i] :> Expression) ])
+                // The holder `node.Type` (Binders.byRefHolderType).
+                let values = Tuples.newExpression node.Type (result :: [ for i in 0 .. elements.Count - 1 do if parameters.[i + 1].ParameterType.IsByRef then yield (tempAt.[i] :> Expression) ])
                 Expression.Block(node.Type, temps, List.ofSeq inits @ [ callStep; values ]) :> Expression
             // An in-place struct operation's write-back (`Binders.InPlace`): in a finally.
             elif node.Method.DeclaringType = typeof<Binders.InPlace> then
@@ -782,9 +764,7 @@ module internal Translate =
                 | Call(None, mi, []) when mi.IsGenericMethod && mi.GetGenericMethodDefinition() = reraiseMethod ->
                     Expr.Call(rethrow.GetGenericMethodDefinition().MakeGenericMethod(e.Type), [ Expr.Var ex ])
                 | TryWith(body, fv, filter, cv, catch) -> Expr.TryWith(go body, fv, filter, cv, catch)
-                | ShapeVar _ -> e
-                | ShapeLambda(v, b) -> Expr.Lambda(v, go b)
-                | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map go args)
+                | _ -> Quotation.rebuild go e
             go handler
 
         let func (block: Block) (rewriteIn: Rewrite) (bound: Set<Var>) (vars: Var list) (body: Expr) : Expr =
@@ -936,13 +916,8 @@ module internal Translate =
                     | Choice2Of2(_, write) -> yield rewriteIn bound' (write (at (i + 1)))
                     | Choice1Of2 _ -> () ]
             let outValues = [ for i, b in Seq.indexed byRefs do match b with Choice1Of2 _ -> yield at (i + 1) | Choice2Of2 _ -> () ]
-            // The result tuple, of the result type's kind: a struct one is the ValueTuple constructor,
-            // nested in its `Rest` past seven elements.
-            let rec newStructTuple (t: Type) (values: Expr list) =
-                let elements = t.GetGenericArguments()
-                let values = if elements.Length = 8 then List.take 7 values @ [ newStructTuple elements.[7] (List.skip 7 values) ] else values
-                Expr.NewObject(t.GetConstructor elements, values)
-            let newTuple (values: Expr list) = if resultType.IsValueType then newStructTuple resultType values else Expr.NewTuple values
+            // The result tuple, of the result type's kind: a struct one is the ValueTuple constructor.
+            let newTuple (values: Expr list) = if resultType.IsValueType then Tuples.newQuotation resultType values else Expr.NewTuple values
             let value =
                 match returnType, outValues with
                 | None, [] -> Expr.Value(())
@@ -965,7 +940,7 @@ module internal Translate =
         /// its arity allows; past that the delegate type would be emitted at run time, which a
         /// quotation must not name (see `Binders.WideSite`), so it is a `Func<obj[], obj>` over the
         /// parameters packed (`packArguments` at the call) and unpacked to their types inside.
-        let private isWide (parameters: Var list) = parameters.Length + 1 > 17   // Func's 17 type parameters, the result among them
+        let private isWide (parameters: Var list) = not (DelegateMembers.funcFits parameters.Length)
         let private delegateTypeOver (parameters: Var list) =
             if isWide parameters then typeof<Func<obj[], obj>>
             else Expression.GetDelegateType(Array.ofList ([ for v in parameters -> v.Type ] @ [ typeof<obj> ]))
@@ -1021,9 +996,7 @@ module internal Translate =
                     match siteVars |> List.tryFind (fun (s, _) -> obj.ReferenceEquals(s, v)) with
                     | Some(_, var) -> Expr.Var var
                     | None -> e
-                | ShapeVar _ -> e
-                | ShapeLambda(v, body) -> Expr.Lambda(v, lift body)
-                | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map lift args)
+                | _ -> Quotation.rebuild lift e
             let body = lift placeholder
             // A discarded result is a void site: the delegate still returns obj, so hand back null.
             let boxed =
@@ -1037,12 +1010,12 @@ module internal Translate =
             let at = cacheType.GetMethod("At")
             let siteArgs = siteVars |> List.mapi (fun i (_, v) -> Expr.Coerce(Expr.Call(at, [ Expr.Var sitesVar; Expr.Value i ]), v.Type))
             let arguments = siteArgs @ targetInfo.Expr :: [ for a in argInfos -> a.Expr ]
-            let delegateType = delegateTypeOver parameters
+            let siteDelegate = delegateTypeOver parameters
             // Through the hoister like every compiled tree: a wide site's placeholder in the template
             // is rewritten there (its site arrives as a parameter, which the rewrite converts).
             let linq = LeafExpressionConverter.QuotationToExpression (lambdaOver parameters boxed) :?> LambdaExpression
             let compiled = (SiteHoister().Visit linq :?> LambdaExpression).Compile()
-            let invocation = Expr.Call(Expr.Value(compiled, delegateType), delegateType.GetMethod("Invoke"), packArguments parameters arguments)
+            let invocation = Expr.Call(Expr.Value(compiled, siteDelegate), siteDelegate.GetMethod("Invoke"), packArguments parameters arguments)
             Expr.Let(sitesVar, Expr.Call(Expr.Value(cache, cacheType), cacheType.GetMethod("Get"), [ Expr.NewTuple [ nameE; typesE ] ]), invocation)
 
         /// `keyedSiteRaw`'s call (an `obj`) converted to `resultType`.
@@ -1114,7 +1087,7 @@ module internal Translate =
                 // One delegate type for every key at this site: the names change the sites inside,
                 // not the parameters, so the call is a typed Invoke, not DynamicInvoke.
                 let parameters = targetVar :: fixedVars @ keyVars @ [ valuesVar ]
-                let delegateType = delegateTypeOver parameters
+                let siteDelegate = delegateTypeOver parameters
                 let compile (names: string list) : Delegate =
                     let fixed' = List.map2 (fun (info: Binders.Arg) (v: Var) -> { info with Expr = Expr.Var v }) fixedInfos fixedVars
                     // `fixedInfos` are grouped per source argument (a Dlr.named record is several):
@@ -1143,13 +1116,13 @@ module internal Translate =
                 let cacheType = typeof<NamedOfCache>
                 let pairsVar = Var("pairs", typeof<(string * obj) list>)
                 let positionalVar = Var("positional", typeof<obj list>)
-                let delegateVar = Var("d", delegateType)
+                let delegateVar = Var("d", siteDelegate)
                 let values = Expr.Call(cacheType.GetMethod("Values"), [ Expr.Var positionalVar; Expr.Var pairsVar ])
                 let call =
                     Expr.Let(positionalVar, rewriteIn bound positionalExpr,
                       Expr.Let(pairsVar, rewriteIn bound pairsExpr,
-                        Expr.Let(delegateVar, Expr.Coerce(Expr.Call(Expr.Value(cache, cacheType), cacheType.GetMethod("Get"), [ Expr.Var positionalVar; Expr.Var pairsVar ]), delegateType),
-                            Expr.Call(Expr.Var delegateVar, delegateType.GetMethod("Invoke"), packArguments parameters (targetInfo.Expr :: [ for a in fixedInfos -> a.Expr ] @ keyExprs @ [ values ])))))
+                        Expr.Let(delegateVar, Expr.Coerce(Expr.Call(Expr.Value(cache, cacheType), cacheType.GetMethod("Get"), [ Expr.Var positionalVar; Expr.Var pairsVar ]), siteDelegate),
+                            Expr.Call(Expr.Var delegateVar, siteDelegate.GetMethod("Invoke"), packArguments parameters (targetInfo.Expr :: [ for a in fixedInfos -> a.Expr ] @ keyExprs @ [ values ])))))
                 (if discard then Expr.Sequential(call, Expr.Value(())) else block.Convert resultType call)
                 |> bind rewriteIn bound bindings
                 |> Some
@@ -1422,9 +1395,7 @@ module internal Translate =
                     match e with
                     | VarSet(v', x) when v' = v -> Expr.PropertySet(Expr.Var cell, value, subst x)
                     | Var v' when v' = v -> Expr.PropertyGet(Expr.Var cell, value)
-                    | ShapeVar _ -> e
-                    | ShapeLambda(x, b) -> Expr.Lambda(x, subst b)
-                    | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map subst args)
+                    | _ -> Quotation.rebuild subst e
                 Expr.Let(cell, Expr.NewObject(cell.Type.GetConstructor([| v.Type |]), [ rewrite def ]), rewriteIn (bound.Add cell) (subst letBody))
             | Let(v, def, letBody) -> Expr.Let(v, rewrite def, rewriteIn (bound.Add v) letBody)
             // `let rec` has no expression-tree form; tie the knot through reference cells, as the
@@ -1507,7 +1478,7 @@ module internal Translate =
                 | Some r -> Expr.Call(rewrite r, mi, args')
                 | None -> Expr.Call(mi, args')
             | Application(f, arg) when isUnitCall arg -> Expr.Application(rewrite f, asUnit (rewrite arg))
-            | ShapeCombination(shape, args) -> RebuildShapeCombination(shape, List.map rewrite args)
+            | _ -> Quotation.rebuild rewrite e
 
         let delegateType = typedefof<Func<_, _>>.MakeGenericType(closure.Type, resultType)
         let compiled =

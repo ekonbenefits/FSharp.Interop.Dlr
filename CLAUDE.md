@@ -13,6 +13,7 @@ dotnet test -c Release            # Release inlining has broken things Debug pas
 dotnet test -c Release -p:FSharpCore=latest   # the suite on the newest FSharp.Core (default: the floor)
 dotnet build Tests.Wasm -c Release && (cd Tests.Wasm/bin/Release/net10.0-browser/wwwroot && bun runtests.mjs)
 dotnet fsi docs/check-identifiers.fsx   # every identifier and path the docs name still exists
+FSharp.Interop.Dlr/check-internals.sh  # each idiom fixed more than once has one home (#163)
 ```
 
 - The first line matters: the analyzer step runs only when `fsc` actually recompiles, so an

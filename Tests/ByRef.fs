@@ -107,6 +107,14 @@ let ``a named argument beside an out`` () =
     (q, r) |> should equal (2, 1)
 
 [<Fact>]
+let ``fifteen outs, a result nested twice in Rest, reference or struct`` () =
+    let o = box (ByRefs())
+    let r: int * int * int * int * int * int * int * int * int * int * int * int * int * int * int * int = dlr { return o?Fifteen(Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out) }
+    let rs: struct (int * int * int * int * int * int * int * int * int * int * int * int * int * int * int * int) = dlr { return o?Fifteen(Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out, Dlr.out) }
+    List.ofArray (FSharp.Reflection.FSharpValue.GetTupleFields(box r)) |> should equal [ for i in 0 .. 15 -> box (if i = 0 then 100 else i) ]
+    List.ofArray (FSharp.Reflection.FSharpValue.GetTupleFields(box rs)) |> should equal [ for i in 0 .. 15 -> box (if i = 0 then 100 else i) ]
+
+[<Fact>]
 let ``Dlr.call and Dlr.apply invoke a delegate with an out`` () =
     let f = box ByRefs.HalfFn
     let (even: bool), (half: int) = dlr { return Dlr.call f (6, Dlr.out) }

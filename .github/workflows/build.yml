@@ -58,6 +58,11 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && matrix.configuration == 'Debug'
         run: dotnet fsi docs/check-identifiers.fsx
 
+      # Each idiom fixed more than once has one home in the sources (#163).
+      - name: Internals idioms
+        if: matrix.os == 'ubuntu-latest' && matrix.configuration == 'Debug'
+        run: FSharp.Interop.Dlr/check-internals.sh
+
       # The test project is an MTP executable (AnyUnit.TestingPlatform's
       # EnableAnyUnitRunner); each target framework's build is run
       # directly so each writes its own AnyUnit results file. The
