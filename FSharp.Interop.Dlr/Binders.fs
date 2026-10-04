@@ -1725,16 +1725,16 @@ module internal Binders =
         let siteExpr = site binder args resultType
         let siteValue = match siteExpr with FSharp.Quotations.Patterns.Value(v, _) -> v | _ -> null
         let siteType = siteExpr.Type
-        let delegateType = siteType.GetGenericArguments().[0]
+        let siteDelegate = siteType.GetGenericArguments().[0]
         // `args` holds the target too; the site's delegate takes the CallSite before them.
         if DelegateMembers.funcFits (args.Length + 1) then
             let target = Expr.FieldGet(siteExpr, siteType.GetField("Target"))
-            Expr.Call(target, delegateType.GetMethod("Invoke"), siteExpr :: [ for a in args -> a.Expr ])
+            Expr.Call(target, siteDelegate.GetMethod("Invoke"), siteExpr :: [ for a in args -> a.Expr ])
         else
             let isVoid = resultType = typeof<Action>.GetMethod("Invoke").ReturnType
             let boxed = [ for a in args -> if a.Expr.Type = typeof<obj> then a.Expr else Expr.Coerce(a.Expr, typeof<obj>) ]
             let call = Expr.Call((if isVoid then wideInvokeVoidMethod else wideInvokeMethod),
-                                 [ Expr.Value(siteValue, typeof<CallSite>); Expr.Value(delegateType, typeof<Type>); Expr.NewArray(typeof<obj>, boxed) ])
+                                 [ Expr.Value(siteValue, typeof<CallSite>); Expr.Value(siteDelegate, typeof<Type>); Expr.NewArray(typeof<obj>, boxed) ])
             if isVoid || resultType = typeof<obj> then call else Expr.Coerce(call, resultType)
 
     let getMember (context: Type) (name: string) (target: Arg) =
