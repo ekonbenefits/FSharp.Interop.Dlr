@@ -1,6 +1,7 @@
 namespace FSharp.Interop.Dlr
 
 open System
+open System.Diagnostics.CodeAnalysis
 open System.Collections.Concurrent
 open System.Reflection
 open System.Threading
@@ -53,7 +54,7 @@ type internal MachineHit<'SM, 'T>(reader: DlrReader<'SM, 'T>, generation: int) =
 /// reference. No `GetType()`, no lookup, no cast. A plain static field (no `static let`) so
 /// there is no initialization check on the read; the clear listener is registered on the first
 /// compile instead. Misses fill it from `DlrCache`, which stays the one place that compiles.
-type internal Machines<'SM, 'T> private () =
+type internal Machines<'SM, 'T> [<ExcludeFromCodeCoverage>] private () =
     [<DefaultValue>]
     static val mutable private hit : MachineHit<'SM, 'T>
     [<DefaultValue>]
@@ -86,7 +87,7 @@ type private DelayedReader(targetType: Type, read: Func<obj, obj>) =
     member _.TargetType = targetType
     member _.Read = read
 
-type internal Delayed<'T> private () =
+type internal Delayed<'T> [<ExcludeFromCodeCoverage>] private () =
     static let mutable last : DelayedReader = Unchecked.defaultof<_>
     static let readers = ConcurrentDictionary<Type, DelayedReader>()
 
@@ -126,7 +127,7 @@ type internal SiteHit<'T>(closureType: Type, f: Func<obj, 'T>, generation: int) 
 /// The fallback path's cache, for blocks the compiler did not turn into a state machine (Debug
 /// builds): per result type, the compiled `Func<obj, 'T>` by Delay-closure type, already typed,
 /// so a call is one `GetType()`, one compare or lookup and one invoke.
-type internal Sites<'T> private () =
+type internal Sites<'T> [<ExcludeFromCodeCoverage>] private () =
     static let sites = ConcurrentDictionary<Type, SiteHit<'T>>()
     /// The last block *compiled* (an atomic reference to an immutable entry): a block called
     /// repeatedly pays a reference compare instead of a hash lookup. Installed only on a miss, so

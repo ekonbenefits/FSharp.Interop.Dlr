@@ -1,6 +1,7 @@
 namespace FSharp.Interop.Dlr
 
 open System
+open System.Diagnostics.CodeAnalysis
 open System.Dynamic
 open System.Linq.Expressions
 open System.Reflection
@@ -311,7 +312,7 @@ module DelegateFunction =
 /// supported. The seam's past-sixteen-parameter conversion, a compiled lambda too, goes through
 /// it as well. Public: compiled blocks call `Over`.
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
-type DelegateLiteral<'D when 'D :> Delegate> private () =
+type DelegateLiteral<'D when 'D :> Delegate> [<ExcludeFromCodeCoverage>] private () =
     static let factory : Func<'D, 'D> =
         let delegateType = typeof<'D>
         let invoke = DelegateMembers.invokeOf delegateType
@@ -340,7 +341,7 @@ type DelegateLiteral<'D when 'D :> Delegate> private () =
 /// on .NET Framework built at the public stand-in for an `internal` type. Public: compiled blocks
 /// call `Of`.
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
-type ParameterlessLiteral<'D, 'R when 'D :> Delegate> private () =
+type ParameterlessLiteral<'D, 'R when 'D :> Delegate> [<ExcludeFromCodeCoverage>] private () =
     static let factory : Func<FSharpFunc<unit, 'R>, 'D> =
         let delegateType = typeof<'D>
         let f = Expression.Parameter(typeof<FSharpFunc<unit, 'R>>, "f")

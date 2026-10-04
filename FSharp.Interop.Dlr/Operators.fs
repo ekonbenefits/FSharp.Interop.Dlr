@@ -1,6 +1,7 @@
 namespace FSharp.Interop.Dlr
 
 open System
+open System.Diagnostics.CodeAnalysis
 open System.Runtime.CompilerServices
 
 // Every marker below is [<MethodImpl(MethodImplOptions.NoInlining)>]: the F# optimizer inlines
@@ -13,19 +14,19 @@ module internal Outside =
 
 open Outside
 
-[<Sealed>]
+[<Sealed; ExcludeFromCodeCoverage>]
 type Named<'T> private () =
     class end
 
-[<Sealed>]
+[<Sealed; ExcludeFromCodeCoverage>]
 type TypeArgs private () =
     class end
 
-[<Sealed>]
+[<Sealed; ExcludeFromCodeCoverage>]
 type OutArg private () =
     class end
 
-[<Sealed>]
+[<Sealed; ExcludeFromCodeCoverage>]
 type RefArg<'T> private () =
     class end
 
