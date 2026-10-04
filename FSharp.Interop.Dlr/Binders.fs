@@ -496,16 +496,23 @@ module internal Signatures =
         if isVoid then unitResult else accepts receiver given
 
     /// A function of `domains` → `result` serves as a delegate of `parameters` → `returns`: the
-    /// delegate's arguments go to the function, its result comes back.
+    /// delegate's arguments go to the function, its result comes back. A `unit` result serves
+    /// only a `void` or `Unit`-returning delegate, as in F# (`fun x -> ()` is no `Func<int, obj>`).
     let functionServesDelegate (domains: Type list) (result: Type) (parameters: Type list) (returns: Type) =
         domains.Length = parameters.Length && List.forall2 accepts domains parameters
-        && results returns result (result = typeof<unit>) (returns = typeof<Void>)
+        && (if result = typeof<unit> then returns = typeof<Void> || returns = typeof<unit>
+            else results returns result false (returns = typeof<Void>))
 
     /// A delegate of `parameters` → `returns` serves as a function of `domains` → `result`: the
     /// function's arguments go to the delegate, its result comes back.
     let delegateServesFunction (domains: Type list) (result: Type) (parameters: Type list) (returns: Type) =
         domains.Length = parameters.Length && List.forall2 accepts parameters domains
         && results result returns (result = typeof<unit>) (returns = typeof<Void>)
+
+    /// The same signature, no variance: what ranks a candidate among several a delegate or function
+    /// argument fits (an exact match beats one through variance, as an exact type does).
+    let exactly (domains: Type list) (result: Type) (parameters: Type list) (returns: Type) =
+        domains = parameters && (returns = result || (returns = typeof<Void> && result = typeof<unit>))
 
 /// Delegates over IL emitted once — `new Adapter(f)` and a delegate constructor, a rewrap — so a
 /// per-call conversion costs an allocation, not `ConstructorInfo.Invoke` or
@@ -528,9 +535,9 @@ module internal DelegateConversions =
     let private makers = System.Collections.Concurrent.ConcurrentDictionary<struct (Type * Type), (Delegate -> obj) option>(TypePairComparer.Instance)
 
     /// A maker of the typed wrapper for a function type from a delegate type, or None when the
-    /// signatures do not match exactly — then the binder does not offer the conversion
+    /// signatures do not fit (`Signatures.delegateServesFunction`) — then the binder does not offer the conversion
     /// (`delegateToFunction`), and None is cached like a maker. The delegate is rebound to the
-    /// `Func`/`Action` of its signature, which any delegate with that signature allows; past five
+    /// `Func`/`Action` of the function's signature over its own `Invoke`; past five
     /// parameters, a factory compiled once calls the delegate type's own `Invoke`.
     let tryTyped (funcType: Type) (delegateType: Type) : (Delegate -> obj) option =
         match makers.TryGetValue(struct (funcType, delegateType)) with
@@ -570,7 +577,9 @@ module internal DelegateConversions =
                                     il.Emit(System.Reflection.Emit.OpCodes.Ret))
                                 (fun () -> Func<Delegate, obj>(fun d -> ctor.Invoke [| box d |]))
                         Some(fun (d: Delegate) ->
-                            let standardDelegate = if d.GetType() = standard then d else Delegate.CreateDelegate(standard, d.Target, d.Method)
+                            // Rebound over the delegate's own `Invoke`, not its last target and method:
+                            // a multicast delegate keeps every target.
+                            let standardDelegate = if d.GetType() = standard then d else Delegate.CreateDelegate(standard, d, DelegateMembers.invokeOf (d.GetType()))
                             construct.Invoke standardDelegate)
                 | None -> None
             makers.[struct (funcType, delegateType)] <- maker
@@ -667,8 +676,7 @@ module FunctionConversions =
             (fun () -> Func<obj, Delegate>(fun f -> Delegate.CreateDelegate(delegateType, ctor.Invoke [| f |], invoke)))
 
     /// The factory for `delegateType` from a function value of `funcType`, or None when the shapes
-    /// do not match (arity, the function's domains reference-assignable to the delegate's
-    /// parameters, a `unit` result only for a void delegate).
+    /// do not fit (`Signatures.functionServesDelegate`).
     let tryConversion (funcType: Type) (delegateType: Type) : Func<obj, Delegate> option =
         match conversions.TryGetValue(struct (funcType, delegateType)) with
         | true, c -> c
@@ -743,8 +751,7 @@ module internal OptionalArguments =
             Some(Expression.Convert(Expression.Call(make, Expression.Constant delegateType, Expression.Convert(a.Expression, typeof<obj>)), delegateType) :> Expression)
 
     /// A delegate for an F# function-typed parameter: `DelegateFunction`'s typed wrapper, offered
-    /// exactly when `DelegateConversions.tryTyped` has one for this pair (the same signature: domains,
-    /// a void delegate for a `unit` result, or the same return type).
+    /// exactly when `DelegateConversions.tryTyped` has one for this pair (`Signatures`).
     let private delegateToFunction (funcType: Type) (a: DynamicMetaObject) : Expression option =
         match DelegateConversions.tryTyped funcType a.LimitType with
         | Some _ ->
@@ -815,6 +822,18 @@ module internal OptionalArguments =
     /// omitted parameters; a tie is ambiguous and left to C#'s error. `instance` is the receiver
     /// for instance methods, None for static methods and constructors; `call` builds the
     /// invocation of the chosen candidate.
+    /// A delegate argument for a function slot, or a function for a delegate slot, of exactly the
+    /// slot's signature (no variance): counted as an exact match when ranking candidates.
+    let private exactConversion (slot: Type) (argType: Type) =
+        let signature (funcType: Type) (delegateType: Type) =
+            match FunctionShapes.parameters funcType, DelegateMembers.invokeOf delegateType with
+            | Some(ds, _, result), invoke when not (isNull invoke) ->
+                Signatures.exactly ds result [ for p in invoke.GetParameters() -> p.ParameterType ] invoke.ReturnType
+            | _ -> false
+        if isDelegate argType && (FunctionShapes.domains slot).IsSome then signature slot argType
+        elif isDelegate slot && (FunctionShapes.domains argType).IsSome then signature argType slot
+        else false
+
     let private tryInvoke (candidates: MethodBase[]) (call: MethodBase -> Expression list -> Expression) (targetRestriction: BindingRestrictions) (args: DynamicMetaObject[]) : DynamicMetaObject option =
         let fitting =
             candidates
@@ -826,7 +845,7 @@ module internal OptionalArguments =
                     let supplied = [ for i in 0 .. args.Length - 1 -> fit ps.[i] args.[i] ]
                     if supplied |> List.exists Option.isNone then None
                     else
-                        let exact = Seq.zip ps args |> Seq.filter (fun (p, a) -> p.ParameterType = a.LimitType) |> Seq.length
+                        let exact = Seq.zip ps args |> Seq.filter (fun (p, a) -> p.ParameterType = a.LimitType || exactConversion p.ParameterType a.LimitType) |> Seq.length
                         Some(m, ps, List.choose id supplied, exact))
             |> Array.sortByDescending (fun (_, ps, _, exact) -> exact, -ps.Length)
         match List.ofArray fitting with

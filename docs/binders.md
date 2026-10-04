@@ -160,7 +160,10 @@ receives a value accepts it — the same type, or for reference types the varian
 (a `Func<obj, int>` serves a `string -> int`, a `Func<int, string>` an `int -> obj`), value
 types exactly, and a `void` or `Unit`-returning delegate for a `unit` result; anything else is
 C#'s binder error. `DelegateConversions.tryTyped` decides both whether the binder offers a
-delegate → function conversion and how it is made. Not `FuncConvert`, whose
+delegate → function conversion and how it is made; a delegate of another type is rebound over
+its own `Invoke`, so a multicast one keeps every target. Among candidates, an exact signature
+counts as an exact match, so overloads differing only by variance resolve as before. (On wasm, an
+open-instance delegate over a virtual method dispatches non-virtually once rebound: a Mono quirk.) Not `FuncConvert`, whose
 wrapper loses arguments on Mono's browser-wasm runtime. A related wasm fault, a nested
 non-capturing lambda losing its arguments, is why every lambda and delegate literal written in a
 block is made to capture the closure parameter there (`capturing` in `Translate.fs`, a no-op

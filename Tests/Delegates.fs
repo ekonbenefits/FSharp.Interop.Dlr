@@ -67,6 +67,29 @@ let ``delegates and functions convert by one rule: the receiving side accepts th
     List.ofSeq seen |> should equal [ 7 ]
     // A function-valued member whose domain is `Delegate` itself: the Func of the argument's signature.
     (dlr { return o?Kind(fun () -> 1) } : string) |> should equal "Func`1"
+    // Overloads differing only by variance: the exact signature wins, as before variance converted.
+    (dlr { return o?Over(Func<obj, int>(fun _ -> 1)) } : string) |> should equal "obj"
+    (dlr { return o?Over(Func<string, int>(fun _ -> 1)) } : string) |> should equal "string"
+    (dlr { return o?OverR(Func<int, string>(fun _ -> "")) } : string) |> should equal "string"
+    // A multicast delegate keeps every target through the conversion.
+    let calls = ResizeArray<string>()
+    let both = Delegate.Combine(Action<obj>(fun _ -> calls.Add "a"), Action<obj>(fun _ -> calls.Add "b")) :?> Action<obj>
+    (dlr { return o?UnitDom(both) } : unit)
+    List.ofSeq calls |> should equal [ "a"; "b" ]
+    // Not converted: a unit result for a delegate returning a reference, an obj domain for an int parameter.
+    let refused (f: unit -> unit) = f |> should throw typeof<Microsoft.CSharp.RuntimeBinder.RuntimeBinderException>
+    refused (fun () -> (dlr { return o?FuncObj(fun (_: int) -> ()) } : obj) |> ignore)
+    refused (fun () -> (dlr { return o?FuncIntInt(fun (x: obj) -> x.GetHashCode()) } : int) |> ignore)
+
+[<Fact>]
+let ``an open-instance delegate over a virtual method dispatches virtually through a variance conversion`` () =
+    if string Runtime.InteropServices.RuntimeInformation.OSArchitecture = "Wasm" then
+        // Mono's interpreter dispatches it non-virtually once rebound to another delegate type (the
+        // same delegate called directly is right); an exotic input, left as a known wasm gap.
+        raise (AnyUnit.IgnoreException "Mono rebinds an open-instance virtual delegate non-virtually")
+    let o = box (Callbacks())
+    let hash = Delegate.CreateDelegate(typeof<Func<obj, int>>, null, typeof<obj>.GetMethod("GetHashCode")) :?> Func<obj, int>
+    (dlr { return o?Length(hash) } : int) |> should equal ("four".GetHashCode())
 
 [<Fact>]
 let ``a delegate for a function over a one-element tuple is C#'s error`` () =
