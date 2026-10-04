@@ -21,8 +21,9 @@ FSharp.Interop.Dlr/check-internals.sh  # each idiom fixed more than once has one
   it once shipped that way). `--no-incremental` forces it; `error DLR001`/`DLR002` fails the build.
 - Analyzer tests (`Analyzers.Tests`) run as part of `dotnet test`; run their dll directly to see
   them alone. CI treats warnings as errors.
-- CI (`build.yml`) runs on every PR and every push to master (which publishes a prerelease and
-  refreshes the badges); the repo is public, so Actions minutes are free. net48 is its own job
+- CI (`build.yml`) runs on every PR and every push to master (which publishes a prerelease,
+  refreshes the badges on the `badges` branch, and deploys the test and coverage HTML reports to
+  GitHub Pages, https://ekonbenefits.github.io/FSharp.Interop.Dlr/, which the badges link to); the repo is public, so Actions minutes are free. net48 is its own job
   (`net48`, Windows), so a .NET Framework failure does not read as the Windows net10.0 leg's.
   `dotnet11` builds and runs the suite on the .NET 11 preview SDK (compiler, runtime, analyzer
   host) as a non-blocking early warning (#67): a red `dotnet11` job is a heads-up to look at, not
