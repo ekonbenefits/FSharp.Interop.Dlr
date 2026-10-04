@@ -47,7 +47,7 @@ cached per type like everything else.
 ## Invocation
 
 The C# binder invokes delegates and dynamic objects; an F# function value is an `FSharpFunc`
-object, which it reports as "Cannot invoke a non-delegate type". Three binders in `Binders.fs`
+object, which it reports as "Cannot invoke a non-delegate type". Three binders in `Seam.fs`
 subclass the DLR's binder types, wrap C#'s, and add the F# case in the fallbacks:
 
 - **`FSharpInvokeMemberBinder`** (`x?Name(args)`). `FallbackInvokeMember` (a CLR target): if the
@@ -56,7 +56,7 @@ subclass the DLR's binder types, wrap C#'s, and add the F# case in the fallbacks
   a rule for a method whose F# optional parameters (`?arg`, i.e. `[<OptionalArgument>]
   FSharpOption<'T>`) the arguments fit once omitted ones are `None` and bare values `Some`,
   offered as the *error suggestion*, which C# uses only where its own binding fails
-  (`OptionalArguments.tryCall`). `FallbackInvoke` (a dynamic target has produced the member's
+  (`Fallback.tryCall`). `FallbackInvoke` (a dynamic target has produced the member's
   value): delegates to `FSharpInvokeBinder`.
 - **`FSharpInvokeBinder`** (`Dlr.call` / `Dlr.apply`, and the value step above). `FallbackInvoke`: if the value's
   runtime type is a candidate, a rule applying it restricted to that type; otherwise C#'s `Invoke`.
@@ -95,7 +95,7 @@ rule carries an instance restriction for it — a type restriction can never hol
 rule that fails its own test makes the DLR re-bind forever. Our reflection
 lookups (function members, optional-parameter methods, constructors, static overloads) apply the
 same accessibility rule as C#'s binder, from the same context type — [restrictions](restrictions.md)
-states it; `Accessibility` in `Binders.fs` applies it, to the member and to its declaring type at
+states it; `Accessibility` in `Reflection.fs` applies it, to the member and to its declaring type at
 every nesting level. Named or generic calls use C#'s binder unchanged. A member read as `… -> unit` is invoked through a void, result-discarded site.
 
 ## The reflection fallback
@@ -106,19 +106,19 @@ constructors (`tryConstruct`, through `FSharpInvokeConstructorBinder`: C#'s cons
 takes no error suggestion, its failure is a rule that throws, so ours applies exactly when C#'s
 bind is that throw) and a delegate target's `Invoke` (`tryInvokeDelegate`, from
 `FSharpInvokeBinder`; a delegate-typed member is routed to that nested site).
-Every one of them fits an argument to a typed slot through `OptionalArguments.convertValue` —
+Every one of them fits an argument to a typed slot through `Fallback.convertValue` —
 assignable or C#-widened, a null for a reference or nullable slot, or a `conversion` (function ↔
 delegate, a function for a `Delegate` slot) — with an F# optional parameter's `Some` layered on
 by `fit`; the byref binder uses it too. `FunctionShapes.applyCall` takes the conversions through a
-hook (`convertArgument`, set to `conversion` once `OptionalArguments` exists), so an F# function
+hook (`convertArgument`, set to `conversion` once `Fallback` exists), so an F# function
 member whose domain is a delegate, a function or `Delegate` accepts the other kind too.
 
 ## Functions and delegates
 
-The fallback (`OptionalArguments.tryCall`, C#'s error suggestion) converts an F# function
+The fallback (`Fallback.tryCall`, C#'s error suggestion) converts an F# function
 argument for a delegate parameter and a delegate argument for a function parameter. Assignment
 takes the same conversions (#153): `FSharpSetMemberBinder` and `FSharpSetIndexBinder` offer
-`OptionalArguments.trySet` as C#'s error suggestion — a property's or indexer's setter called
+`Fallback.trySet` as C#'s error suggestion — a property's or indexer's setter called
 through the same `tryInvoke` (indexes, then the value), a field or array element assigned the
 converted value — so `x?Handler <- fun a b -> …` against a `Func<int, int, int>` property, or
 `handlers |> Dlr.setItem "k" (fun x -> …)` into a `Dictionary<string, Func<int, int>>`, binds
@@ -166,7 +166,7 @@ counts as an exact match, so overloads differing only by variance resolve as bef
 open-instance delegate over a virtual method dispatches non-virtually once rebound: a Mono quirk.) Not `FuncConvert`, whose
 wrapper loses arguments on Mono's browser-wasm runtime. A related wasm fault, a nested
 non-capturing lambda losing its arguments, is why every lambda and delegate literal written in a
-block is made to capture the closure parameter there (`capturing` in `Translate.fs`, a no-op
+block is made to capture the closure parameter there (`capturing` in `TranslateBlock.fs`, a no-op
 elsewhere).
 
 *Delegate literals in a block* (`w?Each(Action<string>(fun s -> …))`) compile with the block, as

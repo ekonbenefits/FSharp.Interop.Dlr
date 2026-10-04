@@ -14,7 +14,7 @@ Past `Func`'s 17 type parameters (15 arguments and up) that delegate type is emi
 quotation must not name it: FSharp.Core's `Expr.Call` checks ask the type's assembly
 `ReflectionOnly`, which Mono's browser runtime has not implemented. So a wide site's call is
 emitted as a placeholder whose types are all plain — `WideSite.Invoke(site: CallSite,
-delegateType: Type, args: obj[])` — and the LINQ `SiteHoister` in `Translate.fs`, which visits
+delegateType: Type, args: obj[])` — and the LINQ `SiteHoister` in `SiteHoister.fs`, which visits
 every tree after conversion anyway, rewrites it into the typed `Expression.Invoke` on the site's
 `Target`, unboxing each argument back to its parameter type. The same tree as a narrow site gets,
 one step later, on every runtime, not only wasm; nothing changes for sites of up to 14 arguments. Every compiled tree goes
@@ -122,7 +122,7 @@ sites per member name inside it (many, no `Compile()`) — each cost where it be
 The call sites are `Expression.Constant`s. `LambdaExpression.Compile` keeps a reference-type
 constant in the closure's `Constants` array and re-reads and casts it at each use, two per site
 call (`site.Target` and the `site` argument), so a LINQ `ExpressionVisitor` (`SiteHoister` in
-`Translate.fs`) gives each lambda — the block's own and every nested loop/try body — a `Block`
+`SiteHoister.fs`) gives each lambda — the block's own and every nested loop/try body — a `Block`
 binding the sites its body uses to variables assigned once at entry; a use is a local read. Per
 lambda, because a variable captured by a nested lambda would be a `StrongBox` read, no better than
 the constant; on the LINQ tree, because FSharp.Core below 10.1 converts a quotation `Let` into a

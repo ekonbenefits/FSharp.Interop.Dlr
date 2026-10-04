@@ -1,6 +1,6 @@
 ---
 name: new-binder
-description: Checklist for adding or changing an F#-aware DLR binder (Binders.fs) in FSharp.Interop.Dlr — rule shape, C#-first vs ours-first, parallel paths, required tests, docs. Use for issues like structural operators (#20) or delegate conversion (#21).
+description: Checklist for adding or changing an F#-aware DLR binder (Seam.fs) in FSharp.Interop.Dlr — rule shape, C#-first vs ours-first, parallel paths, required tests, docs. Use for issues like structural operators (#20) or delegate conversion (#21).
 ---
 
 # Adding an F#-aware binder
@@ -9,9 +9,11 @@ A binder rule belongs in the *seam* (`docs/binders.md`): where C# fails or binds
 expectation on what F# hands it. The membership test: would the rule change what C# binds for
 C#'s own inputs? Then it is not a seam rule (the structural-`==` exception is already taken).
 
-Read `docs/binders.md` and `docs/call-sites.md` first (index: `docs/internals.md`); `FSharp.Interop.Dlr/Binders.fs` holds everything (helpers,
-`Accessibility`, `OptionalArguments`, `FunctionShapes`, the binders, the `Binders` module that
-`Translate.fs` calls to emit `siteCall` nodes); the generated delegate/function adapter types are
+Read `docs/binders.md` and `docs/call-sites.md` first (index: `docs/internals.md`); the library's files, in compile order: `Runtime.fs`
+(`DlrRuntime`), `Reflection.fs` (`Accessibility`, `Conversions`, `Tuples`, `DelegateMembers`,
+`Signatures`, `Emit`), `Functions.fs` (`FunctionShapes`, the function ↔ delegate conversions,
+`FunctionMember`), `Seam.fs` (`Fallback`, `Seam`, the binders), `SiteCaches.fs`, and
+`Binders.fs` (the `Binders` module the translator (`TranslateMembers.fs`) calls to emit `siteCall` nodes); the generated delegate/function adapter types are
 in `Adapters.fs` (`generate-adapters.fsx`).
 
 ## Shape of a binder
@@ -49,7 +51,7 @@ The misses caught in review were always "handled here, not there". Check each:
   object produced the member).
 - Arities: 0, 1, 2, 5, >5 (the typed helpers stop at five; past it `FunctionBuilder` compiles the function).
 - Accessibility: public, internal, protected, private from inside the declaring type.
-- F# optional parameters (`OptionalArguments.tryCall`) as the error suggestion where a method
+- F# optional parameters (`Fallback.tryCall`) as the error suggestion where a method
   of that name exists.
 
 ## Tests (AnyUnit `[<Fact>]` + FsUnit `should`, module under `[<ReflectedDefinition>]`)
