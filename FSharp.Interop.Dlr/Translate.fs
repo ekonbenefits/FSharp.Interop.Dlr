@@ -577,12 +577,8 @@ module internal Translate =
                         let r = Expression.Variable(invokeMethod.ReturnType, "result")
                         temps.Add r
                         (Expression.Convert(r, typeof<obj>) :> Expression), (Expression.Assign(r, call) :> Expression)
-                // The holder `node.Type` (Binders.byRefHolderType), nested in `Rest` past seven.
-                let rec holder (t: Type) (values: Expression list) : Expression =
-                    let fields = t.GetGenericArguments()
-                    let args = if fields.Length = 8 then List.take 7 values @ [ holder fields.[7] (List.skip 7 values) ] else values
-                    Expression.New(t.GetConstructor fields, args) :> Expression
-                let values = holder node.Type (result :: [ for i in 0 .. elements.Count - 1 do if parameters.[i + 1].ParameterType.IsByRef then yield (tempAt.[i] :> Expression) ])
+                // The holder `node.Type` (Binders.byRefHolderType).
+                let values = Tuples.newExpression node.Type (result :: [ for i in 0 .. elements.Count - 1 do if parameters.[i + 1].ParameterType.IsByRef then yield (tempAt.[i] :> Expression) ])
                 Expression.Block(node.Type, temps, List.ofSeq inits @ [ callStep; values ]) :> Expression
             // An in-place struct operation's write-back (`Binders.InPlace`): in a finally.
             elif node.Method.DeclaringType = typeof<Binders.InPlace> then
@@ -936,13 +932,8 @@ module internal Translate =
                     | Choice2Of2(_, write) -> yield rewriteIn bound' (write (at (i + 1)))
                     | Choice1Of2 _ -> () ]
             let outValues = [ for i, b in Seq.indexed byRefs do match b with Choice1Of2 _ -> yield at (i + 1) | Choice2Of2 _ -> () ]
-            // The result tuple, of the result type's kind: a struct one is the ValueTuple constructor,
-            // nested in its `Rest` past seven elements.
-            let rec newStructTuple (t: Type) (values: Expr list) =
-                let elements = t.GetGenericArguments()
-                let values = if elements.Length = 8 then List.take 7 values @ [ newStructTuple elements.[7] (List.skip 7 values) ] else values
-                Expr.NewObject(t.GetConstructor elements, values)
-            let newTuple (values: Expr list) = if resultType.IsValueType then newStructTuple resultType values else Expr.NewTuple values
+            // The result tuple, of the result type's kind: a struct one is the ValueTuple constructor.
+            let newTuple (values: Expr list) = if resultType.IsValueType then Tuples.newQuotation resultType values else Expr.NewTuple values
             let value =
                 match returnType, outValues with
                 | None, [] -> Expr.Value(())

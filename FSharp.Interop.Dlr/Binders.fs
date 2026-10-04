@@ -151,6 +151,52 @@ module internal Conversions =
     /// Assignable, or a C# implicit numeric widening (`Expression.Convert` does the widening in the rule).
     let fits (paramType: Type) (argType: Type) = paramType.IsAssignableFrom argType || widens argType paramType
 
+/// CLR tuples past seven elements, `Tuple` and `ValueTuple` alike: the first seven, then the rest
+/// as an eighth, `Rest`, itself a tuple. The one place that nesting is spelled out — for building
+/// a tuple's type, reading an element, constructing one in a LINQ tree or a quotation, or at run time.
+module internal Tuples =
+    let private valueTupleDefinitions =
+        [| typedefof<ValueTuple<_>>; typedefof<ValueTuple<_, _>>; typedefof<ValueTuple<_, _, _>>; typedefof<ValueTuple<_, _, _, _>>
+           typedefof<ValueTuple<_, _, _, _, _>>; typedefof<ValueTuple<_, _, _, _, _, _>>; typedefof<ValueTuple<_, _, _, _, _, _, _>>
+           typedefof<ValueTuple<_, _, _, _, _, _, _, _>> |]
+
+    /// The `ValueTuple` of these element types (one or more).
+    let rec valueTupleOf (types: Type list) : Type =
+        if types.Length <= 7 then valueTupleDefinitions.[types.Length - 1].MakeGenericType(Array.ofList types)
+        else valueTupleDefinitions.[7].MakeGenericType(Array.ofList (List.take 7 types @ [ valueTupleOf (List.skip 7 types) ]))
+
+    /// The member names leading to element `i`: `Item(i+1)`, after a `Rest` per seven before it.
+    let rec elementPath (i: int) : string list =
+        if i < 7 then [ sprintf "Item%d" (i + 1) ] else "Rest" :: elementPath (i - 7)
+
+    /// Element `i` of a tuple in a LINQ tree (a reference tuple's property, a struct one's field).
+    let element (tuple: Expression) (i: int) : Expression =
+        elementPath i |> List.fold (fun e name -> Expression.PropertyOrField(e, name) :> Expression) tuple
+
+    /// The fields leading to element `i` of a `ValueTuple` (for a quotation's FieldGet).
+    let fieldPath (valueTuple: Type) (i: int) : FieldInfo list =
+        elementPath i |> List.mapFold (fun (t: Type) name -> let f = t.GetField name in f, f.FieldType) valueTuple |> fst
+
+    /// The arguments of a tuple constructor: the first seven values and the rest built by `nest`.
+    let private split (t: Type) (values: 'E list) (nest: Type -> 'E list -> 'E) =
+        let elements = t.GetGenericArguments()
+        if elements.Length = 8 then elements, List.take 7 values @ [ nest elements.[7] (List.skip 7 values) ] else elements, values
+
+    /// A tuple of type `t` (reference or struct) from these values, in a LINQ tree.
+    let rec newExpression (t: Type) (values: Expression list) : Expression =
+        let elements, args = split t values newExpression
+        Expression.New(t.GetConstructor elements, args) :> Expression
+
+    /// A tuple of type `t` (reference or struct) from these values, in a quotation.
+    let rec newQuotation (t: Type) (values: Expr list) : Expr =
+        let elements, args = split t values newQuotation
+        Expr.NewObject(t.GetConstructor elements, args)
+
+    /// A tuple of type `t` from these values, at run time.
+    let rec make (t: Type) (values: obj list) : obj =
+        let _, args = split t values make
+        Activator.CreateInstance(t, Array.ofList args)
+
 /// Whether a function type (the runtime type of a value, or a member's declared type) is an
 /// `FSharpFunc` that the call site's arguments fit, and the expression applying it. The shape
 /// comes from the function itself, not from the call's declared result: a discarded result or a
@@ -223,16 +269,6 @@ module internal FunctionShapes =
                 let ds, r = chain ga.[1] [ ga.[0] ]
                 Some(ds, false, r)
 
-    /// The tuple of these values. Past seven elements a CLR tuple nests — `Tuple<a … g, Tuple<h, …>>`
-    /// — and the flattened element list has no constructor, so build each rest tuple in turn.
-    let rec private newTuple (tupleType: Type) (values: Expression list) : Expression =
-        let ctor, rest = FSharp.Reflection.FSharpValue.PreComputeTupleConstructorInfo tupleType
-        match rest with
-        | None -> Expression.New(ctor, values) :> Expression
-        | Some restType ->
-            let head, tail = List.splitAt (ctor.GetParameters().Length - 1) values
-            Expression.New(ctor, head @ [ newTuple restType tail ]) :> Expression
-
     /// The call applying `read` (an expression whose value is of `funcType`) with `args`, boxed,
     /// if the shape fits: `unit -> R` for no arguments, `A -> R` for one, and for more either a
     /// tuple domain of that size or a curried chain of that depth.
@@ -254,7 +290,7 @@ module internal FunctionShapes =
                     if FSharp.Reflection.FSharpType.IsTuple domain then
                         let es = List.ofArray (FSharp.Reflection.FSharpType.GetTupleElements domain)
                         if es.Length = n && List.forall2 fitsArg es args then
-                            let tuple = newTuple domain (List.map2 convertTo es args)
+                            let tuple = Tuples.newExpression domain (List.map2 convertTo es args)
                             Some(boxed (invoke f ft tuple))
                         else None
                     else None
@@ -343,11 +379,6 @@ type CurriedStep<'Prev, 'Own, 'A, 'R>(prev: 'Prev, own: 'Own, next: Func<Curried
 /// OptimizedClosures, minus InvokeFast. Typed throughout: no boxing, no `DynamicInvoke`, and what
 /// the call throws arrives as itself.
 module internal FunctionBuilder =
-    /// Element `i` of a reference or struct tuple: `Item(i+1)`, through `Rest` past the seventh.
-    let rec private element (tuple: Expression) (i: int) : Expression =
-        if i < 7 then Expression.PropertyOrField(tuple, sprintf "Item%d" (i + 1))
-        else element (Expression.PropertyOrField(tuple, "Rest")) (i - 7)
-
     /// The F# function whose result is `call captured args`: tupled over `tupleType` when given
     /// (`domains` its elements), else curried over `domains`; `captured` (one to seven: sites,
     /// target, delegate) are values from the enclosing lambda, handed to `call` as expressions
@@ -376,7 +407,7 @@ module internal FunctionBuilder =
                     let capturedValues = [ for i in 0 .. captured.Length - 1 -> Expression.Property(Expression.Property(up 0, "Prev"), sprintf "Item%d" (i + 1)) :> Expression ]
                     let args =
                         match tupleType with
-                        | Some _ -> [ for i in 0 .. domains.Length - 1 -> element a i ]
+                        | Some _ -> [ for i in 0 .. domains.Length - 1 -> Tuples.element a i ]
                         | None -> [ for i in 0 .. n - 2 -> Expression.Property(up (i + 1), "Own") :> Expression ] @ [ a ]
                     call capturedValues args
             Expression.Lambda(typedefof<Func<_, _, _>>.MakeGenericType(stepType k, steps.[k], funcType (k + 1)), body, [ self; a ]).Compile()
@@ -1584,18 +1615,9 @@ module internal Binders =
     /// The holder a byref call returns: the result (`obj`), then each byref argument's value after
     /// the call, typed, in argument order — a `ValueTuple`, nested in its `Rest` past seven, so
     /// nothing is boxed or allocated on the way out.
-    let rec byRefHolderType (types: Type list) : Type =
-        if types.Length <= 7 then
-            let def = [| typedefof<ValueTuple<_>>; typedefof<ValueTuple<_, _>>; typedefof<ValueTuple<_, _, _>>; typedefof<ValueTuple<_, _, _, _>>
-                         typedefof<ValueTuple<_, _, _, _, _>>; typedefof<ValueTuple<_, _, _, _, _, _>>; typedefof<ValueTuple<_, _, _, _, _, _, _>> |].[types.Length - 1]
-            def.MakeGenericType(Array.ofList types)
-        else typedefof<ValueTuple<_, _, _, _, _, _, _, _>>.MakeGenericType(Array.ofList (List.take 7 types @ [ byRefHolderType (List.skip 7 types) ]))
+    let byRefHolderType (types: Type list) : Type = Tuples.valueTupleOf types
     /// Element `i` of a holder: `Item(i+1)`, through `Rest` past the seventh.
-    let rec byRefHolderPath (holder: Type) (i: int) : FieldInfo list =
-        if i < 7 then [ holder.GetField(sprintf "Item%d" (i + 1)) ]
-        else
-            let rest = holder.GetField("Rest")
-            rest :: byRefHolderPath rest.FieldType (i - 7)
+    let byRefHolderPath (holder: Type) (i: int) : FieldInfo list = Tuples.fieldPath holder i
 
     /// A site with byref parameters (`Dlr.out`, `Dlr.ref`). No quotation can pass a byref, so the
     /// call is this placeholder: the values go in as an `obj[]` (target first) and come back as the
@@ -1617,11 +1639,7 @@ module internal Binders =
                     System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.InnerException).Throw()
                     null
             let values = result :: [ for i in byRefs -> all.[i + 1] ]
-            let rec make (holder: Type) (values: obj list) : obj =
-                let fields = holder.GetGenericArguments()
-                if fields.Length = 8 then Activator.CreateInstance(holder, Array.ofList (List.take 7 values @ [ make fields.[7] (List.skip 7 values) ]))
-                else Activator.CreateInstance(holder, Array.ofList values)
-            make typeof<'H> values :?> 'H
+            Tuples.make typeof<'H> values :?> 'H
     let private byRefInvokeMethod = typeof<ByRefSite>.GetMethod("Invoke", BindingFlags.Static ||| BindingFlags.Public ||| BindingFlags.NonPublic)
 
     /// The holder type of a byref call over `all` (target first): the result, then each byref's type.
