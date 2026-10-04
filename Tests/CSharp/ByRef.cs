@@ -5,6 +5,8 @@ namespace Tests.CSharp
     /// <summary>Methods with <c>ref</c> and <c>out</c> parameters, for <c>Dlr.out</c> / <c>Dlr.ref</c> (#131).</summary>
     public class ByRefs
     {
+        /// <summary>Fifteen outs: with the result, a 16-element tuple, nested twice in <c>Rest</c>.</summary>
+        public int Fifteen(out int a1, out int a2, out int a3, out int a4, out int a5, out int a6, out int a7, out int a8, out int a9, out int a10, out int a11, out int a12, out int a13, out int a14, out int a15) { a1 = 1; a2 = 2; a3 = 3; a4 = 4; a5 = 5; a6 = 6; a7 = 7; a8 = 8; a9 = 9; a10 = 10; a11 = 11; a12 = 12; a13 = 13; a14 = 14; a15 = 15; return 100; }
         public void Swap(ref int a, ref int b) { var t = a; a = b; b = t; }
         public int DivRem(int a, int b, out int remainder) { remainder = a % b; return a / b; }
         public void Split(string s, out string left, out string right)

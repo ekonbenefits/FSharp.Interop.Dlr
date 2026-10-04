@@ -39,7 +39,9 @@ flowchart TD
 
 The rule from `CLAUDE.md`, drawn once: ours goes before C#'s only where C# would bind *wrongly*
 rather than fail; everywhere else it is C#'s error suggestion, so a member C# can bind is bound
-exactly as C# would. A binder states which case it is in through `Seam.oursFirstWhen`. The seam is the `ours1`, `ours2` and `meta` boxes. Both paths produce DLR rules restricted on runtime types, so the decision is
+exactly as C# would. The invoke, set-member and set-index binders state which case they are in
+through `Seam.oursFirstWhen`; structural `==` and a `Delegate`-typed parameter decide in their own
+binders (`FSharpBinaryOperationBinder`, `FSharpInvokeMemberBinder`). The seam is the `ours1`, `ours2` and `meta` boxes. Both paths produce DLR rules restricted on runtime types, so the decision is
 cached per type like everything else.
 
 ## Invocation
