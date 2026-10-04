@@ -292,6 +292,10 @@ module internal FunctionShapes =
                 let ds, r = chain ga.[1] [ ga.[0] ]
                 Some(ds, false, r)
 
+    /// `domains` as a delegate's parameters: a `unit -> R` takes none (a parameterless delegate).
+    let parameters (funcType: Type) : (Type list * bool * Type) option =
+        domains funcType |> Option.map (fun (ds, tupled, result) -> (if ds = [ typeof<unit> ] then [] else ds), tupled, result)
+
     /// The call applying `read` (an expression whose value is of `funcType`) with `args`, boxed,
     /// if the shape fits: `unit -> R` for no arguments, `A -> R` for one, and for more either a
     /// tuple domain of that size or a curried chain of that depth.
@@ -456,6 +460,9 @@ type TypePairComparer() =
 module internal DelegateMembers =
     let private flags = BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic
     let invokeOf (delegateType: Type) : MethodInfo = delegateType.GetMethod("Invoke", flags)
+    /// Whether a delegate of this many parameters has a `Func`/`Action` (17 type parameters, the
+    /// result among them); past it the delegate type is one emitted at run time.
+    let funcFits (parameterCount: int) = parameterCount + 1 <= 17
     let constructorOf (delegateType: Type) : ConstructorInfo =
         delegateType.GetConstructor(flags, null, [| typeof<obj>; typeof<nativeint> |], null)
     let onNetFramework = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription.StartsWith ".NET Framework"
@@ -494,9 +501,8 @@ module internal DelegateConversions =
             let ps = [ for p in invoke.GetParameters() -> p.ParameterType ]
             let isVoid = invoke.ReturnType = typeof<Void>
             let maker =
-                match FunctionShapes.domains funcType with
+                match FunctionShapes.parameters funcType with
                 | Some(ds, tupled, result) ->
-                    let ds = if ds = [ typeof<unit> ] then [] else ds
                     let n = ds.Length
                     let unitResult = result = typeof<unit>
                     // A void delegate for a `unit` result, or one whose return type is the result's,
@@ -646,9 +652,8 @@ module FunctionConversions =
             let ps = [ for p in invoke.GetParameters() -> p.ParameterType ]
             let isVoid = invoke.ReturnType = typeof<Void>
             let conversion =
-                match FunctionShapes.domains funcType with
+                match FunctionShapes.parameters funcType with
                 | Some(ds, tupled, result) ->
-                    let ds = if ds = [ typeof<unit> ] then [] else ds
                     let n = ds.Length
                     let unitResult = result = typeof<unit>
                     let fitsParams = n = ps.Length && List.forall2 (fun (d: Type) (p: Type) -> d = p || (not d.IsValueType && d.IsAssignableFrom p)) ds ps
@@ -733,10 +738,9 @@ module internal OptionalArguments =
     /// Converter<Unit, R> of a `unit -> R` — a one-parameter delegate, wrong for a
     /// `DynamicInvoke()` — so this goes first wherever such a slot is the target.
     let private toAbstractDelegate (a: DynamicMetaObject) : Expression option =
-        match FunctionShapes.domains a.LimitType with
-        | Some(ds, _, _) when ds.Length > 16 -> None     // no Func/Action of that many parameters
+        match FunctionShapes.parameters a.LimitType with
+        | Some(ds, _, _) when not (DelegateMembers.funcFits ds.Length) -> None     // no Func/Action of that many parameters
         | Some(ds, _, result) ->
-            let ds = if ds = [ typeof<unit> ] then [] else ds
             let delegateType = if result = typeof<unit> then Expression.GetActionType(Array.ofList ds) else Expression.GetFuncType(Array.ofList (ds @ [ result ]))
             functionToDelegate delegateType a
         | None -> None
@@ -806,14 +810,18 @@ module internal OptionalArguments =
             Some(DynamicMetaObject(value, restrictions))
         | [] -> None
 
+    /// The target as a `t` to call or assign through: a struct in its box (`Unbox`), as C# does, so
+    /// a mutating method or an assignment changes the boxed value — `Convert` would unbox a copy.
+    let private receiver (t: Type) (target: DynamicMetaObject) : Expression =
+        if t.IsValueType then Expression.Unbox(target.Expression, t) :> Expression else Expression.Convert(target.Expression, t) :> Expression
+
     /// An instance method of `t` named `name` the arguments fit.
     let tryCall (context: Type) (t: Type) (name: string) (target: DynamicMetaObject) (args: DynamicMetaObject[]) : DynamicMetaObject option =
         let candidates =
             t.GetMethods(Accessibility.all)
             |> Array.filter (fun m -> m.Name = name && not m.IsGenericMethodDefinition && Accessibility.method' context t m)
             |> Array.map (fun m -> m :> MethodBase)
-        // A struct target is called in its box, as C# calls it: a mutating method mutates the box.
-        let self = if t.IsValueType then Expression.Unbox(target.Expression, t) :> Expression else Expression.Convert(target.Expression, t) :> Expression
+        let self = receiver t target
         tryInvoke candidates (fun m ps -> Expression.Call(self, m :?> MethodInfo, ps) :> Expression) (BindingRestrictions.GetTypeRestriction(target.Expression, t)) args
 
     /// The index types C# takes for an array: int, uint, long, ulong, and those that widen to them.
@@ -843,8 +851,7 @@ module internal OptionalArguments =
     /// `tryInvoke`; a field or an array element assigned the converted value. The result is the
     /// value as assigned, boxed, as C#'s assignment's is. None when nothing of that name fits.
     let trySet (context: Type) (t: Type) (name: string option) (target: DynamicMetaObject) (indexes: DynamicMetaObject[]) (value: DynamicMetaObject) : DynamicMetaObject option =
-        // A struct target is assigned in its box, as C#'s assignment is (Convert would unbox a copy).
-        let self = if t.IsValueType then Expression.Unbox(target.Expression, t) :> Expression else Expression.Convert(target.Expression, t) :> Expression
+        let self = receiver t target
         let targetRestriction = BindingRestrictions.GetTypeRestriction(target.Expression, t)
         let convertSlot (slotType: Type) =
             if isAbstractDelegate slotType && (FunctionShapes.domains value.LimitType).IsSome then toAbstractDelegate value
@@ -984,9 +991,8 @@ module internal MetaObjectArguments =
     /// The delegate type an F# function of `funcType` is naturally: `Func<…>`, `Action<…>` for a
     /// unit result; a tupled function by its elements.
     let private delegateTypeOf (funcType: Type) =
-        match FunctionShapes.domains funcType with
+        match FunctionShapes.parameters funcType with
         | Some(ds, _, result) ->
-            let ds = if ds = [ typeof<unit> ] then [] else ds
             let result = if result = typeof<unit> then typeof<Void> else result
             Some(Expression.GetDelegateType(Array.ofList (ds @ [ result ])))
         | None -> None
@@ -1700,8 +1706,8 @@ module internal Binders =
         let siteValue = match siteExpr with FSharp.Quotations.Patterns.Value(v, _) -> v | _ -> null
         let siteType = siteExpr.Type
         let delegateType = siteType.GetGenericArguments().[0]
-        // `args` holds the target too: CallSite + args + result within Func's 17 type parameters.
-        if args.Length + 2 <= 17 then
+        // `args` holds the target too; the site's delegate takes the CallSite before them.
+        if DelegateMembers.funcFits (args.Length + 1) then
             let target = Expr.FieldGet(siteExpr, siteType.GetField("Target"))
             Expr.Call(target, delegateType.GetMethod("Invoke"), siteExpr :: [ for a in args -> a.Expr ])
         else

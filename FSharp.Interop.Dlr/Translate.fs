@@ -943,7 +943,7 @@ module internal Translate =
         /// its arity allows; past that the delegate type would be emitted at run time, which a
         /// quotation must not name (see `Binders.WideSite`), so it is a `Func<obj[], obj>` over the
         /// parameters packed (`packArguments` at the call) and unpacked to their types inside.
-        let private isWide (parameters: Var list) = parameters.Length + 1 > 17   // Func's 17 type parameters, the result among them
+        let private isWide (parameters: Var list) = not (DelegateMembers.funcFits parameters.Length)
         let private delegateTypeOver (parameters: Var list) =
             if isWide parameters then typeof<Func<obj[], obj>>
             else Expression.GetDelegateType(Array.ofList ([ for v in parameters -> v.Type ] @ [ typeof<obj> ]))
