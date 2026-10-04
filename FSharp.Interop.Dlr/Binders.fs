@@ -483,6 +483,21 @@ module internal DelegateMembers =
             Some(Expression.GetDelegateType(Array.append ps [| invoke.ReturnType |]))
         else None
 
+/// Delegates over IL emitted once — `new Adapter(f)` and a delegate constructor, a rewrap — so a
+/// per-call conversion costs an allocation, not `ConstructorInfo.Invoke` or
+/// `Delegate.CreateDelegate`'s validation (~150–300 ns). One policy: `skipVisibility`, which covers
+/// a non-public member (an F# `internal` delegate's `Invoke` and constructor); and any failure
+/// falls back, not only an unsupported platform — the fallback is correct by construction, and a
+/// failure inside a static initializer would otherwise poison that type for the process.
+module internal Emit =
+    let factory<'F when 'F :> Delegate> (name: string) (returnType: Type) (parameters: Type[]) (owner: Module)
+                                       (emit: System.Reflection.Emit.ILGenerator -> unit) (fallback: unit -> 'F) : 'F =
+        try
+            let dm = System.Reflection.Emit.DynamicMethod(name, returnType, parameters, owner, true)
+            emit (dm.GetILGenerator())
+            dm.CreateDelegate(typeof<'F>) :?> 'F
+        with _ -> fallback ()
+
 /// The typed wrapper (`DelegateFunctions`, in Adapters.fs) for a delegate passed to a
 /// function-typed parameter.
 module internal DelegateConversions =
@@ -524,18 +539,15 @@ module internal DelegateConversions =
                         let def = typeof<DelegateFunctions.Action0<unit>>.DeclaringType.GetNestedType(name + "`" + string (n + 1))
                         let closed = def.MakeGenericType(Array.ofList (ds @ [ result ]))
                         let ctor = closed.GetConstructors().[0]
-                        // `new Wrapper(d)` as IL where the runtime allows it: ConstructorInfo.Invoke is ~150 ns.
+                        // `new Wrapper(d)`.
                         let construct =
-                            try
-                                let dm = System.Reflection.Emit.DynamicMethod("wrap", typeof<obj>, [| typeof<Delegate> |], closed.Module, true)
-                                let il = dm.GetILGenerator()
-                                il.Emit(System.Reflection.Emit.OpCodes.Ldarg_0)
-                                il.Emit(System.Reflection.Emit.OpCodes.Castclass, standard)
-                                il.Emit(System.Reflection.Emit.OpCodes.Newobj, ctor)
-                                il.Emit(System.Reflection.Emit.OpCodes.Ret)
-                                dm.CreateDelegate(typeof<Func<Delegate, obj>>) :?> Func<Delegate, obj>
-                            with :? PlatformNotSupportedException | :? NotSupportedException ->
-                                Func<Delegate, obj>(fun d -> ctor.Invoke [| box d |])
+                            Emit.factory<Func<Delegate, obj>> "wrap" typeof<obj> [| typeof<Delegate> |] closed.Module
+                                (fun il ->
+                                    il.Emit(System.Reflection.Emit.OpCodes.Ldarg_0)
+                                    il.Emit(System.Reflection.Emit.OpCodes.Castclass, standard)
+                                    il.Emit(System.Reflection.Emit.OpCodes.Newobj, ctor)
+                                    il.Emit(System.Reflection.Emit.OpCodes.Ret))
+                                (fun () -> Func<Delegate, obj>(fun d -> ctor.Invoke [| box d |]))
                         Some(fun (d: Delegate) ->
                             let standardDelegate = if d.GetType() = standard then d else Delegate.CreateDelegate(standard, d.Target, d.Method)
                             construct.Invoke standardDelegate)
@@ -570,19 +582,14 @@ type DelegateLiteral<'D when 'D :> Delegate> private () =
     static let factory : Func<'D, 'D> =
         let delegateType = typeof<'D>
         let invoke = DelegateMembers.invokeOf delegateType
-        try
-            // `skipVisibility` covers a non-public `Invoke` or constructor (an F# `internal` delegate).
-            let dm = System.Reflection.Emit.DynamicMethod("rewrap", delegateType, [| delegateType |], delegateType.Module, true)
-            let il = dm.GetILGenerator()
-            il.Emit(System.Reflection.Emit.OpCodes.Ldarg_0)
-            il.Emit(System.Reflection.Emit.OpCodes.Dup)
-            il.Emit(System.Reflection.Emit.OpCodes.Ldvirtftn, invoke)   // `Invoke` is virtual; the JIT accepts only `dup; ldvirtftn` before `newobj` here
-            il.Emit(System.Reflection.Emit.OpCodes.Newobj, DelegateMembers.constructorOf delegateType)
-            il.Emit(System.Reflection.Emit.OpCodes.Ret)
-            dm.CreateDelegate(typeof<Func<'D, 'D>>) :?> Func<'D, 'D>
-        // Any failure to emit, not only the documented ones: a poisoned static initializer would
-        // be permanent for this delegate type, and the fallback is correct by construction.
-        with _ -> Func<'D, 'D>(fun inner -> Delegate.CreateDelegate(delegateType, inner, invoke) :?> 'D)
+        Emit.factory<Func<'D, 'D>> "rewrap" delegateType [| delegateType |] delegateType.Module
+            (fun il ->
+                il.Emit(System.Reflection.Emit.OpCodes.Ldarg_0)
+                il.Emit(System.Reflection.Emit.OpCodes.Dup)
+                il.Emit(System.Reflection.Emit.OpCodes.Ldvirtftn, invoke)   // `Invoke` is virtual; the JIT accepts only `dup; ldvirtftn` before `newobj` here
+                il.Emit(System.Reflection.Emit.OpCodes.Newobj, DelegateMembers.constructorOf delegateType)
+                il.Emit(System.Reflection.Emit.OpCodes.Ret))
+            (fun () -> Func<'D, 'D>(fun inner -> Delegate.CreateDelegate(delegateType, inner, invoke) :?> 'D))
 
     static member Over(inner: 'D) : 'D = factory.Invoke inner
 
@@ -628,18 +635,15 @@ module FunctionConversions =
     let private emitFactory (delegateType: Type) (adapter: Type) : Func<obj, Delegate> =
         let ctor = adapter.GetConstructors().[0]
         let invoke = adapter.GetMethod("Invoke")
-        try
-            let dm = System.Reflection.Emit.DynamicMethod("make", typeof<Delegate>, [| typeof<obj> |], adapter.Module, true)
-            let il = dm.GetILGenerator()
-            il.Emit(System.Reflection.Emit.OpCodes.Ldarg_0)
-            il.Emit(System.Reflection.Emit.OpCodes.Castclass, ctor.GetParameters().[0].ParameterType)
-            il.Emit(System.Reflection.Emit.OpCodes.Newobj, ctor)
-            il.Emit(System.Reflection.Emit.OpCodes.Ldftn, invoke)
-            il.Emit(System.Reflection.Emit.OpCodes.Newobj, DelegateMembers.constructorOf delegateType)
-            il.Emit(System.Reflection.Emit.OpCodes.Ret)
-            dm.CreateDelegate(typeof<Func<obj, Delegate>>) :?> Func<obj, Delegate>
-        with :? PlatformNotSupportedException | :? NotSupportedException ->
-            Func<obj, Delegate>(fun f -> Delegate.CreateDelegate(delegateType, ctor.Invoke [| f |], invoke))
+        Emit.factory<Func<obj, Delegate>> "make" typeof<Delegate> [| typeof<obj> |] adapter.Module
+            (fun il ->
+                il.Emit(System.Reflection.Emit.OpCodes.Ldarg_0)
+                il.Emit(System.Reflection.Emit.OpCodes.Castclass, ctor.GetParameters().[0].ParameterType)
+                il.Emit(System.Reflection.Emit.OpCodes.Newobj, ctor)
+                il.Emit(System.Reflection.Emit.OpCodes.Ldftn, invoke)
+                il.Emit(System.Reflection.Emit.OpCodes.Newobj, DelegateMembers.constructorOf delegateType)
+                il.Emit(System.Reflection.Emit.OpCodes.Ret))
+            (fun () -> Func<obj, Delegate>(fun f -> Delegate.CreateDelegate(delegateType, ctor.Invoke [| f |], invoke)))
 
     /// The factory for `delegateType` from a function value of `funcType`, or None when the shapes
     /// do not match (arity, the function's domains reference-assignable to the delegate's
@@ -1601,6 +1605,12 @@ module internal Binders =
 
     let private argInfo (a: Arg) = CSharpArgumentInfo.Create(a.Flags, a.Name)
 
+    /// C#'s flags for a call whose result is discarded (a statement) or used.
+    let private resultFlags (discard: bool) = if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None
+
+    /// No argument is named: the positional F# rules apply (a named call is C#'s alone).
+    let private allPositional (args: Arg list) = args |> List.forall (fun a -> isNull a.Name)
+
     /// A `CallSite<_>` for `binder` over `args`, as a `Value` node (a constant in the compiled tree).
     let private site (binder: CallSiteBinder) (args: Arg list) (resultType: Type) =
         let delegateType =
@@ -1684,14 +1694,14 @@ module internal Binders =
 
     /// `x?M(…, Dlr.out, Dlr.ref v, …)`: C#'s InvokeMember over byref parameters (target first in `all`).
     let invokeMemberByRef (context: Type) (name: string) (typeArgs: Type list) (discard: bool) (all: Arg list) : Expr =
-        let flags = if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None
+        let flags = resultFlags discard
         let typeArgSeq = match typeArgs with [] -> null | ts -> ts :> seq<Type>
         byRefSite (Binder.InvokeMember(flags, name, typeArgSeq, context, [ for a in all -> argInfo a ])) all (if discard then voidType else typeof<obj>)
 
     /// `Dlr.call f (…, Dlr.out, …)` / `Dlr.apply`: C#'s Invoke of the value itself over byref parameters.
     let invokeByRef (context: Type) (discard: bool) (all: Arg list) : Expr =
         callsOnly "invoking a value (Dlr.call / Dlr.apply)" (List.head all)
-        let flags = if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None
+        let flags = resultFlags discard
         byRefSite (FSharpByRefInvokeBinder(Binder.Invoke(flags, context, [ for a in all -> argInfo a ]) :?> InvokeBinder, discard, [| for a in List.tail all -> a.Flags |])) all (if discard then voidType else typeof<obj>)
 
     /// `Dlr.new'<T>(…, Dlr.out, …)`: C#'s InvokeConstructor over byref parameters; the result is typed `t`.
@@ -1730,10 +1740,10 @@ module internal Binders =
     /// for positional, non-generic calls of any arity; otherwise C#'s binder as is.
     let private smartInvokeMember (context: Type) (name: string) (typeArgs: Type list) (discard: bool) (all: Arg list) : CallSiteBinder =
         let args = List.tail all
-        let flags = if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None
+        let flags = resultFlags discard
         let typeArgSeq = match typeArgs with [] -> null | ts -> ts :> seq<Type>
         let csharp = Binder.InvokeMember(flags, name, typeArgSeq, context, [ for a in all -> argInfo a ])
-        let positional = args |> List.forall (fun a -> isNull a.Name)
+        let positional = allPositional args
         // A static target has no instance for the function-member rules, but the argument rules
         // (optional parameters, function/delegate conversions) apply to its static methods.
         if isStatic (List.head all) then
@@ -1759,7 +1769,7 @@ module internal Binders =
         // Result typed `t`, as the C# compiler's own site for `new T(…)` is: the binder types a
         // constructor's result as `T`, and an obj-typed site would reject that for a value type.
         let csharp = Binder.InvokeConstructor(CSharpBinderFlags.None, context, [ for a in all -> argInfo a ]) :?> DynamicMetaObjectBinder
-        let positional = args |> List.forall (fun a -> isNull a.Name)
+        let positional = allPositional args
         let binder = if positional then FSharpInvokeConstructorBinder(context, t, csharp) :> CallSiteBinder else csharp :> CallSiteBinder
         siteCall binder all t
 
@@ -1768,8 +1778,8 @@ module internal Binders =
     let invokeOrApply (context: Type) (discard: bool) (target: Arg) (args: Arg list) =
         callsOnly "invoking a value (Dlr.call / Dlr.apply)" target
         let all = target :: args
-        let csharp = Binder.Invoke((if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None), context, [ for a in all -> argInfo a ])
-        let positional = args |> List.forall (fun a -> isNull a.Name)
+        let csharp = Binder.Invoke(resultFlags discard, context, [ for a in all -> argInfo a ])
+        let positional = allPositional args
         let binder =
             if not positional then csharp
             else FSharpInvokeBinder(csharp :?> InvokeBinder) :> CallSiteBinder
@@ -1857,7 +1867,7 @@ module internal Binders =
     let functionMember (context: Type) (name: string) (functionType: Type) (target: Arg) : Expr =
         callsOnly "reading a member as a function" target
         asFunction context functionType target false (fun all discard ->
-            let flags = if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None
+            let flags = resultFlags discard
             if all.Length = 1 then
                 let csharp = Binder.InvokeMember(flags, name, null, context, [ argInfo target ]) :?> InvokeMemberBinder
                 let csharpInvoke = Binder.Invoke(flags, context, [ argInfo target ]) :?> InvokeBinder
@@ -1870,7 +1880,7 @@ module internal Binders =
     let functionTarget (context: Type) (functionType: Type) (target: Arg) : Expr =
         callsOnly "Dlr.call" target
         asFunction context functionType target true (fun all discard ->
-            let flags = if discard then CSharpBinderFlags.ResultDiscarded else CSharpBinderFlags.None
+            let flags = resultFlags discard
             FSharpInvokeBinder(Binder.Invoke(flags, context, [ for a in all -> argInfo a ]) :?> InvokeBinder) :> CallSiteBinder)
 
     let getIndex (context: Type) (target: Arg) (indexes: Arg list) =
