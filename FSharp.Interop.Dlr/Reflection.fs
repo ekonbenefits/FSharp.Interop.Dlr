@@ -1,6 +1,7 @@
 namespace FSharp.Interop.Dlr
 
 open System
+open System.Diagnostics.CodeAnalysis
 open System.Dynamic
 open System.Linq.Expressions
 open System.Reflection
@@ -162,7 +163,9 @@ module internal Tuples =
         let elements, args = split t values newQuotation
         Expr.NewObject(t.GetConstructor elements, args)
 
-    /// A tuple of type `t` from these values, at run time.
+    /// A tuple of type `t` from these values, at run time: only `Binders.ByRefSite`'s body,
+    /// which never runs (see there), so excluded from coverage with it.
+    [<ExcludeFromCodeCoverage>]
     let rec make (t: Type) (values: obj list) : obj =
         let _, args = split t values make
         Activator.CreateInstance(t, Array.ofList args)

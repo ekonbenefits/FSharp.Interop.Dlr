@@ -1,6 +1,7 @@
 namespace FSharp.Interop.Dlr
 
 open System
+open System.Diagnostics.CodeAnalysis
 open System.Dynamic
 open System.Linq.Expressions
 open System.Reflection
@@ -90,18 +91,23 @@ module internal Binders =
     /// write-back must run even when the operation throws after mutating, as plain F# keeps the
     /// mutation — a `finally`, which the quotation converter has no form for. This placeholder is
     /// what the translator emits; the LINQ `SiteHoister` rewrites it into a TryFinally. The body is
-    /// the slow path, for a tree the hoister has not seen (the write-back then only on success).
+    /// the slow path, for a tree the hoister has not seen (the write-back then only on success);
+    /// the hoister sees every tree, so the body never runs and is excluded from coverage.
     type InPlace =
+        [<ExcludeFromCodeCoverage>]
         static member Then<'T>(operation: 'T, writeBack: unit) : 'T = ignore writeBack; operation
     /// Past Func's 17 type parameters (15 arguments and up) a site's delegate is a type emitted at run time,
     /// which must not be named in a quotation: FSharp.Core's checks ask its assembly
     /// `ReflectionOnly`, unimplemented on browser-wasm. Such a call is written as one of these
     /// placeholders — every type in it a plain one — and the LINQ `SiteHoister` (`SiteHoister.fs`)
     /// rewrites it into the typed `Invoke` after conversion. The bodies are the slow path, for a
-    /// tree the hoister has not seen.
+    /// tree the hoister has not seen; the hoister sees every tree, so they never run and are
+    /// excluded from coverage.
+    [<ExcludeFromCodeCoverage>]
     let private wideInvoke (site: CallSite) (args: obj[]) =
         let target = site.GetType().GetField("Target").GetValue site :?> Delegate
         target.DynamicInvoke(Array.append [| box site |] args)
+    [<ExcludeFromCodeCoverage>]
     type WideSite =
         static member Invoke(site: CallSite, delegateType: Type, args: obj[]) : obj = ignore delegateType; wideInvoke site args
         static member InvokeVoid(site: CallSite, delegateType: Type, args: obj[]) : unit = ignore delegateType; wideInvoke site args |> ignore
@@ -123,7 +129,9 @@ module internal Binders =
     /// per position the earlier one over the same variable (-1 if none), which shares its storage. The LINQ
     /// `SiteHoister` rewrites it into the typed `Invoke` (no array, no boxing); this body is the
     /// slow path, correct on the JIT (`DynamicInvoke` writes byref parameters back into its array)
-    /// but not on Mono wasm, which is why the rewrite is required there.
+    /// but not on Mono wasm, which is why the rewrite is required there. The hoister sees every
+    /// tree, so the body never runs and is excluded from coverage.
+    [<ExcludeFromCodeCoverage>]
     type ByRefSite =
         static member Invoke<'H>(site: CallSite, delegateType: Type, args: obj[], byRefs: int[], outs: int[], sameAs: int[]) : 'H =
             ignore (delegateType, outs, sameAs)
