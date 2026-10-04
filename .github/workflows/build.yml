@@ -136,7 +136,10 @@ jobs:
           mkdir -p results
           Tests/bin/${{ matrix.configuration }}/net48/Tests.exe \
             --report-anyunit-json results/Tests-net48-${{ matrix.configuration }}.json \
-            --platform-suffix ${{ matrix.configuration }}
+            --platform-suffix ${{ matrix.configuration }} \
+            --coverlet --coverlet-output-format cobertura \
+            --coverlet-include '[FSharp.Interop.Dlr]*' \
+            --results-directory coverage
 
       - name: Upload results
         if: always()
@@ -145,6 +148,14 @@ jobs:
           name: anyunit-results-net48-${{ matrix.configuration }}
           path: results/*.json
           if-no-files-found: warn
+
+      # For the coverage job's merge: the paths only .NET Framework takes (#125's stand-in
+      # delegates, `onNetFramework` in Reflection.fs) are covered here and nowhere else.
+      - name: Upload coverage
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coverage-net48-${{ matrix.configuration }}
+          path: coverage/coverage.cobertura.*.xml
 
   # .NET 11 while it is in preview (#67): the next F# compiler and runtime, as an early warning.
   # The translator reads compiler output no spec pins down (the closure classes F# generates for a
@@ -270,8 +281,11 @@ jobs:
   # rewrite of FSharp.Core 10.1 is not valid IL. Debug AND Release, merged:
   # the translator has paths only the Release optimizer reaches (inlined
   # captures resolved from the reflected body) and paths only Debug does,
-  # so either alone under-reports tested code by several points.
+  # so either alone under-reports tested code by several points. The net48
+  # job's two reports go into the merge too, for the code only .NET
+  # Framework runs.
   coverage:
+    needs: net48
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
@@ -298,10 +312,18 @@ jobs:
               --results-directory coverage/$c
           done
 
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: coverage-net48-*
+          path: coverage
+
       - name: Merge and summarise
         shell: bash
         run: |
           set -e
+          # The net48 reports name their sources under the Windows checkout (D:/a/<repo>/<repo>/);
+          # here they are under this one, or ReportGenerator finds no source for them.
+          sed -i -E "s#<source>[A-Za-z]:/a/[^/]+/[^/]+/#<source>$GITHUB_WORKSPACE/#" coverage/coverage-net48-*/coverage.cobertura.*.xml
           dotnet tool install --global dotnet-reportgenerator-globaltool
           reportgenerator -reports:'coverage/*/coverage.cobertura.*.xml' -targetdir:coverage/merged -reporttypes:'Cobertura;MarkdownSummaryGithub'
           cat coverage/merged/SummaryGithub.md >> "$GITHUB_STEP_SUMMARY"
