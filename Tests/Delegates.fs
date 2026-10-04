@@ -53,6 +53,14 @@ let ``a delegate returning F#'s unit converts to an F# function returning unit``
     List.ofSeq seen |> should equal [ 42; 3; 21 ]
 
 [<Fact>]
+let ``a delegate for a function over a one-element tuple is C#'s error`` () =
+    // No typed wrapper takes a 1-tuple domain; the binder does not offer the conversion (it once
+    // bound through a DynamicInvoke fallback and failed mid-call).
+    let o = box (Callbacks())
+    (fun () -> (dlr { return o?OneTuple(Func<int, int>(fun x -> x + 1)) } : int) |> ignore)
+    |> should throw typeof<Microsoft.CSharp.RuntimeBinder.RuntimeBinderException>
+
+[<Fact>]
 let ``a tupled F# function reaches a delegate parameter past the adapter classes`` () =
     let o = box (Callbacks())
     // Seventeen parameters: no adapter class, so the conversion applies the function itself and
