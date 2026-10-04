@@ -53,6 +53,20 @@ let ``a delegate returning F#'s unit converts to an F# function returning unit``
     List.ofSeq seen |> should equal [ 42; 3; 21 ]
 
 [<Fact>]
+let ``delegates and functions convert by one rule: the receiving side accepts the value`` () =
+    // Reference types vary as delegates do: a parameter may take a more general type, a result
+    // may be a more specific one. Value types must match (no boxing), and void is unit.
+    let o = box (Callbacks())
+    (dlr { return o?Length(Func<obj, int>(fun x -> (string x).Length)) } : int) |> should equal 4      // obj takes the string
+    (dlr { return o?Describe(Func<int, string>(fun x -> string (x + 1))) } : string) |> should equal "43" // string is an obj
+    (fun () -> (dlr { return o?Widen(Func<int, int>(fun x -> x)) } : int) |> ignore)                   // int is not int64
+    |> should throw typeof<Microsoft.CSharp.RuntimeBinder.RuntimeBinderException>
+    // The other way: an F# function for a Func<…, unit> parameter.
+    let seen = ResizeArray<int>()
+    (dlr { return o?RunUnit(fun (x: int) -> seen.Add x) } : unit)
+    List.ofSeq seen |> should equal [ 7 ]
+
+[<Fact>]
 let ``a delegate for a function over a one-element tuple is C#'s error`` () =
     // No typed wrapper takes a 1-tuple domain; the binder does not offer the conversion (it once
     // bound through a DynamicInvoke fallback and failed mid-call).

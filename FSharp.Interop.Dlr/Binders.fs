@@ -483,6 +483,30 @@ module internal DelegateMembers =
             Some(Expression.GetDelegateType(Array.append ps [| invoke.ReturnType |]))
         else None
 
+/// When an F# function and a delegate can stand for each other — one rule for both directions.
+/// The side that receives a value must accept it: the same type, or for reference types the
+/// variance delegates have (a parameter may take a more general type, a result may be a more
+/// specific one); no boxing, so value types match exactly. A `void` delegate is a `unit` result,
+/// and so is one returning `Unit` itself (`Func<int, unit>`).
+module internal Signatures =
+    let private accepts (receiver: Type) (given: Type) =
+        receiver = given || (not receiver.IsValueType && not given.IsValueType && receiver.IsAssignableFrom given)
+
+    let private results (receiver: Type) (given: Type) (unitResult: bool) (isVoid: bool) =
+        if isVoid then unitResult else accepts receiver given
+
+    /// A function of `domains` → `result` serves as a delegate of `parameters` → `returns`: the
+    /// delegate's arguments go to the function, its result comes back.
+    let functionServesDelegate (domains: Type list) (result: Type) (parameters: Type list) (returns: Type) =
+        domains.Length = parameters.Length && List.forall2 accepts domains parameters
+        && results returns result (result = typeof<unit>) (returns = typeof<Void>)
+
+    /// A delegate of `parameters` → `returns` serves as a function of `domains` → `result`: the
+    /// function's arguments go to the delegate, its result comes back.
+    let delegateServesFunction (domains: Type list) (result: Type) (parameters: Type list) (returns: Type) =
+        domains.Length = parameters.Length && List.forall2 accepts parameters domains
+        && results result returns (result = typeof<unit>) (returns = typeof<Void>)
+
 /// Delegates over IL emitted once — `new Adapter(f)` and a delegate constructor, a rewrap — so a
 /// per-call conversion costs an allocation, not `ConstructorInfo.Invoke` or
 /// `Delegate.CreateDelegate`'s validation (~150–300 ns). One policy: `skipVisibility`, which covers
@@ -519,10 +543,7 @@ module internal DelegateConversions =
                 match FunctionShapes.parameters funcType with
                 | Some(ds, tupled, result) ->
                     let n = ds.Length
-                    let unitResult = result = typeof<unit>
-                    // A void delegate for a `unit` result, or one whose return type is the result's,
-                    // `Unit` itself included (a `Func<int, unit>`: its wrapper is the generic Func one).
-                    if ds <> ps || (tupled && n < 2) || (isVoid && not unitResult) || (not isVoid && invoke.ReturnType <> result) then None
+                    if not (Signatures.delegateServesFunction ds result ps invoke.ReturnType) || (tupled && n < 2) then None
                     elif n > 5 then
                         // Past the typed wrappers: a factory compiled once (FunctionBuilder) calling
                         // this delegate type's own Invoke.
@@ -659,10 +680,7 @@ module FunctionConversions =
                 match FunctionShapes.parameters funcType with
                 | Some(ds, tupled, result) ->
                     let n = ds.Length
-                    let unitResult = result = typeof<unit>
-                    let fitsParams = n = ps.Length && List.forall2 (fun (d: Type) (p: Type) -> d = p || (not d.IsValueType && d.IsAssignableFrom p)) ds ps
-                    let fitsResult = if isVoid then unitResult else not unitResult && (invoke.ReturnType = result || (not result.IsValueType && invoke.ReturnType.IsAssignableFrom result))
-                    if not (fitsParams && fitsResult) || (tupled && n < 2) then None
+                    if not (Signatures.functionServesDelegate ds result ps invoke.ReturnType) || (tupled && n < 2) then None
                     elif n <= 16 then
                         let name = (if tupled then "Tupled" else "Curried") + string n + (if isVoid then "Unit" else "")
                         let arity = n + (if isVoid then 0 else 1)
