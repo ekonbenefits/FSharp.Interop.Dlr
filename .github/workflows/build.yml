@@ -361,7 +361,10 @@ jobs:
           name: coverage
           path: coverage
 
-      - name: Rewrite badges
+      # The badges are shields.io endpoint files on their own `badges` branch, which the README
+      # reads through raw.githubusercontent.com. Not a README commit on master: master's ruleset
+      # requires every commit to carry the status checks, which a bot commit cannot.
+      - name: Publish badges
         shell: bash
         run: |
           set -e
@@ -379,14 +382,26 @@ jobs:
           PY
           )
           color() { if [ "$1" -ge 90 ]; then echo brightgreen; elif [ "$1" -ge 75 ]; then echo green; else echo yellow; fi; }
-          sed -i -E "s|tests-[0-9]+%20passed-[a-z]+|tests-${tests}%20passed-brightgreen|" README.md
-          sed -i -E "s|line%20coverage-[0-9]+%25-[a-z]+|line%20coverage-${line}%25-$(color $line)|" README.md
-          sed -i -E "s|branch%20coverage-[0-9]+%25-[a-z]+|branch%20coverage-${branch}%25-$(color $branch)|" README.md
-          git diff --quiet README.md && { echo "badges unchanged"; exit 0; }
+          out="$RUNNER_TEMP/badges"
+          mkdir -p "$out"
+          badge() { printf '{"schemaVersion":1,"label":"%s","message":"%s","color":"%s"}\n' "$2" "$3" "$4" > "$out/$1.json"; }
+          badge tests tests "${tests} passed" brightgreen
+          badge line "line coverage" "${line}%" "$(color $line)"
+          badge branch "branch coverage" "${branch}%" "$(color $branch)"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -am "README: badges from the latest master run (${tests} tests, ${line}% line, ${branch}% branch) [skip ci]"
-          git push
+          if git ls-remote --exit-code --heads origin badges > /dev/null; then
+            git fetch --quiet origin badges
+            git checkout --quiet -B badges origin/badges
+          else
+            git checkout --quiet --orphan badges
+            git rm -rf --quiet .
+          fi
+          cp "$out"/*.json .
+          git add tests.json line.json branch.json
+          git diff --cached --quiet && { echo "badges unchanged"; exit 0; }
+          git commit --quiet -m "Badges from ${GITHUB_SHA::7}: ${tests} tests, ${line}% line, ${branch}% branch"
+          git push --quiet origin badges
 
   # Every push to master publishes the package MinVer versioned it as
   # (1.0.0-alpha.0.<height> until a v1.0.0 tag exists, then the tag) to
