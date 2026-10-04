@@ -82,12 +82,18 @@ type internal InternalBump = delegate of byref<int> * int -> unit
 type internal InternalNamed = delegate of r: outref<int> * x: int * a: int -> int
 type internal InternalWide = delegate of n: int64 * half: outref<int64> -> bool
 type internal InternalVoidOut = delegate of n: int * twice: outref<int> -> unit
+type internal InternalApplyFunc = delegate of f: Func<int, int> * x: int * result: outref<int> -> bool
+type internal InternalApplyFn = delegate of f: (int -> int) * x: int * result: outref<int> -> bool
+type internal InternalOrDefault = delegate of n: Nullable<int> * result: outref<int> -> bool
 type internal InternalByRefs() =
     static member TryHalf = InternalTryHalf(fun n half -> half <- n / 2; n % 2 = 0)
     static member Bump = InternalBump(fun x by -> x <- x + by)
     static member Named = InternalNamed(fun r x a -> r <- x * 100 + a; x - a)
     static member Wide = InternalWide(fun n half -> half <- n / 2L; n % 2L = 0L)
     static member VoidOut = InternalVoidOut(fun n twice -> twice <- n * 2)
+    static member ApplyFunc = InternalApplyFunc(fun f x result -> result <- f.Invoke x; result > 0)
+    static member ApplyFn = InternalApplyFn(fun f x result -> result <- f x; result > 0)
+    static member OrDefault = InternalOrDefault(fun n result -> result <- (if n.HasValue then n.Value else -1); n.HasValue)
 
 /// A real CLR event, for the IsEvent branch of += / -=. Not [<ReflectedDefinition>]: the
 /// [<CLIEvent>] accessor's stored quotation is one FSharp.Core cannot decode.

@@ -1121,21 +1121,22 @@ type FSharpInvokeBinder(csharp: InvokeBinder) =
                 Seam.oursFirstWhen (DelegateMembers.csharpCannotInvoke target.LimitType) (OptionalArguments.tryInvokeDelegate target args) errorSuggestion
                     (fun suggestion -> csharp.FallbackInvoke(target, args, suggestion))
 
-/// C#'s Invoke over byref parameters (`Dlr.call f (…, Dlr.out)`, `Dlr.apply`), with the one case
-/// C#'s binder cannot do: on .NET Framework it crashes invoking an F# `internal` delegate (its
-/// `Expression.Invoke` looks `Invoke` up public-only; see `DelegateMembers.csharpCannotInvoke`).
-/// There, and only there, the rule calls the delegate's own `Invoke`, the byref arguments passed
-/// as the site's own byref parameters so LINQ writes them back; everything else is C#'s.
+/// C#'s Invoke over byref parameters (`Dlr.call f (…, Dlr.out)`, `Dlr.apply`), with our rule — the
+/// delegate's own `Invoke` called directly, the byref arguments passed as the site's own byref
+/// parameters so LINQ writes them back, the others fitted by `convertValue` (so an F# function
+/// for a delegate parameter converts, as in a call without byrefs) — as C#'s error suggestion.
+/// It goes first only where C# would crash: on .NET Framework, invoking an F# `internal` delegate
+/// (its `Expression.Invoke` looks `Invoke` up public-only; `DelegateMembers.csharpCannotInvoke`).
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type FSharpByRefInvokeBinder(csharp: InvokeBinder, discard: bool, flags: CSharpArgumentInfoFlags[]) =
     inherit InvokeBinder(csharp.CallInfo)
 
     override _.FallbackInvoke(target, args, errorSuggestion) =
         let direct =
-            if not target.HasValue || not (DelegateMembers.csharpCannotInvoke target.LimitType) then None
+            let dt = target.LimitType
+            let invoke = if target.HasValue && not (isNull target.Value) && typeof<Delegate>.IsAssignableFrom dt then DelegateMembers.invokeOf dt else null
+            if isNull invoke then None
             else
-                let dt = target.LimitType
-                let invoke = DelegateMembers.invokeOf dt
                 let ps = invoke.GetParameters()
                 // Which parameter each argument is, as C# matches them: the positional ones first,
                 // then each named one by its name (`Dlr.named`). None for an unknown or repeated
@@ -1179,9 +1180,8 @@ type FSharpByRefInvokeBinder(csharp: InvokeBinder, discard: bool, flags: CSharpA
                                 (BindingRestrictions.GetTypeRestriction(target.Expression, dt))
                         Some(DynamicMetaObject(value, restrictions))
                 | _ -> None
-        match direct with
-        | Some rule -> rule
-        | None -> csharp.FallbackInvoke(target, args, errorSuggestion)
+        Seam.oursFirstWhen (DelegateMembers.csharpCannotInvoke target.LimitType) direct errorSuggestion
+            (fun suggestion -> csharp.FallbackInvoke(target, args, suggestion))
 
 /// C#'s InvokeMember binder, aware of F# function values: when C# cannot invoke a member because
 /// it holds an `FSharpFunc` rather than a delegate, the rule applies the function instead. The
