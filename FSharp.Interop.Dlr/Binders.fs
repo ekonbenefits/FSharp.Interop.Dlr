@@ -86,7 +86,7 @@ module internal Binders =
         let siteType = typedefof<CallSite<_>>.MakeGenericType delegateType
         Expr.Value(siteType.GetMethod("Create").Invoke(null, [| box binder |]), siteType)
 
-    /// An in-place operation on a struct copy, then its write-back (`inPlace` in Translate): the
+    /// An in-place operation on a struct copy, then its write-back (`inPlace` in `TranslateBlock.fs`): the
     /// write-back must run even when the operation throws after mutating, as plain F# keeps the
     /// mutation — a `finally`, which the quotation converter has no form for. This placeholder is
     /// what the translator emits; the LINQ `SiteHoister` rewrites it into a TryFinally. The body is
@@ -96,7 +96,7 @@ module internal Binders =
     /// Past Func's 17 type parameters (15 arguments and up) a site's delegate is a type emitted at run time,
     /// which must not be named in a quotation: FSharp.Core's checks ask its assembly
     /// `ReflectionOnly`, unimplemented on browser-wasm. Such a call is written as one of these
-    /// placeholders — every type in it a plain one — and the LINQ `SiteHoister` in Translate
+    /// placeholders — every type in it a plain one — and the LINQ `SiteHoister` (`SiteHoister.fs`)
     /// rewrites it into the typed `Invoke` after conversion. The bodies are the slow path, for a
     /// tree the hoister has not seen.
     let private wideInvoke (site: CallSite) (args: obj[]) =

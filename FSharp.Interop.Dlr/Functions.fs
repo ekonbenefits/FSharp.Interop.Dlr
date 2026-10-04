@@ -20,7 +20,7 @@ module internal FunctionShapes =
 
     /// A conversion for an argument that does not fit a domain by assignment or widening — an
     /// F# function for a delegate domain, a delegate for a function domain — supplied by
-    /// `Fallback` once it exists (it is defined later in this file and uses `applyCall`
+    /// `Fallback` once it exists (it is in `Seam.fs`, compiled after this file, and uses `applyCall`
     /// itself, for the largest delegates). None until then, and None when nothing applies.
     let mutable convertArgument : Type -> DynamicMetaObject -> Expression option = fun _ _ -> None
 
