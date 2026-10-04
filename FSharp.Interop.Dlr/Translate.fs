@@ -473,6 +473,18 @@ module internal Translate =
         inherit ExpressionVisitor()
         let mutable current : System.Collections.Generic.Dictionary<CallSite, ParameterExpression> = null
 
+        /// A placeholder's argument, boxed to `obj` in its array, back at the parameter type it was
+        /// boxed from (the box dropped when it is that type already).
+        static let unboxed (e: Expression) (wanted: Type) =
+            match e with
+            | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert && u.Type = typeof<obj> && u.Operand.Type = wanted -> u.Operand
+            | e when e.Type = wanted -> e
+            | e -> Expression.Convert(e, wanted) :> Expression
+
+        /// The site's `Target` delegate, the site cast from the placeholder's `CallSite` to its type.
+        static let siteTarget (site: Expression) (delegateType: Type) =
+            Expression.Field(Expression.Convert(site, typedefof<CallSite<_>>.MakeGenericType delegateType), "Target")
+
         override this.VisitLambda<'T>(node: Expression<'T>) : Expression =
             let saved = current
             current <- System.Collections.Generic.Dictionary(HashIdentity.Reference)
@@ -505,16 +517,8 @@ module internal Translate =
                 let delegateType = (node.Arguments.[1] :?> ConstantExpression).Value :?> Type
                 let parameters = delegateType.GetMethod("Invoke").GetParameters()
                 let elements = (node.Arguments.[2] :?> NewArrayExpression).Expressions
-                let args =
-                    [ for i in 0 .. elements.Count - 1 ->
-                        let wanted = parameters.[i + 1].ParameterType
-                        match this.Visit elements.[i] with
-                        | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert && u.Type = typeof<obj> && u.Operand.Type = wanted -> u.Operand
-                        | e when e.Type = wanted -> e
-                        | e -> Expression.Convert(e, wanted) :> Expression ]
-                let siteType = typedefof<CallSite<_>>.MakeGenericType delegateType
-                let target = Expression.Field(Expression.Convert(site, siteType), "Target")
-                let invoke = Expression.Invoke(target, (Expression.Convert(site, typeof<CallSite>) :> Expression) :: args)
+                let args = [ for i in 0 .. elements.Count - 1 -> unboxed (this.Visit elements.[i]) parameters.[i + 1].ParameterType ]
+                let invoke = Expression.Invoke(siteTarget site delegateType, (Expression.Convert(site, typeof<CallSite>) :> Expression) :: args)
                 if node.Method.Name = "InvokeVoid" then invoke :> Expression
                 elif invoke.Type = typeof<obj> then invoke :> Expression
                 else Expression.Convert(invoke, typeof<obj>) :> Expression
@@ -533,11 +537,6 @@ module internal Translate =
                 let outs = (node.Arguments.[4] :?> ConstantExpression).Value :?> int[]
                 let sameAs = (node.Arguments.[5] :?> ConstantExpression).Value :?> int[]
                 let tempAt = System.Collections.Generic.Dictionary<int, ParameterExpression>()
-                let unboxed (e: Expression) (wanted: Type) =
-                    match e with
-                    | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert && u.Type = typeof<obj> && u.Operand.Type = wanted -> u.Operand
-                    | e when e.Type = wanted -> e
-                    | e -> Expression.Convert(e, wanted) :> Expression
                 let temps = ResizeArray<ParameterExpression>()
                 let inits = ResizeArray<Expression>()
                 let args =
@@ -557,9 +556,7 @@ module internal Translate =
                             inits.Add(Expression.Assign(temp, initial))
                             temp :> Expression
                         else unboxed e p.ParameterType ]
-                let siteType = typedefof<CallSite<_>>.MakeGenericType delegateType
-                let target = Expression.Field(Expression.Convert(site, siteType), "Target")
-                let call = Expression.Call(target, invokeMethod, (Expression.Convert(site, typeof<CallSite>) :> Expression) :: args)
+                let call = Expression.Call(siteTarget site delegateType, invokeMethod, (Expression.Convert(site, typeof<CallSite>) :> Expression) :: args)
                 let result, callStep =
                     if invokeMethod.ReturnType = typeof<Void> then (Expression.Constant(null, typeof<obj>) :> Expression), (call :> Expression)
                     else
