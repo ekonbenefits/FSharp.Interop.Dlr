@@ -82,12 +82,18 @@ type internal InternalBump = delegate of byref<int> * int -> unit
 type internal InternalNamed = delegate of r: outref<int> * x: int * a: int -> int
 type internal InternalWide = delegate of n: int64 * half: outref<int64> -> bool
 type internal InternalVoidOut = delegate of n: int * twice: outref<int> -> unit
+type internal InternalApplyFunc = delegate of f: Func<int, int> * x: int * result: outref<int> -> bool
+type internal InternalApplyFn = delegate of f: (int -> int) * x: int * result: outref<int> -> bool
+type internal InternalOrDefault = delegate of n: Nullable<int> * result: outref<int> -> bool
 type internal InternalByRefs() =
     static member TryHalf = InternalTryHalf(fun n half -> half <- n / 2; n % 2 = 0)
     static member Bump = InternalBump(fun x by -> x <- x + by)
     static member Named = InternalNamed(fun r x a -> r <- x * 100 + a; x - a)
     static member Wide = InternalWide(fun n half -> half <- n / 2L; n % 2L = 0L)
     static member VoidOut = InternalVoidOut(fun n twice -> twice <- n * 2)
+    static member ApplyFunc = InternalApplyFunc(fun f x result -> result <- f.Invoke x; result > 0)
+    static member ApplyFn = InternalApplyFn(fun f x result -> result <- f x; result > 0)
+    static member OrDefault = InternalOrDefault(fun n result -> result <- (if n.HasValue then n.Value else -1); n.HasValue)
 
 /// A real CLR event, for the IsEvent branch of += / -=. Not [<ReflectedDefinition>]: the
 /// [<CLIEvent>] accessor's stored quotation is one FSharp.Core cannot decode.
@@ -392,6 +398,18 @@ type Callbacks() =
     member _.Do(x: int, f: int -> unit) = f x
     member _.Do2(f: int -> int -> unit) = f 1 2
     member _.OneTuple(f: Tuple<int> -> int) = f (Tuple<int>(1))
+    member _.Length(f: string -> int) = f "four"
+    member _.Describe(f: int -> obj) = string (f 42)
+    member _.Widen(f: int64 -> int) = f 5L
+    member _.RunUnit(f: Func<int, unit>) = f.Invoke 7
+    member val Kind: Delegate -> string = (fun d -> d.GetType().Name) with get
+    member _.Over(f: string -> int) = ignore f; "string"
+    member _.Over(f: obj -> int) = ignore f; "obj"
+    member _.OverR(f: int -> string) = ignore f; "string"
+    member _.OverR(f: int -> obj) = ignore f; "obj"
+    member _.UnitDom(f: string -> unit) = f "x"
+    member _.FuncObj(f: Func<int, obj>) = f.Invoke 1
+    member _.FuncIntInt(f: Func<int, int>) = f.Invoke 1
     member val internal Adder: InternalAdd = InternalAdd(fun a b -> a * 100 + b) with get
     member internal _.WideInternal(f: InternalWide17) = f.Invoke(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17)
     member _.Wide17Tupled(f: int * int * int * int * int * int * int * int * int * int * int * int * int * int * int * int * int -> int) = f (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17)

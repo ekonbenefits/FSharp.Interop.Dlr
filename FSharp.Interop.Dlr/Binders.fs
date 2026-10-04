@@ -483,6 +483,37 @@ module internal DelegateMembers =
             Some(Expression.GetDelegateType(Array.append ps [| invoke.ReturnType |]))
         else None
 
+/// When an F# function and a delegate can stand for each other — one rule for both directions.
+/// The side that receives a value must accept it: the same type, or for reference types the
+/// variance delegates have (a parameter may take a more general type, a result may be a more
+/// specific one); no boxing, so value types match exactly. A `void` delegate is a `unit` result,
+/// and so is one returning `Unit` itself (`Func<int, unit>`).
+module internal Signatures =
+    let private accepts (receiver: Type) (given: Type) =
+        receiver = given || (not receiver.IsValueType && not given.IsValueType && receiver.IsAssignableFrom given)
+
+    let private results (receiver: Type) (given: Type) (unitResult: bool) (isVoid: bool) =
+        if isVoid then unitResult else accepts receiver given
+
+    /// A function of `domains` → `result` serves as a delegate of `parameters` → `returns`: the
+    /// delegate's arguments go to the function, its result comes back. A `unit` result serves
+    /// only a `void` or `Unit`-returning delegate, as in F# (`fun x -> ()` is no `Func<int, obj>`).
+    let functionServesDelegate (domains: Type list) (result: Type) (parameters: Type list) (returns: Type) =
+        domains.Length = parameters.Length && List.forall2 accepts domains parameters
+        && (if result = typeof<unit> then returns = typeof<Void> || returns = typeof<unit>
+            else results returns result false (returns = typeof<Void>))
+
+    /// A delegate of `parameters` → `returns` serves as a function of `domains` → `result`: the
+    /// function's arguments go to the delegate, its result comes back.
+    let delegateServesFunction (domains: Type list) (result: Type) (parameters: Type list) (returns: Type) =
+        domains.Length = parameters.Length && List.forall2 accepts parameters domains
+        && results result returns (result = typeof<unit>) (returns = typeof<Void>)
+
+    /// The same signature, no variance: what ranks a candidate among several a delegate or function
+    /// argument fits (an exact match beats one through variance, as an exact type does).
+    let exactly (domains: Type list) (result: Type) (parameters: Type list) (returns: Type) =
+        domains = parameters && (returns = result || (returns = typeof<Void> && result = typeof<unit>))
+
 /// Delegates over IL emitted once — `new Adapter(f)` and a delegate constructor, a rewrap — so a
 /// per-call conversion costs an allocation, not `ConstructorInfo.Invoke` or
 /// `Delegate.CreateDelegate`'s validation (~150–300 ns). One policy: `skipVisibility`, which covers
@@ -504,9 +535,9 @@ module internal DelegateConversions =
     let private makers = System.Collections.Concurrent.ConcurrentDictionary<struct (Type * Type), (Delegate -> obj) option>(TypePairComparer.Instance)
 
     /// A maker of the typed wrapper for a function type from a delegate type, or None when the
-    /// signatures do not match exactly — then the binder does not offer the conversion
+    /// signatures do not fit (`Signatures.delegateServesFunction`) — then the binder does not offer the conversion
     /// (`delegateToFunction`), and None is cached like a maker. The delegate is rebound to the
-    /// `Func`/`Action` of its signature, which any delegate with that signature allows; past five
+    /// `Func`/`Action` of the function's signature over its own `Invoke`; past five
     /// parameters, a factory compiled once calls the delegate type's own `Invoke`.
     let tryTyped (funcType: Type) (delegateType: Type) : (Delegate -> obj) option =
         match makers.TryGetValue(struct (funcType, delegateType)) with
@@ -519,10 +550,7 @@ module internal DelegateConversions =
                 match FunctionShapes.parameters funcType with
                 | Some(ds, tupled, result) ->
                     let n = ds.Length
-                    let unitResult = result = typeof<unit>
-                    // A void delegate for a `unit` result, or one whose return type is the result's,
-                    // `Unit` itself included (a `Func<int, unit>`: its wrapper is the generic Func one).
-                    if ds <> ps || (tupled && n < 2) || (isVoid && not unitResult) || (not isVoid && invoke.ReturnType <> result) then None
+                    if not (Signatures.delegateServesFunction ds result ps invoke.ReturnType) || (tupled && n < 2) then None
                     elif n > 5 then
                         // Past the typed wrappers: a factory compiled once (FunctionBuilder) calling
                         // this delegate type's own Invoke.
@@ -549,7 +577,9 @@ module internal DelegateConversions =
                                     il.Emit(System.Reflection.Emit.OpCodes.Ret))
                                 (fun () -> Func<Delegate, obj>(fun d -> ctor.Invoke [| box d |]))
                         Some(fun (d: Delegate) ->
-                            let standardDelegate = if d.GetType() = standard then d else Delegate.CreateDelegate(standard, d.Target, d.Method)
+                            // Rebound over the delegate's own `Invoke`, not its last target and method:
+                            // a multicast delegate keeps every target.
+                            let standardDelegate = if d.GetType() = standard then d else Delegate.CreateDelegate(standard, d, DelegateMembers.invokeOf (d.GetType()))
                             construct.Invoke standardDelegate)
                 | None -> None
             makers.[struct (funcType, delegateType)] <- maker
@@ -646,8 +676,7 @@ module FunctionConversions =
             (fun () -> Func<obj, Delegate>(fun f -> Delegate.CreateDelegate(delegateType, ctor.Invoke [| f |], invoke)))
 
     /// The factory for `delegateType` from a function value of `funcType`, or None when the shapes
-    /// do not match (arity, the function's domains reference-assignable to the delegate's
-    /// parameters, a `unit` result only for a void delegate).
+    /// do not fit (`Signatures.functionServesDelegate`).
     let tryConversion (funcType: Type) (delegateType: Type) : Func<obj, Delegate> option =
         match conversions.TryGetValue(struct (funcType, delegateType)) with
         | true, c -> c
@@ -659,10 +688,7 @@ module FunctionConversions =
                 match FunctionShapes.parameters funcType with
                 | Some(ds, tupled, result) ->
                     let n = ds.Length
-                    let unitResult = result = typeof<unit>
-                    let fitsParams = n = ps.Length && List.forall2 (fun (d: Type) (p: Type) -> d = p || (not d.IsValueType && d.IsAssignableFrom p)) ds ps
-                    let fitsResult = if isVoid then unitResult else not unitResult && (invoke.ReturnType = result || (not result.IsValueType && invoke.ReturnType.IsAssignableFrom result))
-                    if not (fitsParams && fitsResult) || (tupled && n < 2) then None
+                    if not (Signatures.functionServesDelegate ds result ps invoke.ReturnType) || (tupled && n < 2) then None
                     elif n <= 16 then
                         let name = (if tupled then "Tupled" else "Curried") + string n + (if isVoid then "Unit" else "")
                         let arity = n + (if isVoid then 0 else 1)
@@ -725,8 +751,7 @@ module internal OptionalArguments =
             Some(Expression.Convert(Expression.Call(make, Expression.Constant delegateType, Expression.Convert(a.Expression, typeof<obj>)), delegateType) :> Expression)
 
     /// A delegate for an F# function-typed parameter: `DelegateFunction`'s typed wrapper, offered
-    /// exactly when `DelegateConversions.tryTyped` has one for this pair (the same signature: domains,
-    /// a void delegate for a `unit` result, or the same return type).
+    /// exactly when `DelegateConversions.tryTyped` has one for this pair (`Signatures`).
     let private delegateToFunction (funcType: Type) (a: DynamicMetaObject) : Expression option =
         match DelegateConversions.tryTyped funcType a.LimitType with
         | Some _ ->
@@ -734,9 +759,6 @@ module internal OptionalArguments =
             Some(Expression.Convert(Expression.Call(make, Expression.Constant funcType, Expression.Convert(a.Expression, typeof<Delegate>)), funcType) :> Expression)
         | None -> None
 
-    /// The argument converted to the parameter type, or None if it does not fit: assignable or
-    /// C#-widened, a null for a reference slot, a bare value for an optional as `Some`, an F#
-    /// function for a delegate parameter or a delegate for a function parameter.
     /// An F# function for a slot typed `Delegate` itself (Control.Invoke): the Func/Action F#
     /// would build for the function. Left to C#, FSharpFunc's own op_Implicit makes a
     /// Converter<Unit, R> of a `unit -> R` — a one-parameter delegate, wrong for a
@@ -749,21 +771,37 @@ module internal OptionalArguments =
             functionToDelegate delegateType a
         | None -> None
 
+    /// The conversions an argument can need for a typed slot that neither assignment nor widening
+    /// gives: an F# function for a delegate slot, a delegate for a function slot (both by the one
+    /// rule, `Signatures`), an F# function for a slot typed `Delegate` itself.
+    let conversion (slot: Type) (a: DynamicMetaObject) : Expression option =
+        let at = a.LimitType
+        if isDelegate slot && (FunctionShapes.domains at).IsSome then functionToDelegate slot a
+        elif isDelegate at && (FunctionShapes.domains slot).IsSome then delegateToFunction slot a
+        elif isAbstractDelegate slot && (FunctionShapes.domains at).IsSome then toAbstractDelegate a
+        else None
+
+    /// The one place a dynamic argument meets a typed slot: the argument as a `slot`, or None if it
+    /// does not fit — assignable or C#-widened (unboxed at its runtime type first: converting `obj`
+    /// straight to `int64` would unbox a boxed `int` as `int64` and throw), a null for a reference
+    /// or nullable slot, or one of the `conversion`s.
+    let convertValue (slot: Type) (a: DynamicMetaObject) : Expression option =
+        if isNullValue a then
+            if slot.IsValueType && isNull (Nullable.GetUnderlyingType slot) then None
+            else Some(Expression.Constant(null, slot) :> Expression)
+        elif Conversions.fits slot a.LimitType then Some(Expression.Convert(Expression.Convert(a.Expression, a.LimitType), slot) :> Expression)
+        else conversion slot a
+
+    /// An argument for a method parameter: `convertValue`, or a bare value for an F# optional
+    /// parameter (`?x`, an `FSharpOption`) as `Some`.
     let private fit (p: ParameterInfo) (a: DynamicMetaObject) : Expression option =
         let pt = p.ParameterType
-        let at = a.LimitType
-        let converted (toType: Type) = Expression.Convert(Expression.Convert(a.Expression, at), toType) :> Expression
-        if isNullValue a then
-            if pt.IsValueType && isNull (Nullable.GetUnderlyingType pt) then None
-            else Some(Expression.Constant(null, pt) :> Expression)
-        elif Conversions.fits pt at then Some(converted pt)
-        elif isOptional p && Conversions.fits (pt.GetGenericArguments().[0]) at then
+        match convertValue pt a with
+        | Some e -> Some e
+        | None when isOptional p && Conversions.fits (pt.GetGenericArguments().[0]) a.LimitType ->
             let inner = pt.GetGenericArguments().[0]
-            Some(Expression.Call(pt.GetMethod("Some"), converted inner) :> Expression)
-        elif isDelegate pt && (FunctionShapes.domains at).IsSome then functionToDelegate pt a
-        elif isDelegate at && (FunctionShapes.domains pt).IsSome then delegateToFunction pt a
-        elif isAbstractDelegate pt && (FunctionShapes.domains at).IsSome then toAbstractDelegate a
-        else None
+            Some(Expression.Call(pt.GetMethod("Some"), Expression.Convert(Expression.Convert(a.Expression, a.LimitType), inner)) :> Expression)
+        | None -> None
 
     /// A call has an argument that is an F# function in a slot typed `Delegate` in some candidate
     /// method: C# would bind it through op_Implicit to a `Converter`, wrongly, so our rule goes first.
@@ -775,19 +813,27 @@ module internal OptionalArguments =
                 ps.Length >= args.Length
                 && Array.exists2 (fun (p: ParameterInfo) (a: DynamicMetaObject) -> isAbstractDelegate p.ParameterType && (FunctionShapes.domains a.LimitType).IsSome) (Array.sub ps 0 args.Length) args))
 
-    /// The conversions above, for `FunctionShapes.applyCall`'s domains (no optional wrapping there).
-    let convertArgument (domain: Type) (a: DynamicMetaObject) : Expression option =
-        if isDelegate domain && (FunctionShapes.domains a.LimitType).IsSome then functionToDelegate domain a
-        elif isDelegate a.LimitType && (FunctionShapes.domains domain).IsSome then delegateToFunction domain a
-        else None
-
-    do FunctionShapes.convertArgument <- convertArgument
+    // `FunctionShapes.applyCall` (defined before the conversions, which use it for the largest
+    // delegates) takes them through this hook for an F# function's domains.
+    do FunctionShapes.convertArgument <- conversion
 
     /// Not C#'s overload resolution, but deterministic: among the candidates the arguments fit,
     /// the one with the most exactly-typed argument slots wins, then the one with the fewest
     /// omitted parameters; a tie is ambiguous and left to C#'s error. `instance` is the receiver
     /// for instance methods, None for static methods and constructors; `call` builds the
     /// invocation of the chosen candidate.
+    /// A delegate argument for a function slot, or a function for a delegate slot, of exactly the
+    /// slot's signature (no variance): counted as an exact match when ranking candidates.
+    let private exactConversion (slot: Type) (argType: Type) =
+        let signature (funcType: Type) (delegateType: Type) =
+            match FunctionShapes.parameters funcType, DelegateMembers.invokeOf delegateType with
+            | Some(ds, _, result), invoke when not (isNull invoke) ->
+                Signatures.exactly ds result [ for p in invoke.GetParameters() -> p.ParameterType ] invoke.ReturnType
+            | _ -> false
+        if isDelegate argType && (FunctionShapes.domains slot).IsSome then signature slot argType
+        elif isDelegate slot && (FunctionShapes.domains argType).IsSome then signature argType slot
+        else false
+
     let private tryInvoke (candidates: MethodBase[]) (call: MethodBase -> Expression list -> Expression) (targetRestriction: BindingRestrictions) (args: DynamicMetaObject[]) : DynamicMetaObject option =
         let fitting =
             candidates
@@ -799,7 +845,7 @@ module internal OptionalArguments =
                     let supplied = [ for i in 0 .. args.Length - 1 -> fit ps.[i] args.[i] ]
                     if supplied |> List.exists Option.isNone then None
                     else
-                        let exact = Seq.zip ps args |> Seq.filter (fun (p, a) -> p.ParameterType = a.LimitType) |> Seq.length
+                        let exact = Seq.zip ps args |> Seq.filter (fun (p, a) -> p.ParameterType = a.LimitType || exactConversion p.ParameterType a.LimitType) |> Seq.length
                         Some(m, ps, List.choose id supplied, exact))
             |> Array.sortByDescending (fun (_, ps, _, exact) -> exact, -ps.Length)
         match List.ofArray fitting with
@@ -857,9 +903,7 @@ module internal OptionalArguments =
     let trySet (context: Type) (t: Type) (name: string option) (target: DynamicMetaObject) (indexes: DynamicMetaObject[]) (value: DynamicMetaObject) : DynamicMetaObject option =
         let self = receiver t target
         let targetRestriction = BindingRestrictions.GetTypeRestriction(target.Expression, t)
-        let convertSlot (slotType: Type) =
-            if isAbstractDelegate slotType && (FunctionShapes.domains value.LimitType).IsSome then toAbstractDelegate value
-            else convertArgument slotType value
+        let convertSlot (slotType: Type) = conversion slotType value
         let restrictions () = Array.fold (fun (r: BindingRestrictions) a -> r.Merge(FunctionShapes.restrictArg a)) targetRestriction (Array.append indexes [| value |])
         let assigned (slot: Expression) (converted: Expression) =
             let v = Expression.Variable(slot.Type, "value")
@@ -1077,21 +1121,22 @@ type FSharpInvokeBinder(csharp: InvokeBinder) =
                 Seam.oursFirstWhen (DelegateMembers.csharpCannotInvoke target.LimitType) (OptionalArguments.tryInvokeDelegate target args) errorSuggestion
                     (fun suggestion -> csharp.FallbackInvoke(target, args, suggestion))
 
-/// C#'s Invoke over byref parameters (`Dlr.call f (…, Dlr.out)`, `Dlr.apply`), with the one case
-/// C#'s binder cannot do: on .NET Framework it crashes invoking an F# `internal` delegate (its
-/// `Expression.Invoke` looks `Invoke` up public-only; see `DelegateMembers.csharpCannotInvoke`).
-/// There, and only there, the rule calls the delegate's own `Invoke`, the byref arguments passed
-/// as the site's own byref parameters so LINQ writes them back; everything else is C#'s.
+/// C#'s Invoke over byref parameters (`Dlr.call f (…, Dlr.out)`, `Dlr.apply`), with our rule — the
+/// delegate's own `Invoke` called directly, the byref arguments passed as the site's own byref
+/// parameters so LINQ writes them back, the others fitted by `convertValue` (so an F# function
+/// for a delegate parameter converts, as in a call without byrefs) — as C#'s error suggestion.
+/// It goes first only where C# would crash: on .NET Framework, invoking an F# `internal` delegate
+/// (its `Expression.Invoke` looks `Invoke` up public-only; `DelegateMembers.csharpCannotInvoke`).
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type FSharpByRefInvokeBinder(csharp: InvokeBinder, discard: bool, flags: CSharpArgumentInfoFlags[]) =
     inherit InvokeBinder(csharp.CallInfo)
 
     override _.FallbackInvoke(target, args, errorSuggestion) =
         let direct =
-            if not target.HasValue || not (DelegateMembers.csharpCannotInvoke target.LimitType) then None
+            let dt = target.LimitType
+            let invoke = if target.HasValue && not (isNull target.Value) && typeof<Delegate>.IsAssignableFrom dt then DelegateMembers.invokeOf dt else null
+            if isNull invoke then None
             else
-                let dt = target.LimitType
-                let invoke = DelegateMembers.invokeOf dt
                 let ps = invoke.GetParameters()
                 // Which parameter each argument is, as C# matches them: the positional ones first,
                 // then each named one by its name (`Dlr.named`). None for an unknown or repeated
@@ -1120,9 +1165,7 @@ type FSharpByRefInvokeBinder(csharp: InvokeBinder, discard: bool, flags: CSharpA
                                     | :? ParameterExpression as v when v.IsByRef && v.Type = pt.GetElementType() && (isOut || isRef) && isOut = p.IsOut -> Some(v :> Expression)
                                     | _ -> None
                                 elif isOut || isRef then None                  // a ref or out for a plain parameter
-                                elif FunctionShapes.isNullValue a then (if pt.IsValueType then None else Some(Expression.Constant(null, pt) :> Expression))
-                                elif Conversions.fits pt a.LimitType then Some(Expression.Convert(Expression.Convert(a.Expression, a.LimitType), pt) :> Expression)
-                                else None
+                                else OptionalArguments.convertValue pt a
                             slot, expr)
                     if passed |> List.exists (snd >> Option.isNone) then None
                     else
@@ -1137,9 +1180,8 @@ type FSharpByRefInvokeBinder(csharp: InvokeBinder, discard: bool, flags: CSharpA
                                 (BindingRestrictions.GetTypeRestriction(target.Expression, dt))
                         Some(DynamicMetaObject(value, restrictions))
                 | _ -> None
-        match direct with
-        | Some rule -> rule
-        | None -> csharp.FallbackInvoke(target, args, errorSuggestion)
+        Seam.oursFirstWhen (DelegateMembers.csharpCannotInvoke target.LimitType) direct errorSuggestion
+            (fun suggestion -> csharp.FallbackInvoke(target, args, suggestion))
 
 /// C#'s InvokeMember binder, aware of F# function values: when C# cannot invoke a member because
 /// it holds an `FSharpFunc` rather than a delegate, the rule applies the function instead. The

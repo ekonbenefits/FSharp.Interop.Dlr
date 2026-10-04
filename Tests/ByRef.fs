@@ -147,6 +147,17 @@ let ``an internal delegate invoked with an out or a ref`` () =
     let voidOut = box InternalByRefs.VoidOut
     let twice: int = dlr { return Dlr.call voidOut (21, Dlr.out) }
     twice |> should equal 42
+    // Beside an out, the other arguments fit as in any call: an F# function for a delegate
+    // parameter, a delegate for a function parameter, null for a nullable one.
+    let applyFunc = box InternalByRefs.ApplyFunc
+    let (okF: bool), (rF: int) = dlr { return Dlr.call applyFunc ((fun (x: int) -> x * 2), 21, Dlr.out) }
+    (okF, rF) |> should equal (true, 42)
+    let applyFn = box InternalByRefs.ApplyFn
+    let (okD: bool), (rD: int) = dlr { return Dlr.call applyFn (Func<int, int>(fun x -> x + 1), 41, Dlr.out) }
+    (okD, rD) |> should equal (true, 42)
+    let orDefault = box InternalByRefs.OrDefault
+    let (hasN: bool), (rN: int) = dlr { return Dlr.call orDefault (null, Dlr.out) }
+    (hasN, rN) |> should equal (false, -1)
     // A ref for an out, an out for a ref, a ref for a plain parameter, an unknown name beside a
     // ref: C#'s errors, which our rule (on .NET Framework) must not bind past.
     let mutable m = 0

@@ -106,9 +106,12 @@ constructors (`tryConstruct`, through `FSharpInvokeConstructorBinder`: C#'s cons
 takes no error suggestion, its failure is a rule that throws, so ours applies exactly when C#'s
 bind is that throw) and a delegate target's `Invoke` (`tryInvokeDelegate`, from
 `FSharpInvokeBinder`; a delegate-typed member is routed to that nested site).
-`FunctionShapes.applyCall` takes the same conversions through a hook (`convertArgument`, set once
-`OptionalArguments` exists), so an F# function member whose domain is a delegate or a function
-accepts the other kind too.
+Every one of them fits an argument to a typed slot through `OptionalArguments.convertValue` —
+assignable or C#-widened, a null for a reference or nullable slot, or a `conversion` (function ↔
+delegate, a function for a `Delegate` slot) — with an F# optional parameter's `Some` layered on
+by `fit`; the byref binder uses it too. `FunctionShapes.applyCall` takes the conversions through a
+hook (`convertArgument`, set to `conversion` once `OptionalArguments` exists), so an F# function
+member whose domain is a delegate, a function or `Delegate` accepts the other kind too.
 
 ## Functions and delegates
 
@@ -152,10 +155,15 @@ lambda applying the function.
 delegate's `Invoke`; `OptimizedClosures` for curried, so `f a b` is one call) over the delegate
 rebound to the `Func`/`Action` of its signature, again constructed by emitted IL; past five
 parameters a `FunctionBuilder` factory compiled once per (function type, delegate type), calling
-the delegate type's own `Invoke`. One rule (`DelegateConversions.tryTyped`) decides both whether
-the binder offers the conversion and how it is made: the same domains, and a `void` delegate for
-a `unit` result or the same return type (`Func<int, unit>` included); anything else is C#'s
-binder error. Not `FuncConvert`, whose
+the delegate type's own `Invoke`. Both directions follow one rule (`Signatures`): the side that
+receives a value accepts it — the same type, or for reference types the variance delegates have
+(a `Func<obj, int>` serves a `string -> int`, a `Func<int, string>` an `int -> obj`), value
+types exactly, and a `void` or `Unit`-returning delegate for a `unit` result; anything else is
+C#'s binder error. `DelegateConversions.tryTyped` decides both whether the binder offers a
+delegate → function conversion and how it is made; a delegate of another type is rebound over
+its own `Invoke`, so a multicast one keeps every target. Among candidates, an exact signature
+counts as an exact match, so overloads differing only by variance resolve as before. (On wasm, an
+open-instance delegate over a virtual method dispatches non-virtually once rebound: a Mono quirk.) Not `FuncConvert`, whose
 wrapper loses arguments on Mono's browser-wasm runtime. A related wasm fault, a nested
 non-capturing lambda losing its arguments, is why every lambda and delegate literal written in a
 block is made to capture the closure parameter there (`capturing` in `Translate.fs`, a no-op
@@ -185,10 +193,11 @@ of its own: `Expression.Lambda` (a lambda at such a delegate type is compiled at
 the same signature, `Func`/`Action` or emitted past sixteen, and rebound: `DelegateMembers.standIn`)
 and `Expression.Invoke`, which C#'s Invoke binder builds and so crashes on one — there, and only
 there, `FSharpInvokeBinder` puts our delegate rule (an explicit `Invoke` call) before C#'s
-(`DelegateMembers.csharpCannotInvoke`); a byref invoke (`Dlr.call f (…, Dlr.out)`) gets the same
-from `FSharpByRefInvokeBinder`, its byref arguments passed as the site's byref parameters, named
-arguments matched by name and the others converted as C# would (widening included); what it
-declines (an optional or function-typed parameter) is C#'s.
+(`DelegateMembers.csharpCannotInvoke`). A byref invoke (`Dlr.call f (…, Dlr.out)`) has the same
+rule in `FSharpByRefInvokeBinder` — C#'s error suggestion everywhere, first on .NET Framework for
+an internal delegate — its byref arguments passed as the site's byref parameters, named arguments
+matched by name, and the others fitted by `convertValue` (widening, a nullable's null, an F#
+function for a delegate parameter or a delegate for a function one).
 
 A parameter typed `Delegate` itself (WinForms `Control.Invoke`) gets the `Func`/`Action` F# would
 build for the function, and this rule goes *before* C#'s: left to C#, `FSharpFunc`'s own
