@@ -920,6 +920,18 @@ module internal OptionalArguments =
             let self = Expression.Convert(target.Expression, dt)
             tryInvoke [| invoke |] (fun m ps -> Expression.Call(self, m :?> MethodInfo, ps) :> Expression) (BindingRestrictions.GetTypeRestriction(target.Expression, dt)) args
 
+/// Where our rule stands relative to C#'s (the seam, `docs/binders.md`): C# binds first and ours
+/// is its error suggestion, used only where C# fails — except where C# would bind *wrongly* or
+/// crash, where ours goes first. Each binder states which case it is in through this one call.
+module internal Seam =
+    /// Our rule first when `csharpWouldBeWrong` and there is one; else C#'s binding (`csharp`, given
+    /// the error suggestion), with ours, if any, as that suggestion.
+    let oursFirstWhen (csharpWouldBeWrong: bool) (ours: DynamicMetaObject option) (errorSuggestion: DynamicMetaObject)
+                      (csharp: DynamicMetaObject -> DynamicMetaObject) : DynamicMetaObject =
+        match ours with
+        | Some rule when csharpWouldBeWrong -> rule
+        | _ -> csharp (defaultArg ours errorSuggestion)
+
 /// Equality and ordering with F# semantics where C# has none: records, unions, tuples, lists,
 /// options, sets and any other type without the CLR operator get `=`/`compare` (structural,
 /// through `LanguagePrimitives`) instead of C#'s reference equality or "operator cannot be
@@ -1062,9 +1074,8 @@ type FSharpInvokeBinder(csharp: InvokeBinder) =
                 // A delegate target: C# invokes it, and our rule for F# function / delegate /
                 // optional-parameter arguments is its error suggestion — or goes first where C#
                 // would crash rather than bind (an internal delegate on .NET Framework).
-                match OptionalArguments.tryInvokeDelegate target args with
-                | Some rule when DelegateMembers.csharpCannotInvoke target.LimitType -> rule
-                | ours -> csharp.FallbackInvoke(target, args, defaultArg ours errorSuggestion)
+                Seam.oursFirstWhen (DelegateMembers.csharpCannotInvoke target.LimitType) (OptionalArguments.tryInvokeDelegate target args) errorSuggestion
+                    (fun suggestion -> csharp.FallbackInvoke(target, args, suggestion))
 
 /// C#'s Invoke over byref parameters (`Dlr.call f (…, Dlr.out)`, `Dlr.apply`), with the one case
 /// C#'s binder cannot do: on .NET Framework it crashes invoking an F# `internal` delegate (its
@@ -1240,9 +1251,9 @@ type FSharpSetMemberBinder(context: Type, name: string, csharp: SetMemberBinder)
             if target.HasValue && value.HasValue && not (isNull target.Value) then
                 OptionalArguments.trySet context target.LimitType (Some name) target [||] value
             else None
-        match ours with
-        | Some rule when OptionalArguments.assignsAbstractDelegate target.LimitType (Some name) 0 value -> rule   // C# would bind it wrongly
-        | _ -> csharp.FallbackSetMember(target, value, defaultArg ours errorSuggestion)
+        // An F# function into a `Delegate`-typed slot: C# would bind FSharpFunc's op_Implicit Converter.
+        Seam.oursFirstWhen (OptionalArguments.assignsAbstractDelegate target.LimitType (Some name) 0 value) ours errorSuggestion
+            (fun suggestion -> csharp.FallbackSetMember(target, value, suggestion))
 
 /// C#'s SetIndex, with the same conversion of the value as C#'s error suggestion: an F# function
 /// into a delegate-typed indexer slot or array element (a `Dictionary<string, Func<…>>`), a
@@ -1255,9 +1266,8 @@ type FSharpSetIndexBinder(context: Type, csharp: SetIndexBinder) =
             this.Defer(Array.concat [ [| target |]; indexes; [| value |] ])
         else
             let ours = if isNull target.Value then None else OptionalArguments.trySet context target.LimitType None target indexes value
-            match ours with
-            | Some rule when OptionalArguments.assignsAbstractDelegate target.LimitType None indexes.Length value -> rule   // C# would bind it wrongly
-            | _ -> csharp.FallbackSetIndex(target, indexes, value, defaultArg ours errorSuggestion)
+            Seam.oursFirstWhen (OptionalArguments.assignsAbstractDelegate target.LimitType None indexes.Length value) ours errorSuggestion
+                (fun suggestion -> csharp.FallbackSetIndex(target, indexes, value, suggestion))
 
 /// The value of a member read as `unit -> R`: an F# function is applied, a delegate invoked, any
 /// other value is the result itself.
