@@ -14,7 +14,7 @@ flowchart TD
     cache["<b>DlrCache</b> (Cache.fs)<br/>machine Type → Compiled"]
     discover["<b>Discover</b> (Discover.fs)<br/>the block's body, from the enclosing member's<br/>[&lt;ReflectedDefinition&gt;] by file and line"]
     translate["<b>Translate.translate</b> (Translate.fs)<br/>normalize → Plumbing / Members / Captures<br/>→ quotation with CallSites baked in"]
-    binders["<b>Binders</b> (Binders.fs)<br/>one CallSite per operation: C#'s binder<br/>wrapped by the F#-aware ones"]
+    binders["<b>Binders</b> (Binders.fs, Seam.fs)<br/>one CallSite per operation: C#'s binder<br/>wrapped by the F#-aware ones"]
     conv["<b>LeafExpressionConverter</b> (FSharp.Core)<br/>quotation → LINQ tree"]
     hoist["<b>SiteHoister</b> (Translate.fs)<br/>CallSite constants → locals per lambda"]
     compile["<b>Compile()</b><br/>DlrReader&lt;'SM, 'T&gt; (inref&lt;'SM&gt; -> 'T)"]

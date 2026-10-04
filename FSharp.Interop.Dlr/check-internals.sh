@@ -65,7 +65,7 @@ check "a unit-domain strip outside FunctionShapes.parameters" \
 check "tuple nesting past seven outside the Tuples module" \
   "$(outside_module 'List\.(take|skip) 7|\.\[7\]|Length *(=|<=) *[78]([^0-9]|$)' Tuples)"
 
-check "a struct receiver spelled out more than once (use the receiver helper in OptionalArguments)" \
+check "a struct receiver spelled out more than once (use the receiver helper in Fallback)" \
   "$(more_than_once 'Expression\.Unbox ?\(')"
 
 if [[ $failed -eq 0 ]]; then echo "check-internals: every idiom has one home"; fi

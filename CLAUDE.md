@@ -94,7 +94,7 @@ FSharp.Interop.Dlr/check-internals.sh  # each idiom fixed more than once has one
   delegate on .NET Framework); otherwise ours is C#'s error suggestion. See `new-binder`.
 - wasm: a nested non-capturing lambda loses its arguments on Mono's interpreter, and
   `FuncConvert` wrappers do too; `capturing` in `Translate.fs` and the typed wrappers in
-  `Binders.fs` exist for that — do not "simplify" them away. A delegate type emitted at run
+  `Functions.fs` exist for that — do not "simplify" them away. A delegate type emitted at run
   time (a site or per-key delegate past `Func`'s 17 type parameters, i.e. 15 arguments and up) must never be
   named in a quotation: FSharp.Core's checks call `Assembly.ReflectionOnly` on it, unimplemented
   on Mono wasm — `Binders.WideSite` (a placeholder the LINQ `SiteHoister` rewrites) and the

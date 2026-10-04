@@ -37,6 +37,11 @@
     <Compile Include="Operators.fsi" />
     <Compile Include="Operators.fs" />
     <Compile Include="Adapters.fs" />
+    <Compile Include="Runtime.fs" />
+    <Compile Include="Reflection.fs" />
+    <Compile Include="Functions.fs" />
+    <Compile Include="Seam.fs" />
+    <Compile Include="SiteCaches.fs" />
     <Compile Include="Binders.fs" />
     <Compile Include="Translate.fs" />
     <Compile Include="Discover.fs" />
