@@ -72,7 +72,7 @@ let private comparison (results: Collections.Generic.IDictionary<string, string 
 let private footnotes =
     [ "1", "FSharp.Interop.Dynamic has no conversion from an F# function to a delegate parameter."
       "2", "the typed API has no single form here: a chain is two casts, an `ExpandoObject` is an `IDictionary`."
-      "3", "FSharp.Interop.Dynamic fails on a `JObject` member: its result conversion asks the `JValue` to convert to `object`, which Newtonsoft refuses (\"Can not convert from System.Int64 to System.Object\")."
+      "3", "FSharp.Interop.Dynamic's `?` converts its result to `object`, not the type asked for, which a `JValue` refuses."
       "4", "C#'s binder does not invoke an F# function value held in a member."
       "5", "an F# optional parameter is an `FSharpOption` with no `[Optional]`: C#'s binder and Dynamitey need it passed."
       "6", "C# reaches a constructor through the binder only with a `dynamic` argument (`new Widget()` is a static call), and FSharp.Interop.Dynamic has no form for it here."
@@ -146,8 +146,8 @@ let private writeDocs (short: bool) =
           yield "## Real targets"
           yield ""
           yield! comparison r "Newtonsoft.Json `JObject` and `ExpandoObject`" "" [ "typed API"; "C# `dynamic`"; "`dlr { }`"; "FSharp.Interop.Dynamic" ]
-                   [ "`JObject` `j.count`", [ "JObjectStatic"; "CSharpJObjectGet"; "JObjectGet"; "^3" ]
-                     "`JObject` `j.owner.name`", [ "^2"; "CSharpJObjectChain"; "JObjectChain"; "^3" ]
+                   [ "`JObject` `j.count` (FSharp.Interop.Dynamic: read as `obj`, then `Dyn.implicitConvert`[^3])", [ "JObjectStatic"; "CSharpJObjectGet"; "JObjectGet"; "DynamicJObjectGet" ]
+                     "`JObject` `j.owner.name`", [ "^2"; "CSharpJObjectChain"; "JObjectChain"; "DynamicJObjectChain" ]
                      "`ExpandoObject` `e.count`", [ "^2"; "CSharpExpandoGet"; "ExpandoGet"; "DynamicExpandoGet" ] ]
           yield "Allocation per call is the box for a value-typed result — the same box C# `dynamic` pays — and"
           yield "nothing for the block itself (a struct state machine) — see `Tests/HotPath.fs`. `Benchmarks/README.md` explains the suites."

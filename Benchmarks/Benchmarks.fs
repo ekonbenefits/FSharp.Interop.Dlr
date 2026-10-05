@@ -324,6 +324,17 @@ type Targets() =
     [<Benchmark(Description = "dlr JObject j?owner?name")>]
     member _.JObjectChain() : string = dlr { return json?owner?name }
 
+    // Its `?` converts a result to `obj` before unboxing, which a JValue refuses (footnote 3), so
+    // the read is `obj` and the conversion an explicit Dyn.implicitConvert.
+    [<Benchmark(Description = "FSharp.Interop.Dynamic JObject j?count, then Dyn.implicitConvert")>]
+    member _.DynamicJObjectGet() : int =
+        FSharp.Interop.Dynamic.Dyn.implicitConvert (FSharp.Interop.Dynamic.TopLevelOperators.op_Dynamic json "count" : obj)
+
+    [<Benchmark(Description = "FSharp.Interop.Dynamic JObject j?owner?name, then Dyn.implicitConvert")>]
+    member _.DynamicJObjectChain() : string =
+        let owner : obj = FSharp.Interop.Dynamic.TopLevelOperators.op_Dynamic json "owner"
+        FSharp.Interop.Dynamic.Dyn.implicitConvert (FSharp.Interop.Dynamic.TopLevelOperators.op_Dynamic owner "name" : obj)
+
     [<Benchmark(Description = "FSharp.Interop.Dynamic e?count")>]
     member _.DynamicExpandoGet() = (FSharp.Interop.Dynamic.TopLevelOperators.op_Dynamic expando "count" : int)
 
