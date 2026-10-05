@@ -71,7 +71,7 @@ The shape is read off the *function's* type — the runtime type of a dynamic va
 type of a CLR member — never off the call's declared result: `FSharpFunc<A * B, R>` (tupled) or
 `FSharpFunc<A, FSharpFunc<B, R>>` (curried) whose domains the argument types fit. The rule is
 built for any arity: a tuple construction and one `Invoke` for tupled (the tuple nested past seven
-elements, as the CLR's are); for curried, `InvokeFast` up to five arguments (one call, no
+elements, as the CLR's are); for curried, one `Invoke` for one argument, `InvokeFast` for two to five (one call, no
 intermediate closures, as F# compiles `f a b`) and a chain of `Invoke` calls past that (each
 step's result is the next function; `OptimizedClosures` override `Invoke` too, so the chain is
 correct); the result boxed for the site's `Convert`.
