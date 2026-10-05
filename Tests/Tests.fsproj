@@ -109,6 +109,7 @@
     <Compile Include="Shapes.fs" />
     <Compile Include="RulesEverywhere.fs" />
     <Compile Include="Unreflected.fs" />
+    <Compile Include="Resumable.fs" />
     <Compile Include="Undecodable.fs" />   <!-- not in Tests.Wasm: Mono asserts on the Void quotation -->
   </ItemGroup>
 

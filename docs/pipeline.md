@@ -72,7 +72,8 @@ the closure's type is the key, its fields the captured values, and [`Sites<'T>`]
 typed cache (last-hit compare, then a dictionary). Same contract, same `Discover` and `Translate`; the cost
 is three allocations (the Delay closure, the builder's wrapper and the `ResumableCode` delegate),
 two `GetType()` calls with a reference compare each, and a compiled field read. Both paths are exercised: the suite
-runs in Debug and in Release.
+runs in Debug and in Release. (Debug builds no state machine at all, so every Debug block takes
+the closure path; `Tests/Resumable.fs` fails if an SDK changes that.)
 
 Every `dlr { }` desugars to `Run(Delay(fun () -> …))` in one expression, which the compiler
 builds the machine for — with one exception it takes silently, no FS3511: a block whose
