@@ -11,13 +11,61 @@ open FSharp.Interop.Dlr
 let greet (o: obj) : string = dlr { return o?Greet("world") }
 ```
 
-- A block is `dlr { … }`, in a function or member with `[<ReflectedDefinition>]`. The library
-  compiles the block from that stored body, once per site. Without the attribute, the first call
-  raises a `DlrTranslationException` that says so; the analyzer reports it at build time
-  (`DLR001`).
-- Every form below goes inside a block. Called outside one, a marker throws
-  `InvalidOperationException`; the analyzer reports that too (`DLR002`).
-- Where the attribute goes, and the analyzer: the [README](../README.md#where-the-attribute-goes).
+A block is `dlr { … }`. The library compiles it from the stored body of the function or member
+around it, once per site, so that function carries `[<ReflectedDefinition>]`. Every form on this
+page goes inside a block: called outside one, a marker throws `InvalidOperationException`.
+
+### Where the attribute goes
+
+On the function or member that holds the block:
+
+```fsharp
+[<ReflectedDefinition>]
+let total (rows: obj) : decimal = dlr { return rows?Sum("Amount") }
+
+type Report(data: obj) =
+    [<ReflectedDefinition>]
+    member _.Total: decimal = dlr { return data?Total }
+```
+
+- A module- or type-level attribute also works, but it stores a quotation of everything under
+  it, and ordinary F# often has no quotation form: inner generic functions, `byref`s, `Span`. So
+  prefer the binding.
+- If the function around a block cannot be quoted, move the block into the smallest function
+  that can.
+- A local function inside it is a closure and cannot carry the attribute; the outermost binding
+  does.
+- A block in module-level `do` code has no function to carry it: move it into one.
+- Without the attribute, the first call raises a `DlrTranslationException` that says so.
+
+### One block per line
+
+A block is found by the file and line of its `Run` call, so two blocks cannot start on one source
+line: the first call raises a `DlrTranslationException`. Put each block on its own line.
+
+### Not in an `inline` function
+
+A block cannot live in an `inline` function or member, declaration-level or a local
+`let inline`. In Release the function is expanded into every caller, where the block's captured
+values are inlined away and its body is not where the reflected definition says. A Debug build
+calls it as a method, so it only appears to work. Remove `inline` or move the block out.
+
+### The analyzer
+
+The `FSharp.Interop.Dlr.Analyzers` package reports each of these at build time (and in Ionide),
+rather than at the first call:
+
+| Code | Reports |
+| --- | --- |
+| `DLR001` | a block with no `[<ReflectedDefinition>]` around it (with a fix that adds it) |
+| `DLR002` | a `?` operator or `Dlr.*` marker outside any block |
+| `DLR003` | two or more blocks starting on one line |
+| `DLR004` | a block in an `inline` function or member |
+| `DLR005` | a marker out of place inside a block: the shapes this page calls translation errors |
+| `DLR006` | a block in a member whose reflected definition FSharp.Core will not decode (it holds `typeof<System.Void>`) |
+
+Setup, and the full list of `DLR005` cases, are in the
+[analyzer's README](../FSharp.Interop.Dlr.Analyzers/README.md).
 
 ## Targets, names and order
 
