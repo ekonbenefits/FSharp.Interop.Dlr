@@ -64,9 +64,16 @@ its element of the block's result type. (C# needs a written type for a dynamic c
 CS8197, for the same reason.)
 
 Cost: `d?TryGetValue(k, Dlr.out)` is a few nanoseconds more than C# `dynamic`'s `out int v`
-(the `out` row of [benchmarks.md](benchmarks.md#the-same-operation-each-way)), and allocates
-48 B against 24 B: the F# tuple beside the boxed result both pay. Read into a struct tuple, only
-the box (`Tests/HotPath.fs` pins both).
+(the `out` row of [benchmarks.md](benchmarks.md#the-same-operation-each-way)). It allocates
+48 B against C#'s 24 B:
+
+- Both pay 24 B to box the method's result, since a dynamic call returns `object`.
+- The other 24 B is the F# tuple that carries the result and the out back
+  (`let found, v = …`).
+- Read into a struct tuple instead (`let struct (found, v) = …`) and that tuple is not
+  allocated: 24 B, the same as C#.
+
+`Tests/HotPath.fs` pins both figures.
 
 ## Argument typing
 
