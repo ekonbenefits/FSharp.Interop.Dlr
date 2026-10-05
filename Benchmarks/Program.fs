@@ -72,7 +72,7 @@ let private comparison (results: Collections.Generic.IDictionary<string, string 
 let private footnotes =
     [ "1", "FSharp.Interop.Dynamic has no conversion from an F# function to a delegate parameter."
       "2", "the typed API has no single form here: a chain is two casts, an `ExpandoObject` is an `IDictionary`."
-      "3", "FSharp.Interop.Dynamic's `?` converts its result to `object`, not the type asked for, which a `JValue` refuses."
+      "3", "FSharp.Interop.Dynamic's `?` converts its result to `object`, not the type asked for, then unboxes, so a result of another type (an `int` read as `int64`, a `JValue`) fails; these rows convert with `Dyn.implicitConvert`."
       "4", "C#'s binder does not invoke an F# function value held in a member."
       "5", "an F# optional parameter is an `FSharpOption` with no `[Optional]`: C#'s binder and Dynamitey need it passed."
       "6", "C# reaches a constructor through the binder only with a `dynamic` argument (`new Widget()` is a static call), and FSharp.Interop.Dynamic has no form for it here."
@@ -121,7 +121,7 @@ let private writeDocs (short: bool) =
                    [ "`a + b` on boxed ints", [ "CSharpAdd"; "Add"; "DynamicAdd" ]
                      "indexer `d[\"a\"]` on a dictionary", [ "CSharpIndex"; "Index"; "DynamicIndex" ]
                      "invoke a delegate value with 20", [ "CSharpInvokeDelegate"; "InvokeDelegate"; "DynamicInvokeDelegate" ]
-                     "implicit conversion of a boxed int to int64", [ "CSharpConvert"; "Convert"; "DynamicConvert" ]
+                     "implicit conversion of a boxed int to int64 (FSharp.Interop.Dynamic: `Dyn.implicitConvert`[^3])", [ "CSharpConvert"; "Convert"; "DynamicConvert" ]
                      "static method chosen by an argument's runtime type", [ "CSharpStaticOverloads"; "StaticOverloads"; "DynamicStatic" ]
                      "named arguments `d.Add(b: 1, a: i)`", [ "CSharpNamedArgs"; "NamedArgs"; "DynamicNamedArgs" ]
                      "an `out` argument, `d.TryGetValue(k, out v)` with the result used (dlr: `Dlr.out`, a tuple)", [ "CSharpOutArg"; "OutArg"; "^9" ]
