@@ -18,8 +18,8 @@ of two fitting overloads it prefers; it would bind nothing the seam does not alr
 ```mermaid
 flowchart TD
     arrive["bound call arrives at a site<br/>(runtime types known)"]
-    wrong{"would C# bind<br/><i>wrongly</i> here?"}
-    ours1["<b>our rule first</b><br/>structural = / &lt; on records and unions<br/>a Delegate-typed parameter given an F# function"]
+    wrong{"would C# bind <i>wrongly</i><br/>or crash here?"}
+    ours1["<b>our rule first</b><br/>structural = / &lt; on records and unions<br/>a Delegate-typed parameter or slot given an F# function<br/>an F# internal delegate invoked on .NET Framework"]
     csharp["<b>C#'s binder</b><br/>(Microsoft.CSharp.RuntimeBinder)"]
     ok{"bound?"}
     done["C#'s rule, cached per runtime type"]
@@ -37,8 +37,8 @@ flowchart TD
     suggest -- no --> err
 ```
 
-The rule from `CLAUDE.md`, drawn once: ours goes before C#'s only where C# would bind *wrongly*
-rather than fail; everywhere else it is C#'s error suggestion, so a member C# can bind is bound
+The rule from `CLAUDE.md`, drawn once: ours goes before C#'s only where C# would bind *wrongly*,
+or crash, rather than fail; everywhere else it is C#'s error suggestion, so a member C# can bind is bound
 exactly as C# would. The invoke, set-member and set-index binders state which case they are in
 through `Seam.oursFirstWhen`; structural `==` and a `Delegate`-typed parameter decide in their own
 binders (`FSharpBinaryOperationBinder`, `FSharpInvokeMemberBinder`). The seam is the `ours1`, `ours2` and `meta` boxes. Both paths produce DLR rules restricted on runtime types, so the decision is
@@ -47,13 +47,14 @@ cached per type like everything else.
 ## Invocation
 
 The C# binder invokes delegates and dynamic objects; an F# function value is an `FSharpFunc`
-object, which it reports as "Cannot invoke a non-delegate type". Three binders in `Seam.fs`
-subclass the DLR's binder types, wrap C#'s, and add the F# case in the fallbacks:
+object, which it reports as "Cannot invoke a non-delegate type". The invocation binders in
+`Seam.fs` subclass the DLR's binder types, wrap C#'s, and add the F# case in the fallbacks (these
+three carry the function rule):
 
 - **`FSharpInvokeMemberBinder`** (`x?Name(args)`). `FallbackInvokeMember` (a CLR target): if the
   type has an accessible property or field of that name whose type is a fitting `FSharpFunc`
   shape and no method of that name, the rule reads and applies it; otherwise C#'s binding — with
-  a rule for a method whose F# optional parameters (`?arg`, i.e. `[<OptionalArgument>]
+  that function-valued member, or a rule for a method whose F# optional parameters (`?arg`, i.e. `[<OptionalArgument>]
   FSharpOption<'T>`) the arguments fit once omitted ones are `None` and bare values `Some`,
   offered as the *error suggestion*, which C# uses only where its own binding fails
   (`Fallback.tryCall`). `FallbackInvoke` (a dynamic target has produced the member's
@@ -70,12 +71,14 @@ The shape is read off the *function's* type — the runtime type of a dynamic va
 type of a CLR member — never off the call's declared result: `FSharpFunc<A * B, R>` (tupled) or
 `FSharpFunc<A, FSharpFunc<B, R>>` (curried) whose domains the argument types fit. The rule is
 built for any arity: a tuple construction and one `Invoke` for tupled (the tuple nested past seven
-elements, as the CLR's are), a chain of `Invoke` calls for curried (each step's result is the next
-function; `OptimizedClosures` override `Invoke` too, so the chain is correct, just not
-`InvokeFast`), the result boxed for the site's `Convert`.
+elements, as the CLR's are); for curried, one `Invoke` for one argument, `InvokeFast` for two to five (one call, no
+intermediate closures, as F# compiles `f a b`) and a chain of `Invoke` calls past that (each
+step's result is the next function; `OptimizedClosures` override `Invoke` too, so the chain is
+correct); the result boxed for the site's `Convert`.
 So a discarded call or a widened result still applies the function that is there. A CLR member
-whose declared type says nothing (`obj`, an interface) is read and handed to a nested `Invoke`
-site that decides by the value's runtime type. Reading a member *as* a function
+whose declared type says nothing (`obj`, an interface, an abstract class), and a delegate-typed
+member (so its arguments get the function/delegate conversions), is read and handed to a nested
+`Invoke` site that decides by the value's runtime type. Reading a member *as* a function
 (`FunctionMember.CurriedN`/`TupledN`) constructs an F# closure and so has per-arity helpers up to
 five like `OptimizedClosures`; past five, `FunctionBuilder` compiles a factory once per (function
 type, site type) — so a computed name's per-key sites reuse it — a LINQ lambda taking the sites
@@ -90,13 +93,15 @@ references as a generic argument put each step on the runtime's slow shared-gene
 `CallSite` constants in the quotation, so a computed name's per-key sites substitute them. The argument
 types a shape has to fit are the meta-objects' `LimitType`s — the runtime type of an `obj`-typed
 argument, the static type of a typed one — matching the site's own argument rules; a null value
-fits any reference-type domain whatever its static type (an untyped `null` is `obj`), and the
+fits any reference-type domain but `unit`, whatever its static type (an untyped `null` is `obj`;
+not `unit`, or a one-argument call could bind a zero-argument function), and the
 rule carries an instance restriction for it — a type restriction can never hold for null, and a
 rule that fails its own test makes the DLR re-bind forever. Our reflection
 lookups (function members, optional-parameter methods, constructors, static overloads) apply the
 same accessibility rule as C#'s binder, from the same context type — [restrictions](restrictions.md)
 states it; `Accessibility` in `Reflection.fs` applies it, to the member and to its declaring type at
-every nesting level. Named or generic calls use C#'s binder unchanged. A member read as `… -> unit` is invoked through a void, result-discarded site.
+every nesting level. Named or generic calls use C#'s binder unchanged (only the meta-object
+argument rule still applies to them). A member read as `… -> unit` is invoked through a void, result-discarded site.
 
 ## The reflection fallback
 
@@ -153,7 +158,7 @@ lambda applying the function.
 
 *Delegate to function*: a typed `DelegateFunctions` wrapper (`FSharpFunc` subclass calling the
 delegate's `Invoke`; `OptimizedClosures` for curried, so `f a b` is one call) over the delegate
-rebound to the `Func`/`Action` of its signature, again constructed by emitted IL; past five
+rebound to the `Func`/`Action` of the *function's* signature, again constructed by emitted IL; past five
 parameters a `FunctionBuilder` factory compiled once per (function type, delegate type), calling
 the delegate type's own `Invoke`. Both directions follow one rule (`Signatures`): the side that
 receives a value accepts it — the same type, or for reference types the variance delegates have

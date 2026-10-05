@@ -34,7 +34,7 @@ out — the out positions are explicit, since a per-key template's value in is a
 emitted delegate's parameter carries no `[Out]`), which LINQ writes back, and builds the holder
 from them: no array and no boxing. The translator reads its fields into the result tuple and
 assigns each ref back to its `let mutable` (or the ref cell a captured one becomes). [benchmarks.md](benchmarks.md)
-has `d?TryGetValue(k, Dlr.out)` against C# `dynamic`'s `out int v`: a few nanoseconds more, and 48 B
+has `d?TryGetValue(k, Dlr.out)` against C# `dynamic`'s `out int v`: about ten nanoseconds more, and 48 B
 against 24 B — the F# tuple beside the boxed result both pay; read into a struct tuple, only the box
 (`Tests/HotPath.fs` pins both).
 The placeholder's own body, `DynamicInvoke`, writes byrefs back on the JIT but not on Mono's
@@ -66,20 +66,22 @@ void site, a `unit` read or operator just drops the value).
 | Syntax | Binder(s) |
 | --- | --- |
 | `x?Name` | `GetMember` + `Convert` |
-| `x?Name(a, b)` | `InvokeMember` (through `FSharpInvokeMemberBinder`, see [binders](binders.md)) + `Convert` |
-| `x?Name <- v` | `SetMember` |
+| `x?Name(a, b)` | `InvokeMember` (through `FSharpInvokeMemberBinder` for a positional call without type arguments, see [binders](binders.md); a named or generic call is C#'s binder as is) + `Convert` |
+| `x?Name <- v` | `SetMember` (through `FSharpSetMemberBinder`: the value conversions, [binders](binders.md)) |
 | `Dlr.addAssign` / `subtractAssign` | `IsEvent`, then either `InvokeMember add_Name` (`InvokeSpecialName`, discarded) or `GetMember` + `BinaryOperation AddAssign` + `SetMember` (`ValueFromCompoundAssignment`) — the C# compiler's shape for `+=` |
-| `Dlr.call x (args)`, `x \|> Dlr.apply args` | `Invoke` (through `FSharpInvokeBinder`) + `Convert` |
-| `Dlr.call x` typed `A -> B -> R` | `Invoke` site with typed argument slots + `Convert`, wrapped by `FunctionMember.CurriedN` / `TupledN` like a member read (past five, a function from a factory compiled once per site: `FunctionBuilder`); the target returned as it is when it already is a function of the type |
-| `Dlr.Static<T>.Overloads?M(a)` | the member's usual `InvokeMember` site with `typeof<T>` as argument 0, flagged `UseCompileTimeType ||| IsStaticType` (C#'s shape for `T.M(dynamicArg)`); C#'s binder alone, the F#-aware wrappers look at instances. Only calls: C#'s `GetMember`/`SetMember`/`IsEvent` have no static form, so the other operations on it are a translation error |
-| `Dlr.new'<T>(a, b)` | `InvokeConstructor` + `Convert`; `typeof<T>` is argument 0 of the site, flagged `UseCompileTimeType ||| IsStaticType`, the C# compiler's shape for `new T(dynamicArg)` |
-| `x \|> Dlr.item i`, `x \|> Dlr.setItem i v` | `GetIndex` / `SetIndex` |
+| `Dlr.call x (args)`, `x \|> Dlr.apply args` | `Invoke` (through `FSharpInvokeBinder` for a positional call) + `Convert` |
+| `Dlr.call x` typed `A -> B -> R` | `Invoke` site with typed argument slots + `Convert`, wrapped by `FunctionMember.CurriedN` / `TupledN` like a member read (past five, a function from a factory compiled once per function type and site type, so a computed name's per-key sites share it: `FunctionBuilder`); no `Convert` for a `… -> unit` result (a void site); the target returned as it is when it already is a function of the type |
+| `Dlr.Static<T>.Overloads?M(a)` | the member's usual `InvokeMember` site with `typeof<T>` as argument 0, flagged `UseCompileTimeType ||| IsStaticType` (C#'s shape for `T.M(dynamicArg)`), through `FSharpStaticInvokeMemberBinder` for a positional non-generic call: the argument rules (F# optional parameters, function ↔ delegate conversions) apply to `T`'s static methods as C#'s error suggestion; the function-*member* rules need an instance and do not. Only calls: C#'s `GetMember`/`SetMember`/`IsEvent` have no static form, so the other operations on it are a translation error |
+| `Dlr.new'<T>(a, b)` | `InvokeConstructor` (through `FSharpInvokeConstructorBinder` for a positional call), no `Convert`: the site itself is typed `T`, as the C# compiler's is (an `obj`-typed site would reject a struct result); `typeof<T>` is argument 0 of the site, flagged `UseCompileTimeType ||| IsStaticType`, the C# compiler's shape for `new T(dynamicArg)` |
+| `x \|> Dlr.item i`, `x \|> Dlr.setItem i v` | `GetIndex` (C#'s binder as is) / `SetIndex` (through `FSharpSetIndexBinder`) |
 | `?+?` … | `BinaryOperation` + `Convert` |
 | `Dlr.neg` … | `UnaryOperation` + `Convert` |
 | `Dlr.cast<T>` | `Convert` with `ConvertExplicit` |
 | `Dlr.implicit` | `Convert` |
-| `x?Name` typed `A -> B -> R` | `InvokeMember` site with typed argument slots + `Convert`, wrapped in a curried F# function by `FunctionMember.CurriedN` / `TupledN` (past five, a function from a factory compiled once per site: `FunctionBuilder`); `unit -> R` uses `FSharpReadOrInvokeBinder` |
+| `x?Name` typed `A -> B -> R` | `InvokeMember` site with typed argument slots + `Convert`, wrapped in a curried F# function by `FunctionMember.CurriedN` / `TupledN` (past five, a function from a factory compiled once per function type and site type: `FunctionBuilder`); no `Convert` for a `… -> unit` result; `unit -> R` uses `FSharpReadOrInvokeBinder` |
 | `(?) x name`, variable name; `x?M(Dlr.typeArgsOf ts)`, variable list | see below |
+
+`MetaObjectAwareBinder` also wraps the InvokeMember, Invoke, SetMember, SetIndex and compound-assignment sites, so an F# function handed to a dynamic object arrives as a delegate; the six comparison operators go through `FSharpBinaryOperationBinder` ([binders](binders.md)).
 
 ## Computed names and runtime type arguments
 

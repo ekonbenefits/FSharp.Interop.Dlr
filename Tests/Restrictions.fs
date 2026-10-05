@@ -1,5 +1,6 @@
-/// One test per bullet of docs/restrictions.md: the restrictions shared with C# `dynamic`, and the
-/// places it goes beyond C# (`inline` is pinned by the analyzer's tests, NativeAOT by the assembly's `IsAotCompatible=false`).
+/// The bullets of docs/restrictions.md: the restrictions shared with C# `dynamic`, and the places
+/// it goes beyond C#; the page names the bullets pinned elsewhere (`inline` by the analyzer's
+/// tests, NativeAOT by the assembly's `IsAotCompatible=false`).
 [<ReflectedDefinition>]
 module Tests.Restrictions
 
@@ -15,6 +16,7 @@ let ``extension methods are not found`` () =
     WidgetExtensions.Twice w |> should equal 6   // it exists, statically
     let o = box w
     (fun () -> (dlr { return o?Twice() } : int) |> ignore) |> should throw typeof<RuntimeBinderException>
+    (dlr { return Dlr.Static<WidgetExtensions>.Overloads?Twice(o) } : int) |> should equal 6   // the way through
 
 [<Fact>]
 let ``static members cannot be reached through an instance`` () =

@@ -5,14 +5,18 @@ Where every piece of state lives, what keys it, and how long it lasts. Part of
 
 | Cache | Key | Value | Lifetime | Where |
 | --- | --- | --- | --- | --- |
-| `DlrCache` | the block's container `Type`: its state machine struct, or on the fallback path its Delay closure (one per block; per instantiation for generic members) | `Compiled { Delegate: DlrReader<'SM,'T> or Func<obj,'T> }` | process; `DlrCache.clear()` drops it | `Cache.fs` |
+| `DlrCache` | the block's container `Type`: its state machine struct, or on the fallback path its Delay closure (or, for a capture-free block left with a static delegate, the closure class its method lives in) (one per block; per instantiation for generic members) | `Compiled { Delegate: DlrReader<'SM,'T> or Func<obj,'T> }` | process; `DlrCache.clear()` drops it | `Cache.fs` |
 | `Machines<'SM,'T>` | the type instantiation itself: one static slot per machine type | the same delegate, already typed `DlrReader<'SM,'T>`, stamped with the clear generation it was compiled under — the hot path: a static field read (no `static let`, so no initialization check), a generation compare, no lookup, no cast | process; `DlrCache.clear()` bumps the generation, so no pre-clear entry is served however it got installed, and a listener (registered on the first compile) nulls the slot | `Cache.fs` |
-| `Sites<'T>` | closure `Type`, per result type (fallback path) | the same delegate, already typed `Func<obj,'T>`, generation-stamped; plus a last-compiled slot (an immutable entry swapped atomically) so a block called repeatedly pays a reference compare, not a hash lookup, and blocks called in turn pay a lookup each and never write | as above | `Cache.fs` |
+| `Sites<'T>` | closure `Type`, per result type (fallback path) | the same delegate, already typed `Func<obj,'T>`, generation-stamped; plus a last-compiled slot (an immutable entry swapped atomically) so a block called repeatedly pays a reference compare, not a hash lookup, and blocks called in turn pay a lookup each and never write; and, for a capture-free block's static delegate, the last delegate seen with its closure class (`lastCode`, `lastCodeType`), so `Delegate.Method` is not resolved per call | as above | `Cache.fs` |
 | `Delayed<'T>` | per result type (fallback path): the resumable-code delegate's target type — the builder's `Delay` lambda, one class per `'T` | a compiled reader of its `delayed` field (the identity when the optimizer inlined the lambda and the target is the closure itself), so a call pays a type compare and a delegate invoke, not reflection; other target types go to a dictionary; the library's own wrapper without that field is an error, not the identity | process | `Cache.fs` |
 | reflected definitions | declaring `Type` (module or class) | every `(MethodBase, Expr)` with a reflected definition on it and its nested types | process | `Discover.fs` |
-| `SiteCache<'Key>` | `string * Type list` — the member name and the explicit type arguments; whichever is static is a constant in the key | the operation's `CallSite[]` for that key | per site (a constant in the compiled tree); at `Capacity` (256) entries it clears and refills | `SiteCaches.fs`, for `(?) x name` with a variable name |
+| `SiteCache<'Key>` | `string * Type list` — the member name and the explicit type arguments; whichever is static is a constant in the key | the operation's `CallSite[]` for that key | per site (a constant in the compiled tree); at `Capacity` (256) entries it clears and refills | `SiteCaches.fs`, for `(?) x name` with a variable name and `Dlr.typeArgsOf` with a run-time list |
 | `NamedOfCache` | the argument shape: names in order, an empty name for a positional (`Dlr.argsOf`) | the operation compiled for that shape (one delegate type per site) | per site; the last two shapes served, then a hash of the names; at `Capacity` (256) entries it clears | `SiteCaches.fs`, for `Dlr.argsOf` / `Dlr.namedOf` |
 | `FunctionConversions.conversions`, `DelegateConversions.makers` | (function type, delegate type) | the emitted factory that adapts one to the other, or None for a pair that does not convert (the binder asks per candidate parameter) | process; bounded by the program's types | `Functions.fs` |
+| `Binders.factories` | (function type, invoke-site type) | the compiled factory that builds a function past five arguments over its sites (`FunctionBuilder`), shared by a computed name's per-key sites | process; not cleared | `Binders.fs` |
+| `DelegateLiteral<'D>`, `ParameterlessLiteral<'D,'R>` | the type instantiation: one static factory per delegate type | the emitted re-wrap of a delegate literal on its own `Invoke` (and, for a parameterless one, the delegate over its thunk) | process; not cleared | `Functions.fs` |
+| `Accessibility.opensTo` | (declaring assembly, calling assembly) | whether `[<InternalsVisibleTo>]` opens one to the other | process | `Reflection.fs` |
+| `Discover.undecodable` | declaring `Type` | the members whose stored quotation FSharp.Core could not decode, for the not-found message | process | `Discover.fs` |
 | DLR rule cache | runtime types (restrictions) | the bound rule | per `CallSite<_>` | inside each site, owned by the DLR |
 
 ## How they relate
@@ -53,7 +57,7 @@ flowchart LR
 
 `clear()` drops the compiled delegates and invalidates the typed entries; the next call at each
 site recompiles. It does not touch the reflected-definition cache (decoding is per type, and the
-definitions have not changed) or the conversion factories (per type pair, and still correct).
+definitions have not changed) or the conversion factories, `Binders.factories` and the delegate-literal factories (per type, and still correct).
 Everything inside a delegate — its sites, their rule caches, a `SiteCache` for a
 [computed name](call-sites.md#computed-names-and-runtime-type-arguments) — is reachable only from
 that delegate and goes with it.
@@ -65,9 +69,10 @@ that delegate and goes with it.
 - reflected definitions: one list per type that has had a block looked up in it.
 - `SiteCache` and `NamedOfCache`: 256 keys per site, then they clear and refill; concurrent
   misses are admitted under a lock so the bound holds. Both lookups cost the same at any size
-  (a dictionary; a hash of the names computed in place, behind a compare with the last two
+  (a dictionary for `SiteCache`, whose key tuple is the one allocation per call — 32 B; for
+  `NamedOfCache` a hash of the names computed in place, behind a compare with the last two
   shapes served — ~10 ns repeating a shape, ~15 ns alternating two, ~40–50 ns for any other
-  pattern at any size, allocating nothing), so the number is a memory bound on a site that fills
+  pattern at any size, allocating nothing beyond the `obj[]` of splatted values), so the number is a memory bound on a site that fills
   it, measured (Release, arm64): a `SiteCache`
   entry — a site and its rule cache — is ~6.5 KB, so a full site holds ~1.6 MB; a
   `NamedOfCache` entry — the shape's compiled delegate at one arity — ~13 KB, a full site

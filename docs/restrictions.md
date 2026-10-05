@@ -2,10 +2,14 @@
 
 
 Same binder, same limits — each pinned by a test in `Tests/Restrictions.fs` (accessibility's
-protected cases in `Tests/FunctionMembers.fs`; the `inline` one by the analyzer's tests; NativeAOT
-by the assembly's own `IsAotCompatible=false`, not a test):
+protected cases in `Tests/FunctionMembers.fs`; the translation errors of `Dlr.named`, `Dlr.Static`
+and `Dlr.call` in `Tests/Invoke.fs`, `Tests/StaticOverloads.fs` and `Tests/Call.fs`; the `inline`
+one by the analyzer's tests; NativeAOT by the assembly's own `IsAotCompatible=false`, not a test).
+The places it goes beyond have their own files (`Tests/FunctionMembers.fs`, `Tests/Delegates.fs`,
+`Tests/Operators.fs`, `Tests/ComputedNames.fs`, `Tests/TypeArgs.fs`, `Tests/ArgsFromData.fs`):
 
-- **Extension methods** are not found; the binder sees only the target's own members.
+- **Extension methods** are not found; the binder sees only the target's own members. Call the
+  extension class statically instead: `Dlr.Static<Ext>.Overloads?M(x)`, or `Ext.M x` in plain F#.
 - **Static members** cannot be reached through an instance; static *calls* have their own target,
   `Dlr.Static<T>.Overloads`.
 - **Explicitly implemented interface members** are not found: the binder sees the runtime type's
@@ -61,7 +65,10 @@ constructors, delegate-typed members and delegate values.
   dlr { return w?Add }`; curried or tupled, any arity), which C# has no form for.
 - **An F# function fits a delegate parameter, and a delegate fits a function parameter**:
   `x?Each(items, fun i -> …)` against an `Action<int>`, `x?Apply(3, Func<int, int>(…))` against
-  an `int -> int` — the conversions F# does at a static call — and the same for an assignment
+  an `int -> int` — the conversion F# does for a lambda at a static call, in both directions, with
+  the reference-type variance delegates have (a parameter may be more general, a result more
+  specific; value types exactly), and a `Func<…, unit>` for a `unit` result
+  ([binders](binders.md)) — and the same for an assignment
   to a delegate- or function-typed property, field, indexer or array element (`x?Handler <- fun
   a b -> …`). C#'s binder sees an `FSharpFunc` and a `Func` as unrelated types. And **an F# function handed to a dynamic object** — a script
   host's object, a `DynamicObject` — arrives as the delegate of its own signature (`int -> unit`

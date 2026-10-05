@@ -108,3 +108,19 @@ let ``a captured mutable struct is mutated in place: a field, a field of a field
     let next: int = dlr { return v.Next() + v.Next() }       // 4 + 5, each on the updated value
     next |> should equal 9
     v.N |> should equal 5
+
+[<Fact>]
+let ``a captured mutable struct: an argument that mutates it runs before the copy is read`` () =
+    // `v.Next()` bumps N to 1; writing back a copy read before it would restore 0.
+    let w = box (Widget())
+    let mutable v = Tests.CSharp.OuterPoint()
+    dlr { v.Total <- v.Next() + (w?Count : int) }
+    v.N |> should equal 1
+    v.Total |> should equal 4
+
+[<Fact>]
+let ``a captured mutable struct keeps a mutation its member made before throwing`` () =
+    let w = box (Widget())
+    let mutable v = Tests.CSharp.OuterPoint()
+    (fun () -> dlr { v.BumpThenThrow(); ignore (w?Count : int) }) |> should throw typeof<System.InvalidOperationException>
+    v.N |> should equal 1

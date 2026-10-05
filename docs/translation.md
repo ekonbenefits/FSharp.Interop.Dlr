@@ -17,7 +17,7 @@ flowchart TD
     mb --> rw
     cp --> rw
     gen --> rw
-    rw --> out["NewDelegate(Func&lt;'SM,'T&gt;, [sm], …)<br/>→ LeafExpressionConverter → SiteHoister<br/>→ rewrapped as DlrReader&lt;'SM,'T&gt; over inref&lt;'SM&gt; → Compile()"]
+    rw --> out["NewDelegate(Func&lt;'SM,'T&gt;, [sm], …)<br/>→ LeafExpressionConverter → SiteHoister<br/>→ rewrapped as DlrReader&lt;'SM,'T&gt; over inref&lt;'SM&gt;<br/>(closure path: Func&lt;obj,'T&gt; as is) → Compile()"]
 ```
 
 Each section takes the recursive rewriter as a parameter, so the mutual recursion is explicit
@@ -35,9 +35,10 @@ nested delegates (loop and try bodies), and the copy costs nothing measurable, w
 
 ## Notes
 
-- **Normalisation** first (`Translate.normalize`): `|>` / `<|` and applications of the curried
-  markers are beta-reduced (a parameter used once is substituted, otherwise `let`-bound), and
-  `let`s of literals and variables are inlined, so `w |> Dlr.get "A"` is the same node as
+- **Normalisation** first (`TranslatePatterns.normalize`): `|>` / `<|` and applications of the curried
+  markers are beta-reduced (a variable or literal argument, or one used once and not under a
+  lambda, is substituted; a `unit` one is run first; otherwise `let`-bound), and `let`s of
+  literals and immutable variables are inlined, so `w |> Dlr.get "A"` is the same node as
   `Dlr.get "A" w` with a literal name.
 - **Captured variables** become reads of the container's fields by name (`Captures.fields`
   skips the machine's own `Data` and `ResumptionPoint`, declared first: a captured `Data` has a
@@ -55,11 +56,11 @@ nested delegates (loop and try bodies), and the copy costs nothing measurable, w
   That holds for a `try`, `while` or `for i in a .. b` anywhere, not only the builder's: under a
   lambda, in a delegate literal, or used as a value (`let n = try … with _ -> 0`), the raw
   `TryWith`/`TryFinally`/`WhileLoop`/`ForIntegerRangeLoop` node goes to the same helpers (#158,
-  #162), and so does a `use` there. A struct tuple's element is read as its field: the
-  converter's `TupleGet` rejects a `ValueTuple`. Its handler, running as a delegate, is outside
+  #162), and so does a `use` there. The raw `try`'s handler, running as a delegate, is outside
   any catch block, so the `reraise ()` F# puts where no case matches throws the caught exception
   again through `DlrRuntime.rethrow`, its stack trace kept (`Plumbing.rethrowing`); the builder's
   handlers have no `reraise ()` (the compiler's unmatched case there is already a rethrow).
+  A struct tuple's element is read as its field: the converter's `TupleGet` rejects a `ValueTuple`.
   `let rec` is tied through reference cells, and so is a `let mutable` of the block: loop and
   `try` bodies are compiled into delegates, and a tree variable cannot be assigned from inside
   one. A captured mutable already is a cell, so `v <- x` writes its `Value`. A struct in a cell
@@ -90,7 +91,8 @@ nested delegates (loop and try bodies), and the copy costs nothing measurable, w
   own method calls; a struct tuple is one value.
 - **Evaluation order** is C#'s — the target, then the arguments left to right, each once. Where
   a form hoists something ahead of the site call (a `Dlr.named` record's field temporaries, a
-  `namedOf` / `argsOf` list, a splat tuple, a computed name), `sequenced` binds every impure
+  `namedOf` / `argsOf` list, a tuple variable split into arguments, an impure computed name or
+  run-time type list — and always a call with `Dlr.out` / `Dlr.ref`), `sequenced` binds every impure
   expression to a variable in source order first, so the hoisted ones take their own place;
   plain calls are untouched. A mutable read counts as impure.
 
@@ -100,14 +102,16 @@ Specified F#: the computation-expression desugaring, caller-info arguments, `[<R
 (the quotation is taken before inlining, so the block is still `Run(Delay(fun () -> …))` in it),
 resumable code and `__stateMachine` (FS-1087), `LeafExpressionConverter` (FSharp.Core ≥ 10.1.201:
 the first whose converter takes `Sequential`, `PropertySet`, `VarSet` and `FieldSet`, and
-converts a `Let` without a nested lambda). Not specified — read by `Translate.Captures` and
+converts a `Let` without a nested lambda). Not specified — read by `TranslateBlock.Captures` and
 `Discover`:
 
 - the state machine struct's fields named after the captured variables (after its own `Data`
   and `ResumptionPoint`), `this` as `this`, `FSharpRef` for mutables; the same on the Delay
   closure when the compiler does not build the machine (Debug), and that closure held in a
   field named `delayed` of the resumable-code delegate's target (the builder's own `Delay`
-  lambda captures it under that name; `DlrRun.Closure` falls back to the target itself);
+  lambda captures it under that name, read by `Delayed<'T>`; a target of another type is taken as
+  the closure itself, and a null target — the applied function-typed block — compiles from the
+  closure class, `Sites<'T>.ClosureTypeOf`);
 - the struct or closure nested in the enclosing module type, or in the file's `<StartupCode$…>`
   class for members of types declared in a namespace (hence the assembly-wide fallback in
   `Discover`);
