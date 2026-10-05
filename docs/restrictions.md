@@ -38,10 +38,12 @@ The places it goes beyond have their own files (`Tests/FunctionMembers.fs`, `Tes
   copy**, so a mutating call through the box leaves the variable untouched; and a
   **`Nullable<T>` target erases** — the box holds a `T` or is `null`, so there is no `HasValue`
   or `Value` to find (the value reads as `T`).
-- **`Dlr.named` takes the record literal itself** — the names are read from the quotation, so a
-  record held in a variable is a translation error (the analyzer reports it); names from data
-  are `Dlr.namedOf`. `Dlr.Static<T>.Overloads` is a call target only, and `Dlr.call x` is read
-  at a function type or applied; each other use is a translation error the analyzer reports.
+- **Three markers take one shape only.** Any other use is a translation error, which the
+  analyzer reports at build time.
+  - `Dlr.named` takes the record literal itself: the names are read from the quotation, so a
+    record held in a variable does not work. For names from data, use `Dlr.namedOf`.
+  - `Dlr.Static<T>.Overloads` is a call target only.
+  - `Dlr.call x` is read at a function type or applied.
 - **Generic type arguments** must be inferable from the arguments, or given explicitly —
   `Dlr.typeArgs<A, B>()` or `Dlr.typeArgsOf [ … ]`, whose list may even be a run-time value.
 - **`inline` members with a member constraint** (`^T: (member Name: string)`) are found but
