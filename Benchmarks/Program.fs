@@ -73,12 +73,13 @@ let private footnotes =
     [ "1", "FSharp.Interop.Dynamic has no conversion from an F# function to a delegate parameter."
       "2", "the typed API has no single form here: a chain is two casts, an `ExpandoObject` is an `IDictionary`."
       "3", "FSharp.Interop.Dynamic fails on a `JObject` member: its result conversion asks the `JValue` to convert to `object`, which Newtonsoft refuses (\"Can not convert from System.Int64 to System.Object\")."
-      "4", "C#'s binder does not invoke an F# function value held in a member, and FSharp.Interop.Dynamic invokes only a one-argument or tupled one (its fallback calls `Invoke` once), not a curried one like this."
+      "4", "C#'s binder does not invoke an F# function value held in a member."
       "5", "an F# optional parameter is an `FSharpOption` with no `[Optional]`: C#'s binder and Dynamitey need it passed."
       "6", "C# reaches a constructor through the binder only with a `dynamic` argument (`new Widget()` is a static call), and FSharp.Interop.Dynamic has no form for it here."
       "7", "C# has no spelling with a run-time member name or argument names, nor for invoking a value read as an F# function."
       "8", "FSharp.Interop.Dynamic takes its arguments as a tuple; a list of unknown length has no form."
-      "9", "FSharp.Interop.Dynamic has no spelling for an `out` argument." ]
+      "9", "FSharp.Interop.Dynamic has no spelling for an `out` argument."
+      "10", "FSharp.Interop.Dynamic applies a curried function one argument per application, which suits an F# function but not a method: read curried, `Sum6` is called with one argument, which no overload takes." ]
 
 /// `docs`: run every suite and write docs/benchmarks.md (comparisons) and the README's "Measured"
 /// table (`readmeRows`), between its markers.
@@ -127,7 +128,7 @@ let private writeDocs (short: bool) =
           yield! comparison r "Where the forms differ"
                    "Each column does what its language offers here, so the cells are not always like for like: `==` on records is reference equality for C# `dynamic` and FSharp.Interop.Dynamic, structural for `dlr { }`; FSharp.Interop.Dynamic's `!?f` invokes a value where `dlr` reads it as a function first; a dash is a form that language has no spelling for, footnoted."
                    [ "C# `dynamic`"; "`dlr { }`"; "FSharp.Interop.Dynamic" ]
-                   [ "F# function member `w?Fn(1, 2)`", [ "^4"; "FunctionMember"; "^4" ]
+                   [ "F# function member `w?Fn(1, 2)` (FSharp.Interop.Dynamic: `w?Fn 1 2`)", [ "^4"; "FunctionMember"; "DynamicFunctionMember" ]
                      "optional parameter omitted `w?Bump(1)`", [ "^5"; "OptionalOmitted"; "^5" ]
                      "record `==` (structural only for `dlr`)", [ "CSharpEquals"; "StructuralEquals"; "DynamicEquals" ]
                      "constructor through the binder, `Dlr.new'<Widget>()`", [ "^6"; "Construct"; "^6" ]
@@ -135,11 +136,11 @@ let private writeDocs (short: bool) =
                      "keyword arguments from data (`Dlr.namedOf kwargs`; `Dyn.namedArg` pairs)", [ "^7"; "NamedOf"; "DynamicNamedOf" ]
                      "positional arguments from data, `Dlr.argsOf args`", [ "^7"; "ArgsOf"; "^8" ]
                      "keyword arguments from data, two name lists alternating", [ "^7"; "NamedOfAlternating"; "DynamicNamedOfAlternating" ]
-                     "a six-argument call `w?Sum6(1, …, 6)`", [ "CSharpCallSum6"; "CallSum6"; "" ]
-                     "a member read as a tupled function of five, then applied (`w?Sum5` typed `int * … -> int`; a typed helper)", [ "^7"; "TupledRead5"; "" ]
-                     "the same of six (compiled once per site, one step over the tuple)", [ "^7"; "TupledRead6"; "" ]
-                     "a member read as a curried function of six, then applied (compiled once per site, a step per argument)", [ "^7"; "CurriedRead6"; "" ]
-                     "a value read as an F# function, `Dlr.call f : int -> int -> int`, then applied (`!?f (1, 2)`, which takes a tupled function, not a curried one)", [ "^7"; "CallAsFunction"; "DynamicInvokeFunction" ] ]
+                     "a six-argument call `w?Sum6(1, …, 6)`", [ "CSharpCallSum6"; "CallSum6"; "DynamicCallSum6" ]
+                     "a member read as a tupled function of five, then applied (`w?Sum5` typed `int * … -> int`; a typed helper)", [ "^7"; "TupledRead5"; "DynamicTupledRead5" ]
+                     "the same of six (compiled once per site, one step over the tuple)", [ "^7"; "TupledRead6"; "DynamicTupledRead6" ]
+                     "a member read as a curried function of six, then applied (compiled once per site, a step per argument)", [ "^7"; "CurriedRead6"; "^10" ]
+                     "a value read as an F# function, `Dlr.call f : int -> int -> int`, then applied (FSharp.Interop.Dynamic: `!?f 1 2`)", [ "^7"; "CallAsFunction"; "DynamicInvokeFunction" ] ]
           yield "## Real targets"
           yield ""
           yield! comparison r "Newtonsoft.Json `JObject` and `ExpandoObject`" "" [ "typed API"; "C# `dynamic`"; "`dlr { }`"; "FSharp.Interop.Dynamic" ]
