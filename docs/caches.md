@@ -99,25 +99,26 @@ that delegate and goes with it.
 - `SiteCache` and `NamedOfCache`: 256 keys per site, then they clear and refill; concurrent
   misses are admitted under a lock so the bound holds. A lookup costs the same at any size:
   - `SiteCache`: a dictionary; its key tuple is the one allocation per call (32 B).
-  - `NamedOfCache`: ~10 ns repeating a shape, ~15 ns alternating two, ~40–50 ns for any other
-    pattern; nothing allocated beyond the `obj[]` of splatted values.
+  - `NamedOfCache`: a shape repeated, or two alternating, hit a compare with the last two shapes
+    served; any other pattern hashes the names in place. Nothing is allocated beyond the `obj[]`
+    of splatted values. The `Dlr.namedOf` rows of [benchmarks.md](benchmarks.md) have the times.
 
-  So 256 is a memory bound on a site that fills it. Measured (Release, arm64): a `SiteCache`
-  entry (a site and its rule cache) is ~6.5 KB, ~1.6 MB for a full site; a `NamedOfCache` entry
-  (the shape's compiled delegate) ~13 KB, ~3.5 MB for a full site. A site that gets there is
+  So 256 is a memory bound on a site that fills it. Measured once (Release, arm64), an entry is
+  a few KB (a `SiteCache` entry is a site and its rule cache; a `NamedOfCache` entry, the shape's
+  compiled delegate, about twice that), so a full site holds a few MB. A site that gets there is
   keyed by data (below), which the docs steer to `Dlr.item`; `Capacity` is settable for a host
   that knows its working set.
 - What these do **not** bound — the computed case only, a literal name or type list being one
   key for ever: Microsoft.CSharp's own symbol table. The first bind of a name against a type
   loads that type's members of that name, for every type in the target's hierarchy, and keeps
-  them for the life of the process (~300 B and ~0.3 ms per name per type); a `DynamicObject`
+  them for the life of the process (a few hundred bytes and a fraction of a millisecond per name per type); a `DynamicObject`
   pays it too, since its meta-object computes C#'s fallback eagerly. This is C# `dynamic`'s
   behaviour with a name from data, and there is no API to clear it. So a stream of distinct
   member names (`(?) x name`) or type lists (`Dlr.typeArgsOf ts`) from untrusted data grows the
   process without bound: allow-list them, or where the target indexes by key (JObject, Python
   dicts, Dapper rows, script objects) use `x |> Dlr.item key` — one member name, `Item`, however
   many keys. A distinct positional count in `Dlr.argsOf` is dearer still (a new site arity and
-  an interned binder, ~100 KB and ~8 ms in Release, permanent), so `Dlr.argsOf` takes at most 64 values
+  an interned binder: on the order of 100 KB and milliseconds, permanent), so `Dlr.argsOf` takes at most 64 values
   (`NamedOfCache.MaxPositional`): a count from data is then bounded, as a C# call site's arity
   is bounded by its source.
 - conversion factories: one per (function type, delegate type) pair that has been converted.

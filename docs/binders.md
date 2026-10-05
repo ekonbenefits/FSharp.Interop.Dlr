@@ -295,7 +295,7 @@ marshalling by `.Method` (NLua does) sees `(Closure, string)` and refuses it.
 The translator wraps each in `DelegateLiteral<'D>.Over`: a delegate of the same type over the
 inner one's `Invoke` (emitted IL, or `CreateDelegate`). So `.Method` is the delegate type's own
 `Invoke` and `.Target` the inner delegate. It costs an allocation per block run and one
-indirection per call, about 20 ns on the block.
+indirection per call.
 
 It applies to delegate literals inside blocks, and to the seam's own past-sixteen-parameter
 conversion, the one shape it builds as a compiled lambda rather than an adapter class

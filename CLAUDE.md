@@ -111,7 +111,10 @@ FSharp.Interop.Dlr/check-internals.sh  # each idiom fixed more than once has one
   `Benchmarks/bench.sh docs` regenerates `docs/benchmarks.md`, then `bench.sh compare` flags the
   `dlr { }` cells over 25% slower or allocating more than the committed file (and prints the
   other columns' drift). Allocations on the hot paths are pinned exactly in `Tests/HotPath.fs`,
-  which the gate runs; timings cannot be, so they are compared, not asserted.
+  which the gate runs; timings cannot be, so they are compared, not asserted. So in the docs a
+  byte count may be written out where `Tests/HotPath.fs` pins it, but a timing is relative ("a few
+  nanoseconds more", "several times") and points at its `docs/benchmarks.md` row: nothing checks a
+  hand-written figure, and `bench.sh compare` reads only the generated tables.
 - Copilot: one automatic review per new PR, none on later pushes; never request one while
   waiting (15–20 min); address via `check-review`, verifying each claim with a test first.
 - Issues are the backlog; the API decisions above came from them.

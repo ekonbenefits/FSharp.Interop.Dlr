@@ -63,9 +63,10 @@ The argument flags are C#'s: `IsOut` / `IsRef` with `UseCompileTimeType`, the ou
 its element of the block's result type. (C# needs a written type for a dynamic call's out,
 CS8197, for the same reason.)
 
-Cost: [benchmarks.md](benchmarks.md) has `d?TryGetValue(k, Dlr.out)` against C# `dynamic`'s
-`out int v`. It is about ten nanoseconds more, and 48 B against 24 B: the F# tuple beside the
-boxed result both pay. Read into a struct tuple, only the box (`Tests/HotPath.fs` pins both).
+Cost: `d?TryGetValue(k, Dlr.out)` is a few nanoseconds more than C# `dynamic`'s `out int v`
+(the `out` row of [benchmarks.md](benchmarks.md#the-same-operation-each-way)), and allocates
+48 B against 24 B: the F# tuple beside the boxed result both pay. Read into a struct tuple, only
+the box (`Tests/HotPath.fs` pins both).
 
 ## Argument typing
 
