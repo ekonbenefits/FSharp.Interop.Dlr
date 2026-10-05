@@ -124,6 +124,12 @@ type internal SiteHit<'T>(closureType: Type, f: Func<obj, 'T>, generation: int) 
     member _.Func = f
     member _.Generation = generation
 
+/// The last static resumable-code delegate seen and its closure class, as one immutable pair (#175).
+[<AllowNullLiteral>]
+type internal CodeHit(code: Delegate, closureType: Type) =
+    member _.Code = code
+    member _.ClosureType = closureType
+
 /// The fallback path's cache, for blocks the compiler did not turn into a state machine (Debug
 /// builds): per result type, the compiled `Func<obj, 'T>` by Delay-closure type, already typed,
 /// so a call is one `GetType()`, one compare or lookup and one invoke.
@@ -141,16 +147,15 @@ type internal Sites<'T> [<ExcludeFromCodeCoverage>] private () =
     /// The closure class of a static resumable-code delegate (no target): the class its method
     /// lives in. `Delegate.Method` resolves a MethodInfo per call (~130 ns on a delegate the
     /// compiler allocates per call), so the last delegate seen is compared first — a static
-    /// delegate's equality is its method pointer, so a re-entered block hits.
-    static member val private lastCode : Delegate = null with get, set
-    static member val private lastCodeType : Type = null with get, set
+    /// delegate's equality is its method pointer, so a re-entered block hits. The delegate and its
+    /// class are one immutable pair swapped atomically: two fields could be read torn (#175).
+    static member val private lastCode : CodeHit = null with get, set
     static member ClosureTypeOf(code: Delegate) : Type =
         let last = Sites<'T>.lastCode
-        if not (isNull last) && last.Equals code then Sites<'T>.lastCodeType
+        if not (isNull last) && last.Code.Equals code then last.ClosureType
         else
             let t = code.Method.DeclaringType
-            Sites<'T>.lastCode <- code
-            Sites<'T>.lastCodeType <- t
+            Sites<'T>.lastCode <- CodeHit(code, t)
             t
 
     /// By closure type: `closureType` is the block's Delay closure class, or for a capture-free
