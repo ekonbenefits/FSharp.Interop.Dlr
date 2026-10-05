@@ -3,44 +3,69 @@
 What each dynamic operation becomes, how its arguments are typed, and how the sites are laid
 out in the compiled delegate. Part of [internals](internals.md).
 
-Every dynamic operation becomes one `CallSite<TDelegate>` created at translation time and embedded
-in the expression tree as an `Expression.Constant` — the same thing the C# compiler emits as a
-static field per `dynamic` operation. The delegate type is `Func<CallSite, target, args…, result>`
-(`Action` when the result is discarded), built with `Expression.GetDelegateType` so it also works
-past `Func`'s arity. `Binders.siteCall` emits `site.Target.Invoke(site, target, args…)` as a
-quotation `Call` node; the site's polymorphic rule cache does the rest at run time.
+Every dynamic operation becomes one `CallSite<TDelegate>`, created at translation time and
+embedded in the expression tree as an `Expression.Constant`. That is the same thing the C#
+compiler emits as a static field per `dynamic` operation.
 
-Past `Func`'s 17 type parameters (15 arguments and up) that delegate type is emitted at run time, and a
-quotation must not name it: FSharp.Core's `Expr.Call` checks ask the type's assembly
-`ReflectionOnly`, which Mono's browser runtime has not implemented. So a wide site's call is
-emitted as a placeholder whose types are all plain — `WideSite.Invoke(site: CallSite,
-delegateType: Type, args: obj[])` — and the LINQ `SiteHoister` in `SiteHoister.fs`, which visits
-every tree after conversion anyway, rewrites it into the typed `Expression.Invoke` on the site's
-`Target`, unboxing each argument back to its parameter type. The same tree as a narrow site gets,
-one step later, on every runtime, not only wasm; nothing changes for sites of up to 14 arguments. Every compiled tree goes
-through the hoister, the per-key templates of a computed name included. The per-key delegates of a
-computed name or a `Dlr.namedOf` shape use the same idea one level up: past `Func`'s arity they
-are a `Func<obj[], obj>` over the parameters packed at the call and unpacked inside
-(`lambdaOver` / `packArguments`).
+- The delegate type is `Func<CallSite, target, args…, result>` (`Action` when the result is
+  discarded), built with `Expression.GetDelegateType` so it also works past `Func`'s arity.
+- `Binders.siteCall` emits `site.Target.Invoke(site, target, args…)` as a quotation `Call` node.
+- The site's polymorphic rule cache does the rest at run time.
+
+## Wide sites
+
+Past `Func`'s 17 type parameters (15 arguments and up), the site's delegate type is emitted at
+run time, and a quotation must not name it: FSharp.Core's `Expr.Call` checks ask the type's
+assembly `ReflectionOnly`, which Mono's browser runtime has not implemented.
+
+So a wide site's call is emitted as a placeholder whose types are all plain,
+`WideSite.Invoke(site: CallSite, delegateType: Type, args: obj[])`. The LINQ `SiteHoister` in
+`SiteHoister.fs`, which visits every tree after conversion anyway, rewrites it into the typed
+`Expression.Invoke` on the site's `Target`, unboxing each argument back to its parameter type.
+
+- The result is the same tree a narrow site gets, one step later, on every runtime, not only
+  wasm.
+- Nothing changes for sites of up to 14 arguments.
+- Every compiled tree goes through the hoister, the per-key templates of a computed name
+  included.
+
+The per-key delegates of a computed name or a `Dlr.namedOf` shape use the same idea one level
+up: past `Func`'s arity they are a `Func<obj[], obj>` over the parameters packed at the call and
+unpacked inside (`lambdaOver` / `packArguments`).
+
+## Byref sites
 
 A site with `ref` / `out` parameters (`Dlr.ref v`, `Dlr.out`, #131) has a delegate emitted at run
-time at any arity (`Func` has no byref parameters), and a quotation cannot pass a byref anyway. Its
-call is a placeholder too, `ByRefSite.Invoke<'H>(site, delegateType, args: obj[], byRefs, outs, sameAs) : 'H`
-(`sameAs` marks a variable passed by ref twice, which shares one storage, as in C#),
-whose `'H` holds the result then each byref argument's value after the call — a `ValueTuple<obj,
-T1, …>` (nested in `Rest` past seven), so the values come back typed. The hoister rewrites it into
-the typed `Invoke` over a LINQ variable per byref parameter (a ref's value in, the default for an
-out — the out positions are explicit, since a per-key template's value in is a parameter and an
-emitted delegate's parameter carries no `[Out]`), which LINQ writes back, and builds the holder
-from them: no array and no boxing. The translator reads its fields into the result tuple and
-assigns each ref back to its `let mutable` (or the ref cell a captured one becomes). [benchmarks.md](benchmarks.md)
-has `d?TryGetValue(k, Dlr.out)` against C# `dynamic`'s `out int v`: about ten nanoseconds more, and 48 B
-against 24 B — the F# tuple beside the boxed result both pay; read into a struct tuple, only the box
-(`Tests/HotPath.fs` pins both).
-The placeholder's own body, `DynamicInvoke`, writes byrefs back on the JIT but not on Mono's
-interpreter, so the rewrite is required there, not only faster. The argument flags are C#'s:
-`IsOut` / `IsRef` with `UseCompileTimeType`, the out's type being its element of the block's result
-type (C# needs a written type for a dynamic call's out, CS8197, for the same reason).
+time at any arity (`Func` has no byref parameters), and a quotation cannot pass a byref anyway.
+Its call is a placeholder too:
+
+```
+ByRefSite.Invoke<'H>(site, delegateType, args: obj[], byRefs, outs, sameAs) : 'H
+```
+
+- `sameAs` marks a variable passed by ref twice, which shares one storage, as in C#.
+- `'H` holds the result, then each byref argument's value after the call: a
+  `ValueTuple<obj, T1, …>` (nested in `Rest` past seven), so the values come back typed.
+
+The hoister rewrites it into the typed `Invoke` over a LINQ variable per byref parameter, which
+LINQ writes back, and builds the holder from them: no array and no boxing.
+
+- A ref's variable starts with its value; an out's with the default.
+- The out positions are passed explicitly: a per-key template's value comes in as a parameter,
+  and an emitted delegate's parameter carries no `[Out]`.
+- The translator reads the holder's fields into the result tuple and assigns each ref back to
+  its `let mutable` (or the ref cell a captured one becomes).
+
+The rewrite is required on wasm, not only faster: the placeholder's own body, `DynamicInvoke`,
+writes byrefs back on the JIT but not on Mono's interpreter.
+
+The argument flags are C#'s: `IsOut` / `IsRef` with `UseCompileTimeType`, the out's type being
+its element of the block's result type. (C# needs a written type for a dynamic call's out,
+CS8197, for the same reason.)
+
+Cost: [benchmarks.md](benchmarks.md) has `d?TryGetValue(k, Dlr.out)` against C# `dynamic`'s
+`out int v`. It is about ten nanoseconds more, and 48 B against 24 B: the F# tuple beside the
+boxed result both pay. Read into a struct tuple, only the box (`Tests/HotPath.fs` pins both).
 
 ## Argument typing
 
