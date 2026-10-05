@@ -54,40 +54,68 @@ The places it goes beyond have their own files (`Tests/FunctionMembers.fs`, `Tes
 
 ## Five places it goes beyond C#
 
-The first four are the seam ([binders](binders.md)) — binder rules for what C# would have failed
-or got wrong; the fifth is translation. The argument rules (optional parameters,
-function/delegate conversion) apply to every kind of call: instance and static methods,
-constructors, delegate-typed members and delegate values.
+The first four are the seam ([binders](binders.md)): binder rules for what C# would have failed
+or got wrong. The fifth is translation. The argument rules (optional parameters, function and
+delegate conversions) apply to every kind of call: instance and static methods, constructors,
+delegate-typed members and delegate values.
 
-- **A member holding an F# function value can be called** (`e?Fn(21)`, a record field
-  `h?OnPair(3, 4)`, `f |> Dlr.apply 21`), curried or tupled, any arity; and any member — or the
-  value itself, `Dlr.call f` — can be read as an F# function type (`let add: int -> int -> int =
-  dlr { return w?Add }`; curried or tupled, any arity), which C# has no form for.
-- **An F# function fits a delegate parameter, and a delegate fits a function parameter**:
-  `x?Each(items, fun i -> …)` against an `Action<int>`, `x?Apply(3, Func<int, int>(…))` against
-  an `int -> int` — the conversion F# does for a lambda at a static call, in both directions, with
-  the reference-type variance delegates have (a parameter may be more general, a result more
-  specific; value types exactly), and a `Func<…, unit>` for a `unit` result
-  ([binders](binders.md)) — and the same for an assignment
-  to a delegate- or function-typed property, field, indexer or array element (`x?Handler <- fun
-  a b -> …`). C#'s binder sees an `FSharpFunc` and a `Func` as unrelated types. And **an F# function handed to a dynamic object** — a script
-  host's object, a `DynamicObject` — arrives as the delegate of its own signature (`int -> unit`
-  an `Action<int>`), as an argument (`arr?forEach(fun n -> …)`), a value set on it
-  (`el?onclick <- fun () -> …`) or a handler added to its event (`com |> Dlr.addAssign
-  "MoveComplete" (fun … -> …)`, COM's bound event included), since every meta-object understands
-  delegates and none an `FSharpFunc`; there is no parameter type to drive it, so the function's
-  own does. A CLR event takes one too (`Dlr.addAssign "Clicked" (fun sender n -> …)`, converted to
-  the event's delegate type). A new delegate is made per conversion, so to remove a handler with
-  `Dlr.subtractAssign`, add a delegate and keep it — as with a C# lambda.
-- **F# optional parameters (`?arg`) can be omitted**: omitted ones are `None`, bare values become
-  `Some`. C#'s binder cannot omit them (they are `FSharpOption<'T>` parameters with no `[Optional]`
-  metadata).
-- **`?=?` and `?<?` are structural on F# types**: records, unions, tuples, lists, options, sets
-  — anything without a CLR operator — compare as F# `=` and `compare` do. C# would compare
-  them by reference (`{ X = 1 } == { X = 1 }` is `false` there) and has no `<` for them at all.
-  Primitives, enums, strings (`==` only; `<` on strings and bools, which C# lacks, is F#'s), types declaring
-  `op_Equality` and dynamic objects keep C#'s rules.
-- **Member names, generic type arguments and argument names may be run-time values**: `(?) x name`
-  and `Dlr.typeArgsOf ts` create the call sites per distinct name or type list, and
-  `Dlr.namedOf kw` / `Dlr.argsOf xs` compile the call per distinct argument shape (keyword
-  arguments and positional arguments from data, `f(*args, **kwargs)`), cached per site. C#'s are fixed at compile time.
+### 1. F# function values can be called, and members read as functions
+
+- A member holding an F# function value can be called: `e?Fn(21)`, a record field
+  `h?OnPair(3, 4)`, `f |> Dlr.apply 21`. Curried or tupled, any arity.
+- Any member, or the value itself (`Dlr.call f`), can be read as an F# function type:
+  `let add: int -> int -> int = dlr { return w?Add }`. Curried or tupled, any arity.
+
+C# has no form for either.
+
+### 2. Functions and delegates convert both ways
+
+An F# function fits a delegate parameter, and a delegate fits a function parameter. C#'s binder
+sees an `FSharpFunc` and a `Func` as unrelated types.
+
+- `x?Each(items, fun i -> …)` against an `Action<int>`; `x?Apply(3, Func<int, int>(…))` against
+  an `int -> int`.
+- It is the conversion F# does for a lambda at a static call, in both directions, with the
+  reference-type variance delegates have: a parameter may be more general, a result more
+  specific, value types exactly. A `Func<…, unit>` serves a `unit` result
+  ([binders](binders.md)).
+- The same holds for an assignment to a delegate- or function-typed property, field, indexer or
+  array element: `x?Handler <- fun a b -> …`.
+
+An F# function handed to a **dynamic object** (a script host's object, a `DynamicObject`)
+arrives as the delegate of its own signature: `int -> unit` as an `Action<int>`. Every
+meta-object understands delegates and none an `FSharpFunc`; there is no parameter type to drive
+the conversion, so the function's own type does. That covers:
+
+- an argument: `arr?forEach(fun n -> …)`;
+- a value set on it: `el?onclick <- fun () -> …`;
+- a handler added to its event: `com |> Dlr.addAssign "MoveComplete" (fun … -> …)`, COM's bound
+  event included.
+
+A CLR event takes one too: `Dlr.addAssign "Clicked" (fun sender n -> …)`, converted to the
+event's delegate type. A new delegate is made per conversion, so to remove a handler with
+`Dlr.subtractAssign`, add a delegate and keep it, as with a C# lambda.
+
+### 3. F# optional parameters can be omitted
+
+Omitted `?arg` parameters are `None`, and bare values become `Some`. C#'s binder cannot omit
+them: they are `FSharpOption<'T>` parameters with no `[Optional]` metadata.
+
+### 4. `?=?` and `?<?` are structural on F# types
+
+Records, unions, tuples, lists, options, sets (anything without a CLR operator) compare as F#
+`=` and `compare` do. C# would compare them by reference (`{ X = 1 } == { X = 1 }` is `false`
+there) and has no `<` for them at all.
+
+These keep C#'s rules: primitives, enums, strings (`==` only; `<` on strings and bools, which C#
+lacks, is F#'s), types declaring `op_Equality`, and dynamic objects.
+
+### 5. Names, type arguments and argument lists can come from data
+
+C#'s are fixed at compile time. Here:
+
+- `(?) x name` and `Dlr.typeArgsOf ts` create the call sites per distinct name or type list;
+- `Dlr.namedOf kw` / `Dlr.argsOf xs` compile the call per distinct argument shape: keyword and
+  positional arguments from data, like `f(*args, **kwargs)`.
+
+Both are cached per site.

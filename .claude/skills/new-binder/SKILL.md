@@ -79,8 +79,8 @@ Gate: `dotnet test -c Debug`, `dotnet test -c Release` (optimizer inlining diffe
 ## Docs
 
 - `docs/binders.md`: the binder's rule, its order relative to C#, its restrictions; `docs/call-sites.md` if it adds a site shape.
-- `docs/restrictions.md`: the "five places it goes beyond C#" list gets the new capability in
-  one bullet; the restrictions list loses the lifted one. `docs/syntax.md` if it adds a form.
+- `docs/restrictions.md`: the "five places it goes beyond C#" section gets the new capability
+  under the place it extends (or its own numbered subsection); the restrictions list loses the lifted one. `docs/syntax.md` if it adds a form.
   The README stays short — the owner asked for a less wordy README more than once.
 - Benchmarks in the README are Release, Apple Silicon; if you touch the hot path, re-measure
   before quoting numbers.
