@@ -18,20 +18,53 @@ failure comes after the arguments have run.
 `DlrCache.clear()` drops every compiled block (for a host that unloads plugins; the next call
 recompiles), and `DlrCache.count()` says how many there are.
 
+## How a result gets its type
+
+Every marker's result is a type parameter: `(?)` is `obj -> string -> 'TResult`. So F# infers
+the result from how it is used, as for any generic function, and the block compiles a conversion
+to that type: C#'s implicit conversion, as `int n = d.Count;` is in C#. The type can come from:
+
+- the binding: `let n: int = dlr { return x?Count }`;
+- the block: `(dlr { return x?Count } : int)`;
+- a binding inside the block: `dlr { let n: int = x?Count in … }`;
+- the context: `n + 1` with `n: int`, or an argument to a function that takes an `int`.
+
+A call is the same rule one step on. F# reads `x?Add(1, 2)` as applying `x?Add` to `(1, 2)`, so
+the member's type is inferred as a function, `int * int -> 'R`, and `'R` is the call's result.
+
+What the inferred type selects:
+
+- **`obj`**: no conversion; the value as the binder returned it. A result nothing constrains is
+  `obj` too: `let v = x?Count`, used only by `printfn "%A" v`, is an `obj` holding an `int`.
+- **`unit`**: the result is discarded (a void call site).
+- **a function type**: the member read as a function ([more](#members-as-functions)).
+- **an awaitable**: a `Task` and friends ([more](#awaiting)).
+- **a tuple, with `Dlr.out`**: the return value, then the outs ([more](#dlrout)).
+- **any other type**: the conversion. A value that does not convert is C#'s
+  `RuntimeBinderException` at the call: `let s: string = dlr { return x?Count }` throws "Cannot
+  implicitly convert type 'int' to 'string'". For an explicit conversion (a C# cast), use
+  `Dlr.cast<T>`.
+
+A function that returns a block, with no annotation anywhere, is generic:
+`let count () = dlr { return x?Count }` is `unit -> 'a`, and each caller's type decides.
+
 ## Forms
+
+In the forms, `x` is the target, `Name` a member name as written, `name` a `string` variable,
+`a` and `b` arguments, `v` a value, `i` and `j` indexes, and `T`, `A`, `B` and `R` types.
 
 | Syntax | Binder |
 | --- | --- |
 | `x?Name` | GetMember, then Convert to the inferred type |
 | `x?Name(a, b)`, `x?Name()`, `x?Name args` | InvokeMember ([arguments](#arguments)) |
 | `x?Name(a, Dlr.named {\| p = v \|})` | named arguments (a bare anonymous record is one positional argument) |
-| `x?Name(a, Dlr.namedOf kw)`, `kw: (string * obj) list` | named arguments with run-time names ([more](#dlrnamedof)) |
-| `x?Name(Dlr.argsOf xs, Dlr.namedOf kw)`, `xs: obj list` | positional arguments with a run-time count, Python's `*args` ([more](#dlrargsof)) |
-| `let (found: bool), (v: int) = dlr { return d?TryGetValue(k, Dlr.out) }` | an `out` argument, returned in the result ([more](#dlrout)) |
-| `let v: struct (int * int) = dlr { return o?PairOut(Dlr.outAs<struct (int * int)> ()) }` | an `out` argument whose type is stated ([more](#dlroutas)) |
-| `dlr { o?Swap(Dlr.ref a, Dlr.ref b) }`, `let mutable a = …` | a `ref` argument, written back ([more](#dlrref)) |
+| `x?Name(a, Dlr.namedOf kw)` | named arguments with run-time names; `kw` is a `(string * obj) list` ([more](#dlrnamedof)) |
+| `x?Name(Dlr.argsOf xs, Dlr.namedOf kw)` | positional arguments with a run-time count, Python's `*args`; `xs` is an `obj list` ([more](#dlrargsof)) |
+| `x?Name(a, Dlr.out)` | an `out` argument, returned in the result ([more](#dlrout)) |
+| `x?Name(Dlr.outAs<T> ())` | an `out` argument whose type is stated ([more](#dlroutas)) |
+| `x?Name(Dlr.ref a)` | a `ref` argument; `a` is a `let mutable`, written back ([more](#dlrref)) |
 | `x?Name(Dlr.typeArgs<A, B>(), a)`, `x?Name(Dlr.typeArgsOf ts, a)` | explicit type arguments ([more](#type-arguments)) |
-| `x?Name` typed `A -> B -> R` | the member as an F# function ([more](#members-as-functions)) |
+| `let f: A -> B -> R = dlr { return x?Name }` | the member as an F# function ([more](#members-as-functions)) |
 | `x?Name <- v` | SetMember |
 | `(?) x name`, `((?) x name)(a)`, `(?<-) x name v` | the same three as plain function applications |
 | `x \|> Dlr.get "Name"`, `(x \|> Dlr.get "Add") (1, 2)` | GetMember, target last; applied to arguments, it invokes, like `?`; at a function type, the member as a function |
@@ -40,16 +73,16 @@ recompiles), and `DlrCache.count()` says how many there are.
 | `x \|> Dlr.addAssign "Name" v`, `x \|> Dlr.subtractAssign "Name" v` | C#'s `+=` / `-=` ([more](#events)) |
 | `Dlr.call x (a, b)`, `Dlr.call x ()`, `(x \|> Dlr.call) (a, b)` | Invoke the object itself ([more](#invoking-a-value)) |
 | `x \|> Dlr.apply (a, b)`, `x \|> Dlr.apply ()` | Invoke the object itself, target last |
-| `Dlr.call x` typed `A -> B -> R` | the value as an F# function ([more](#invoking-a-value)) |
+| `let f: A -> B -> R = dlr { return Dlr.call x }` | the value as an F# function ([more](#invoking-a-value)) |
 | `Dlr.Static<T>.Overloads?Name(a)`, `Dlr.Static<T>.Overloads \|> Dlr.invoke "Name" (a)` | C#'s `T.Name(dynamicArg)`: a static overload by runtime types ([more](#static-calls-and-constructors)) |
 | `Dlr.new'<T>(a, b)`, `Dlr.new'<T>()`, `Dlr.new'<T> args` | C#'s `new T(dynamicArg)`: InvokeConstructor ([more](#static-calls-and-constructors)) |
 | `x \|> Dlr.item i`, `x \|> Dlr.item (i, j)`, `x \|> Dlr.setItem (i, j) v` | GetIndex / SetIndex, target last; a tuple (literal or variable) is several indexes, a struct tuple one |
-| `?+? ?-? ?*? ?/? ?%? ?&&&? ?\|\|\|? ?^^^? ?<<<? ?>>>?` | BinaryOperation, then Convert |
-| `?=? ?<>? ?<? ?>? ?<=? ?>=?` | BinaryOperation, then Convert to `bool` |
+| `a ?+? b` | BinaryOperation, then Convert; likewise `?-?` `?*?` `?/?` `?%?` `?&&&?` `?\|\|\|?` `?^^^?` `?<<<?` `?>>>?` |
+| `a ?=? b` | BinaryOperation, then Convert to `bool`; likewise `?<>?` `?<?` `?>?` `?<=?` `?>=?` |
 | `Dlr.neg x`, `Dlr.not x`, `Dlr.complement x` | UnaryOperation, then Convert |
 | `Dlr.cast<T> x` | explicit Convert (a C# cast) |
 | `Dlr.implicit x` | implicit Convert to the inferred type: widening, `op_Implicit`, `TryConvert` |
-| `let! r = (dlr { return x?GetAsync(1) } : Task<int>)` | awaiting a dynamic call ([more](#awaiting)) |
+| `(dlr { return x?Name(a) } : Task<T>)` | a dynamic call to await ([more](#awaiting)) |
 
 ## Details
 
@@ -93,6 +126,8 @@ is Python's `f(*args, **kwargs)`.
 
 ### `Dlr.out`
 
+`let (found: bool), (v: int) = dlr { return d?TryGetValue(k, Dlr.out) }`
+
 An `out` argument is returned as F# returns a method's out parameters. The result is:
 
 - the return value, then each out, as a tuple: a reference tuple, or a struct one
@@ -114,6 +149,8 @@ Every call form takes it: `x?M(…)` with a literal or computed name, `Dlr.get`,
 
 ### `Dlr.outAs`
 
+`let v: struct (int * int) = dlr { return o?PairOut(Dlr.outAs<struct (int * int)> ()) }`
+
 An `out` argument whose type is stated rather than inferred from the result's shape. The shapes
 are tried in order, and the first that agrees with every stated type wins:
 
@@ -128,6 +165,8 @@ result is the bare value only when `Dlr.outAs` states its type.
 The type is written: `Dlr.outAs<_> ()` is `obj`, not "from the result"; that is `Dlr.out`.
 
 ### `Dlr.ref`
+
+`let mutable a = 1` … `dlr { o?Swap(Dlr.ref a, Dlr.ref b) }`
 
 A `ref` argument: the variable's value goes in and the method's write is assigned back.
 
@@ -190,6 +229,8 @@ several, and `Dlr.named`, `Dlr.namedOf` and `Dlr.argsOf` are allowed. Up to eigh
 to 64 through `Dlr.argsOf`.
 
 ### Awaiting
+
+`let! r = (dlr { return x?GetAsync(1) } : Task<int>)`
 
 A block is synchronous and returns what the member returns, converted to the awaitable type
 named: `Task<T>`, `Task`, `ValueTask<T>`, an F# `Async<'T>`. `task { }` or `async { }` awaits it
