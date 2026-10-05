@@ -4,8 +4,8 @@ Where our rules sit relative to C#'s, and what each one does. Part of [internals
 the checklist for adding one is the `new-binder` skill.
 
 The library binds with C#'s binder. Its own rules sit in the **seam**: where F# code hands that
-binder what C# code does not (a function value, an `FSharpOption` optional, a record without
-`op_Equality`, `<` on a string), and C# fails or binds against F#'s expectation.
+binder what C# code does not, and C# fails or binds against F#'s expectation. For example, a
+function value, an `FSharpOption` optional, a record without `op_Equality`, or `<` on a string.
 
 - A rule that would change what C# binds for C#'s own inputs does not belong here. The one
   deliberate exception is `?=?` / `?<?` on any CLR type without the operator: structural rather
