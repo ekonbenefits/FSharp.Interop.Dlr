@@ -5,9 +5,28 @@ open System.IO
 open BenchmarkDotNet.Configs
 open BenchmarkDotNet.Jobs
 open BenchmarkDotNet.Reports
+open BenchmarkDotNet.Loggers
 open BenchmarkDotNet.Running
+open BenchmarkDotNet.Toolchains
+open BenchmarkDotNet.Toolchains.CsProj
+open BenchmarkDotNet.Toolchains.DotNetCli
 
 let private suites = [| typeof<Core>; typeof<Targets> |]
+
+/// BenchmarkDotNet finds the project to build by searching the solution's whole folder for
+/// `Benchmarks.fsproj`, which also finds the copy in every git worktree under it (an agent's,
+/// in .claude/worktrees) and refuses to run. This generator names the project instead.
+type private ThisProject() =
+    inherit CsProjGenerator("net10.0", null, null, null, true)
+    override _.GetProjectFilePath(_: Type, _: ILogger) = FileInfo(Path.Combine(__SOURCE_DIRECTORY__, "Benchmarks.fsproj"))
+
+/// The config every run uses: `ShortRun` or the default job, on the default toolchain's builder and
+/// executor with `ThisProject`. The job is chosen here rather than by BenchmarkDotNet's `--job`,
+/// which would add a job of its own on the stock toolchain.
+let private config (short: bool) =
+    let toolchain = Toolchain("net10.0", ThisProject(), DotNetCliBuilder("net10.0", null, false), DotNetCliExecutor(null))
+    let job = if short then Job.ShortRun.WithToolchain(toolchain).WithId("ShortRun") else Job.Default.WithToolchain(toolchain).WithId("DefaultJob")
+    ManualConfig.Create(DefaultConfig.Instance).WithOptions(ConfigOptions.DisableOptimizationsValidator).AddJob(job)
 
 /// The README's "Measured" rows (method names, in order): the shape of the numbers, not all of them.
 /// The README's "Measured" table: two operations, each way, ns only, columns fastest to slowest.
@@ -71,9 +90,7 @@ let private writeDocs (short: bool) =
             elif File.Exists(Path.Combine(d.FullName, "FSharp.Interop.Dlr.slnx")) then d.FullName
             else up d.Parent
         up (DirectoryInfo AppContext.BaseDirectory)
-    let config =
-        let c = ManualConfig.Create(DefaultConfig.Instance).WithOptions(ConfigOptions.DisableOptimizationsValidator)
-        if short then c.AddJob(Job.ShortRun.AsDefault()) else c
+    let config = config short
     let summaries = [ for t in suites -> t, BenchmarkRunner.Run(t, config) ]
     let r = results summaries
     let env = summaries.Head |> snd |> fun s -> s.HostEnvironmentInfo.ToFormattedString() |> Seq.truncate 5 |> String.concat "  \n"
@@ -159,6 +176,7 @@ let main args =
     match List.ofArray args with
     | "docs" :: rest -> writeDocs (List.contains "short" rest); 0
     | _ ->
-        // `dotnet run -c Release -- --filter '*Core*'`, `-- --job short`, or no arguments for the menu.
-        BenchmarkSwitcher.FromTypes(suites).Run(args) |> ignore
+        // `dotnet run -c Release -- --filter '*Core*'`, `-- short --filter …`, or no arguments for the menu.
+        let short, rest = match args with [||] -> false, args | _ when args.[0] = "short" -> true, args.[1..] | _ -> false, args
+        BenchmarkSwitcher.FromTypes(suites).Run(rest, config short) |> ignore
         0

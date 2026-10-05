@@ -16,6 +16,7 @@ if [[ "${1:-}" == "docs" ]]; then
 fi
 filter="${1:-*}"
 job="${2:-default}"
-args=(--filter "*${filter}*")
-[[ "$job" == "short" ]] && args+=(--job short)
+args=()
+[[ "$job" == "short" ]] && args+=(short)   # the program picks the job (its config names the project)
+args+=(--filter "*${filter}*")
 dotnet run -c Release --no-launch-profile -- "${args[@]}"
