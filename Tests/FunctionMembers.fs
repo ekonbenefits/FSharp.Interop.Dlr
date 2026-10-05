@@ -105,6 +105,25 @@ let ``a function-typed result applied on the spot, with nothing captured`` () =
     let w: obj = Widget()                                                // a captured value: the closure itself
     (dlr { return w?Count } : unit -> int) () |> should equal 3
 
+// Needs real threads: skipped on single-threaded wasm (as in HotPath).
+[<Fact>]
+let ``two capture-free blocks applied on the spot, on two threads, each run their own body`` () =
+    // #175: the last static delegate seen and its closure class were two writes, so a thread
+    // could pair one block's delegate with the other's class and run the other block. Both
+    // results are `string` on purpose: the slot is per result type, so the blocks contend on it.
+    if Environment.ProcessorCount < 2 then raise (AnyUnit.IgnoreException "needs more than one thread")
+    let run (describe: bool) =
+        System.Threading.Tasks.Task.Run(fun () ->
+            let mutable wrong = 0
+            for _ in 1 .. 200000 do
+                let r =
+                    if describe then (dlr { return Fixtures.plainWidget?Describe } : unit -> string) ()
+                    else (dlr { return Fixtures.plainWidget?Name } : unit -> string) ()
+                if r <> (if describe then "described" else "widget") then wrong <- wrong + 1
+            wrong)
+    let a, b = run true, run false
+    a.Result + b.Result |> should equal 0
+
 [<Fact>]
 let ``a curried invoker supports partial application and converts its result`` () =
     let w: obj = Widget()
