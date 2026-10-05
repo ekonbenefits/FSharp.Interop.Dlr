@@ -52,20 +52,9 @@ calls it as a method, so it only appears to work. Remove `inline` or move the bl
 
 ### The analyzer
 
-The `FSharp.Interop.Dlr.Analyzers` package reports each of these at build time (and in Ionide),
-rather than at the first call:
-
-| Code | Reports |
-| --- | --- |
-| `DLR001` | a block with no `[<ReflectedDefinition>]` around it (with a fix that adds it) |
-| `DLR002` | a `?` operator or `Dlr.*` marker outside any block |
-| `DLR003` | two or more blocks starting on one line |
-| `DLR004` | a block in an `inline` function or member |
-| `DLR005` | a marker out of place inside a block: the shapes this page calls translation errors |
-| `DLR006` | a block in a member whose reflected definition FSharp.Core will not decode (it holds `typeof<System.Void>`) |
-
-Setup, and the full list of `DLR005` cases, are in the
-[analyzer's README](../FSharp.Interop.Dlr.Analyzers/README.md).
+A `DlrTranslationException`, like the ones above, can often be caught at compile time: the
+[analyzer package](../FSharp.Interop.Dlr.Analyzers/README.md) reports them at build time and in
+Ionide.
 
 ## Targets, names and order
 
