@@ -7,17 +7,17 @@ From `dlr { … }` in source to the delegate a call invokes, and what one call c
 
 ```mermaid
 flowchart TD
-    src["<b>dlr { … }</b><br/>F# desugars to<br/>dlr.Run(dlr.Delay(fun () -> …), file, line)"]
-    run["<b>Run</b> (Builder.fs, inline resumable code)<br/>the compiler builds a struct state machine 'SM per block;<br/>its captured variables are the fields, typeof&lt;'SM&gt; is the key"]
-    sites["<b>Machines&lt;'SM,'T&gt;</b> (Cache.fs)<br/>one static slot per machine type:<br/>a field read and a generation compare"]
-    invoke["<b>reader.Invoke(&amp;sm)</b><br/>field reads + one CallSite per operation"]
-    cache["<b>DlrCache</b> (Cache.fs)<br/>machine Type → Compiled"]
-    discover["<b>Discover</b> (Discover.fs)<br/>the block's body, from the enclosing member's<br/>[&lt;ReflectedDefinition&gt;] by file and line"]
-    translate["<b>Translate.translate</b> (Translate*.fs)<br/>normalize → Plumbing / Members / Captures<br/>→ quotation with CallSites baked in"]
-    binders["<b>Binders</b> (Binders.fs; Seam.fs, Functions.fs, SiteCaches.fs)<br/>one CallSite per operation: C#'s binder<br/>wrapped by the F#-aware ones"]
-    conv["<b>LeafExpressionConverter</b> (FSharp.Core)<br/>quotation → LINQ tree"]
-    hoist["<b>SiteHoister</b> (SiteHoister.fs)<br/>CallSite constants → locals per lambda"]
-    compile["<b>Compile()</b><br/>DlrReader&lt;'SM, 'T&gt; (inref&lt;'SM&gt; -> 'T)"]
+    src["<b>dlr { … }</b>"]
+    run["<b>Run</b><br/>(Builder.fs)"]
+    sites["<b>Machines&lt;'SM,'T&gt;</b><br/>(Cache.fs)"]
+    invoke["<b>reader.Invoke(&amp;sm)</b>"]
+    cache["<b>DlrCache</b><br/>(Cache.fs)"]
+    discover["<b>Discover</b><br/>(Discover.fs)"]
+    translate["<b>Translate</b><br/>(Translate*.fs)"]
+    binders["<b>Binders</b><br/>(Binders.fs, Seam.fs, …)"]
+    conv["<b>LeafExpressionConverter</b><br/>(FSharp.Core)"]
+    hoist["<b>SiteHoister</b><br/>(SiteHoister.fs)"]
+    compile["<b>Compile()</b>"]
 
     src --> run --> sites
     sites -- hit --> invoke
@@ -34,6 +34,23 @@ flowchart TD
 ```
 
 Blue is every call; orange is the first call at a site (and again after `DlrCache.clear()`).
+
+- **`dlr { … }`**: F# desugars it to `dlr.Run(dlr.Delay(fun () -> …), file, line)`.
+- **`Run`**: inline resumable code. The compiler builds a struct state machine `'SM` per block;
+  its captured variables are the fields, and `typeof<'SM>` is the key.
+- **`Machines<'SM,'T>`**: one static slot per machine type; a hit is a field read and a
+  generation compare.
+- **`reader.Invoke(&sm)`**: field reads, and one `CallSite` per operation.
+- **`DlrCache`**: machine type → `Compiled`.
+- **`Discover`**: the block's body, from the enclosing member's `[<ReflectedDefinition>]`, by
+  file and line.
+- **`Translate.translate`**: `normalize`, then Plumbing / Members / Captures, giving a quotation
+  with the `CallSite`s baked in.
+- **Binders** (`Binders.fs`; `Seam.fs`, `Functions.fs`, `SiteCaches.fs`): one `CallSite` per
+  operation, C#'s binder wrapped by the F#-aware ones.
+- **`LeafExpressionConverter`**: quotation → LINQ tree.
+- **`SiteHoister`**: `CallSite` constants → locals, per lambda.
+- **`Compile()`**: a `DlrReader<'SM, 'T>` (`inref<'SM> -> 'T`).
 
 `Run` is `inline` resumable code in the `task { }` builder's shape (`__stateMachine` with a
 `MoveNext` that would run the body and an `AfterCode` that is our entry): the compiler turns
@@ -55,7 +72,8 @@ the closure's type is the key, its fields the captured values, and [`Sites<'T>`]
 typed cache (last-hit compare, then a dictionary). Same contract, same `Discover` and `Translate`; the cost
 is three allocations (the Delay closure, the builder's wrapper and the `ResumableCode` delegate),
 two `GetType()` calls with a reference compare each, and a compiled field read. Both paths are exercised: the suite
-runs in Debug and in Release.
+runs in Debug and in Release. (Debug builds no state machine at all, so every Debug block takes
+the closure path; `Tests/Resumable.fs` fails if an SDK changes that.)
 
 Every `dlr { }` desugars to `Run(Delay(fun () -> …))` in one expression, which the compiler
 builds the machine for — with one exception it takes silently, no FS3511: a block whose
@@ -148,8 +166,10 @@ first bind per site (the rule) is paid on the first invoke like any C# `dynamic`
 Every number is generated: [benchmarks.md](benchmarks.md), written by `Benchmarks/bench.sh docs`
 (Release, net10.0, Apple Silicon), has the block against static calls, cached reflection,
 FSharp.Interop.Dynamic and C# `dynamic` for each operation, and the README's short table is
-inserted from the same run. Two paths the suite does not have a row for, to read qualitatively:
-one site alternating between a CLR method and an F# function member pays a rule-cache miss on
-every switch, several times the cost of either kind alone; and a member bound as an F# function
-(`let add: int -> int -> int = dlr { return w?Add }`) costs about what a static call does per
-application, since the site is inside the returned function and the block is not re-entered.
+inserted from the same run.
+
+- A member read as an F# function (`let add: int -> int -> int = dlr { return w?Add }`): the
+  benchmarks row times the read and one application together. Once bound, each application is
+  one site call, like C# `dynamic`'s `d.Add(…)`, without re-entering the block.
+- One site alternating between a CLR method and an F# function member has no row: it pays a
+  rule-cache miss on every switch, several times the cost of either kind alone.

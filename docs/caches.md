@@ -5,54 +5,83 @@ Where every piece of state lives, what keys it, and how long it lasts. Part of
 
 | Cache | Key | Value | Lifetime | Where |
 | --- | --- | --- | --- | --- |
-| `DlrCache` | the block's container `Type`: its state machine struct, or on the fallback path its Delay closure (or, for a capture-free block left with a static delegate, the closure class its method lives in) (one per block; per instantiation for generic members) | `Compiled { Delegate: DlrReader<'SM,'T> or Func<obj,'T> }` | process; `DlrCache.clear()` drops it | `Cache.fs` |
-| `Machines<'SM,'T>` | the type instantiation itself: one static slot per machine type | the same delegate, already typed `DlrReader<'SM,'T>`, stamped with the clear generation it was compiled under — the hot path: a static field read (no `static let`, so no initialization check), a generation compare, no lookup, no cast | process; `DlrCache.clear()` bumps the generation, so no pre-clear entry is served however it got installed, and a listener (registered on the first compile) nulls the slot | `Cache.fs` |
-| `Sites<'T>` | closure `Type`, per result type (fallback path) | the same delegate, already typed `Func<obj,'T>`, generation-stamped; plus a last-compiled slot (an immutable entry swapped atomically) so a block called repeatedly pays a reference compare, not a hash lookup, and blocks called in turn pay a lookup each and never write; and, for a capture-free block's static delegate, the last delegate seen with its closure class (`lastCode`, a `CodeHit` pair swapped atomically), so `Delegate.Method` is not resolved per call | as above | `Cache.fs` |
-| `Delayed<'T>` | per result type (fallback path): the resumable-code delegate's target type — the builder's `Delay` lambda, one class per `'T` | a compiled reader of its `delayed` field (the identity when the optimizer inlined the lambda and the target is the closure itself), so a call pays a type compare and a delegate invoke, not reflection; other target types go to a dictionary; the library's own wrapper without that field is an error, not the identity | process | `Cache.fs` |
-| reflected definitions | declaring `Type` (module or class) | every `(MethodBase, Expr)` with a reflected definition on it and its nested types | process | `Discover.fs` |
-| `SiteCache<'Key>` | `string * Type list` — the member name and the explicit type arguments; whichever is static is a constant in the key | the operation's `CallSite[]` for that key | per site (a constant in the compiled tree); at `Capacity` (256) entries it clears and refills | `SiteCaches.fs`, for `(?) x name` with a variable name and `Dlr.typeArgsOf` with a run-time list |
-| `NamedOfCache` | the argument shape: names in order, an empty name for a positional (`Dlr.argsOf`) | the operation compiled for that shape (one delegate type per site) | per site; the last two shapes served, then a hash of the names; at `Capacity` (256) entries it clears | `SiteCaches.fs`, for `Dlr.argsOf` / `Dlr.namedOf` |
-| `FunctionConversions.conversions`, `DelegateConversions.makers` | (function type, delegate type) | the emitted factory that adapts one to the other, or None for a pair that does not convert (the binder asks per candidate parameter) | process; bounded by the program's types | `Functions.fs` |
-| `Binders.factories` | (function type, invoke-site type) | the compiled factory that builds a function past five arguments over its sites (`FunctionBuilder`), shared by a computed name's per-key sites | process; not cleared | `Binders.fs` |
-| `DelegateLiteral<'D>`, `ParameterlessLiteral<'D,'R>` | the type instantiation: one static factory per delegate type | the emitted re-wrap of a delegate literal on its own `Invoke` (and, for a parameterless one, the delegate over its thunk) | process; not cleared | `Functions.fs` |
+| `DlrCache` | the block's container type | `Compiled`: the block's delegate | process; `clear()` drops it | `Cache.fs` |
+| `Machines<'SM,'T>` | the machine type: one static slot each | the delegate, typed, generation-stamped | process; `clear()` invalidates it | `Cache.fs` |
+| `Sites<'T>` | the closure type, per result type | the delegate, typed, generation-stamped | process; `clear()` invalidates it | `Cache.fs` |
+| `Delayed<'T>` | the `Delay` wrapper's type, per result type | a compiled reader of its `delayed` field | process | `Cache.fs` |
+| reflected definitions | declaring type | its `(MethodBase, Expr)` pairs, nested types included | process | `Discover.fs` |
+| `Discover.undecodable` | declaring type | the members FSharp.Core could not decode | process | `Discover.fs` |
+| `SiteCache<'Key>` | (member name, type arguments) | the operation's `CallSite[]` | per site; 256 keys, then cleared | `SiteCaches.fs` |
+| `NamedOfCache` | the argument names, in order | the operation compiled for that shape | per site; 256 shapes, then cleared | `SiteCaches.fs` |
+| `FunctionConversions.conversions`, `DelegateConversions.makers` | (function type, delegate type) | the adapter factory, or None | process | `Functions.fs` |
+| `Binders.factories` | (function type, site type) | the factory for a function past five arguments | process | `Binders.fs` |
+| `DelegateLiteral<'D>`, `ParameterlessLiteral<'D,'R>` | the delegate type: a static field each | the re-wrap factory | process | `Functions.fs` |
 | `Accessibility.opensTo` | (declaring assembly, calling assembly) | whether `[<InternalsVisibleTo>]` opens one to the other | process | `Reflection.fs` |
-| `Discover.undecodable` | declaring `Type` | the members whose stored quotation FSharp.Core could not decode, for the not-found message | process | `Discover.fs` |
-| DLR rule cache | runtime types (restrictions) | the bound rule | per `CallSite<_>` | inside each site, owned by the DLR |
+| DLR rule cache | the runtime types (restrictions) | the bound rule | per `CallSite` | the DLR |
+
+## What the entries hold
+
+- **`DlrCache`** is keyed by the block's state machine struct; on the fallback path by its Delay
+  closure's class, or, for a capture-free block left with a static delegate, the class that
+  delegate's method lives in. One entry per block (per instantiation of a generic member). The
+  value is `Compiled { Delegate: DlrReader<'SM,'T> or Func<obj,'T> }`.
+- **`Machines<'SM,'T>`** is the hot path: a static field read (no `static let`, so no
+  initialization check) and a generation compare — no lookup, no cast. `clear()` bumps the
+  generation, so no entry from before it is served however it got installed, and a listener
+  registered on the first compile nulls the slot.
+- **`Sites<'T>`** (fallback path) also keeps the last block compiled, an immutable entry swapped
+  atomically: a block called repeatedly pays a reference compare, not a lookup; blocks called
+  in turn pay a lookup each and never write. For a capture-free block's static delegate it keeps
+  the last delegate seen with its class (`lastCode`, a `CodeHit` pair), so `Delegate.Method` is
+  not resolved per call.
+- **`Delayed<'T>`**: the target is the builder's `Delay` lambda, one class per `'T`, so a call
+  pays a type compare and an invoke, not reflection. When the optimizer inlined the lambda the
+  target is the closure itself and the reader is the identity; other target types go to a
+  dictionary; the library's own wrapper without the field is an error.
+- **`SiteCache`** serves `(?) x name` with a variable name and `Dlr.typeArgsOf` with a run-time
+  list; whichever of the two is static is a constant in the key. **`NamedOfCache`** serves
+  `Dlr.argsOf` / `Dlr.namedOf`: an empty name stands for a positional value, every shape of a site
+  shares one delegate type, and a lookup compares the last two shapes served before hashing the
+  names. Both are constants in the compiled tree; their cost and bounds are below.
+- **The conversion factories** cache a pair that does not convert too (as None): the binder asks
+  per candidate parameter.
+- **`Binders.factories`** is shared by a computed name's per-key sites.
+- **`DelegateLiteral` / `ParameterlessLiteral`** re-wrap a delegate literal on its own `Invoke`
+  (a parameterless one: the delegate over its thunk).
 
 ## How they relate
 
 ```mermaid
-flowchart LR
+flowchart TD
+    clear(["DlrCache.clear()"])
     subgraph process["process-wide"]
-        DC["DlrCache<br/>container Type → Compiled"]
-        M["Machines&lt;'SM,'T&gt;<br/>one typed slot per machine type,<br/>generation-stamped"]
-        S["Sites&lt;'T&gt; (fallback)<br/>typed mirror + last hit,<br/>generation-stamped"]
-        DL["Delayed&lt;'T&gt;<br/>Delay-wrapper reader per result type"]
-        RD["reflected definitions<br/>declaring Type → (MethodBase, Expr) list"]
-        CV["conversion factories<br/>(function type, delegate type)"]
+        M["Machines&lt;'SM,'T&gt;"]
+        S["Sites&lt;'T&gt;<br/>(fallback)"]
+        DL["Delayed&lt;'T&gt;"]
+        DC["DlrCache"]
+        RD["reflected definitions"]
+        CV["conversion factories"]
     end
-    subgraph delegate["inside one compiled delegate (collected with it)"]
-        CS["CallSites<br/>Expression.Constant, hoisted to locals"]
-        SC["SiteCache<br/>(name, types) → CallSite[]<br/>capacity 256"]
-        NC["NamedOfCache<br/>argument shape → compiled delegate<br/>capacity 256"]
-        RC["DLR rule cache<br/>per site, per runtime type"]
+    subgraph delegate["inside one compiled delegate"]
+        SC["SiteCache"]
+        NC["NamedOfCache"]
+        CS["CallSites"]
+        RC["DLR rule caches"]
     end
 
+    clear -- "drops" --> DC
+    clear -- "bumps the generation" --> M & S
     M -- miss --> DC
     S -- miss --> DC
-    S -. "reads the closure through" .-> DL
+    S -. "reads the closure" .-> DL
     DC -- miss --> RD
-    DC -- "compiles into" --> CS
-    DC -- "for a computed name" --> SC
-    DC -- "for namedOf / argsOf" --> NC
+    DC -- "compiles" --> CS
+    DC -- "computed name" --> SC
+    DC -- "namedOf / argsOf" --> NC
     SC --> CS
     NC --> CS
     CS --> RC
-    RC -. "function ↔ delegate arguments" .-> CV
-
-    clear(["DlrCache.clear()"]) --> DC
-    clear -- "bumps the generation" --> M
-    clear -- "bumps the generation" --> S
+    RC -. "converts arguments" .-> CV
 ```
 
 `clear()` drops the compiled delegates and invalidates the typed entries; the next call at each
@@ -68,27 +97,28 @@ that delegate and goes with it.
   generic member; how each is reached is in the [pipeline](pipeline.md)).
 - reflected definitions: one list per type that has had a block looked up in it.
 - `SiteCache` and `NamedOfCache`: 256 keys per site, then they clear and refill; concurrent
-  misses are admitted under a lock so the bound holds. Both lookups cost the same at any size
-  (a dictionary for `SiteCache`, whose key tuple is the one allocation per call — 32 B; for
-  `NamedOfCache` a hash of the names computed in place, behind a compare with the last two
-  shapes served — ~10 ns repeating a shape, ~15 ns alternating two, ~40–50 ns for any other
-  pattern at any size, allocating nothing beyond the `obj[]` of splatted values), so the number is a memory bound on a site that fills
-  it, measured (Release, arm64): a `SiteCache`
-  entry — a site and its rule cache — is ~6.5 KB, so a full site holds ~1.6 MB; a
-  `NamedOfCache` entry — the shape's compiled delegate at one arity — ~13 KB, a full site
-  ~3.5 MB. A site that reaches either is one keyed by data (below), which the docs steer to
-  `Dlr.item`; the numbers are settable (`Capacity`) for a host that knows its working set.
+  misses are admitted under a lock so the bound holds. A lookup costs the same at any size:
+  - `SiteCache`: a dictionary; its key tuple is the one allocation per call (32 B).
+  - `NamedOfCache`: a shape repeated, or two alternating, hit a compare with the last two shapes
+    served; any other pattern hashes the names in place. Nothing is allocated beyond the `obj[]`
+    of splatted values. The `Dlr.namedOf` rows of [benchmarks.md](benchmarks.md) have the times.
+
+  So 256 is a memory bound on a site that fills it. Measured once (Release, arm64), an entry is
+  a few KB (a `SiteCache` entry is a site and its rule cache; a `NamedOfCache` entry, the shape's
+  compiled delegate, about twice that), so a full site holds a few MB. A site that gets there is
+  keyed by data (below), which the docs steer to `Dlr.item`; `Capacity` is settable for a host
+  that knows its working set.
 - What these do **not** bound — the computed case only, a literal name or type list being one
   key for ever: Microsoft.CSharp's own symbol table. The first bind of a name against a type
   loads that type's members of that name, for every type in the target's hierarchy, and keeps
-  them for the life of the process (~300 B and ~0.3 ms per name per type); a `DynamicObject`
+  them for the life of the process (a few hundred bytes and a fraction of a millisecond per name per type); a `DynamicObject`
   pays it too, since its meta-object computes C#'s fallback eagerly. This is C# `dynamic`'s
   behaviour with a name from data, and there is no API to clear it. So a stream of distinct
   member names (`(?) x name`) or type lists (`Dlr.typeArgsOf ts`) from untrusted data grows the
   process without bound: allow-list them, or where the target indexes by key (JObject, Python
   dicts, Dapper rows, script objects) use `x |> Dlr.item key` — one member name, `Item`, however
   many keys. A distinct positional count in `Dlr.argsOf` is dearer still (a new site arity and
-  an interned binder, ~100 KB and ~8 ms in Release, permanent), so `Dlr.argsOf` takes at most 64 values
+  an interned binder: on the order of 100 KB and milliseconds, permanent), so `Dlr.argsOf` takes at most 64 values
   (`NamedOfCache.MaxPositional`): a count from data is then bounded, as a C# call site's arity
   is bounded by its source.
 - conversion factories: one per (function type, delegate type) pair that has been converted.
