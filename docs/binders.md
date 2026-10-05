@@ -21,7 +21,7 @@ function value, an `FSharpOption` optional, a record without `op_Equality`, or `
 ```mermaid
 flowchart TD
     arrive["call arrives at a site"]
-    meta["meta-object target?<br/>F# functions become delegates"]
+    meta["on a meta-object target,<br/>F# functions become delegates"]
     wrong{"would C# bind wrongly<br/>or crash?"}
     ours1["<b>our rule first</b>"]
     csharp["<b>C#'s binder</b>"]

@@ -13,11 +13,7 @@ flowchart TD
     rw -- "marker" --> mb["<b>Members</b>"]
     rw -- "free variable" --> cp["<b>Captures</b>"]
     rw -- "anything else" --> gen["generic rewriting"]
-    pl --> rw
-    mb --> rw
-    cp --> rw
-    gen --> rw
-    rw --> out["convert, hoist sites,<br/>Compile()"]
+    pl & mb & cp & gen --> out["convert, hoist sites,<br/>Compile()"]
 ```
 
 - **`normalize`**: pipes and curried markers beta-reduced; `let`s of literals and variables
