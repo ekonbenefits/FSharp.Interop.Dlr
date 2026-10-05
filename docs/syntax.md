@@ -52,7 +52,9 @@ calls it as a method, so it only appears to work. Remove `inline` or move the bl
 
 ### The analyzer
 
-A `DlrTranslationException`, like the ones above, can often be caught at compile time: the
+Every mistake in this section can be caught at compile time instead: a missing attribute, a
+marker outside a block (the `InvalidOperationException`), two blocks on one line, a block in an
+`inline` function. So can many other `DlrTranslationException`s. The
 [analyzer package](../FSharp.Interop.Dlr.Analyzers/README.md) reports them at build time and in
 Ionide.
 
