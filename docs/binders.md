@@ -98,6 +98,8 @@ The shape is read off the *function's* type, never off the call's declared resul
 type of a dynamic value, the declared type of a CLR member. It is `FSharpFunc<A * B, R>`
 (tupled) or `FSharpFunc<A, FSharpFunc<B, R>>` (curried), whose domains the argument types fit.
 So a discarded call or a widened result still applies the function that is there.
+The `w?Fn(1, 2)` row of [benchmarks.md](benchmarks.md) is the curried path through
+`InvokeFast`: a small constant over a CLR method call.
 
 The rule is built for any arity, its result boxed for the site's `Convert`:
 
@@ -177,7 +179,7 @@ Every one of them fits an argument to a typed slot through `Fallback.convertValu
 `conversion` once `Fallback` exists), so an F# function member whose domain is a delegate, a
 function or `Delegate` accepts the other kind too.
 
-## Functions and delegates
+## Function and delegate conversions
 
 ### Arguments and assignment
 
@@ -268,6 +270,22 @@ On wasm:
   delegate literal written in a block is made to capture the closure parameter there
   (`capturing` in `TranslateBlock.fs`, a no-op elsewhere).
 
+### A `Delegate`-typed parameter
+
+A parameter typed `Delegate` itself (WinForms `Control.Invoke`) gets the `Func`/`Action` F#
+would build for the function, and this rule goes *before* C#'s. Left to C#, `FSharpFunc`'s own
+`op_Implicit` yields a `Converter<Unit, R>` for a `unit -> R`: a one-parameter delegate that a
+`DynamicInvoke()` then rejects.
+
+### Cost
+
+A converted argument (either direction) makes a bound call several times the cost of one whose
+arguments need no conversion: the adapter allocation and the second delegate hop.
+[benchmarks.md](benchmarks.md) has the F#-lambda-for-a-`Func`-parameter row against C#'s `Func`
+literal.
+
+## Delegates
+
 ### Delegate literals in a block
 
 A delegate literal in a block (`w?Each(Action<string>(fun s -> …))`) compiles with the block, as
@@ -303,22 +321,6 @@ error suggestion everywhere, first on .NET Framework for an internal delegate. I
 arguments are passed as the site's byref parameters, named arguments matched by name, and the
 others fitted by `convertValue` (widening, a nullable's null, an F# function for a delegate
 parameter or a delegate for a function one).
-
-### A `Delegate`-typed parameter
-
-A parameter typed `Delegate` itself (WinForms `Control.Invoke`) gets the `Func`/`Action` F#
-would build for the function, and this rule goes *before* C#'s. Left to C#, `FSharpFunc`'s own
-`op_Implicit` yields a `Converter<Unit, R>` for a `unit -> R`: a one-parameter delegate that a
-`DynamicInvoke()` then rejects.
-
-### Cost
-
-A converted argument (either direction) makes a bound call several times the cost of one whose
-arguments need no conversion: the adapter allocation and the second delegate hop.
-[benchmarks.md](benchmarks.md) has the F#-lambda-for-a-`Func`-parameter row against C#'s `Func`
-literal. Calls of a curried F# function member go through `InvokeFast` (one call, no
-intermediate closures); the `w?Fn(1, 2)` row there is that path, a small constant over a CLR
-method call.
 
 ## Comparison operators
 

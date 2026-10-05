@@ -52,7 +52,7 @@ nested delegates (loop and try bodies), and the copy costs nothing measurable, w
 - **Control flow** the expression converter has no node for (`for`, `while`, `try`, `use`) is
   emitted as calls to `DlrRuntime.*` helpers with the bodies as `Func` delegates (not F#
   lambdas: on browser-wasm the `FuncConvert` wrapper the converter would add lost arguments,
-  the same fault behind the [function ↔ delegate conversions](binders.md#functions-and-delegates)).
+  the same fault behind the [function ↔ delegate conversions](binders.md#function-and-delegate-conversions)).
   That holds for a `try`, `while` or `for i in a .. b` anywhere, not only the builder's: under a
   lambda, in a delegate literal, or used as a value (`let n = try … with _ -> 0`), the raw
   `TryWith`/`TryFinally`/`WhileLoop`/`ForIntegerRangeLoop` node goes to the same helpers (#158,
@@ -72,7 +72,7 @@ nested delegates (loop and try bodies), and the copy costs nothing measurable, w
 - **Delegate literals** (`Action<string>(fun s -> …)`) are kept whole, made capturing on wasm, and
   wrapped in `DelegateLiteral<'D>.Over`: compiled with the block they would be `DynamicMethod`
   delegates whose `.Method` starts with a hidden `Closure` parameter, which a consumer marshalling
-  by `.Method` refuses ([binders](binders.md#functions-and-delegates)). A *parameterless* one
+  by `.Method` refuses ([binders](binders.md#delegate-literals-in-a-block)). A *parameterless* one
   (`Func<int>(fun () -> 7)`, `Action(fun () -> …)`) is quoted with no parameter and a bare body,
   which FSharp.Core takes apart as the lambda `fun () -> body` but rebuilds only from the bare body,
   so no rewrite could pass it through: `normalize` turns it into `ParameterlessLiteral<'D, 'R>.Of
