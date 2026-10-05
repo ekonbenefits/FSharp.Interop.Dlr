@@ -7,8 +7,9 @@ open AnyUnit.Style.Xunit
 open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
 
-/// A block bound as a module-level value: the compiler takes the non-resumable path for it
-/// without FS3511 (dotnet/fsharp#18672), and it runs once, at module initialisation.
+/// A block bound as a module-level value. dotnet/fsharp#18672 reports such a value taking the
+/// non-resumable path without FS3511; for this builder Release still builds its state machine.
+/// It runs once, at module initialisation.
 module ModuleValueOnBinding =
     [<ReflectedDefinition>]
     let count: int = dlr { return Fixtures.plainWidget?Count }
