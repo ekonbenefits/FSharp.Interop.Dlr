@@ -2,6 +2,25 @@
 
 Every form a block accepts, and what each binds to. The README has the common ones.
 
+## Blocks
+
+```fsharp
+open FSharp.Interop.Dlr
+
+[<ReflectedDefinition>]
+let greet (o: obj) : string = dlr { return o?Greet("world") }
+```
+
+- A block is `dlr { … }`, in a function or member with `[<ReflectedDefinition>]`. The library
+  compiles the block from that stored body, once per site. Without the attribute, the first call
+  raises a `DlrTranslationException` that says so; the analyzer reports it at build time
+  (`DLR001`).
+- Every form below goes inside a block. Called outside one, a marker throws
+  `InvalidOperationException`; the analyzer reports that too (`DLR002`).
+- Where the attribute goes, and the analyzer: the [README](../README.md#where-the-attribute-goes).
+
+## Targets, names and order
+
 A target is any value; one that is not `obj` is upcast and binds on its runtime type, as `box x`
 would.
 
@@ -251,8 +270,7 @@ the typed, faster spelling.
 Around them, ordinary F#: `let`, `let rec`, `use`, `if`, `for`, `while`, `try … with`,
 `try … finally`, `let mutable` (inside the block or captured from outside, assigned anywhere in
 it), and any code that quotations can express. Loop bodies reuse the block's call sites; a
-`RuntimeBinderException` can be caught inside the block. Calling any operator or `Dlr.*` marker
-outside a block throws `InvalidOperationException`; they exist only to be quoted.
+`RuntimeBinderException` can be caught inside the block.
 
 Inside a block, ordinary F# is ordinary: `sprintf` and `$"…"`, `match` (literals, type tests),
 records, unions, options, tuples, lists and arrays built from dynamic results, comprehensions
