@@ -1,58 +1,72 @@
 # The same restrictions as C# `dynamic`, and where it goes beyond
 
+## Restrictions
 
-Same binder, same limits — each pinned by a test in `Tests/Restrictions.fs` (accessibility's
-protected cases in `Tests/FunctionMembers.fs`; the translation errors of `Dlr.named`, `Dlr.Static`
-and `Dlr.call` in `Tests/Invoke.fs`, `Tests/StaticOverloads.fs` and `Tests/Call.fs`; the `inline`
-one by the analyzer's tests; NativeAOT by the assembly's own `IsAotCompatible=false`, not a test).
-The places it goes beyond have their own files (`Tests/FunctionMembers.fs`, `Tests/Delegates.fs`,
-`Tests/Operators.fs`, `Tests/ComputedNames.fs`, `Tests/TypeArgs.fs`, `Tests/ArgsFromData.fs`):
+Same binder, same limits. Each is pinned by a test ([where](#where-the-tests-are)).
 
-- **Extension methods** are not found; the binder sees only the target's own members. Call the
+### Finding members
+
+- **Extension methods** are not found: the binder sees only the target's own members. Call the
   extension class statically instead: `Dlr.Static<Ext>.Overloads?M(x)`, or `Ext.M x` in plain F#.
-- **Static members** cannot be reached through an instance; static *calls* have their own target,
+- **Static members** cannot be reached through an instance. Static *calls* have their own target,
   `Dlr.Static<T>.Overloads`.
-- **Explicitly implemented interface members** are not found: the binder sees the runtime type's
-  public members, and an explicit implementation is a private method named `IFoo.Bar`. In F#
-  every interface implementation is explicit, so `o?Dispose()` on an F# `IDisposable` fails
-  unless the type also exposes the member; cast to the interface statically (`o :?> IFoo`) and
-  call it there.
-- **Accessibility is C#'s, from the calling type**: `private` binds only inside the declaring type,
-  `internal` anywhere in the assembly, `protected` from a derived type through a receiver of
-  that type (C#'s qualifier rule). F# `private` compiles to IL `internal`. The declaring
-  type counts too: a public member of a type the calling type cannot see — another assembly's
-  `internal` class, an anonymous type, a public generic over such a type — is not found,
-  through the library's own rules as through C#'s binder; `[InternalsVisibleTo]` opens it, as
-  for C#.
-- **A block cannot live in an `inline` function or member** — in Release the function is
-  expanded into every caller, taking the block's values with it and leaving its body behind (a
-  Debug build calls it as a method, so it only appears to work); the analyzer reports it
-  (`DLR004`, pinned by the analyzer's own tests rather than here). Not a C# restriction (C#
-  has no `inline`), but the same family.
+- **Explicitly implemented interface members** are not found. The binder sees the runtime type's
+  public members, and an explicit implementation is a private method named `IFoo.Bar`.
+  - In F# every interface implementation is explicit, so `o?Dispose()` on an F# `IDisposable`
+    fails unless the type also exposes the member.
+  - Cast to the interface statically (`o :?> IFoo`) and call it there.
+- **Accessibility is C#'s, from the calling type.**
+  - `private` binds only inside the declaring type; `internal` anywhere in the assembly;
+    `protected` from a derived type, through a receiver of that type (C#'s qualifier rule).
+  - F# `private` compiles to IL `internal`.
+  - The declaring type counts too. A public member of a type the calling type cannot see is not
+    found: another assembly's `internal` class, an anonymous type, a public generic over such a
+    type. That holds through the library's own rules as through C#'s binder.
+  - `[InternalsVisibleTo]` opens it, as for C#.
+
+### Calling
+
 - **No compile-time checking**: a misspelt member or wrong arity is a `RuntimeBinderException`
   at the call.
-- **Target and result are `obj`** (a typed target is upcast; the result converts to the inferred
-  type), so value types box there; arguments do not. An `out` / `ref` parameter is `Dlr.out` /
-  `Dlr.ref v` ([syntax](syntax.md)); a `byref` / `inref` / `outref` *value* cannot cross a dynamic
-  operation (an `int[]` does reach a `Span<int>` parameter, through the implicit conversion, as in C#). Two consequences C# `dynamic` users know: a **struct target is a boxed
-  copy**, so a mutating call through the box leaves the variable untouched; and a
-  **`Nullable<T>` target erases** — the box holds a `T` or is `null`, so there is no `HasValue`
-  or `Value` to find (the value reads as `T`).
+- **Generic type arguments** must be inferable from the arguments, or given explicitly:
+  `Dlr.typeArgs<A, B>()`, or `Dlr.typeArgsOf [ … ]`, whose list may even be a run-time value.
+- **`inline` members with a member constraint** (`^T: (member Name: string)`) are found but
+  throw `NotSupportedException` when called: their body only exists at inlining sites. Operator
+  constraints (`v + v`) are fine; they resolve at run time.
+
+### Values
+
+- **Target and result are `obj`.** A typed target is upcast, and the result converts to the
+  inferred type, so value types box there; arguments do not. Two consequences C# `dynamic` users
+  know:
+  - a **struct target is a boxed copy**, so a mutating call through the box leaves the variable
+    untouched;
+  - a **`Nullable<T>` target erases**: the box holds a `T` or is `null`, so there is no
+    `HasValue` or `Value` to find (the value reads as `T`).
+- **Byrefs.** An `out` / `ref` parameter is `Dlr.out` / `Dlr.ref v` ([syntax](syntax.md)). A
+  `byref` / `inref` / `outref` *value* cannot cross a dynamic operation. An `int[]` does reach a
+  `Span<int>` parameter, through the implicit conversion, as in C#.
+
+### Library-specific
+
+Not C# restrictions, but the same family:
+
+- **A block cannot live in an `inline` function or member.** In Release the function is expanded
+  into every caller, taking the block's values with it and leaving its body behind. A Debug build
+  calls it as a method, so it only appears to work. The analyzer reports it (`DLR004`).
 - **Three markers take one shape only.** Any other use is a translation error, which the
   analyzer reports at build time.
   - `Dlr.named` takes the record literal itself: the names are read from the quotation, so a
     record held in a variable does not work. For names from data, use `Dlr.namedOf`.
   - `Dlr.Static<T>.Overloads` is a call target only.
   - `Dlr.call x` is read at a function type or applied.
-- **Generic type arguments** must be inferable from the arguments, or given explicitly —
-  `Dlr.typeArgs<A, B>()` or `Dlr.typeArgsOf [ … ]`, whose list may even be a run-time value.
-- **`inline` members with a member constraint** (`^T: (member Name: string)`) are found but
-  throw `NotSupportedException` when called: their body only exists at inlining sites.
-  Operator constraints (`v + v`) are fine, they resolve at run time.
-- **No NativeAOT, no trimming.** The runtime binder, `LambdaExpression.Compile()` and the
-  reflection that finds bodies and the captured variables' fields all need a JIT; the assembly is marked
-  `IsAotCompatible=false` / `IsTrimmable=false`. Interpreted (non-AOT) browser-wasm works, and CI
-  runs it, just not at JIT speed.
+
+### Platform
+
+- **No NativeAOT, no trimming.** The runtime binder, `LambdaExpression.Compile()`, and the
+  reflection that finds bodies and the captured variables' fields all need a JIT. The assembly is
+  marked `IsAotCompatible=false` / `IsTrimmable=false`. Interpreted (non-AOT) browser-wasm works,
+  and CI runs it, just not at JIT speed.
 
 ## Five places it goes beyond C#
 
@@ -121,3 +135,14 @@ C#'s are fixed at compile time. Here:
   positional arguments from data, like `f(*args, **kwargs)`.
 
 Both are cached per site.
+
+## Where the tests are
+
+- The restrictions: `Tests/Restrictions.fs`, except
+  - accessibility's protected cases: `Tests/FunctionMembers.fs`;
+  - the one-shape markers' translation errors: `Tests/Invoke.fs`, `Tests/StaticOverloads.fs`
+    and `Tests/Call.fs`;
+  - a block in an `inline` function: the analyzer's tests;
+  - NativeAOT: the assembly's own `IsAotCompatible=false`, not a test.
+- The places it goes beyond: `Tests/FunctionMembers.fs`, `Tests/Delegates.fs`,
+  `Tests/Operators.fs`, `Tests/ComputedNames.fs`, `Tests/TypeArgs.fs`, `Tests/ArgsFromData.fs`.
