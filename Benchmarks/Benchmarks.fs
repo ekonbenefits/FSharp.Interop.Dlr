@@ -14,7 +14,6 @@ type Widget() =
     member val Count = 3 with get, set
     member val Name = "widget" with get, set
     member _.Add(a: int, b: int) = a + b
-    member _.Sum5(a: int, b: int, c: int, d: int, e: int) = a + b + c + d + e
     member _.Sum6(a: int, b: int, c: int, d: int, e: int, f: int) = a + b + c + d + e + f
     member _.Bump(count: int, ?step: int) = count + defaultArg step 1
     member _.Run(f: Func<int, int>) = f.Invoke 21
@@ -34,6 +33,7 @@ type Core() =
     let countProperty = typeof<Widget>.GetProperty("Count")
     let nameProperty = typeof<Widget>.GetProperty("Name")
     let addMethod = typeof<Widget>.GetMethod("Add")
+    let sum6Method = typeof<Widget>.GetMethod("Sum6")
     let names = [| "Count"; "Name" |]
     let kwargs = [ "b", box 1; "a", box 2 ]
     let args = [ box 2; box 1 ]
@@ -51,6 +51,9 @@ type Core() =
     // The baseline: the JIT folds the property read to nothing, a call it cannot.
     [<Benchmark(Baseline = true, Description = "static w.Add(i, 1)")>]
     member _.StaticCall() = i <- i + 1; w.Add(i, 1)
+
+    [<Benchmark(Description = "static w.Sum6(1, 2, 3, 4, 5, i)")>]
+    member _.StaticCallSum6() = i <- i + 1; w.Sum6(1, 2, 3, 4, 5, i)
 
     [<Benchmark(Description = "static w.Name <- v")>]
     member _.StaticSet() = w.Name <- "n"
@@ -72,6 +75,9 @@ type Core() =
 
     [<Benchmark(Description = "reflection: cached MethodInfo.Invoke")>]
     member _.ReflectionCall() = i <- i + 1; addMethod.Invoke(w, [| box i; box 1 |]) :?> int
+
+    [<Benchmark(Description = "reflection: cached MethodInfo.Invoke, six arguments")>]
+    member _.ReflectionCallSum6() = sum6Method.Invoke(w, [| box 1; box 2; box 3; box 4; box 5; box i |]) :?> int
 
     [<Benchmark(Description = "reflection: cached PropertyInfo.SetValue")>]
     member _.ReflectionSet() = nameProperty.SetValue(w, "n")
@@ -168,10 +174,10 @@ type Core() =
 
     // Read at a tupled function type, its `?` is an invoker of the member; read curried, the first
     // application calls the method with one argument, which no overload takes (footnote 10).
-    [<Benchmark(Description = "FSharp.Interop.Dynamic w?Sum5 read as a tupled function of five, then applied")>]
-    member _.DynamicTupledRead5() : int =
-        let f: int * int * int * int * int -> int = FSharp.Interop.Dynamic.TopLevelOperators.op_Dynamic o "Sum5"
-        f (1, 2, 3, 4, 5)
+    [<Benchmark(Description = "FSharp.Interop.Dynamic w?Add read as int * int -> int, then applied")>]
+    member _.DynamicTupledRead2() : int =
+        let f: int * int -> int = FSharp.Interop.Dynamic.TopLevelOperators.op_Dynamic o "Add"
+        f (1, 2)
 
     [<Benchmark(Description = "FSharp.Interop.Dynamic w?Sum6 read as a tupled function of six, then applied")>]
     member _.DynamicTupledRead6() : int =
@@ -237,8 +243,11 @@ type Core() =
     [<Benchmark(Description = "dlr Dlr.call f read as int -> int -> int, then applied")>]
     member _.CallAsFunction() : int = let f: int -> int -> int = dlr { return Dlr.call adder2 } in f 1 2
 
-    [<Benchmark(Description = "dlr w?Sum5 read as a tupled function of five, then applied")>]
-    member _.TupledRead5() : int = let f: int * int * int * int * int -> int = dlr { return o?Sum5 } in f (1, 2, 3, 4, 5)
+    [<Benchmark(Description = "dlr w?Add read as int -> int -> int, then applied")>]
+    member _.CurriedRead2() : int = let f: int -> int -> int = dlr { return o?Add } in f 1 2
+
+    [<Benchmark(Description = "dlr w?Add read as int * int -> int, then applied")>]
+    member _.TupledRead2() : int = let f: int * int -> int = dlr { return o?Add } in f (1, 2)
 
     [<Benchmark(Description = "dlr w?Sum6 read as a tupled function of six, then applied")>]
     member _.TupledRead6() : int = let f: int * int * int * int * int * int -> int = dlr { return o?Sum6 } in f (1, 2, 3, 4, 5, 6)
