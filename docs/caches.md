@@ -52,37 +52,36 @@ Where every piece of state lives, what keys it, and how long it lasts. Part of
 ## How they relate
 
 ```mermaid
-flowchart LR
+flowchart TD
+    clear(["DlrCache.clear()"])
     subgraph process["process-wide"]
-        DC["DlrCache<br/>container Type → Compiled"]
-        M["Machines&lt;'SM,'T&gt;<br/>one typed slot per machine type,<br/>generation-stamped"]
-        S["Sites&lt;'T&gt; (fallback)<br/>typed mirror + last hit,<br/>generation-stamped"]
-        DL["Delayed&lt;'T&gt;<br/>Delay-wrapper reader per result type"]
-        RD["reflected definitions<br/>declaring Type → (MethodBase, Expr) list"]
-        CV["conversion factories<br/>(function type, delegate type)"]
+        M["Machines&lt;'SM,'T&gt;"]
+        S["Sites&lt;'T&gt;<br/>(fallback)"]
+        DL["Delayed&lt;'T&gt;"]
+        DC["DlrCache"]
+        RD["reflected definitions"]
+        CV["conversion factories"]
     end
-    subgraph delegate["inside one compiled delegate (collected with it)"]
-        CS["CallSites<br/>Expression.Constant, hoisted to locals"]
-        SC["SiteCache<br/>(name, types) → CallSite[]<br/>capacity 256"]
-        NC["NamedOfCache<br/>argument shape → compiled delegate<br/>capacity 256"]
-        RC["DLR rule cache<br/>per site, per runtime type"]
+    subgraph delegate["inside one compiled delegate"]
+        SC["SiteCache"]
+        NC["NamedOfCache"]
+        CS["CallSites"]
+        RC["DLR rule caches"]
     end
 
+    clear -- "drops" --> DC
+    clear -- "bumps the generation" --> M & S
     M -- miss --> DC
     S -- miss --> DC
-    S -. "reads the closure through" .-> DL
+    S -. "reads the closure" .-> DL
     DC -- miss --> RD
-    DC -- "compiles into" --> CS
-    DC -- "for a computed name" --> SC
-    DC -- "for namedOf / argsOf" --> NC
+    DC -- "compiles" --> CS
+    DC -- "computed name" --> SC
+    DC -- "namedOf / argsOf" --> NC
     SC --> CS
     NC --> CS
     CS --> RC
-    RC -. "function ↔ delegate arguments" .-> CV
-
-    clear(["DlrCache.clear()"]) --> DC
-    clear -- "bumps the generation" --> M
-    clear -- "bumps the generation" --> S
+    RC -. "converts arguments" .-> CV
 ```
 
 `clear()` drops the compiled delegates and invalidates the typed entries; the next call at each

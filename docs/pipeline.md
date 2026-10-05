@@ -7,17 +7,17 @@ From `dlr { … }` in source to the delegate a call invokes, and what one call c
 
 ```mermaid
 flowchart TD
-    src["<b>dlr { … }</b><br/>F# desugars to<br/>dlr.Run(dlr.Delay(fun () -> …), file, line)"]
-    run["<b>Run</b> (Builder.fs, inline resumable code)<br/>the compiler builds a struct state machine 'SM per block;<br/>its captured variables are the fields, typeof&lt;'SM&gt; is the key"]
-    sites["<b>Machines&lt;'SM,'T&gt;</b> (Cache.fs)<br/>one static slot per machine type:<br/>a field read and a generation compare"]
-    invoke["<b>reader.Invoke(&amp;sm)</b><br/>field reads + one CallSite per operation"]
-    cache["<b>DlrCache</b> (Cache.fs)<br/>machine Type → Compiled"]
-    discover["<b>Discover</b> (Discover.fs)<br/>the block's body, from the enclosing member's<br/>[&lt;ReflectedDefinition&gt;] by file and line"]
-    translate["<b>Translate.translate</b> (Translate*.fs)<br/>normalize → Plumbing / Members / Captures<br/>→ quotation with CallSites baked in"]
-    binders["<b>Binders</b> (Binders.fs; Seam.fs, Functions.fs, SiteCaches.fs)<br/>one CallSite per operation: C#'s binder<br/>wrapped by the F#-aware ones"]
-    conv["<b>LeafExpressionConverter</b> (FSharp.Core)<br/>quotation → LINQ tree"]
-    hoist["<b>SiteHoister</b> (SiteHoister.fs)<br/>CallSite constants → locals per lambda"]
-    compile["<b>Compile()</b><br/>DlrReader&lt;'SM, 'T&gt; (inref&lt;'SM&gt; -> 'T)"]
+    src["<b>dlr { … }</b>"]
+    run["<b>Run</b><br/>(Builder.fs)"]
+    sites["<b>Machines&lt;'SM,'T&gt;</b><br/>(Cache.fs)"]
+    invoke["<b>reader.Invoke(&amp;sm)</b>"]
+    cache["<b>DlrCache</b><br/>(Cache.fs)"]
+    discover["<b>Discover</b><br/>(Discover.fs)"]
+    translate["<b>Translate</b><br/>(Translate*.fs)"]
+    binders["<b>Binders</b><br/>(Binders.fs, Seam.fs, …)"]
+    conv["<b>LeafExpressionConverter</b><br/>(FSharp.Core)"]
+    hoist["<b>SiteHoister</b><br/>(SiteHoister.fs)"]
+    compile["<b>Compile()</b>"]
 
     src --> run --> sites
     sites -- hit --> invoke
@@ -34,6 +34,23 @@ flowchart TD
 ```
 
 Blue is every call; orange is the first call at a site (and again after `DlrCache.clear()`).
+
+- **`dlr { … }`**: F# desugars it to `dlr.Run(dlr.Delay(fun () -> …), file, line)`.
+- **`Run`**: inline resumable code. The compiler builds a struct state machine `'SM` per block;
+  its captured variables are the fields, and `typeof<'SM>` is the key.
+- **`Machines<'SM,'T>`**: one static slot per machine type; a hit is a field read and a
+  generation compare.
+- **`reader.Invoke(&sm)`**: field reads, and one `CallSite` per operation.
+- **`DlrCache`**: machine type → `Compiled`.
+- **`Discover`**: the block's body, from the enclosing member's `[<ReflectedDefinition>]`, by
+  file and line.
+- **`Translate.translate`**: `normalize`, then Plumbing / Members / Captures, giving a quotation
+  with the `CallSite`s baked in.
+- **Binders** (`Binders.fs`; `Seam.fs`, `Functions.fs`, `SiteCaches.fs`): one `CallSite` per
+  operation, C#'s binder wrapped by the F#-aware ones.
+- **`LeafExpressionConverter`**: quotation → LINQ tree.
+- **`SiteHoister`**: `CallSite` constants → locals, per lambda.
+- **`Compile()`**: a `DlrReader<'SM, 'T>` (`inref<'SM> -> 'T`).
 
 `Run` is `inline` resumable code in the `task { }` builder's shape (`__stateMachine` with a
 `MoveNext` that would run the body and an `AfterCode` that is our entry): the compiler turns
