@@ -165,8 +165,10 @@ first bind per site (the rule) is paid on the first invoke like any C# `dynamic`
 Every number is generated: [benchmarks.md](benchmarks.md), written by `Benchmarks/bench.sh docs`
 (Release, net10.0, Apple Silicon), has the block against static calls, cached reflection,
 FSharp.Interop.Dynamic and C# `dynamic` for each operation, and the README's short table is
-inserted from the same run. Two paths the suite does not have a row for, to read qualitatively:
-one site alternating between a CLR method and an F# function member pays a rule-cache miss on
-every switch, several times the cost of either kind alone; and a member bound as an F# function
-(`let add: int -> int -> int = dlr { return w?Add }`) costs about what a static call does per
-application, since the site is inside the returned function and the block is not re-entered.
+inserted from the same run.
+
+- A member read as an F# function (`let add: int -> int -> int = dlr { return w?Add }`): the
+  benchmarks row times the read and one application together. Once bound, each application is
+  one site call, like C# `dynamic`'s `d.Add(…)`, without re-entering the block.
+- One site alternating between a CLR method and an F# function member has no row: it pays a
+  rule-cache miss on every switch, several times the cost of either kind alone.
