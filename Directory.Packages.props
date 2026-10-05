@@ -30,7 +30,7 @@
     <PackageVersion Include="Dapper" Version="2.1.86" />
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.12" />
     <PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />
-    <PackageVersion Include="FSharp.Interop.Dynamic" Version="6.0.0" />
+    <PackageVersion Include="FSharp.Interop.Dynamic" Version="7.0.0" />
     <PackageVersion Include="Microsoft.ClearScript.V8" Version="7.5.1.1" />
     <PackageVersion Include="Microsoft.ClearScript.V8.Native.osx-arm64" Version="7.5.1.1" />
     <PackageVersion Include="Microsoft.ClearScript.V8.Native.osx-x64" Version="7.5.1.1" />
