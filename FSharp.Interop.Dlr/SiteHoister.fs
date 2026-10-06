@@ -16,7 +16,11 @@ module internal SiteHoisting =
     /// A readable name for a hoisted site's local, after its operation (`getCount`, `invokeAdd`,
     /// `convertInt32`, `add`): only a debugger or a rendering of the tree ever sees it.
     let rec private operationName (binder: CallSiteBinder) : string =
-        let clean (s: string) = String(s |> Seq.filter Char.IsLetterOrDigit |> Array.ofSeq)
+        let clean (s: string) =
+            // `add_Clicked` → `AddClicked`: each part capitalised, so `invoke` + it reads as one name.
+            s.Split([| '_' |], StringSplitOptions.RemoveEmptyEntries)
+            |> Array.map (fun part -> let p = String(part |> Seq.filter Char.IsLetterOrDigit |> Array.ofSeq) in if p = "" then p else string (Char.ToUpperInvariant p.[0]) + p.Substring 1)
+            |> String.concat ""
         let lowerFirst (s: string) = if s = "" then s else string (Char.ToLowerInvariant s.[0]) + s.Substring 1
         match binder with
         | :? MetaObjectAwareBinder as m -> operationName m.Inner

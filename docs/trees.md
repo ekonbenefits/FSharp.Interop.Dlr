@@ -26,6 +26,7 @@ The examples use this type:
 <!-- source:widget -->
 ```fsharp
 type Widget() =
+    let clicked = Event<System.EventHandler<int>, int>()
     member val Count = 3 with get, set
     member val Name = "widget" with get, set
     member _.Add(a: int, b: int) = a + b
@@ -34,6 +35,14 @@ type Widget() =
     member _.Bump(count: int, ?step: int) = count + defaultArg step 1
     member _.Double(n: byref<int>) = n <- n * 2
     static member Twice(n: int) = n * 2
+    member _.Echo<'T>(x: 'T) = x
+    member _.Sum6(a: int, b: int, c: int, d: int, e: int, f: int) = a + b + c + d + e + f
+    member _.Sum15(a: int, b: int, c: int, d: int, e: int, f: int, g: int, h: int, i: int, j: int, k: int, l: int, m: int, n: int, o: int) =
+        a + b + c + d + e + f + g + h + i + j + k + l + m + n + o
+    [<CLIEvent>]
+    member _.Clicked = clicked.Publish
+
+type Point = { X: int; Y: int }
 ```
 <!-- /source:widget -->
 
@@ -161,9 +170,11 @@ sm =>
     var siteCache = <constant SiteCache<Tuple<string, FSharpList<Type>>>>;
     // The explicit type arguments: none
     var typeArguments = <constant FSharpList<Type>>;
+    // The operation, compiled once for this block, over the sites it is handed
+    var operation = <constant Func<CallSite<Func<CallSite, object, object>>, object, object>>;
     var sites = siteCache.Get(new Tuple<string, FSharpList<Type>>(sm.name, typeArguments));
 
-    return Func<CallSite<Func<CallSite, object, object>>, object, object>.Invoke((CallSite<Func<CallSite, object, object>>)SiteCache<Tuple<string, FSharpList<Type>>>.At(sites, 0), sm.o);
+    return operation.Invoke((CallSite<Func<CallSite, object, object>>)SiteCache<Tuple<string, FSharpList<Type>>>.At(sites, 0), sm.o);
 }
 ```
 <!-- /tree:computed -->
@@ -565,3 +576,269 @@ sm =>
 }
 ```
 <!-- /tree:ref -->
+
+## Equality on F# types
+
+`?=?` goes through `FSharpBinaryOperationBinder`, the one rule placed before C#'s: on two records it compares structurally, where C# would compare references.
+
+<!-- tree:structural -->
+```fsharp
+[<ReflectedDefinition>]
+let same (a: obj) (b: obj) : bool = dlr { return a ?=? b }
+```
+
+```csharp
+sm =>
+{
+    // Convert to Boolean (implicit): C#'s binder
+    var convertBoolean = <constant CallSite<Func<CallSite, object, bool>>>;
+    // BinaryOperation Equal: FSharpBinaryOperationBinder (C#'s, plus the F# rules)
+    var equal = <constant CallSite<Func<CallSite, object, object, object>>>;
+
+    return convertBoolean.Target.Invoke(convertBoolean, equal.Target.Invoke(equal, sm.a, sm.b));
+}
+```
+<!-- /tree:structural -->
+
+## Adding an event handler
+
+`Dlr.addAssign` is the C# compiler's shape for `+=`: an `IsEvent` site picks the `add_` accessor for an event, or a read-modify-write of the member otherwise.
+
+<!-- tree:event -->
+```fsharp
+[<ReflectedDefinition>]
+let subscribe (o: obj) (handler: System.EventHandler<int>) = dlr { o |> Dlr.addAssign "Clicked" handler }
+```
+
+```csharp
+sm =>
+{
+    // IsEvent: C#'s binder
+    var isEvent = <constant CallSite<Func<CallSite, object, bool>>>;
+    // InvokeMember add_Clicked, 1 argument: FSharpInvokeMemberBinder (C#'s, plus the F# rules)
+    var invokeAddClicked = <constant CallSite<Action<CallSite, object, EventHandler<int>>>>;
+    // SetMember Clicked: C#'s binder
+    var setClicked = <constant CallSite<Func<CallSite, object, object, object>>>;
+    // BinaryOperation AddAssign: C#'s binder, meta-object aware
+    var addAssign = <constant CallSite<Func<CallSite, object, EventHandler<int>, object>>>;
+    // GetMember Clicked: C#'s binder
+    var getClicked = <constant CallSite<Func<CallSite, object, object>>>;
+    var target = sm.o;
+    var value = sm.handler;
+    isEvent.Target.Invoke(isEvent, target)
+        ? {
+            invokeAddClicked.Target.Invoke(invokeAddClicked, target, value);
+
+            return null;
+        }
+        : {
+            setClicked.Target.Invoke(
+                setClicked,
+                target,
+                addAssign.Target.Invoke(addAssign, getClicked.Target.Invoke(getClicked, target), value));
+
+            return null;
+        };
+
+    return null;
+}
+```
+<!-- /tree:event -->
+
+## Invoking a value
+
+`Dlr.call` invokes the object itself, through `FSharpInvokeBinder`, so a delegate, a callable dynamic object or an F# function value all work.
+
+<!-- tree:callValue -->
+```fsharp
+[<ReflectedDefinition>]
+let callValue (f: obj) (x: int) : int = dlr { return Dlr.call f (x) }
+```
+
+```csharp
+sm =>
+{
+    // Convert to Int32 (implicit): C#'s binder
+    var convertInt32 = <constant CallSite<Func<CallSite, object, int>>>;
+    // Invoke, 1 argument: FSharpInvokeBinder (C#'s, plus the F# rules), meta-object aware
+    var invoke = <constant CallSite<Func<CallSite, object, int, object>>>;
+
+    return convertInt32.Target.Invoke(convertInt32, invoke.Target.Invoke(invoke, sm.f, sm.x));
+}
+```
+<!-- /tree:callValue -->
+
+## A member read as a function of six
+
+Past five arguments there is no typed helper: a factory, compiled once per (function type, site type), builds the curried function over the sites.
+
+<!-- tree:functionPastFive -->
+```fsharp
+[<ReflectedDefinition>]
+let sum6 (o: obj) : int -> int -> int -> int -> int -> int -> int = dlr { return o?Sum6 }
+```
+
+```csharp
+sm =>
+{
+    // The function's factory, compiled once per (function type, site type): it builds the F# function over the sites
+    var functionFactory = <constant Func<CallSite, CallSite, object, FSharpFunc<int, FSharpFunc<int, FSharpFunc<int, FSharpFunc<int, FSharpFunc<int, FSharpFunc<int, int>>>>>>>>;
+    // InvokeMember Sum6, 6 arguments: FSharpInvokeMemberBinder (C#'s, plus the F# rules), meta-object aware
+    var invokeSum6 = <constant CallSite<Func<CallSite, object, int, int, int, int, int, int, object>>>;
+    // Convert to Int32 (implicit): C#'s binder
+    var convertInt32 = <constant CallSite<Func<CallSite, object, int>>>;
+
+    return functionFactory.Invoke(invokeSum6, convertInt32, sm.o);
+}
+```
+<!-- /tree:functionPastFive -->
+
+## Explicit type arguments
+
+`Dlr.typeArgs<int>()` puts the type arguments in the site's binder (`Echo<Int32>` in its comment), not in the tree; a generic call goes to C#'s binder unchanged.
+
+<!-- tree:typeArgs -->
+```fsharp
+[<ReflectedDefinition>]
+let echo (o: obj) (x: int) : int = dlr { return o?Echo(Dlr.typeArgs<int>(), x) }
+```
+
+```csharp
+sm =>
+{
+    // Convert to Int32 (implicit): C#'s binder
+    var convertInt32 = <constant CallSite<Func<CallSite, object, int>>>;
+    // InvokeMember Echo<Int32>, 1 argument: C#'s binder, meta-object aware
+    var invokeEcho = <constant CallSite<Func<CallSite, object, int, object>>>;
+
+    return convertInt32.Target.Invoke(convertInt32, invokeEcho.Target.Invoke(invokeEcho, sm.o, sm.x));
+}
+```
+<!-- /tree:typeArgs -->
+
+## Type arguments from data
+
+With `Dlr.typeArgsOf`, the type list is part of the `SiteCache` key, next to the member name: a new list creates sites, compiling nothing.
+
+<!-- tree:typeArgsOf -->
+```fsharp
+[<ReflectedDefinition>]
+let echoOf (o: obj) (types: System.Type list) (x: obj) : obj = dlr { return o?Echo(Dlr.typeArgsOf types, x) }
+```
+
+```csharp
+sm =>
+{
+    // This block's call sites per key (member name, type arguments): a new key creates sites, compiling nothing
+    var siteCache = <constant SiteCache<Tuple<string, FSharpList<Type>>>>;
+    // The operation, compiled once for this block, over the sites it is handed
+    var operation = <constant Func<CallSite<Func<CallSite, object, object, object>>, object, object, object>>;
+    var sites = siteCache.Get(new Tuple<string, FSharpList<Type>>("Echo", sm.types));
+
+    return operation.Invoke((CallSite<Func<CallSite, object, object, object>>)SiteCache<Tuple<string, FSharpList<Type>>>.At(sites, 0), sm.o, sm.x);
+}
+```
+<!-- /tree:typeArgsOf -->
+
+## Mutating a captured struct in place
+
+A struct in a cell reads back as a copy, so the mutation runs on a copy that a `finally` writes back: the arguments are evaluated first, and a member that mutates then throws keeps its change.
+
+<!-- tree:inPlace -->
+```fsharp
+[<ReflectedDefinition>]
+let inPlace (o: obj) : float32 =
+    let mutable v = System.Numerics.Vector2(1.0f, 2.0f)
+    dlr { v.X <- (o?Count : float32) }
+    v.X
+```
+
+```csharp
+sm =>
+{
+    // Convert to Single (implicit): C#'s binder
+    var convertSingle = <constant CallSite<Func<CallSite, object, float>>>;
+    // GetMember Count: C#'s binder
+    var getCount = <constant CallSite<Func<CallSite, object, object>>>;
+    var arg0 = convertSingle.Target.Invoke(convertSingle, getCount.Target.Invoke(getCount, sm.o));
+    var vCopy = sm.v.Value;
+    try
+    {
+        vCopy.X = arg0;
+    }
+    finally
+    {
+        sm.v.Value = vCopy;
+    }
+
+    return null;
+}
+```
+<!-- /tree:inPlace -->
+
+## A delegate literal
+
+A `Func` written in the block is compiled with it and re-wrapped by `DelegateLiteral.Over`, so its `.Method` is the delegate type's own `Invoke`.
+
+<!-- tree:delegateLiteral -->
+```fsharp
+[<ReflectedDefinition>]
+let delegateLiteral (o: obj) : int = dlr { return o?Run(System.Func<int, int>(fun x -> x + 1)) }
+```
+
+```csharp
+sm =>
+{
+    // Convert to Int32 (implicit): C#'s binder
+    var convertInt32 = <constant CallSite<Func<CallSite, object, int>>>;
+    // InvokeMember Run, 1 argument: FSharpInvokeMemberBinder (C#'s, plus the F# rules), meta-object aware
+    var invokeRun = <constant CallSite<Func<CallSite, object, Func<int, int>, object>>>;
+
+    return convertInt32.Target.Invoke(
+        convertInt32,
+        invokeRun.Target.Invoke(invokeRun, sm.o, DelegateLiteral<Func<int, int>>.Over(x => x + 1)));
+}
+```
+<!-- /tree:delegateLiteral -->
+
+## A call with fifteen arguments
+
+Past `Func`'s arity the site's delegate type is emitted at run time (`Delegate18$3`); the hoister rewrites the call into a typed `Invoke` on it.
+
+<!-- tree:wide -->
+```fsharp
+[<ReflectedDefinition>]
+let wide (o: obj) : int = dlr { return o?Sum15(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15) }
+```
+
+```csharp
+sm =>
+{
+    // Convert to Int32 (implicit): C#'s binder
+    var convertInt32 = <constant CallSite<Func<CallSite, object, int>>>;
+    // InvokeMember Sum15, 15 arguments: FSharpInvokeMemberBinder (C#'s, plus the F# rules), meta-object aware
+    var invokeSum15 = <constant CallSite<Delegate18$3>>;
+
+    return convertInt32.Target.Invoke(
+        convertInt32,
+        ((CallSite<Delegate18$3>)invokeSum15).Target.Invoke(
+            (CallSite)invokeSum15,
+            sm.o,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15));
+}
+```
+<!-- /tree:wide -->

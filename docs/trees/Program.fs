@@ -46,7 +46,16 @@ let rec private describe (binder: CallSiteBinder) =
         | :? ConvertBinder as c -> sprintf "Convert to %s (%s)" c.Type.Name (if c.Explicit then "explicit" else "implicit")
         | :? GetMemberBinder as g -> sprintf "GetMember %s" g.Name
         | :? SetMemberBinder as s -> sprintf "SetMember %s" s.Name
-        | :? InvokeMemberBinder as i -> sprintf "InvokeMember %s%s" i.Name (arguments i.CallInfo)
+        | :? InvokeMemberBinder as i ->
+            // C#'s binder keeps explicit type arguments (Dlr.typeArgs) out of the public API.
+            let typeArguments =
+                match i.GetType().GetProperty("TypeArguments", BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic) with
+                | null -> ""
+                | p ->
+                    match p.GetValue i with
+                    | :? seq<Type> as ts when not (Seq.isEmpty ts) -> sprintf "<%s>" (String.Join(", ", ts |> Seq.map (fun t -> t.Name)))
+                    | _ -> ""
+            sprintf "InvokeMember %s%s%s" i.Name typeArguments (arguments i.CallInfo)
         | :? InvokeBinder as i -> "Invoke" + arguments i.CallInfo
         | :? GetIndexBinder as g -> "GetIndex" + arguments g.CallInfo
         | :? SetIndexBinder as s -> "SetIndex" + arguments s.CallInfo
@@ -64,6 +73,18 @@ let rec private describe (binder: CallSiteBinder) =
 /// `return null`, though only the outermost is a result. The compiled tree is unchanged.
 let private flatten (tree: Expression) =
     let isUnit (e: Expression) = match e with :? ConstantExpression as c -> c.Type = typeof<unit> | _ -> false
+    // An expression whose value nothing uses, as a void statement: a trailing `()` dropped, so the
+    // renderer prints no `return` for it.
+    let rec statement (e: Expression) : Expression =
+        match e with
+        | :? BlockExpression as b ->
+            let exprs = b.Expressions |> Seq.filter (isUnit >> not) |> Seq.map statement |> List.ofSeq
+            Expression.Block(typeof<Void>, b.Variables, (if exprs.IsEmpty then [ Expression.Empty() :> Expression ] else exprs @ [ Expression.Empty() :> Expression ])) :> Expression
+        | :? TryExpression as t when t.Type <> typeof<Void> ->
+            let handlers = [ for h in t.Handlers -> Expression.MakeCatchBlock(h.Test, h.Variable, statement h.Body, h.Filter) ]
+            Expression.MakeTry(typeof<Void>, statement t.Body, (if isNull t.Finally then null else statement t.Finally), (if isNull t.Fault then null else statement t.Fault), handlers) :> Expression
+        | e when e.Type = typeof<unit> && isUnit e -> Expression.Empty() :> Expression
+        | e -> e
     { new ExpressionVisitor() with
         override this.VisitBlock(node) =
             let node = base.VisitBlock node :?> BlockExpression
@@ -76,8 +97,16 @@ let private flatten (tree: Expression) =
                         variables.AddRange inner.Variables
                         yield! inner.Expressions
                     | e -> yield e ]
-            let kept = spliced |> List.indexed |> List.filter (fun (i, e) -> i = spliced.Length - 1 || not (isUnit e)) |> List.map snd
-            Expression.Block(node.Type, variables, kept) :> Expression }
+            let kept =
+                spliced |> List.indexed |> List.filter (fun (i, e) -> i = spliced.Length - 1 || not (isUnit e))
+                |> List.map (fun (i, e) -> match e with :? TryExpression when i < spliced.Length - 1 -> statement e | e -> e)
+            Expression.Block(node.Type, variables, kept) :> Expression
+        override this.VisitTry(node) =
+            // A finally's value is never used: render it as a statement.
+            let node = base.VisitTry node :?> TryExpression
+            match node.Finally with
+            | null -> node :> Expression
+            | f -> Expression.MakeTry(node.Type, node.Body, statement f, node.Fault, node.Handlers) :> Expression }
         .Visit tree
 
 /// For display only: the other object constants the tree holds (a block's `SiteCache`, its
@@ -94,6 +123,9 @@ let private hoistConstants (tree: LambdaExpression) =
         | :? NamedOfCache -> Some("namedOfCache", "This call, compiled once per argument shape (the names, an empty one per positional value): a new shape compiles it")
         | :? list<Type> as ts -> Some("typeArguments", if ts.IsEmpty then "The explicit type arguments: none" else "The explicit type arguments")
         | v when not (isNull v) && v.GetType().Name.StartsWith "SiteCache" -> Some("siteCache", "This block's call sites per key: a new key creates sites, compiling nothing")
+        | :? Delegate as d when d.Method.ReturnType.IsGenericType && d.Method.ReturnType.GetGenericTypeDefinition() = typedefof<FSharpFunc<_, _>> ->
+            Some("functionFactory", "The function's factory, compiled once per (function type, site type): it builds the F# function over the sites")
+        | :? Delegate -> Some("operation", "The operation, compiled once for this block, over the sites it is handed")
         | _ -> None
     let body =
         { new ExpressionVisitor() with
@@ -133,7 +165,7 @@ let private sitesIn (tree: Expression) =
 
 /// The renderer prints a constant as its type: say it is one, and what the site does.
 let private labelConstants (sites: Collections.Generic.Dictionary<string, string>) (tree: string) =
-    Regex.Replace(tree, @"^(\s*)var (\w+) = ((?:CallSite|SiteCache|NamedOfCache|FSharpList)(?:<.*>)?);$", (fun (m: Match) ->
+    Regex.Replace(tree, @"^(\s*)var (\w+) = ((?:CallSite|SiteCache|NamedOfCache|FSharpList|Func)(?:<.*>)?);$", (fun (m: Match) ->
         let indent, name = m.Groups.[1].Value, m.Groups.[2].Value
         let comment = match sites.TryGetValue name with | true, d -> indent + "// " + d + "\n" | _ -> ""
         sprintf "%s%svar %s = <constant %s>;" comment indent name m.Groups.[3].Value), RegexOptions.Multiline)
