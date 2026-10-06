@@ -1,3 +1,5 @@
+<img src="icon.png" alt="" width="96" align="right">
+
 # FSharp.Interop.Dlr
 
 [![CI](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml/badge.svg)](https://github.com/ekonbenefits/FSharp.Interop.Dlr/actions/workflows/build.yml)

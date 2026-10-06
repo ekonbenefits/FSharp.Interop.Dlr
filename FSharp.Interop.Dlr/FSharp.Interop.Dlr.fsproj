@@ -4,11 +4,12 @@
     <AssemblyName>FSharp.Interop.Dlr</AssemblyName>
     <PackageId>FSharp.Interop.Dlr</PackageId>
     <RootNamespace>FSharp.Interop.Dlr</RootNamespace>
-    <Description>dlr { } computation expression: ? operator compiled once per call site with baked DLR call sites</Description>
+    <Description>dlr { } for F#: dynamic member access with ?, compiled once per block into DLR call sites</Description>
     <Authors>Jay Tuley</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/ekonbenefits/FSharp.Interop.Dlr</PackageProjectUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
     <PackageTags>fsharp dynamic dlr quotations</PackageTags>
     <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
     <IncludeSymbols>true</IncludeSymbols>
@@ -30,6 +31,7 @@
 
   <ItemGroup>
     <None Include="..\README.md" Pack="true" PackagePath="\" />
+    <None Include="..\icon.png" Pack="true" PackagePath="\" />
     <None Include="..\License.txt" Pack="true" PackagePath="\" />
   </ItemGroup>
 
