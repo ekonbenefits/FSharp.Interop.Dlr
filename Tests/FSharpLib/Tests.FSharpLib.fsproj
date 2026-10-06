@@ -1,7 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- A block in another assembly than its callers (#180): the Release optimizer inlines small
-       functions across assemblies too, so Tests/Resumable.fs calls this one from outside. -->
+  <!-- A block in another assembly than its callers (#180): Tests/Resumable.fs calls this one from
+       outside, so a block works across the boundary whether or not the Release optimizer inlines
+       it (today it does not). -->
   <PropertyGroup>
     <TargetFrameworks>netstandard2.0</TargetFrameworks>
     <IsPackable>false</IsPackable>
