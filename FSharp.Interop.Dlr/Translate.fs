@@ -42,7 +42,9 @@ module internal Translate =
               MemberBody = memberBody
               ClosureType = closureType
               Closure = closure
-              Fields = Captures.fields closureType }
+              Fields = Captures.fields closureType
+              Name = name
+              Names = Collections.Generic.Dictionary() }
 
         /// Variables bound inside the expression being rewritten are left alone; anything else
         /// that is not the builder comes from the closure or the enclosing member.
@@ -180,7 +182,7 @@ module internal Translate =
                 let rewritten = asUnit (rewriteIn Set.empty (normalize body))
                 let lambda = Expr.NewDelegate(delegateType, [ closure ], rewritten)
                 let linq = LeafExpressionConverter.QuotationToExpression lambda :?> LambdaExpression
-                let hoisted = SiteHoister().Visit linq :?> LambdaExpression
+                let hoisted = nameNested block.NameFor (SiteHoister().Visit linq :?> LambdaExpression)
                 match TreeHook.Sink with
                 | null -> ()
                 | sink -> sink.Invoke(closureType, hoisted)

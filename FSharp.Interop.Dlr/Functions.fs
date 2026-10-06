@@ -227,7 +227,7 @@ module internal FunctionBuilder =
                         | Some _ -> [ for i in 0 .. domains.Length - 1 -> Tuples.element a i ]
                         | None -> [ for i in 0 .. n - 2 -> Expression.Property(up (i + 1), "Own") :> Expression ] @ [ a ]
                     call capturedValues args
-            Expression.Lambda(typedefof<Func<_, _, _>>.MakeGenericType(stepType k, steps.[k], funcType (k + 1)), body, [ self; a ]).Compile()
+            Expression.Lambda(typedefof<Func<_, _, _>>.MakeGenericType(stepType k, steps.[k], funcType (k + 1)), body, "dlr-curriedStep", [ self; a ]).Compile()
         newStep 0 (Expression.New(capturedType.GetConstructors().[0], captured)) (Expression.Constant(null, typeof<obj>)) (next 0)
 
     /// A void call as an F# `unit` result.
@@ -264,7 +264,7 @@ module internal DelegateConversions =
                         let body =
                             FunctionBuilder.build (if tupled then Some (funcType.GetGenericArguments().[0]) else None) ds result [ typed ]
                                 (fun captured args -> FunctionBuilder.unitOf (Expression.Call(List.head captured, invoke, args)))
-                        let factory = Expression.Lambda<Func<Delegate, obj>>(Expression.Convert(body, typeof<obj>), [ d ]).Compile()
+                        let factory = Expression.Lambda<Func<Delegate, obj>>(Expression.Convert(body, typeof<obj>), "dlr-delegateToFunction", [ d ]).Compile()
                         Some factory.Invoke
                     else
                         let standard = if isVoid then Expression.GetActionType(Array.ofList ds) else Expression.GetFuncType(Array.ofList (ds @ [ result ]))
@@ -356,7 +356,7 @@ type ParameterlessLiteral<'D, 'R when 'D :> Delegate> [<ExcludeFromCodeCoverage>
             match DelegateMembers.standIn delegateType with
             | Some standIn -> Expression.Call(typeof<DelegateLiteral<'D>>.GetMethod("From"), Expression.Convert(Expression.Lambda(standIn, body), typeof<Delegate>))
             | None -> Expression.Call(typeof<DelegateLiteral<'D>>.GetMethod("Over"), Expression.Lambda(delegateType, body))
-        Expression.Lambda<Func<FSharpFunc<unit, 'R>, 'D>>(honest, [ f ]).Compile()
+        Expression.Lambda<Func<FSharpFunc<unit, 'R>, 'D>>(honest, "dlr-parameterlessLiteral", [ f ]).Compile()
     static member Of(thunk: FSharpFunc<unit, 'R>) : 'D = factory.Invoke thunk
 
 /// A delegate over an F# function (`FunctionAdapters`, in Adapters.fs): per (function type,
@@ -418,7 +418,7 @@ module FunctionConversions =
                                 match DelegateMembers.standIn delegateType with
                                 | Some standIn -> Expression.Call(literalOf.GetMethod("From"), Expression.Convert(Expression.Lambda(standIn, body, parameters), typeof<Delegate>))
                                 | None -> Expression.Call(literalOf.GetMethod("Over"), Expression.Lambda(delegateType, body, parameters))
-                            Expression.Lambda<Func<obj, Delegate>>(Expression.Convert(honest, typeof<Delegate>), fParam).Compile())
+                            Expression.Lambda<Func<obj, Delegate>>(Expression.Convert(honest, typeof<Delegate>), "dlr-functionToDelegate", [ fParam ]).Compile())
                 | None -> None
             conversions.[struct (funcType, delegateType)] <- conversion
             conversion

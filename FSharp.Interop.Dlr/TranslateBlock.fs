@@ -32,7 +32,17 @@ module internal TranslateBlock =
           /// reader is handed by reference), or the closure as `obj`.
           Closure: Var
           /// The container's fields, named after the captured variables.
-          Fields: Collections.Generic.IDictionary<string, Reflection.FieldInfo> }
+          Fields: Collections.Generic.IDictionary<string, Reflection.FieldInfo>
+          /// The compiled block's name, `dlr@Program.fs:7`: its stack frame's name.
+          Name: string
+          /// How many nested lambdas of each kind (`for`, `try`, `fun`, …) have been named so far.
+          Names: Collections.Generic.Dictionary<string, int> }
+        /// The name for this block's next compiled part of `kind`, for its stack frame: F#'s
+        /// closure style, `dlr@Program.fs:7-for`, then `-for-2`, `-for-3` in order.
+        member this.NameFor (kind: string) =
+            let n = (match this.Names.TryGetValue kind with | true, n -> n | _ -> 0) + 1
+            this.Names.[kind] <- n
+            if n = 1 then sprintf "%s-%s" this.Name kind else sprintf "%s-%s-%d" this.Name kind n
         member this.Self =
             if this.ClosureType.IsValueType then Expr.Var this.Closure
             else Expr.Coerce(Expr.Var this.Closure, this.ClosureType)
