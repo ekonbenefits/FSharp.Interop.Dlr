@@ -11,6 +11,7 @@ open Microsoft.FSharp.Linq.RuntimeHelpers
 open System.Runtime.CompilerServices
 
 /// <summary>The state machine's data slot; the builder's <c>Return</c> writes it so the value stays live in the compiled machine. Never read.</summary>
+/// <remarks>Not part of the supported API: public only because compiled blocks call it, and it may change in any release.</remarks>
 [<Struct; NoComparison; NoEquality; System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type DlrData<'T> =
     [<DefaultValue(false)>]
@@ -20,6 +21,7 @@ type DlrData<'T> =
 /// none of the delegate-with-a-struct-argument cost a <c>Func&lt;'SM, 'T&gt;</c> has (measured 4x slower).
 /// Public, and not for direct use: an F# <c>internal</c> delegate's <c>Invoke</c> is internal too, and
 /// .NET Framework's <c>Expression.Lambda</c> finds <c>Invoke</c> by public lookup only (#125).</summary>
+/// <remarks>Not part of the supported API: public only because compiled blocks call it, and it may change in any release.</remarks>
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type DlrReader<'SM, 'T> = delegate of inref<'SM> -> 'T
 

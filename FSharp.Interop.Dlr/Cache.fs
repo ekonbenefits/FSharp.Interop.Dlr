@@ -175,6 +175,7 @@ type internal Sites<'T> [<ExcludeFromCodeCoverage>] private () =
                 entry.Func
 
 /// <summary>The entry points the inlined <c>Run</c> compiles to. Not for direct use.</summary>
+/// <remarks>Not part of the supported API: public only because compiled blocks call it, and it may change in any release.</remarks>
 [<Sealed; AbstractClass>]
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type DlrRun =

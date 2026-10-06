@@ -172,6 +172,7 @@ module internal Tuples =
 
 /// Reference-equality comparer for a pair of types: the default struct-tuple comparer boxes and
 /// costs ~100 ns per lookup, which the per-call conversion caches pay each time.
+/// Not part of the supported API: public only because compiled blocks call it, and it may change in any release.
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type TypePairComparer() =
     static member val Instance = TypePairComparer()

@@ -11,6 +11,7 @@ open System
 /// factory compiled once per pair (`FunctionBuilder`); no other shape is converted. The `Action`
 /// wrappers take a result type parameter (instantiated to `unit`) because an `FSharpFunc<_, unit>`
 /// must return the `Unit` object, which a method declared `: unit` (void) cannot.
+/// Not part of the supported API: public only because compiled blocks call it, and it may change in any release.
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 module DelegateFunctions =
     type Func0<'R>(d: Func<'R>) =
@@ -86,6 +87,7 @@ module DelegateFunctions =
 /// one adapter per shape (curried/tupled × result/void, 0–16 parameters) whose `Invoke` method
 /// has the delegate's exact signature; `FunctionConversions` emits a factory per (function type,
 /// delegate type) over them.
+/// Not part of the supported API: public only because compiled blocks call it, and it may change in any release.
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 module FunctionAdapters =
     type Curried0<'R>(f: unit -> 'R) =
