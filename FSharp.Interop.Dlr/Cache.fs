@@ -43,7 +43,9 @@ module DlrCache =
                 // The compiled block's name, which a stack trace prints for its frame: the block has
                 // no line numbers of its own, so this says which block it is. Identifier-like, as
                 // F#'s own closure names are (`run@7`): no spaces or braces for a trace parser to trip on.
-                let name = if String.IsNullOrEmpty file then "dlr@" + t.Name else sprintf "dlr@%s:%d" (IO.Path.GetFileName file) line
+                // The file name cut at either separator: the path is recorded where the caller was
+                // built, so a Windows path can reach a Linux run, where GetFileName keeps it whole.
+                let name = if String.IsNullOrEmpty file then "dlr@" + t.Name else sprintf "dlr@%s:%d" (file.Substring(file.LastIndexOfAny [| '/'; '\\' |] + 1)) line
                 Translate.translate name builderType found.Context found.MemberBody t resultType found.Body)
 
 /// One compiled-machine cache entry, immutable, so a reference to it is atomic to read and to
