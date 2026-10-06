@@ -23,9 +23,10 @@ module internal Translate =
     /// fallback path a `Func<obj, 'T>` over the Delay closure object.
     type Compiled = { Delegate: Delegate }
 
-    /// Receives each block's expression tree just before it is compiled, with the block's
-    /// container type. Null, and then free, unless set: `docs/trees` sets it by reflection to
-    /// generate the docs' examples.
+    /// Receives each block's expression tree, with the block's container type, once its sites are
+    /// hoisted: on the state-machine path that is before the by-reference wrapper, which only
+    /// copies the machine into the lambda's `sm` and is what `Compile()` then gets. Null, and then
+    /// free, unless set: `docs/trees` sets it by reflection to generate the docs' examples.
     type TreeHook private () =
         static member val Sink : Action<Type, LambdaExpression> = null with get, set
 

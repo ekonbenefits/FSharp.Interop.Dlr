@@ -5,6 +5,7 @@ module Trees.Examples
 open System.Collections.Generic
 open FSharp.Interop.Dlr
 
+// example: widget
 type Widget() =
     member val Count = 3 with get, set
     member val Name = "widget" with get, set
@@ -14,6 +15,7 @@ type Widget() =
     member _.Bump(count: int, ?step: int) = count + defaultArg step 1
     member _.Double(n: byref<int>) = n <- n * 2
     static member Twice(n: int) = n * 2
+// end
 
 // example: read
 [<ReflectedDefinition>]

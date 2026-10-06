@@ -163,12 +163,39 @@ let main args =
         match Map.tryFind name sources, trees.TryGetValue name with
         | Some source, (true, tree) -> sprintf "```fsharp\n%s\n```\n\n```csharp\n%s\n```" source (tree.TrimEnd())
         | _ -> failwithf "no example named %s in Examples.fs" name
-    let marker = Regex(@"(<!-- tree:(\w+) -->).*?(<!-- /tree:\2 -->)", RegexOptions.Singleline)
+    let sourceOnly name =
+        match Map.tryFind name sources with
+        | Some source -> sprintf "```fsharp\n%s\n```" source
+        | None -> failwithf "no source named %s in Examples.fs" name
+    let marker = Regex(@"(<!-- (tree|source):(\w+) -->).*?(<!-- /\2:\3 -->)", RegexOptions.Singleline)
+    // Every marker must be a complete pair naming a real example, and every example must appear
+    // somewhere: a deleted region or a mistyped closing marker would otherwise pass unnoticed.
+    let opening = Regex(@"<!-- (tree|source):(\w+) -->")
+    let closing = Regex(@"<!-- /(tree|source):(\w+) -->")
+    let names (r: Regex) (text: string) = [ for m in r.Matches text -> m.Groups.[1].Value + ":" + m.Groups.[2].Value ] |> List.sort
+    let problems =
+        [ let texts = [ for page in pages -> page, File.ReadAllText(Path.Combine(root, page)) ]
+          for page, text in texts do
+              if names opening text <> names closing text then
+                  yield sprintf "%s: opening markers %A do not match closing markers %A" page (names opening text) (names closing text)
+              for m in opening.Matches text do
+                  let kind, name = m.Groups.[1].Value, m.Groups.[2].Value
+                  if not (sources.ContainsKey name) || (kind = "tree" && not (trees.ContainsKey name)) then
+                      yield sprintf "%s: marker %s:%s names no example in Examples.fs" page kind name
+          let shown = set [ for _, text in texts do for m in opening.Matches text -> m.Groups.[2].Value ]
+          for name in sources.Keys do
+              if not (shown.Contains name) then yield sprintf "example %s appears on no page" name ]
+    if not problems.IsEmpty then
+        for p in problems do eprintfn "trees: %s" p
+        exit 1
     let stale =
         [ for page in pages do
             let path = Path.Combine(root, page)
             let text = File.ReadAllText path
-            let updated = marker.Replace(text, fun m -> m.Groups.[1].Value + "\n" + block m.Groups.[2].Value + "\n" + m.Groups.[3].Value)
+            let updated =
+                marker.Replace(text, fun m ->
+                    let content = if m.Groups.[2].Value = "tree" then block m.Groups.[3].Value else sourceOnly m.Groups.[3].Value
+                    m.Groups.[1].Value + "\n" + content + "\n" + m.Groups.[4].Value)
             if updated <> text then
                 if not check then File.WriteAllText(path, updated)
                 yield page ]
