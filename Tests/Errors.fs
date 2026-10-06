@@ -14,7 +14,7 @@ let ``a stack trace names the block by its file and line`` () =
         raise (AnyUnit.IgnoreException "the expression interpreter has no frame per block")
     let w = box (Widget())
     let line, ex = __LINE__, (try (dlr { return w?NoSuchMember() } : int) |> ignore; null with e -> e)
-    ex.StackTrace |> should haveSubstring (sprintf "dlr { } at Errors.fs:%s" line)
+    ex.StackTrace |> should haveSubstring (sprintf "dlr@Errors.fs:%s(" line)
 
 // This test calls every marker outside a block on purpose; the analyzer would report each one.
 // fsharpanalyzer: ignore-region-start DLR002

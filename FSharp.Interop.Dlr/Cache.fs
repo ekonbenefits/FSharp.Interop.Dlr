@@ -41,8 +41,9 @@ module DlrCache =
                 let builderType = builderType ()
                 let found = Discover.findBody builderType t file line
                 // The compiled block's name, which a stack trace prints for its frame: the block has
-                // no line numbers of its own, so this says which block it is.
-                let name = if String.IsNullOrEmpty file then sprintf "dlr { } in %s" t.Name else sprintf "dlr { } at %s:%d" (IO.Path.GetFileName file) line
+                // no line numbers of its own, so this says which block it is. Identifier-like, as
+                // F#'s own closure names are (`run@7`): no spaces or braces for a trace parser to trip on.
+                let name = if String.IsNullOrEmpty file then "dlr@" + t.Name else sprintf "dlr@%s:%d" (IO.Path.GetFileName file) line
                 Translate.translate name builderType found.Context found.MemberBody t resultType found.Body)
 
 /// One compiled-machine cache entry, immutable, so a reference to it is atomic to read and to
