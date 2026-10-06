@@ -624,6 +624,12 @@ module Impl =
         let y = x * 2
         let x = seed * 100
         dlr { return w?Add(y, x) }
+    // A `let rec` group is one definition: `f` reading its sibling `g` does not reach the later `g`.
+    let recSibling (w: obj) (seed: int) : int =
+        let rec f n = if n = 0 then 0 else g (n - 1)
+        and g n = f n + 1
+        let g = seed * 3
+        dlr { return w?Add(f 2, g) }
     // Shadowed inside the block: bound there, not reached.
     let boundInBlock (w: obj) (seed: int) : int =
         let x = seed + 1
