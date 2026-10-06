@@ -350,6 +350,43 @@ module internal Binders =
                 FSharpReadOrInvokeBinder(context, name, csharp, csharpInvoke) :> CallSiteBinder
             else smartInvokeMember context name [] discard all)
 
+    /// The F# function type a member read as delegate type `t` is invoked through, or None when `t`
+    /// is no concrete delegate type or has a byref parameter or result: curried up to five parameters (`InvokeFast`,
+    /// no tuple per call), tupled past them (one step over the tuple, not a step per argument).
+    let delegateRead (t: Type) : Type option =
+        if not (typeof<Delegate>.IsAssignableFrom t) || t = typeof<Delegate> || t = typeof<MulticastDelegate> || t.ContainsGenericParameters then None else
+        let invoke = DelegateMembers.invokeOf t
+        let ps = [ for p in invoke.GetParameters() -> p.ParameterType ]
+        if isNull invoke || invoke.ReturnType.IsByRef || ps |> List.exists (fun p -> p.IsByRef) then None
+        else
+            let result = if invoke.ReturnType = voidType then typeof<unit> else invoke.ReturnType
+            match ps with
+            | [] -> Some(FSharp.Reflection.FSharpType.MakeFunctionType(typeof<unit>, result))
+            | ps when ps.Length <= 5 -> Some(List.foldBack (fun p r -> FSharp.Reflection.FSharpType.MakeFunctionType(p, r)) ps result)
+            | ps -> Some(FSharp.Reflection.FSharpType.MakeFunctionType(FSharp.Reflection.FSharpType.MakeTupleType(Array.ofList ps), result))
+
+    /// `x?Name` read as a delegate type (#201): C#'s read of the member, converted, unless the
+    /// member is a method (`FSharpGetMemberOrMethodBinder` yields `MethodGroup`); then the delegate
+    /// over an invoker of it, `functionMember` at `functionType` converted by `FunctionConversions`.
+    let delegateMember (context: Type) (name: string) (delegateType: Type) (functionType: Type) (target: Arg) : Expr =
+        callsOnly "reading a member" target
+        let targetVar = Var("target", target.Expr.Type)
+        let target' = { target with Expr = Expr.Var targetVar }
+        let valueVar = Var("value", typeof<obj>)
+        let csharp = Binder.GetMember(CSharpBinderFlags.None, name, context, [ argInfo target ]) :?> GetMemberBinder
+        let read = siteCall (FSharpGetMemberOrMethodBinder(context, name, csharp)) [ target' ] typeof<obj>
+        let invoker =
+            let conversion =
+                match FunctionConversions.tryConversion functionType delegateType with
+                | Some c -> c
+                | None -> failwithf "unreachable: %s does not convert to %s" functionType.Name delegateType.Name
+            Expr.Coerce(Expr.Call(Expr.Value(conversion, typeof<Func<obj, Delegate>>), typeof<Func<obj, Delegate>>.GetMethod("Invoke"),
+                                  [ Expr.Coerce(functionMember context name functionType target', typeof<obj>) ]), delegateType)
+        let converted = siteCall (Binder.Convert(CSharpBinderFlags.None, delegateType, context)) [ dynamicArg (Expr.Var valueVar) ] delegateType
+        Expr.Let(targetVar, target.Expr,
+          Expr.Let(valueVar, read,
+            Expr.IfThenElse(Expr.Call(typeof<MethodGroup>.GetMethod("Is"), [ Expr.Var valueVar ]), invoker, converted)))
+
     /// `Dlr.call x` read as an F# function type: the target itself as that function — a typed
     /// Invoke site (F# function values through FSharpInvokeBinder), or the target as it is when
     /// it already is a function of the type.

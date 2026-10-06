@@ -432,6 +432,16 @@ module FunctionConversions =
     /// `Make` as a method, for the expression tree of a bound call to name it.
     let makeMethod : MethodInfo = Quotation.methodOf <@ Make typeof<obj> null @>
 
+/// What a member read as a delegate type yields when the member is a method
+/// (`FSharpGetMemberOrMethodBinder`): the block then makes the delegate an invoker of it.
+/// Not part of the supported API: public only because compiled blocks call it, and it may change in any release.
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+[<Sealed>]
+type MethodGroup private () =
+    static let instance = MethodGroup()
+    static member Instance : obj = box instance
+    static member Is(value: obj) = obj.ReferenceEquals(value, instance)
+
 /// A member read as an F# function type: `let f: int -> int -> int = dlr { return x?Add }`. The
 /// value is an F# function (curried, so partial application works) that invokes the member with
 /// the collected arguments when fully applied and converts the result; the site's binder handles

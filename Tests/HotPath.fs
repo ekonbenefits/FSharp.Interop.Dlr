@@ -59,6 +59,18 @@ let ``a bound call allocates nothing but, for a value result, its box`` () : uni
     let applyCurried () = curried6 1 2 3 4 5 6 |> ignore
     bytes applyTupled |> should lessThanOrEqualTo (box' + 40L)
     bytes applyCurried |> should lessThanOrEqualTo (box' + 5L * 40L)
+    // A member read as a delegate type (#201): a delegate-typed property is C#'s read, and stays
+    // free; a method is the delegate over an invoker, made per read: the curried invoker (40 B:
+    // the two sites and the target), its adapter (24 B) and the delegate (64 B). A call through
+    // it, read once, costs the result's box, as a call does.
+    let h = box (Holders())
+    let delegateProperty () = (dlr { return h?AsDelegate } : Func<int>) |> ignore
+    let methodAsDelegate () = (dlr { return w?Add } : Func<int, int, int>) |> ignore
+    let add: Func<int, int, int> = dlr { return w?Add }
+    let invokeDelegate () = add.Invoke(1, 2) |> ignore
+    bytes delegateProperty |> should equal 0L
+    bytes methodAsDelegate |> should equal 128L
+    bytes invokeDelegate |> should lessThanOrEqualTo box'
 #endif
 
 [<Fact>]

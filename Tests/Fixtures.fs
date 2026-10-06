@@ -102,6 +102,8 @@ type Clicker() =
     [<CLIEvent>]
     member _.Clicked = clicked.Publish
     member _.Raise(n: int) = clicked.Trigger(n)
+/// An internal delegate type a method is read as (#201): its Invoke and constructor are internal.
+type internal InternalPair = delegate of int * int -> int
 /// An event of an internal delegate type, whose Invoke and constructor F# compiles internal (#150).
 type internal InternalNotify = delegate of obj * int -> unit
 type InternalClicker() =

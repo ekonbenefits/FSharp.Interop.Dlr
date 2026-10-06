@@ -654,3 +654,24 @@ type FSharpReadOrInvokeBinder(context: Type, name: string, csharp: InvokeMemberB
             | None -> DynamicMetaObject(Expression.Dynamic(value, typeof<obj>, read), restriction)
 
     override _.FallbackInvoke(target, args, errorSuggestion) = value.FallbackInvoke(target, args, errorSuggestion)
+
+/// A member read as a delegate type (`Api.Fold(dlr { return x?Add })`, #201): C#'s GetMember, with
+/// our rule as its error suggestion where C# fails because the name is a method: the
+/// `MethodGroup` marker, which the block answers with an invoker of the method as the delegate.
+/// A property, field or dynamic object's member keeps C#'s own rule, so that read costs what it did.
+/// Not part of the supported API: public only because compiled blocks call it, and it may change in any release.
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+type FSharpGetMemberOrMethodBinder(context: Type, name: string, csharp: GetMemberBinder) =
+    inherit GetMemberBinder(name, false)
+    override _.FallbackGetMember(target, errorSuggestion) =
+        let ours =
+            if target.HasValue && not (isNull target.Value) then
+                let t = target.LimitType
+                let isMethod =
+                    t.GetMethods(Accessibility.all)
+                    |> Array.exists (fun m -> m.Name = name && not m.IsStatic && not m.IsSpecialName && Accessibility.method' context t m)
+                if isMethod then
+                    Some(DynamicMetaObject(Expression.Constant(MethodGroup.Instance, typeof<obj>), BindingRestrictions.GetTypeRestriction(target.Expression, t)))
+                else None
+            else None
+        csharp.FallbackGetMember(target, defaultArg ours errorSuggestion)

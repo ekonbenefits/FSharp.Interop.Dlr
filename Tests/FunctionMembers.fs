@@ -93,6 +93,58 @@ let ``a member read as a function type is a curried invoker of it`` () =
     let addTupled: int * int -> int = dlr { return w?Add }
     addTupled (40, 2) |> should equal 42
 
+let private fold (f: Func<int, int, int>) = f.Invoke(40, 2)
+
+[<Fact>]
+let ``a method read as a delegate type is an invoker of it, so a block passes it where a Func is expected`` () =
+    // #201: the block's type is the parameter's, `Func<int, int, int>`. C# has no method groups
+    // through `dynamic`; a method's name read as a delegate type is the delegate over an invoker.
+    let w: obj = Widget()
+    let folded = fold (dlr { return w?Add })
+    folded |> should equal 42
+    let add: Func<int, int, int> = dlr { return w?Add }
+    add.Invoke(1, 2) |> should equal 3
+    let describe: Func<string> = dlr { return w?Describe }
+    describe.Invoke() |> should equal "described"
+    let pick: Func<obj, string> = dlr { return w?Pick }          // the overload per invocation, by the argument
+    pick.Invoke(box 1) |> should equal "int"
+    pick.Invoke(box "s") |> should equal "string"
+
+[<Fact>]
+let ``a method read as a delegate type: void, past five, an internal delegate, a computed name`` () =
+    let widget = Widget()
+    let w: obj = widget
+    let touch: Action = dlr { return w?Touch }
+    touch.Invoke()
+    widget.Touched |> should equal 1
+    let sum6: Func<int, int, int, int, int, int, int> = dlr { return w?Sum6 }
+    sum6.Invoke(1, 2, 3, 4, 5, 6) |> should equal 21
+    let touch15: Action<int, int, int, int, int, int, int, int, int, int, int, int, int, int, int> = dlr { return w?Touch15 }
+    touch15.Invoke(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+    widget.Touched |> should equal 16
+    let pair: InternalPair = dlr { return w?Add }
+    pair.Invoke(3, 4) |> should equal 7
+    let bind (name: string) : Func<int, int, int> = dlr { return (?) w name }
+    (bind "Add").Invoke(5, 6) |> should equal 11
+
+[<Fact>]
+let ``a member holding a delegate, read as a delegate type, is that delegate`` () =
+    // Only a method falls back: a property, field or dynamic object's member is C#'s read, as before.
+    let holders = Holders()
+    let h: obj = holders
+    let held: Func<int> = dlr { return h?AsDelegate }
+    obj.ReferenceEquals(held, holders.AsDelegate) |> should equal true
+    let e: obj = bag ()
+    let fromExpando: Func<int, int> = dlr { return e?Del }
+    fromExpando.Invoke 21 |> should equal 42
+
+[<Fact>]
+let ``a method read as a delegate type fails as C# would: no such member at the read, no fitting overload at the call`` () =
+    let w: obj = Widget()
+    (fun () -> (dlr { return w?Nope } : Func<int, int>) |> ignore) |> should throw typeof<RuntimeBinderException>
+    let one: Func<int, int> = dlr { return w?Add }                   // read: fine, as for a function type
+    (fun () -> one.Invoke 1 |> ignore) |> should throw typeof<RuntimeBinderException>
+
 [<Fact>]
 let ``a function-typed result applied on the spot, with nothing captured`` () =
     // The compiler takes the non-resumable path for this shape without a warning and, the block
