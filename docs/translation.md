@@ -155,6 +155,9 @@ type (#156).
 
 ### Smaller rules
 
+- **Stack traces**: the compiled body has no line numbers, so its frame is named after the block,
+  `dlr { } at Program.fs:7`; an exception inside it arrives as itself, with C#'s own `CallSite`
+  frames below.
 - **Nested blocks** compile into the outer block: at run time their machine (or closure) would
   be created by the compiled tree, not the compiler, and would have no reflected body.
 - **`unit` bodies** end with the unit constant, since an F# `unit` call is `void` in IL and the

@@ -27,7 +27,7 @@ module internal Translate =
     /// compiler-generated container — its state machine struct, or in the fallback path the
     /// class of its `Delay` closure: its fields, named after the captured variables, are where
     /// the body's free variables are read from at call time.
-    let translate (builderType: Type) (context: Type) (memberBody: Expr) (closureType: Type) (resultType: Type) (body: Expr) : Compiled =
+    let translate (name: string) (builderType: Type) (context: Type) (memberBody: Expr) (closureType: Type) (resultType: Type) (body: Expr) : Compiled =
         let closure = if closureType.IsValueType then Var("sm", closureType) else Var("closure", typeof<obj>)
         let block =
             { BuilderType = builderType
@@ -181,8 +181,8 @@ module internal Translate =
                     let machine = hoisted.Parameters.[0]
                     let byRef = Expression.Parameter(closureType.MakeByRefType(), "machine")
                     let readerType = typedefof<DlrReader<_, _>>.MakeGenericType(closureType, resultType)
-                    Expression.Lambda(readerType, Expression.Block(resultType, [ machine ], Expression.Assign(machine, byRef), hoisted.Body), [ byRef ]).Compile()
-                else hoisted.Compile()
+                    Expression.Lambda(readerType, Expression.Block(resultType, [ machine ], Expression.Assign(machine, byRef), hoisted.Body), name, [ byRef ]).Compile()
+                else Expression.Lambda(hoisted.Type, hoisted.Body, name, hoisted.Parameters).Compile()
             with :? DlrTranslationException -> reraise ()
                // A static member resolved here by reflection and missing is the binder's kind of
                // error, as it would be at the call for an instance target.

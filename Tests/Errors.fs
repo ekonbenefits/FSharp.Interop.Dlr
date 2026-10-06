@@ -6,6 +6,16 @@ open AnyUnit.Style.Xunit
 open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
 
+[<Fact>]
+let ``a stack trace names the block by its file and line`` () =
+    // The compiled body has no line numbers; its frame's name says which block it is. Browser-wasm
+    // interprets the tree, with frames of the interpreter's own.
+    if string Runtime.InteropServices.RuntimeInformation.OSArchitecture = "Wasm" then
+        raise (AnyUnit.IgnoreException "the expression interpreter has no frame per block")
+    let w = box (Widget())
+    let line, ex = __LINE__, (try (dlr { return w?NoSuchMember() } : int) |> ignore; null with e -> e)
+    ex.StackTrace |> should haveSubstring (sprintf "dlr { } at Errors.fs:%s" line)
+
 // This test calls every marker outside a block on purpose; the analyzer would report each one.
 // fsharpanalyzer: ignore-region-start DLR002
 [<Fact>]

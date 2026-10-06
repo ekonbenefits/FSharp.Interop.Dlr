@@ -40,7 +40,10 @@ module DlrCache =
             cache.GetOrAdd(blockType, fun t ->
                 let builderType = builderType ()
                 let found = Discover.findBody builderType t file line
-                Translate.translate builderType found.Context found.MemberBody t resultType found.Body)
+                // The compiled block's name, which a stack trace prints for its frame: the block has
+                // no line numbers of its own, so this says which block it is.
+                let name = if String.IsNullOrEmpty file then sprintf "dlr { } in %s" t.Name else sprintf "dlr { } at %s:%d" (IO.Path.GetFileName file) line
+                Translate.translate name builderType found.Context found.MemberBody t resultType found.Body)
 
 /// One compiled-machine cache entry, immutable, so a reference to it is atomic to read and to
 /// swap, stamped with the clear generation it was compiled under.
