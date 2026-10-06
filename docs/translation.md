@@ -93,6 +93,25 @@ where no case matches throws the caught exception again through `DlrRuntime.reth
 trace kept (`Plumbing.rethrowing`). The builder's handlers have no `reraise ()`: the compiler's
 unmatched case there is already a rethrow.
 
+For `for i in items do try total <- total + o?Add(i, 1) with _ -> ()` over a `let mutable total`,
+the tree reads roughly as below: an approximate rendering (AgileObjects.ReadableExpressions, from a
+spike, sites elided), which may drift from what the code builds today.
+
+```csharp
+sm =>
+{
+    var total = new FSharpRef<int>(0);                 // the block's let mutable, as a cell
+    DlrRuntime.forEach(sm.items, i =>
+    {
+        DlrRuntime.tryWith(
+            () => { total.Value = total.Value + /* Convert(InvokeMember Add(sm.o, i, 1)) */; return null; },
+            _ => null);
+        return null;
+    });
+    return total.Value;
+}
+```
+
 ### Mutables and structs
 
 - `let rec` is tied through reference cells, and so is a `let mutable` of the block: loop and
