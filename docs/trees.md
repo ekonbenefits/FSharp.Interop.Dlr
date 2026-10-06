@@ -37,7 +37,9 @@ let read (o: obj) : int = dlr { return o?Count }
 ```csharp
 sm =>
 {
+    // Convert to Int32 (implicit): C#'s binder
     var convertInt32 = <constant CallSite<Func<CallSite, object, int>>>;
+    // GetMember Count: C#'s binder
     var getCount = <constant CallSite<Func<CallSite, object, object>>>;
 
     return convertInt32.Target.Invoke(convertInt32, getCount.Target.Invoke(getCount, sm.o));
@@ -58,7 +60,9 @@ let call (o: obj) (x: int) : int = dlr { return o?Add(x, 1) }
 ```csharp
 sm =>
 {
+    // Convert to Int32 (implicit): C#'s binder
     var convertInt32 = <constant CallSite<Func<CallSite, object, int>>>;
+    // InvokeMember Add, 2 arguments: FSharpInvokeMemberBinder (C#'s, plus the F# rules), meta-object aware
     var invokeAdd = <constant CallSite<Func<CallSite, object, int, int, object>>>;
 
     return convertInt32.Target.Invoke(convertInt32, invokeAdd.Target.Invoke(
@@ -102,7 +106,9 @@ sm =>
                     {
                         () =>
                         {
+                            // Convert to Int32 (implicit): C#'s binder
                             var convertInt32 = <constant CallSite<Func<CallSite, object, int>>>;
+                            // InvokeMember Add, 2 arguments: FSharpInvokeMemberBinder (C#'s, plus the F# rules), meta-object aware
                             var invokeAdd = <constant CallSite<Func<CallSite, object, int, int, object>>>;
 
                             total.Value = total.Value + convertInt32.Target.Invoke(convertInt32, invokeAdd.Target.Invoke(
@@ -169,7 +175,9 @@ let asFunction (o: obj) : int -> int -> int = dlr { return o?Add }
 ```csharp
 sm =>
 {
+    // InvokeMember Add, 2 arguments: FSharpInvokeMemberBinder (C#'s, plus the F# rules), meta-object aware
     var invokeAdd = <constant CallSite<Func<CallSite, object, int, int, object>>>;
+    // Convert to Int32 (implicit): C#'s binder
     var convertInt32 = <constant CallSite<Func<CallSite, object, int>>>;
 
     return FunctionMember.Curried2(invokeAdd, convertInt32, sm.o);
@@ -191,7 +199,9 @@ let outArg (d: obj) : bool * int = dlr { return d?TryGetValue("k", Dlr.out) }
 ```csharp
 sm =>
 {
+    // InvokeMember TryGetValue, 2 arguments: C#'s binder
     var invokeTryGetValue = <constant CallSite<Delegate5$1>>;
+    // Convert to Boolean (implicit): C#'s binder
     var convertBoolean = <constant CallSite<Func<CallSite, object, bool>>>;
 
     var byRefResults =
@@ -224,6 +234,7 @@ let set (o: obj) (name: string) = dlr { o?Name <- name }
 ```csharp
 sm =>
 {
+    // SetMember Name: FSharpSetMemberBinder (C#'s, plus the F# rules), meta-object aware
     var setName = <constant CallSite<Func<CallSite, object, string, object>>>;
 
     setName.Target.Invoke(setName, sm.o, sm.name);
@@ -250,6 +261,7 @@ let touch (o: obj) = dlr { o?Touch() }
 ```csharp
 sm =>
 {
+    // InvokeMember Touch: FSharpInvokeMemberBinder (C#'s, plus the F# rules), meta-object aware
     var invokeTouch = <constant CallSite<Action<CallSite, object>>>;
 
     invokeTouch.Target.Invoke(invokeTouch, sm.o);
@@ -274,7 +286,9 @@ let plus (a: obj) (b: obj) : int = dlr { return a ?+? b }
 ```csharp
 sm =>
 {
+    // Convert to Int32 (implicit): C#'s binder
     var convertInt32 = <constant CallSite<Func<CallSite, object, int>>>;
+    // BinaryOperation Add: C#'s binder
     var add = <constant CallSite<Func<CallSite, object, object, object>>>;
 
     return convertInt32.Target.Invoke(convertInt32, add.Target.Invoke(add, sm.a, sm.b));
@@ -295,7 +309,9 @@ let named (o: obj) (x: int) : int = dlr { return o?Add(Dlr.named {| b = 1; a = x
 ```csharp
 sm =>
 {
+    // Convert to Int32 (implicit): C#'s binder
     var convertInt32 = <constant CallSite<Func<CallSite, object, int>>>;
+    // InvokeMember Add, 2 arguments (named a, b): C#'s binder, meta-object aware
     var invokeAdd = <constant CallSite<Func<CallSite, object, int, int, object>>>;
 
     return convertInt32.Target.Invoke(convertInt32, invokeAdd.Target.Invoke(
@@ -320,6 +336,7 @@ let namedOf (o: obj) (kwargs: (string * obj) list) : int = dlr { return o?Add(Dl
 ```csharp
 sm =>
 {
+    // Convert to Int32 (implicit): C#'s binder
     var convertInt32 = <constant CallSite<Func<CallSite, object, int>>>;
 
     return convertInt32.Target.Invoke(
@@ -350,6 +367,7 @@ let make () : obj = dlr { return Dlr.new'<Widget>() }
 ```csharp
 sm =>
 {
+    // InvokeConstructor: FSharpInvokeConstructorBinder (C#'s, plus the F# rules)
     var invokeConstructor = <constant CallSite<Func<CallSite, Type, Examples.Widget>>>;
 
     return invokeConstructor.Target.Invoke(invokeConstructor, typeof(Examples.Widget));
@@ -370,7 +388,9 @@ let twice (x: obj) : int = dlr { return Dlr.Static<Widget>.Overloads?Twice(x) }
 ```csharp
 sm =>
 {
+    // Convert to Int32 (implicit): C#'s binder
     var convertInt32 = <constant CallSite<Func<CallSite, object, int>>>;
+    // InvokeMember Twice, 1 argument: FSharpStaticInvokeMemberBinder (C#'s, plus the F# rules)
     var invokeTwice = <constant CallSite<Func<CallSite, Type, object, object>>>;
 
     return convertInt32.Target.Invoke(convertInt32, invokeTwice.Target.Invoke(invokeTwice, typeof(Examples.Widget), sm.x));
@@ -391,7 +411,9 @@ let item (d: obj) : int = dlr { return d |> Dlr.item "k" }
 ```csharp
 sm =>
 {
+    // Convert to Int32 (implicit): C#'s binder
     var convertInt32 = <constant CallSite<Func<CallSite, object, int>>>;
+    // GetIndex, 1 argument: C#'s binder
     var getIndex = <constant CallSite<Func<CallSite, object, string, object>>>;
 
     return convertInt32.Target.Invoke(convertInt32, getIndex.Target.Invoke(getIndex, sm.d, "k"));
@@ -412,7 +434,9 @@ let lambda (o: obj) : int = dlr { return o?Run(fun x -> x + 1) }
 ```csharp
 sm =>
 {
+    // Convert to Int32 (implicit): C#'s binder
     var convertInt32 = <constant CallSite<Func<CallSite, object, int>>>;
+    // InvokeMember Run, 1 argument: FSharpInvokeMemberBinder (C#'s, plus the F# rules), meta-object aware
     var invokeRun = <constant CallSite<Func<CallSite, object, FSharpFunc<int, int>, object>>>;
 
     return convertInt32.Target.Invoke(convertInt32, invokeRun.Target.Invoke(invokeRun, sm.o, FuncConvert.ToFSharpFunc(x => x + 1)));
@@ -433,7 +457,9 @@ let optional (o: obj) : int = dlr { return o?Bump(1) }
 ```csharp
 sm =>
 {
+    // Convert to Int32 (implicit): C#'s binder
     var convertInt32 = <constant CallSite<Func<CallSite, object, int>>>;
+    // InvokeMember Bump, 1 argument: FSharpInvokeMemberBinder (C#'s, plus the F# rules), meta-object aware
     var invokeBump = <constant CallSite<Func<CallSite, object, int, object>>>;
 
     return convertInt32.Target.Invoke(convertInt32, invokeBump.Target.Invoke(invokeBump, sm.o, 1));
@@ -457,6 +483,7 @@ let byRef (o: obj) : int =
 ```csharp
 sm =>
 {
+    // InvokeMember Double, 1 argument: C#'s binder
     var invokeDouble = <constant CallSite<Delegate4$2>>;
 
     var byRefResults =

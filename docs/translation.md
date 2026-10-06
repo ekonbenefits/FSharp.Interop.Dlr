@@ -122,7 +122,9 @@ sm =>
                     {
                         () =>
                         {
+                            // Convert to Int32 (implicit): C#'s binder
                             var convertInt32 = <constant CallSite<Func<CallSite, object, int>>>;
+                            // InvokeMember Add, 2 arguments: FSharpInvokeMemberBinder (C#'s, plus the F# rules), meta-object aware
                             var invokeAdd = <constant CallSite<Func<CallSite, object, int, int, object>>>;
 
                             total.Value = total.Value + convertInt32.Target.Invoke(convertInt32, invokeAdd.Target.Invoke(

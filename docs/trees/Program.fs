@@ -4,7 +4,9 @@ module Trees.Program
 
 open System
 open System.IO
+open System.Dynamic
 open System.Linq.Expressions
+open System.Runtime.CompilerServices
 open System.Reflection
 open System.Text.RegularExpressions
 open AgileObjects.ReadableExpressions
@@ -29,9 +31,52 @@ let private sources =
             yield line.Substring 12, body ]
     |> Map.ofList
 
-/// The renderer prints a constant as its type; a hoisted site is one, so say so.
-let private labelConstants (tree: string) =
-    Regex.Replace(tree, @"^(\s*)var (\w+) = (CallSite<.*>);$", "$1var $2 = <constant $3>;", RegexOptions.Multiline)
+/// What a site does, from its binder: the operation, its member and arguments, and whose binder
+/// binds it (ours, wrapping C#'s with the F# rules, or C#'s own).
+let rec private describe (binder: CallSiteBinder) =
+    let arguments (info: CallInfo) =
+        match info.ArgumentCount, List.ofSeq info.ArgumentNames with
+        | 0, _ -> ""
+        | 1, [] -> ", 1 argument"
+        | n, [] -> sprintf ", %d arguments" n
+        | n, names -> sprintf ", %d arguments (named %s)" n (String.Join(", ", names))
+    let operation =
+        match binder with
+        | :? MetaObjectAwareBinder as m -> describe m.Inner + ", meta-object aware"
+        | :? ConvertBinder as c -> sprintf "Convert to %s (%s)" c.Type.Name (if c.Explicit then "explicit" else "implicit")
+        | :? GetMemberBinder as g -> sprintf "GetMember %s" g.Name
+        | :? SetMemberBinder as s -> sprintf "SetMember %s" s.Name
+        | :? InvokeMemberBinder as i -> sprintf "InvokeMember %s%s" i.Name (arguments i.CallInfo)
+        | :? InvokeBinder as i -> "Invoke" + arguments i.CallInfo
+        | :? GetIndexBinder as g -> "GetIndex" + arguments g.CallInfo
+        | :? SetIndexBinder as s -> "SetIndex" + arguments s.CallInfo
+        | :? BinaryOperationBinder as b -> sprintf "BinaryOperation %O" b.Operation
+        | :? UnaryOperationBinder as u -> sprintf "UnaryOperation %O" u.Operation
+        | b -> b.GetType().Name.Replace("CSharp", "").Replace("FSharp", "").Replace("Binder", "")
+    match binder with
+    | :? MetaObjectAwareBinder -> operation
+    | b when b.GetType().Namespace = "FSharp.Interop.Dlr" -> sprintf "%s: %s (C#'s, plus the F# rules)" operation (b.GetType().Name)
+    | _ -> sprintf "%s: C#'s binder" operation
+
+/// Each hoisted site's local, by name, with what the site does: from the `var = constant` assignments.
+let private sitesIn (tree: Expression) =
+    let found = Collections.Generic.Dictionary<string, string>()
+    { new ExpressionVisitor() with
+        override _.VisitBinary(node) =
+            match node.Left, node.Right with
+            | (:? ParameterExpression as v), (:? ConstantExpression as c) when node.NodeType = ExpressionType.Assign && (c.Value :? CallSite) ->
+                found.[v.Name] <- describe (c.Value :?> CallSite).Binder
+            | _ -> ()
+            base.VisitBinary node }
+        .Visit tree |> ignore
+    found
+
+/// The renderer prints a constant as its type: say it is one, and what the site does.
+let private labelConstants (sites: Collections.Generic.Dictionary<string, string>) (tree: string) =
+    Regex.Replace(tree, @"^(\s*)var (\w+) = (CallSite<.*>);$", (fun (m: Match) ->
+        let indent, name = m.Groups.[1].Value, m.Groups.[2].Value
+        let comment = match sites.TryGetValue name with | true, d -> indent + "// " + d + "\n" | _ -> ""
+        sprintf "%s%svar %s = <constant %s>;" comment indent name m.Groups.[3].Value), RegexOptions.Multiline)
 
 [<EntryPoint>]
 let main args =
@@ -45,7 +90,7 @@ let main args =
     let mutable current = ""
     typeof<DlrRun>.Assembly.GetType("FSharp.Interop.Dlr.Translate+TreeHook")
         .GetProperty("Sink", BindingFlags.NonPublic ||| BindingFlags.Public ||| BindingFlags.Static)
-        .SetValue(null, Action<Type, LambdaExpression>(fun _ tree -> trees.[current] <- labelConstants (tree.ToReadableString())))
+        .SetValue(null, Action<Type, LambdaExpression>(fun _ tree -> trees.[current] <- labelConstants (sitesIn tree) (tree.ToReadableString())))
     for name, run in Examples.all do
         current <- name
         run ()
