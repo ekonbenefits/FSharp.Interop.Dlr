@@ -16,6 +16,12 @@
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+    <!-- Strong-named so strong-named .NET Framework apps can reference it (an unsigned assembly
+         they cannot; unsigned apps take a signed one either way). The key is public, as
+         Microsoft recommends for open-source libraries: it gives the assembly a stable identity,
+         not proof of who built it. Never change it: the key is part of that identity. -->
+    <SignAssembly>true</SignAssembly>
+    <AssemblyOriginatorKeyFile>FSharp.Interop.Dlr.snk</AssemblyOriginatorKeyFile>
     <!-- JIT only: the C# runtime binder, LambdaExpression.Compile and ReflectedDefinition lookup
          all need dynamic code and untrimmed metadata (see README). -->
     <IsAotCompatible>false</IsAotCompatible>
