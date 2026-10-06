@@ -40,8 +40,8 @@ module internal TranslateBlock =
           /// Names two of the variables the block reaches share (#196): its free variables, and
           /// those of the definitions it recovers for what the optimizer inlined (`Captures.reached`).
           Ambiguous: Set<string>
-          /// Aliases (`let x = y`, `let x = 1`) the block reaches only through a recovered
-          /// definition: substituted, never a field, whatever field shares the name.
+          /// Aliases (`let x = y` of an immutable `y`, `let x = 1`) the block reaches only through
+          /// a recovered definition: substituted, never a field, whatever field shares the name.
           Substituted: Set<Var> }
         /// The name for this block's next compiled part of `kind`, for its stack frame: F#'s
         /// closure style, `dlr@Program.fs:7-for`, then `-for-2`, `-for-3` in order.
@@ -161,9 +161,9 @@ module internal TranslateBlock =
 
         /// The variables a block reaches: its free variables and, for each one with no field of
         /// its name, those of the definition `read` would recover for it. An alias reached that
-        /// way (an immutable `let` of another variable or a literal) is the optimizer's to
+        /// way (an immutable `let` of an immutable variable or of a literal) is the optimizer's to
         /// substitute, never a field, so it stands for what it names: it is returned apart, not
-        /// counted with the rest.
+        /// counted with the rest. One of a mutable it keeps, holding the value at the time.
         let reached (fields: Collections.Generic.IDictionary<string, Reflection.FieldInfo>) (memberBody: Expr) (body: Expr) : Var list * Set<Var> =
             let own = body.GetFreeVars() |> Set.ofSeq
             let rec go (seen: Set<Var>) counted aliases (pending: Var list) =
@@ -173,7 +173,7 @@ module internal TranslateBlock =
                 | v :: rest ->
                     let seen = seen.Add v
                     let def = letDefinition v memberBody
-                    let alias = not v.IsMutable && not (own.Contains v) && (match def with Some(Var _ | Value _) -> true | _ -> false)
+                    let alias = not v.IsMutable && not (own.Contains v) && (match def with Some(Var y) -> not y.IsMutable | Some(Value _) -> true | _ -> false)
                     let inner =
                         if fields.ContainsKey v.Name && not alias then []
                         else
@@ -184,12 +184,12 @@ module internal TranslateBlock =
                     else go seen (v :: counted) aliases (inner @ rest)
             go Set.empty [] Set.empty (List.ofSeq own)
 
-        /// Two variables of one name, one reached through a local function the optimizer inlined:
-        /// the compiler names their fields `x`, `x0`, … in an order of its own, and a recovered
-        /// definition would run again, so neither tells which is which (#196).
+        /// Two variables of one name, one reached through a local function or alias the optimizer
+        /// inlined: the compiler names their fields `x`, `x0`, … in an order of its own, and a
+        /// recovered definition would run again, so neither tells which is which (#196).
         let private ambiguous (v: Var) =
             DlrTranslationException(
-                sprintf "dlr { } reaches two variables named '%s', one through a local function the optimizer inlined; rename one." v.Name)
+                sprintf "dlr { } reaches two variables named '%s', one through a local function or alias the optimizer inlined; rename one." v.Name)
 
         let private isRefCell (f: Reflection.FieldInfo) (t: Type) =
             f.FieldType.IsGenericType

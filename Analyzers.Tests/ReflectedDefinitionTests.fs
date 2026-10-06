@@ -559,3 +559,76 @@ module Impl =
     lines |> should equal [ first; first + 1 ]                                               // only the wrong lines
     out |> List.forall (fun m -> m.Message.Contains "result type does not fit") |> should equal true
     (msgs |> List.filter (fun m -> m.Code <> ReflectedDefinitionAnalyzer.ArgumentMarkerCode)) |> should equal []
+
+[<Fact>]
+let ``a block reaching two values of one name through a local function is warned about`` () =
+    let msgs =
+        run """
+[<ReflectedDefinition>]
+module Impl =
+    let throughFunction (w: obj) (seed: int) : int =
+        let x = seed + 1
+        let f () = x
+        let x = seed * 100
+        dlr { return w?Add(f (), x) }
+    let parameterShadowed (w: obj) (x: int) : int =
+        let f () = x
+        let x = x * 100
+        dlr { return w?Add(f (), x) }
+    let twoFunctions (w: obj) (seed: int) : int =
+        let x = seed + 1
+        let f () = x
+        let x = seed * 100
+        let g () = x
+        dlr { return w?Add(f (), g ()) }
+    // The optimizer substitutes the alias `y` too.
+    let throughAlias (w: obj) (seed: int) : int =
+        let x = seed + 1
+        let y = x
+        let x = seed * 100
+        dlr { return w?Add(y, x) }
+    // An alias of a mutable is a value of its own.
+    let aliasOfMutable (w: obj) : int =
+        let mutable y = 1
+        let x = y
+        let f () = x
+        y <- 2
+        let x = 100
+        dlr { return w?Add(x, f ()) }
+"""
+    let shadowed = msgs |> List.filter (fun m -> m.Code = ReflectedDefinitionAnalyzer.ShadowedCode)
+    shadowed.Length |> should equal 5
+    shadowed |> List.forall (fun m -> m.Severity = Severity.Warning) |> should equal true
+    Assert.messageContains "two values named 'x', one through 'f'" shadowed.[0] |> should equal true
+
+[<Fact>]
+let ``a shared name the block does not reach twice is not warned about`` () =
+    run """
+[<ReflectedDefinition>]
+module Impl =
+    // An alias reached through the function is substituted, never a field.
+    let alias (w: obj) (seed: int) : int =
+        let x = seed
+        let f () = x
+        let x = seed * 100
+        dlr { return w?Add(f (), x) }
+    // `x` is also an unrelated lambda's parameter.
+    let unrelatedLambda (w: obj) (seed: int) : int =
+        let x = seed + 1
+        let f () = x
+        let ys = [ 1 ] |> List.map (fun x -> x + 1)
+        dlr { return w?Add(f (), ys.Length) }
+    // Shadowed, but the block reads only the later `x`: `y` is a value of its own.
+    let notThroughAFunction (w: obj) (seed: int) : int =
+        let x = seed + 1
+        let y = x * 2
+        let x = seed * 100
+        dlr { return w?Add(y, x) }
+    // Shadowed inside the block: bound there, not reached.
+    let boundInBlock (w: obj) (seed: int) : int =
+        let x = seed + 1
+        let f () = x
+        dlr {
+            let x = seed * 100
+            return w?Add(f (), x) }
+""" |> should be Empty

@@ -121,7 +121,7 @@ quoted, move the block into the smallest function that can.
 
 Without the attribute the first call raises a `DlrTranslationException` that says so; the
 [analyzer package](FSharp.Interop.Dlr.Analyzers/README.md) reports it at build time instead, with
-a fix, along with the other misuses it can see (`DLR002`–`DLR006`).
+a fix, along with the other misuses it can see (`DLR002`–`DLR007`).
 
 One block per source line. Blocks in generic functions and members work (one site per
 instantiation); so do nested blocks, blocks inside `task { }` / `async { }`, and F# Interactive.

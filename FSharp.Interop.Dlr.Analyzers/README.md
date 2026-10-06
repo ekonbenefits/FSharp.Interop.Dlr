@@ -16,6 +16,7 @@ code is reported without a fix: move it into a function.
 | `DLR004` | Error | a `dlr { }` inside an `inline` function or member (declaration-level or a local `let inline`): in Release the function is expanded into every caller, where the block's captured values are inlined away and its body is not where the reflected definition says — a Debug build calls it as a method, so it only appears to work there; remove `inline` or move the block out. A block DLR004 refuses gets no DLR001 |
 | `DLR005` | Error | a marker out of place inside a block — each a `DlrTranslationException` at the block's first call; the cases are listed below the table |
 | `DLR006` | Error | a `dlr { }` in a function or member whose reflected definition FSharp.Core will not decode — it holds `typeof<System.Void>` — so every block in it fails at run time with the not-found error naming the member |
+| `DLR007` | Warning | a `dlr { }` that reaches two values of one name, one through a local function or alias (`let x = …; let f () = x; let x = …; dlr { … f () … x … }`): where the Release optimizer inlines `f`, the block cannot tell them apart and its first call raises `DlrTranslationException`; rename one. A warning, since a Debug build never inlines `f` |
 
 `DLR005` reports: an argument marker — `Dlr.named`, `Dlr.namedOf`, `Dlr.argsOf`, `Dlr.typeArgs`,
 `Dlr.typeArgsOf`, `Dlr.out`, `Dlr.outAs`, `Dlr.ref` — anywhere but as an argument of a call (a member call, `Dlr.invoke`, `Dlr.call` /

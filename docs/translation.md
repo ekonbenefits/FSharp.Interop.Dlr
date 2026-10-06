@@ -77,8 +77,8 @@ function, or a lambda applied on the spot. A block in an `inline` function is be
 Release (it is expanded into each caller), and the analyzer's `DLR004` refuses it.
 
 Fields go by name, so a name two variables the block reaches share (an `x` shadowed, one read
-through a local function the optimizer inlined) is refused in Release: the compiler numbers such
-fields (`x`, `x0`) in an order of its own. Rename one.
+through a local function or alias the optimizer inlined) is refused in Release: the compiler
+numbers such fields (`x`, `x0`) in an order of its own. The analyzer's `DLR007` warns of it.
 
 ### Control flow
 

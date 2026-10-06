@@ -100,6 +100,8 @@ let private shadowedWrite (o: obj) : int =
     let mutable x = 1
     let set () = x <- 5
     let mutable x = 100
+    // The analyzer reports it at build time (DLR007).
+    // fsharpanalyzer: ignore-line-next DLR007
     dlr { set (); return o?Add(x, 0) }
 
 /// Both shadowed `x`s are real values, so the machine holds both, as `x` and `x0`: which is which
@@ -108,6 +110,8 @@ let private shadowedBothCaptured (o: obj) : int =
     let x = Ticks.Next()
     let f () = x
     let x = Ticks.Next() * 100
+    // The analyzer reports it at build time (DLR007).
+    // fsharpanalyzer: ignore-line-next DLR007
     dlr { return o?Add(f (), x) }
 
 /// `x` is also an unrelated lambda's parameter: nothing the block reaches shares the name.
@@ -122,6 +126,41 @@ let private mutableNameOfAnUnrelatedLambda (o: obj) : int =
     let get () = n
     let ys = [ 1 ] |> List.map (fun n -> n + 1)
     dlr { return o?Add(get (), ys.Length) }
+
+/// An alias of a mutable is a value of its own, taken when it is bound: the optimizer keeps it.
+let private aliasOfMutable (o: obj) : int =
+    let mutable y = 1
+    let x = y
+    let f () = x
+    y <- 2
+    dlr { return o?Add(f (), y) }
+
+let private aliasOfAnAliasOfMutable (o: obj) : int =
+    let mutable m = 1
+    let y = m
+    let x = y
+    let f () = x
+    m <- 2
+    dlr { return o?Add(f (), m) }
+
+let private aliasOfMutableShadowed (o: obj) : int =
+    let mutable y = 1
+    let x = y
+    let f () = x
+    y <- 2
+    let x = 100
+    // The analyzer reports it at build time (DLR007).
+    // fsharpanalyzer: ignore-line-next DLR007
+    dlr { return o?Add(x, f ()) }
+
+[<Fact>]
+let ``an alias of a mutable reached through a local function keeps the value it was bound to`` () =
+    let w = box (Widget())
+    aliasOfMutable w |> should equal 3
+    aliasOfAnAliasOfMutable w |> should equal 3
+    match (try Ok(aliasOfMutableShadowed w) with :? DlrTranslationException as e -> Error e.Message) with
+    | Ok n -> n |> should equal 101
+    | Error message -> message |> should haveSubstring "reaches two variables named 'x'"
 
 [<Fact>]
 let ``a shadowed name reached through an inlined local function reads its own value`` () =
