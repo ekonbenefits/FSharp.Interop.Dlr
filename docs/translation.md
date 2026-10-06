@@ -177,9 +177,11 @@ type (#156).
 ### Smaller rules
 
 - **Stack traces**: the compiled body has no line numbers, so its frame is named after the block,
-  `dlr@Program.fs:7`, in the style of F#'s own closure names, and its nested lambdas after their
-  kind, numbered in source order (`dlr@Program.fs:7-for`, `-for-2`, `-try`, `-fun`; a `while` loop's condition is `-whileGuard`,
-  its body `-while`). The JIT may
+  `dlr__Program_fs@7`: F#'s closure-name shape (`run@7`), with the file in the name since the
+  block has no debug info to supply it, and only letters, digits and `_` before the `@` so trace
+  parsers read it as one method name. Its nested lambdas are named after their kind, numbered in
+  source order (`dlr__Program_fs@7-for`, `-for-2`, `-try`, `-fun`; a `while` loop's condition is
+  `-whileGuard`, its body `-while`). The JIT may
   drop a frame whose last action is a call (a tail call), so not every one shows; the frame of the
   function holding the block, with the block's line, always does. An exception inside a block
   arrives as itself, with C#'s own `CallSite` frames below.

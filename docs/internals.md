@@ -40,6 +40,3 @@ conversions), `Seam.fs` (the reflection fallback and the binders), `SiteCaches.f
 (site emission), `TranslatePatterns.fs` (markers, patterns, `normalize`), `SiteHoister.fs`,
 `TranslateBlock.fs` (`Block`, `Captures`, `Plumbing`), `TranslateMembers.fs` (the marker
 operations), `Translate.fs` (`translate`), `Discover.fs`, `Cache.fs`, `Builder.fsi`/`Builder.fs`.
-
-The names these pages put in backticks — types, members, files — are checked against the sources by
-`docs/check-identifiers.fsx`, part of the gate: a rename the docs did not follow fails it.

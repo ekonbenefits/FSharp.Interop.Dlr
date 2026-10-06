@@ -14,7 +14,7 @@ let ``a stack trace names the block by its file and line`` () =
         raise (AnyUnit.IgnoreException "the expression interpreter has no frame per block")
     let w = box (Widget())
     let line, ex = __LINE__, (try (dlr { return w?NoSuchMember() } : int) |> ignore; null with e -> e)
-    ex.StackTrace |> should haveSubstring (sprintf "dlr@Errors.fs:%s(" line)
+    ex.StackTrace |> should haveSubstring (sprintf "dlr__Errors_fs@%s(" line)
 
 [<Fact>]
 let ``a block's nested parts are named after it, numbered when repeated`` () =
@@ -30,8 +30,8 @@ let ``a block's nested parts are named after it, numbered when repeated`` () =
             null
         with e -> e
     // The second loop's body, inside the block: both frames carry the block's file and line.
-    ex.StackTrace |> should haveSubstring (sprintf "dlr@Errors.fs:%d-for-2(" line)
-    ex.StackTrace |> should haveSubstring (sprintf "dlr@Errors.fs:%d(" line)
+    ex.StackTrace |> should haveSubstring (sprintf "dlr__Errors_fs@%d-for-2(" line)
+    ex.StackTrace |> should haveSubstring (sprintf "dlr__Errors_fs@%d(" line)
 
 [<Fact>]
 let ``a while loop and a try inside it are named by kind`` () =
@@ -49,8 +49,8 @@ let ``a while loop and a try inside it are named by kind`` () =
             null
         with e -> e
     // The loop's body is -while (its condition, a lambda of its own, is -whileGuard).
-    ex.StackTrace |> should haveSubstring (sprintf "dlr@Errors.fs:%d-try(" line)
-    ex.StackTrace |> should haveSubstring (sprintf "dlr@Errors.fs:%d-while(" line)
+    ex.StackTrace |> should haveSubstring (sprintf "dlr__Errors_fs@%d-try(" line)
+    ex.StackTrace |> should haveSubstring (sprintf "dlr__Errors_fs@%d-while(" line)
 
 [<Fact>]
 let ``a loop inside a loop is numbered in source order`` () =
@@ -66,7 +66,7 @@ let ``a loop inside a loop is numbered in source order`` () =
             null
         with e -> e
     // Innermost first: the inner loop (-for-2), then the outer (-for), then the block.
-    let at (frame: string) = ex.StackTrace.IndexOf(sprintf "dlr@Errors.fs:%d%s(" line frame)
+    let at (frame: string) = ex.StackTrace.IndexOf(sprintf "dlr__Errors_fs@%d%s(" line frame)
     at "-for-2" |> should be (greaterThanOrEqualTo 0)
     (at "-for-2" < at "-for" && at "-for" < at "") |> should equal true
 
