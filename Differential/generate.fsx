@@ -60,17 +60,24 @@ let reaches =
       { Name = "setter"; Direct = false; NeedsMutable = true
         Defs = (fun k -> [ sprintf "let s%d () = x <- x + 100; x" k ]); Read = fun k -> sprintf "s%d ()" k } ]
 
-/// Where the block sits: the member's last expression, or a once-called local function's.
+/// Where the block sits, and where in it the reads are: the member's last expression, a
+/// once-called local function's, a lambda's applied on the spot; the reads in a loop or a `try`
+/// in the block (nested delegates).
 let placements =
-    [ "top", (fun (block: string) -> [ block ])
-      "local-fun", (fun block -> [ "let run () : string ="; "    " + block; "run ()" ]) ]
+    let plain (echo: string) = [ sprintf "dlr { return %s }" echo ]
+    [ "top", plain
+      "local-fun", (fun echo -> [ "let run () : string =" ] @ indent (plain echo) @ [ "run ()" ])
+      "applied-lambda", (fun echo -> [ "(fun () ->" ] @ indent [ sprintf "(dlr { return %s } : string)) ()" echo ])
+      "block-loop", (fun echo ->
+          [ "dlr {"; "    let mutable r = \"\""; "    for i in [ 1 ] do"; sprintf "        r <- %s" echo; "    return r }" ])
+      "block-try", (fun echo ->
+          [ "dlr {"; "    try"; sprintf "        return %s" echo; "    with _ -> return \"caught\" }" ]) ]
 
 let fits (b: Binding) (r: Reach) = not r.NeedsMutable || b.IsMutable
 
 type Case = { Id: string; Lines: string list; Params: string }
 
-let block (reads: string list) =
-    sprintf "dlr { return o?Echo(%s) }" (String.Join(", ", reads))
+let echo (reads: string list) = sprintf "o?Echo(%s)" (String.Join(", ", reads))
 
 let make id (outer: (Binding * Reach) option) (inner: Binding * Reach) distractor placement =
     let ib, ir = inner
@@ -80,7 +87,7 @@ let make id (outer: (Binding * Reach) option) (inner: Binding * Reach) distracto
     let place = placements |> List.find (fst >> (=) placement) |> snd
     let tail =
         [ if distractor then yield "let d = [ 1 ] |> List.map (fun x -> x + 1000) |> List.head" ]
-        @ place (block reads)
+        @ place (echo reads)
     let innerLines = ib.Wrap 2 (ir.Defs 2 @ tail)
     let lines =
         match outer with
