@@ -41,11 +41,16 @@ module DlrCache =
                 let builderType = builderType ()
                 let found = Discover.findBody builderType t file line
                 // The compiled block's name, which a stack trace prints for its frame: the block has
-                // no line numbers of its own, so this says which block it is. Identifier-like, as
-                // F#'s own closure names are (`run@7`): no spaces or braces of its own for a trace parser to trip on.
-                // The file name cut at either separator: the path is recorded where the caller was
-                // built, so a Windows path can reach a Linux run, where GetFileName keeps it whole.
-                let name = if String.IsNullOrEmpty file then "dlr@" + t.Name else sprintf "dlr@%s:%d" (file.Substring(file.LastIndexOfAny [| '/'; '\\' |] + 1)) line
+                // no line numbers of its own, so this says which block it is. F#'s closure-name shape,
+                // `name@line` (`run@7`), with the file in the name part since the block has no debug
+                // info to supply it: `dlr__Program_fs@7`. Letters, digits and `_` only before the `@`:
+                // a trace parser splits a frame at its last `.`, and a `:` or space trips others.
+                // The file is cut at either separator: the path is recorded where the caller was built,
+                // so a Windows path can reach a Linux run, where GetFileName keeps it whole.
+                let identifier (s: string) = String(s |> Seq.map (fun c -> if Char.IsLetterOrDigit c then c else '_') |> Array.ofSeq)
+                let name =
+                    if String.IsNullOrEmpty file then "dlr__" + identifier t.Name
+                    else sprintf "dlr__%s@%d" (identifier (file.Substring(file.LastIndexOfAny [| '/'; '\\' |] + 1))) line
                 Translate.translate name builderType found.Context found.MemberBody t resultType found.Body)
 
 /// One compiled-machine cache entry, immutable, so a reference to it is atomic to read and to
