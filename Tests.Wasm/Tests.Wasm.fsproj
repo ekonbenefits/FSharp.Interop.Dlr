@@ -79,6 +79,7 @@
     <ProjectReference Include="..\FSharp.Interop.Dlr\FSharp.Interop.Dlr.fsproj" />
     <ProjectReference Include="..\Tests\CSharp\Tests.CSharp.csproj" />
     <ProjectReference Include="..\Tests\CSharp.Ivt\Tests.CSharp.Ivt.csproj" />
+    <ProjectReference Include="..\Tests\FSharpLib\Tests.FSharpLib.fsproj" />
   </ItemGroup>
 
   <ItemGroup>
