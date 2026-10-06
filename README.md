@@ -83,9 +83,14 @@ either, the answer is usually a static call.
 
 ## Installing
 
-Every push to `master` publishes `FSharp.Interop.Dlr` and `FSharp.Interop.Dlr.Analyzers` to the
-ekonbenefits GitHub Packages feed, versioned by MinVer (`1.0.0-alpha.0.<height>` until a `v1.0.0`
-tag). GitHub Packages needs a token even to read (a PAT with `read:packages`):
+```
+dotnet add package FSharp.Interop.Dlr
+dotnet add package FSharp.Interop.Dlr.Analyzers   # optional: build-time checks
+```
+
+Releases are on nuget.org. Every push to `master` also publishes a prerelease
+(`<next>-alpha.0.<height>`) to the ekonbenefits GitHub Packages feed, which needs a token even to
+read (a PAT with `read:packages`):
 
 ```
 dotnet nuget add source https://nuget.pkg.github.com/ekonbenefits/index.json \
