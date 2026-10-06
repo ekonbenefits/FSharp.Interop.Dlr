@@ -167,6 +167,27 @@ converter's `Sequential`/`PropertySet` support). Hoisting takes a member call fr
 ([pipeline](pipeline.md)), whose by-reference reader is wrapped around the hoisted lambda after
 this pass, so the site locals sit inside the copy of the machine.
 
+For `let call (o: obj) (x: int) : int = dlr { return o?Add(x, 1) }`, the hoisted tree reads
+roughly as:
+
+```csharp
+// sm: the block's state machine, passed by value
+sm =>
+{
+    // Constant: the Convert-to-int site, created when the block was translated
+    var toInt = <constant CallSite<Func<CallSite, object, int>>>;
+
+    // Constant: the InvokeMember "Add" site
+    var add = <constant CallSite<Func<CallSite, object, int, int, object>>>;
+
+    return toInt.Target.Invoke(toInt, add.Target.Invoke(add, sm.o, sm.x, 1));
+}
+```
+
+This is an approximate rendering (AgileObjects.ReadableExpressions, from a spike), with the site
+names added and each constant labelled: the renderer prints only a constant's type. It may drift
+from what the code builds today.
+
 The alternative, a holder type with static fields per block (the C# compiler's shape,
 marginally faster), was built and rejected: a non-collectible holder cannot reference argument types from a
 collectible `AssemblyLoadContext` (a regression for plugin hosts), and holders leaked after
