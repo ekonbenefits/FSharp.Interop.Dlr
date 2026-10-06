@@ -77,6 +77,11 @@ let named (o: obj) (x: int) : int = dlr { return o?Add(Dlr.named {| b = 1; a = x
 let namedOf (o: obj) (kwargs: (string * obj) list) : int = dlr { return o?Add(Dlr.namedOf kwargs) }
 // end
 
+// example: argsOf
+[<ReflectedDefinition>]
+let argsOf (o: obj) (args: obj list) : int = dlr { return o?Add(Dlr.argsOf args) }
+// end
+
 // example: constructor
 [<ReflectedDefinition>]
 let make () : obj = dlr { return Dlr.new'<Widget>() }
@@ -124,6 +129,7 @@ let all : (string * (unit -> unit)) list =
       "operator", (fun () -> plus (box 1) (box 2) |> ignore)
       "named", (fun () -> named w 41 |> ignore)
       "namedOf", (fun () -> namedOf w [ "a", box 40; "b", box 2 ] |> ignore)
+      "argsOf", (fun () -> argsOf w [ box 40; box 2 ] |> ignore)
       "constructor", (fun () -> make () |> ignore)
       "static", (fun () -> twice (box 21) |> ignore)
       "indexer", (fun () -> item (box (Dictionary<string, int>(dict [ "k", 7 ]))) |> ignore)

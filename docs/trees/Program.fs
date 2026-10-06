@@ -80,6 +80,44 @@ let private flatten (tree: Expression) =
             Expression.Block(node.Type, variables, kept) :> Expression }
         .Visit tree
 
+/// For display only: the other object constants the tree holds (a block's `SiteCache`, its
+/// `NamedOfCache`, a type-argument list) become variables declared at the top, as the sites are,
+/// so the renderer shows them as constants with a comment rather than as a type name that reads
+/// like a static call. Returns the tree and each variable's comment.
+let private hoistConstants (tree: LambdaExpression) =
+    let declared = Collections.Generic.Dictionary<obj, ParameterExpression>(HashIdentity.Reference)
+    let comments = Collections.Generic.Dictionary<string, string>()
+    let describeConstant (value: obj) =
+        match value with
+        | :? SiteCache<Tuple<string, list<Type>>> | :? SiteCache<string> | :? SiteCache<list<Type>> ->
+            Some("siteCache", "This block's call sites per key (member name, type arguments): a new key creates sites, compiling nothing")
+        | :? NamedOfCache -> Some("namedOfCache", "This call, compiled once per argument shape (the names, an empty one per positional value): a new shape compiles it")
+        | :? list<Type> as ts -> Some("typeArguments", if ts.IsEmpty then "The explicit type arguments: none" else "The explicit type arguments")
+        | v when not (isNull v) && v.GetType().Name.StartsWith "SiteCache" -> Some("siteCache", "This block's call sites per key: a new key creates sites, compiling nothing")
+        | _ -> None
+    let body =
+        { new ExpressionVisitor() with
+            override _.VisitConstant(node) =
+                match node.Value with
+                | null -> node :> Expression
+                | value ->
+                    match declared.TryGetValue value with
+                    | true, var -> var :> Expression
+                    | _ ->
+                        match describeConstant value with
+                        | Some(name, comment) ->
+                            let var = Expression.Variable(node.Type, name)
+                            declared.[value] <- var
+                            comments.[name] <- comment
+                            var :> Expression
+                        | None -> node :> Expression }
+            .Visit tree.Body
+    let assigns = [ for KeyValue(value, var) in declared -> Expression.Assign(var, Expression.Constant(value, var.Type)) :> Expression ]
+    let tree =
+        if declared.Count = 0 then tree
+        else Expression.Lambda(tree.Type, Expression.Block(body.Type, declared.Values, assigns @ [ body ]), tree.Parameters)
+    tree, comments
+
 /// Each hoisted site's local, by name, with what the site does: from the `var = constant` assignments.
 let private sitesIn (tree: Expression) =
     let found = Collections.Generic.Dictionary<string, string>()
@@ -95,7 +133,7 @@ let private sitesIn (tree: Expression) =
 
 /// The renderer prints a constant as its type: say it is one, and what the site does.
 let private labelConstants (sites: Collections.Generic.Dictionary<string, string>) (tree: string) =
-    Regex.Replace(tree, @"^(\s*)var (\w+) = (CallSite<.*>);$", (fun (m: Match) ->
+    Regex.Replace(tree, @"^(\s*)var (\w+) = ((?:CallSite|SiteCache|NamedOfCache|FSharpList)(?:<.*>)?);$", (fun (m: Match) ->
         let indent, name = m.Groups.[1].Value, m.Groups.[2].Value
         let comment = match sites.TryGetValue name with | true, d -> indent + "// " + d + "\n" | _ -> ""
         sprintf "%s%svar %s = <constant %s>;" comment indent name m.Groups.[3].Value), RegexOptions.Multiline)
@@ -112,7 +150,11 @@ let main args =
     let mutable current = ""
     typeof<DlrRun>.Assembly.GetType("FSharp.Interop.Dlr.Translate+TreeHook")
         .GetProperty("Sink", BindingFlags.NonPublic ||| BindingFlags.Public ||| BindingFlags.Static)
-        .SetValue(null, Action<Type, LambdaExpression>(fun _ tree -> trees.[current] <- labelConstants (sitesIn tree) ((flatten tree).ToReadableString())))
+        .SetValue(null, Action<Type, LambdaExpression>(fun _ tree ->
+            let tree, others = hoistConstants tree
+            let comments = sitesIn tree
+            for KeyValue(name, comment) in others do comments.[name] <- comment
+            trees.[current] <- labelConstants comments ((flatten tree).ToReadableString())))
     for name, run in Examples.all do
         current <- name
         run ()

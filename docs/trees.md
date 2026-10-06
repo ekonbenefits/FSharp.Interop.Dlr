@@ -147,7 +147,11 @@ let computed (o: obj) (name: string) : obj = dlr { return (?) o name }
 ```csharp
 sm =>
 {
-    var sites = SiteCache<Tuple<string, FSharpList<Type>>>.Get(new Tuple<string, FSharpList<Type>>(sm.name, FSharpList<Type>));
+    // This block's call sites per key (member name, type arguments): a new key creates sites, compiling nothing
+    var siteCache = <constant SiteCache<Tuple<string, FSharpList<Type>>>>;
+    // The explicit type arguments: none
+    var typeArguments = <constant FSharpList<Type>>;
+    var sites = siteCache.Get(new Tuple<string, FSharpList<Type>>(sm.name, typeArguments));
 
     return Func<CallSite<Func<CallSite, object, object>>, object, object>.Invoke((CallSite<Func<CallSite, object, object>>)SiteCache<Tuple<string, FSharpList<Type>>>.At(sites, 0), sm.o);
 }
@@ -320,21 +324,56 @@ let namedOf (o: obj) (kwargs: (string * obj) list) : int = dlr { return o?Add(Dl
 ```csharp
 sm =>
 {
+    // This call, compiled once per argument shape (the names, an empty one per positional value): a new shape compiles it
+    var namedOfCache = <constant NamedOfCache>;
     // Convert to Int32 (implicit): C#'s binder
     var convertInt32 = <constant CallSite<Func<CallSite, object, int>>>;
 
     return convertInt32.Target.Invoke(
         convertInt32,
         {
-            var positional = FSharpList<object>;
+            var positional = <constant FSharpList<object>>;
             var pairs = sm.kwargs;
-            var d = (Func<object, object[], object>)NamedOfCache.Get(positional, pairs);
+            var d = (Func<object, object[], object>)namedOfCache.Get(positional, pairs);
 
             return d.Invoke(sm.o, NamedOfCache.Values(positional, pairs));
         });
 }
 ```
 <!-- /tree:namedOf -->
+
+## Positional arguments from data
+
+`Dlr.argsOf` is Python's `*args`. It shares `Dlr.namedOf`'s cache: the shape is the argument
+names, an empty one per positional value, so here the count. The values go in packed as an
+`obj[]`.
+
+<!-- tree:argsOf -->
+```fsharp
+[<ReflectedDefinition>]
+let argsOf (o: obj) (args: obj list) : int = dlr { return o?Add(Dlr.argsOf args) }
+```
+
+```csharp
+sm =>
+{
+    // This call, compiled once per argument shape (the names, an empty one per positional value): a new shape compiles it
+    var namedOfCache = <constant NamedOfCache>;
+    // Convert to Int32 (implicit): C#'s binder
+    var convertInt32 = <constant CallSite<Func<CallSite, object, int>>>;
+
+    return convertInt32.Target.Invoke(
+        convertInt32,
+        {
+            var positional = sm.args;
+            var pairs = <constant FSharpList<Tuple<string, object>>>;
+            var d = (Func<object, object[], object>)namedOfCache.Get(positional, pairs);
+
+            return d.Invoke(sm.o, NamedOfCache.Values(positional, pairs));
+        });
+}
+```
+<!-- /tree:argsOf -->
 
 ## A constructor
 
