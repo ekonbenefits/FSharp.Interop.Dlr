@@ -35,6 +35,36 @@ module internal SiteHoisting =
         | :? System.Dynamic.UnaryOperationBinder as u -> lowerFirst (string u.Operation)
         | b -> lowerFirst (clean (b.GetType().Name.Replace("CSharp", "").Replace("FSharp", "").Replace("Binder", "")))
 
+    /// Each lambda nested in `tree` named for its stack frame by `nameFor kind`: the kind is the
+    /// `DlrRuntime` helper the lambda is handed to (`for`, `while` and its `whileGuard`, `try`,
+    /// `with`, `finally`, `use`), else `fun`. The tree's own name is kept.
+    let nameNested (nameFor: string -> string) (tree: LambdaExpression) : LambdaExpression =
+        let kinds =
+            dict [ "forEach", [ "for" ]; "forRange", [ "for" ]; "whileLoop", [ "whileGuard"; "while" ]
+                   "tryWith", [ "try"; "with" ]; "tryFinally", [ "try"; "finally" ]; "using", [ "use" ] ]
+        let visitor =
+            { new ExpressionVisitor() with
+                // Each lambda is named before its body is visited, so numbers follow source order:
+                // an outer loop is `-for`, the loop inside it `-for-2`.
+                override this.VisitLambda<'T>(node: Expression<'T>) : Expression =
+                    let name = nameFor "fun"
+                    Expression.Lambda(node.Type, this.Visit node.Body, name, node.Parameters) :> Expression
+                override this.VisitMethodCall(node) =
+                    match node.Method.DeclaringType, kinds.TryGetValue node.Method.Name with
+                    | t, (true, names) when not (isNull t) && t.FullName = "FSharp.Interop.Dlr.DlrRuntime" ->
+                        let mutable next = names
+                        let args =
+                            [ for a in node.Arguments ->
+                                match a with
+                                | :? LambdaExpression as l when not next.IsEmpty ->
+                                    let name = nameFor (List.head next)
+                                    next <- List.tail next
+                                    Expression.Lambda(l.Type, this.Visit l.Body, name, l.Parameters) :> Expression
+                                | a -> this.Visit a ]
+                        node.Update(this.Visit node.Object, args) :> Expression
+                    | _ -> base.VisitMethodCall node }
+        Expression.Lambda(tree.Type, visitor.Visit tree.Body, tree.Name, tree.Parameters)
+
     /// `operationName`, made a valid identifier, and unique among the names already in `taken`.
     let private siteName (binder: CallSiteBinder) (taken: string seq) =
         let name =

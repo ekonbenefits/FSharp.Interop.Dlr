@@ -321,7 +321,7 @@ module internal Binders =
                             let raw = invoke 0 (List.last captured :: args)
                             if discard then FunctionBuilder.unitOf raw else invoke 1 [ raw ]
                         let body = FunctionBuilder.build (if tupled then Some (List.head ds) else None) argTypes (if discard then typeof<unit> else resultType) captured finish
-                        Expression.Lambda(factoryType, body, siteParams @ [ targetParam ]).Compile())
+                        Expression.Lambda(factoryType, body, "dlr-functionFactory", siteParams @ [ targetParam ]).Compile())
                 Expr.Call(Expr.Value(factory, factoryType), factoryType.GetMethod("Invoke"),
                           [ for v, _ in sites -> Expr.Value(v, typeof<CallSite>) ] @ [ target.Expr ])
             elif discard then

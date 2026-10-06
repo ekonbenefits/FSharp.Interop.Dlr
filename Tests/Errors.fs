@@ -6,6 +6,70 @@ open AnyUnit.Style.Xunit
 open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
 
+[<Fact>]
+let ``a stack trace names the block by its file and line`` () =
+    // The compiled body has no line numbers; its frame's name says which block it is. Browser-wasm
+    // interprets the tree, with frames of the interpreter's own.
+    if string Runtime.InteropServices.RuntimeInformation.OSArchitecture = "Wasm" then
+        raise (AnyUnit.IgnoreException "the expression interpreter has no frame per block")
+    let w = box (Widget())
+    let line, ex = __LINE__, (try (dlr { return w?NoSuchMember() } : int) |> ignore; null with e -> e)
+    ex.StackTrace |> should haveSubstring (sprintf "dlr@Errors.fs:%s(" line)
+
+[<Fact>]
+let ``a block's nested parts are named after it, numbered when repeated`` () =
+    if string Runtime.InteropServices.RuntimeInformation.OSArchitecture = "Wasm" then
+        raise (AnyUnit.IgnoreException "the expression interpreter has no frame per block")
+    let w = box (Widget())
+    let line = int __LINE__ + 3
+    let ex =
+        try
+            dlr {
+                for _ in [ 1 ] do ()
+                for _ in [ 1 ] do w?NoSuchMember() }
+            null
+        with e -> e
+    // The second loop's body, inside the block: both frames carry the block's file and line.
+    ex.StackTrace |> should haveSubstring (sprintf "dlr@Errors.fs:%d-for-2(" line)
+    ex.StackTrace |> should haveSubstring (sprintf "dlr@Errors.fs:%d(" line)
+
+[<Fact>]
+let ``a while loop and a try inside it are named by kind`` () =
+    if string Runtime.InteropServices.RuntimeInformation.OSArchitecture = "Wasm" then
+        raise (AnyUnit.IgnoreException "the expression interpreter has no frame per block")
+    let w = box (Widget())
+    let line = int __LINE__ + 4
+    let ex =
+        try
+            let mutable go = true
+            dlr {
+                while go do
+                    go <- false
+                    try w?NoSuchMember() finally () }
+            null
+        with e -> e
+    // The loop's body is -while (its condition, a lambda of its own, is -whileGuard).
+    ex.StackTrace |> should haveSubstring (sprintf "dlr@Errors.fs:%d-try(" line)
+    ex.StackTrace |> should haveSubstring (sprintf "dlr@Errors.fs:%d-while(" line)
+
+[<Fact>]
+let ``a loop inside a loop is numbered in source order`` () =
+    if string Runtime.InteropServices.RuntimeInformation.OSArchitecture = "Wasm" then
+        raise (AnyUnit.IgnoreException "the expression interpreter has no frame per block")
+    let w = box (Widget())
+    let line = int __LINE__ + 3
+    let ex =
+        try
+            dlr {
+                for _ in [ 1 ] do
+                    for _ in [ 1 ] do w?NoSuchMember() }
+            null
+        with e -> e
+    // Innermost first: the inner loop (-for-2), then the outer (-for), then the block.
+    let at (frame: string) = ex.StackTrace.IndexOf(sprintf "dlr@Errors.fs:%d%s(" line frame)
+    at "-for-2" |> should be (greaterThanOrEqualTo 0)
+    (at "-for-2" < at "-for" && at "-for" < at "") |> should equal true
+
 // This test calls every marker outside a block on purpose; the analyzer would report each one.
 // fsharpanalyzer: ignore-region-start DLR002
 [<Fact>]
