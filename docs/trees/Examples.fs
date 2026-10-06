@@ -52,6 +52,11 @@ let asFunction (o: obj) : int -> int -> int = dlr { return o?Add }
 let outArg (d: obj) : bool * int = dlr { return d?TryGetValue("k", Dlr.out) }
 // end
 
+// example: outStruct
+[<ReflectedDefinition>]
+let outStruct (d: obj) : struct (bool * int) = dlr { return d?TryGetValue("k", Dlr.out) }
+// end
+
 // example: set
 [<ReflectedDefinition>]
 let set (o: obj) (name: string) = dlr { o?Name <- name }
@@ -124,6 +129,7 @@ let all : (string * (unit -> unit)) list =
       "computed", (fun () -> computed w "Count" |> ignore)
       "asFunction", (fun () -> asFunction w 40 2 |> ignore)
       "outArg", (fun () -> outArg (box (Dictionary<string, int>(dict [ "k", 7 ]))) |> ignore)
+      "outStruct", (fun () -> outStruct (box (Dictionary<string, int>(dict [ "k", 7 ]))) |> ignore)
       "set", (fun () -> set w "renamed")
       "discarded", (fun () -> touch w)
       "operator", (fun () -> plus (box 1) (box 2) |> ignore)

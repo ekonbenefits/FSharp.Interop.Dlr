@@ -217,6 +217,41 @@ sm =>
 ```
 <!-- /tree:outArg -->
 
+## An out argument into a struct tuple
+
+The same call read into a struct tuple, `let struct (found, v) = …`: the result is built as a
+`ValueTuple`, so no tuple is allocated.
+
+<!-- tree:outStruct -->
+```fsharp
+[<ReflectedDefinition>]
+let outStruct (d: obj) : struct (bool * int) = dlr { return d?TryGetValue("k", Dlr.out) }
+```
+
+```csharp
+sm =>
+{
+    // InvokeMember TryGetValue, 2 arguments: C#'s binder
+    var invokeTryGetValue = <constant CallSite<Delegate5$1>>;
+    // Convert to Boolean (implicit): C#'s binder
+    var convertBoolean = <constant CallSite<Func<CallSite, object, bool>>>;
+    var byRefResults =
+    {
+        var byRef = default(int);
+        var result = ((CallSite<Delegate5$1>)invokeTryGetValue).Target.Invoke(
+            (CallSite)invokeTryGetValue,
+            sm.d,
+            "k",
+            ref byRef);
+
+        return ((object)result, byRef);
+    };
+
+    return (convertBoolean.Target.Invoke(convertBoolean, byRefResults.Item1), byRefResults.Item2);
+}
+```
+<!-- /tree:outStruct -->
+
 ## A property set
 
 One `SetMember` site; a `unit` block returns `null`.
