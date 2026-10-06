@@ -42,7 +42,7 @@ module DlrCache =
                 let found = Discover.findBody builderType t file line
                 // The compiled block's name, which a stack trace prints for its frame: the block has
                 // no line numbers of its own, so this says which block it is. Identifier-like, as
-                // F#'s own closure names are (`run@7`): no spaces or braces for a trace parser to trip on.
+                // F#'s own closure names are (`run@7`): no spaces or braces of its own for a trace parser to trip on.
                 // The file name cut at either separator: the path is recorded where the caller was
                 // built, so a Windows path can reach a Linux run, where GetFileName keeps it whole.
                 let name = if String.IsNullOrEmpty file then "dlr@" + t.Name else sprintf "dlr@%s:%d" (file.Substring(file.LastIndexOfAny [| '/'; '\\' |] + 1)) line

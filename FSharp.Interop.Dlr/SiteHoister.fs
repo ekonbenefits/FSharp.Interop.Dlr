@@ -36,11 +36,11 @@ module internal SiteHoisting =
         | b -> lowerFirst (clean (b.GetType().Name.Replace("CSharp", "").Replace("FSharp", "").Replace("Binder", "")))
 
     /// Each lambda nested in `tree` named for its stack frame by `nameFor kind`: the kind is the
-    /// `DlrRuntime` helper the lambda is handed to (`for`, `while`, `try`, `with`, `finally`,
-    /// `use`), else `fun`. The tree's own name is kept.
+    /// `DlrRuntime` helper the lambda is handed to (`for`, `while` and its `whileGuard`, `try`,
+    /// `with`, `finally`, `use`), else `fun`. The tree's own name is kept.
     let nameNested (nameFor: string -> string) (tree: LambdaExpression) : LambdaExpression =
         let kinds =
-            dict [ "forEach", [ "for" ]; "forRange", [ "for" ]; "whileLoop", [ "while"; "while" ]
+            dict [ "forEach", [ "for" ]; "forRange", [ "for" ]; "whileLoop", [ "whileGuard"; "while" ]
                    "tryWith", [ "try"; "with" ]; "tryFinally", [ "try"; "finally" ]; "using", [ "use" ] ]
         let visitor =
             { new ExpressionVisitor() with
@@ -50,8 +50,8 @@ module internal SiteHoisting =
                     let name = nameFor "fun"
                     Expression.Lambda(node.Type, this.Visit node.Body, name, node.Parameters) :> Expression
                 override this.VisitMethodCall(node) =
-                    match node.Method.DeclaringType.FullName, kinds.TryGetValue node.Method.Name with
-                    | "FSharp.Interop.Dlr.DlrRuntime", (true, names) ->
+                    match node.Method.DeclaringType, kinds.TryGetValue node.Method.Name with
+                    | t, (true, names) when not (isNull t) && t.FullName = "FSharp.Interop.Dlr.DlrRuntime" ->
                         let mutable next = names
                         let args =
                             [ for a in node.Arguments ->

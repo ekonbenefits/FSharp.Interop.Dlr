@@ -178,7 +178,8 @@ type (#156).
 
 - **Stack traces**: the compiled body has no line numbers, so its frame is named after the block,
   `dlr@Program.fs:7`, in the style of F#'s own closure names, and its nested lambdas after their
-  kind, numbered in source order (`dlr@Program.fs:7-for`, `-for-2`, `-try`, `-fun`). The JIT may
+  kind, numbered in source order (`dlr@Program.fs:7-for`, `-for-2`, `-try`, `-fun`; a `while` loop's condition is `-whileGuard`,
+  its body `-while`). The JIT may
   drop a frame whose last action is a call (a tail call), so not every one shows; the frame of the
   function holding the block, with the block's line, always does. An exception inside a block
   arrives as itself, with C#'s own `CallSite` frames below.

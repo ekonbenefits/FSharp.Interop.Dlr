@@ -34,6 +34,25 @@ let ``a block's nested parts are named after it, numbered when repeated`` () =
     ex.StackTrace |> should haveSubstring (sprintf "dlr@Errors.fs:%d(" line)
 
 [<Fact>]
+let ``a while loop and a try inside it are named by kind`` () =
+    if string Runtime.InteropServices.RuntimeInformation.OSArchitecture = "Wasm" then
+        raise (AnyUnit.IgnoreException "the expression interpreter has no frame per block")
+    let w = box (Widget())
+    let line = int __LINE__ + 4
+    let ex =
+        try
+            let mutable go = true
+            dlr {
+                while go do
+                    go <- false
+                    try w?NoSuchMember() finally () }
+            null
+        with e -> e
+    // The loop's body is -while (its condition, a lambda of its own, is -whileGuard).
+    ex.StackTrace |> should haveSubstring (sprintf "dlr@Errors.fs:%d-try(" line)
+    ex.StackTrace |> should haveSubstring (sprintf "dlr@Errors.fs:%d-while(" line)
+
+[<Fact>]
 let ``a loop inside a loop is numbered in source order`` () =
     if string Runtime.InteropServices.RuntimeInformation.OSArchitecture = "Wasm" then
         raise (AnyUnit.IgnoreException "the expression interpreter has no frame per block")
