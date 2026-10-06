@@ -133,11 +133,13 @@ handed to a nested `Invoke` site that decides by the value's runtime type.
 Reading a member *as* a function (`FunctionMember.CurriedN`/`TupledN`) constructs an F# closure,
 so it has per-arity helpers up to five, like `OptimizedClosures`.
 
-A method read as a delegate type is that function converted (`FunctionConversions`): curried up
-to five parameters, where `InvokeFast` takes them in one call, and tupled past five, one step
-over the tuple instead of a step per argument. Per read, the invoker, its adapter and the
-delegate (`Tests/HotPath.fs` pins the bytes); per call, the adapter's hop on top of the
-function's.
+A method read as a delegate type does not go through an F# function: `MemberInvokers` (generated
+with the adapters, `generate-adapters.fsx`) has an invoker per shape, holding the sites and the
+target, whose `Invoke` has the delegate's exact signature, and `FunctionConversions.over` binds
+the delegate straight to it, by the delegate type's own constructor (so an `internal` delegate
+type works). Per read, the invoker and the delegate (`Tests/HotPath.fs` pins the bytes); per
+call, one delegate hop to the site call. Past fourteen parameters the site is wide, and the
+read is the member read as a tupled function, converted.
 
 Past five, `FunctionBuilder` compiles a factory once per (function type, site type), so a
 computed name's per-key sites reuse it. The factory is a LINQ lambda taking the sites and the

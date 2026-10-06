@@ -370,19 +370,33 @@ type ParameterlessLiteral<'D, 'R when 'D :> Delegate> [<ExcludeFromCodeCoverage>
 module FunctionConversions =
     let private conversions = System.Collections.Concurrent.ConcurrentDictionary<struct (Type * Type), Func<obj, Delegate> option>(TypePairComparer.Instance)
 
-    /// `fun f -> new Adapter(f) |> delegate ctor over Invoke`, as IL when the runtime allows it.
-    let private emitFactory (delegateType: Type) (adapter: Type) : Func<obj, Delegate> =
+    /// `fun x -> delegate ctor over Invoke` of `adapter` (a `FunctionAdapters` or `MemberInvokers`
+    /// type): the instance `x` itself or, with `wrap`, `new adapter(x)`; as IL when the runtime
+    /// allows it.
+    let private emitBinding (delegateType: Type) (adapter: Type) (wrap: bool) : Func<obj, Delegate> =
         let ctor = adapter.GetConstructors().[0]
         let invoke = adapter.GetMethod("Invoke")
         Emit.factory<Func<obj, Delegate>> "make" typeof<Delegate> [| typeof<obj> |] adapter.Module
             (fun il ->
                 il.Emit(System.Reflection.Emit.OpCodes.Ldarg_0)
-                il.Emit(System.Reflection.Emit.OpCodes.Castclass, ctor.GetParameters().[0].ParameterType)
-                il.Emit(System.Reflection.Emit.OpCodes.Newobj, ctor)
+                if wrap then
+                    il.Emit(System.Reflection.Emit.OpCodes.Castclass, ctor.GetParameters().[0].ParameterType)
+                    il.Emit(System.Reflection.Emit.OpCodes.Newobj, ctor)
+                else il.Emit(System.Reflection.Emit.OpCodes.Castclass, adapter)
                 il.Emit(System.Reflection.Emit.OpCodes.Ldftn, invoke)
                 il.Emit(System.Reflection.Emit.OpCodes.Newobj, DelegateMembers.constructorOf delegateType)
                 il.Emit(System.Reflection.Emit.OpCodes.Ret))
-            (fun () -> Func<obj, Delegate>(fun f -> Delegate.CreateDelegate(delegateType, ctor.Invoke [| f |], invoke)))
+            (fun () -> Func<obj, Delegate>(fun x -> Delegate.CreateDelegate(delegateType, (if wrap then ctor.Invoke [| x |] else x), invoke)))
+
+    /// `fun f -> new Adapter(f) |> delegate ctor over Invoke`.
+    let private emitFactory (delegateType: Type) (adapter: Type) : Func<obj, Delegate> = emitBinding delegateType adapter true
+
+    let private bindings = System.Collections.Concurrent.ConcurrentDictionary<struct (Type * Type), Func<obj, Delegate>>(TypePairComparer.Instance)
+
+    /// The factory binding `delegateType` to an instance of `instanceType` (a `MemberInvokers`
+    /// type, whose `Invoke` has the delegate's signature), once per pair.
+    let over (instanceType: Type) (delegateType: Type) : Func<obj, Delegate> =
+        bindings.GetOrAdd(struct (instanceType, delegateType), fun _ -> emitBinding delegateType instanceType false)
 
     /// The factory for `delegateType` from a function value of `funcType`, or None when the shapes
     /// do not fit (`Signatures.functionServesDelegate`).
