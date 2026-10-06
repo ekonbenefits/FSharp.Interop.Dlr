@@ -23,3 +23,16 @@ let ``the library is fully strong-name signed, not delay-signed`` () =
     let header = reader.PEHeaders.CorHeader
     header.Flags.HasFlag Reflection.PortableExecutable.CorFlags.StrongNameSigned |> should equal true
     header.StrongNameSignatureDirectory.Size |> should be (greaterThan 0)
+
+[<Fact>]
+let ``the entry points every block compiles to carry RequiresUnreferencedCode and RequiresDynamicCode`` () : unit =
+    // So a NativeAOT publish, or a trimmed one with ILLinkWarningLevel 5, names the user's dlr { }
+    // line; the netstandard2.0 build (net48) has no such attributes to carry.
+#if NETFRAMEWORK
+    raise (AnyUnit.IgnoreException "the netstandard2.0 build carries no trimming attributes")
+#else
+    for name in [ "Machine"; "Closure" ] do
+        let m = typeof<DlrRun>.GetMethod name
+        m.IsDefined(typeof<Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute>, false) |> should equal true
+        m.IsDefined(typeof<Diagnostics.CodeAnalysis.RequiresDynamicCodeAttribute>, false) |> should equal true
+#endif

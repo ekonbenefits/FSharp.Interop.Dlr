@@ -174,6 +174,13 @@ type internal Sites<'T> [<ExcludeFromCodeCoverage>] private () =
                 last <- entry
                 entry.Func
 
+/// Why a trimmed or NativeAOT publish breaks every block: the reason the Requires* attributes on
+/// `DlrRun` give at the user's `dlr { }` line.
+module internal Unsupported =
+    [<Literal>]
+    let JitOnly =
+        "dlr { } needs the JIT and untrimmed metadata: it reads the block's [<ReflectedDefinition>] quotation, binds through the C# runtime binder and compiles LINQ expressions at run time. Trimming and NativeAOT are not supported."
+
 /// <summary>The entry points the inlined <c>Run</c> compiles to. Not for direct use.</summary>
 /// <remarks>Not part of the supported API: public only because compiled blocks call it, and it may change in any release.</remarks>
 [<Sealed; AbstractClass>]
@@ -181,10 +188,16 @@ type internal Sites<'T> [<ExcludeFromCodeCoverage>] private () =
 type DlrRun =
 
     /// <summary>The state machine path: <typeparamref name="SM"/> is the block's struct, a JIT constant here.</summary>
+#if NET
+    [<RequiresUnreferencedCode(Unsupported.JitOnly); RequiresDynamicCode(Unsupported.JitOnly)>]
+#endif
     static member Machine<'SM, 'T>(builder: obj, sm: byref<'SM>, file: string, line: int) : 'T =
         Machines<'SM, 'T>.Get(builder, file, line).Invoke(&sm)
 
     /// <summary>The fallback path (no statically compiled state machine, e.g. Debug): the block's Delay closure is read back out of the resumable-code delegate.</summary>
+#if NET
+    [<RequiresUnreferencedCode(Unsupported.JitOnly); RequiresDynamicCode(Unsupported.JitOnly)>]
+#endif
     static member Closure<'T>(builder: obj, code: ResumableCode<DlrData<'T>, 'T>, file: string, line: int) : 'T =
         let target = code.Target
         if isNull target then

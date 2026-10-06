@@ -65,7 +65,10 @@ Not C# restrictions, but the same family:
 
 - **No NativeAOT, no trimming.** The runtime binder, `LambdaExpression.Compile()`, and the
   reflection that finds bodies and the captured variables' fields all need a JIT. The assembly is
-  marked `IsAotCompatible=false` / `IsTrimmable=false`. Interpreted (non-AOT) browser-wasm works,
+  marked `IsAotCompatible=false` / `IsTrimmable=false`, and a NativeAOT publish warns at each
+  block's line (IL3050, IL2026). A trimmed F# publish shows its warnings only with
+  `<ILLinkWarningLevel>5</ILLinkWarningLevel>`: the SDK sets the level from an analysis setting
+  only C# and VB projects get. Interpreted (non-AOT) browser-wasm works,
   and CI runs it, just not at JIT speed.
 
 ## Five places it goes beyond C#
