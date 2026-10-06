@@ -72,8 +72,8 @@ Captured variables become reads of the container's fields by name. A `let mutabl
   optimizer keeps is a compiler error, as in `task { }`.
 
 When the Release optimizer inlined a value instead of capturing it, its definition is taken from
-the enclosing member's reflected body: a `let`, the single application of a once-called local
-function, or a lambda applied on the spot. A block in an `inline` function is beyond recovery in
+the enclosing member's reflected body: a `let` (a `let rec`'s whole group), the single application
+of a once-called local function, or a lambda applied on the spot. A block in an `inline` function is beyond recovery in
 Release (it is expanded into each caller), and the analyzer's `DLR004` refuses it.
 
 Fields go by name, so a name two variables the block reaches share (an `x` shadowed, one read

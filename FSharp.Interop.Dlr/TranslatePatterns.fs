@@ -330,10 +330,12 @@ module internal TranslatePatterns =
         List.ofSeq bindings, bound, target', keys', args'
 
     /// The definition of a let-bound variable somewhere in `e` (quotation Vars are identity-based,
-    /// so shadowing is not a concern).
+    /// so shadowing is not a concern). A `let rec` one is its whole group, `let rec … in v`: its
+    /// own references stay bound to it rather than recovered again (#198).
     let rec letDefinition (v: Var) (e: Expr) : Expr option =
         match e with
         | Let(v', def, _) when v' = v -> Some def
+        | LetRecursive(bindings, _) when bindings |> List.exists (fun (v', _) -> v' = v) -> Some(Expr.LetRecursive(bindings, Expr.Var v))
         | ShapeVar _ -> None
         | ShapeLambda(_, body) -> letDefinition v body
         | ShapeCombination(_, args) -> args |> List.tryPick (letDefinition v)

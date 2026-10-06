@@ -641,13 +641,16 @@ let private freeLocals (e: FSharpExpr) : FSharpMemberOrFunctionOrValue list =
     go e
     [ for KeyValue(k, v) in read do if not (bound.Contains k) then v ]
 
-/// The definitions of the member's local `let`s and `let rec`s, by `localKey`.
+/// The definitions of the member's local `let`s and `let rec`s, by `localKey`, each with its
+/// `let rec` group (empty for a `let`).
 let private localDefinitions (body: FSharpExpr) =
-    let defs = System.Collections.Generic.Dictionary<string * int * int, FSharpExpr>()
+    let defs = System.Collections.Generic.Dictionary<string * int * int, FSharpExpr * Set<string * int * int>>()
     let rec go (e: FSharpExpr) =
         match e with
-        | FSharpExprPatterns.Let((v, def, _), _) -> defs.[localKey v] <- def
-        | FSharpExprPatterns.LetRec(bindings, _) -> for (v, def, _) in bindings do defs.[localKey v] <- def
+        | FSharpExprPatterns.Let((v, def, _), _) -> defs.[localKey v] <- (def, Set.empty)
+        | FSharpExprPatterns.LetRec(bindings, _) ->
+            let group = bindings |> List.map (fun (v, _, _) -> localKey v) |> Set.ofList
+            for (v, def, _) in bindings do defs.[localKey v] <- (def, group)
         | _ -> ()
         for x in e.ImmediateSubExpressions do go x
     go body
@@ -673,12 +676,14 @@ let private shadowedIn (body: FSharpExpr) (block: FSharpExpr) : (string * string
     let rec visit (via: string option) (v: FSharpMemberOrFunctionOrValue) =
         let key = localKey v
         if seen.Add key then
-            let def = match defs.TryGetValue key with | true, d -> Some d | _ -> None
+            let def, group = match defs.TryGetValue key with | true, (d, g) -> Some d, g | _ -> None, Set.empty
             let alias = not v.IsMutable && not (ownKeys.Contains key) && (def |> Option.exists isAlias)
             if not alias then counted.Add((v, via))
             match def with
             | Some d when not v.IsMutable && (isAlias d || isFunction d) ->
-                for inner in freeLocals d do visit (via |> Option.orElse (Some v.DisplayName)) inner
+                // A `let rec` group is one definition: its members' references to each other stay inside it.
+                for inner in freeLocals d do
+                    if not (group.Contains(localKey inner)) then visit (via |> Option.orElse (Some v.DisplayName)) inner
             | _ -> ()
     for v in own do visit None v
     counted
