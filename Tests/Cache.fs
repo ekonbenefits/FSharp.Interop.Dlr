@@ -102,6 +102,27 @@ let private shadowedWrite (o: obj) : int =
     let mutable x = 100
     dlr { set (); return o?Add(x, 0) }
 
+/// Both shadowed `x`s are real values, so the machine holds both, as `x` and `x0`: which is which
+/// is the compiler's to say.
+let private shadowedBothCaptured (o: obj) : int =
+    let x = Ticks.Next()
+    let f () = x
+    let x = Ticks.Next() * 100
+    dlr { return o?Add(f (), x) }
+
+/// `x` is also an unrelated lambda's parameter: nothing the block reaches shares the name.
+let private nameOfAnUnrelatedLambda (o: obj) : int =
+    let x = Ticks.Next()
+    let f () = x
+    let ys = [ 1 ] |> List.map (fun x -> x + 1)
+    dlr { return o?Add(f (), ys.Length) }
+
+let private mutableNameOfAnUnrelatedLambda (o: obj) : int =
+    let mutable n = 5
+    let get () = n
+    let ys = [ 1 ] |> List.map (fun n -> n + 1)
+    dlr { return o?Add(get (), ys.Length) }
+
 [<Fact>]
 let ``a shadowed name reached through an inlined local function reads its own value`` () =
     let w = box (Widget())
@@ -114,7 +135,24 @@ let ``a write to a shadowed mutable through a local function never lands in the 
     // Release inlines `set` and must refuse the ambiguous write; Debug calls it and is right.
     match (try Ok(shadowedWrite (box (Widget()))) with :? DlrTranslationException as e -> Error e.Message) with
     | Ok n -> n |> should equal 100
-    | Error message -> message |> should haveSubstring "shares its name"
+    | Error message -> message |> should haveSubstring "rename one"
+
+[<Fact>]
+let ``two real values of one name, one through an inlined local function, are refused rather than guessed`` () =
+    // Release inlines `f`; Debug captures it and is right.
+    Ticks.Reset()
+    match (try Ok(shadowedBothCaptured (box (Widget()))) with :? DlrTranslationException as e -> Error e.Message) with
+    | Ok n -> n |> should equal 201
+    | Error message -> message |> should haveSubstring "reaches two variables named 'x'"
+
+[<Fact>]
+let ``a name an unrelated lambda also uses is still read from its field`` () =
+    let w = box (Widget())
+    Ticks.Reset()
+    nameOfAnUnrelatedLambda w |> should equal 2
+    Ticks.Reset()
+    nameOfAnUnrelatedLambda w |> should equal 2
+    mutableNameOfAnUnrelatedLambda w |> should equal 6
 
 [<Fact>]
 let ``clear then a call recompiles`` () =

@@ -109,6 +109,13 @@ type InternalClicker() =
     [<CLIEvent>]
     member internal _.Changed = changed.Publish
     member _.Raise(n: int) = changed.Trigger(null, n)
+/// Numbers each call, so a definition run again shows (#196).
+type Ticks() =
+    static let mutable n = 0
+    [<System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)>]
+    static member Next() = n <- n + 1; n
+    static member Reset() = n <- 0
+
 /// A DynamicObject with a Count, for the polymorphic-site tests (Recorder logs; this one is quiet).
 type Counter(n: int) =
     inherit DynamicObject()

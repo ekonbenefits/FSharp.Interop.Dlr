@@ -36,22 +36,19 @@ module internal Translate =
     /// the body's free variables are read from at call time.
     let translate (name: string) (builderType: Type) (context: Type) (memberBody: Expr) (closureType: Type) (resultType: Type) (body: Expr) : Compiled =
         let closure = if closureType.IsValueType then Var("sm", closureType) else Var("closure", typeof<obj>)
+        let fields = Captures.fields closureType
+        let reached, aliases = Captures.reached fields memberBody body
         let block =
             { BuilderType = builderType
               Context = context
               MemberBody = memberBody
               ClosureType = closureType
               Closure = closure
-              Fields = Captures.fields closureType
-              Own = Map.ofSeq [ for v in body.GetFreeVars() -> v.Name, v ]
-              Shared =
-                  let rec vars (e: Expr) =
-                      seq {
-                          match e with
-                          | ExprShape.ShapeVar v -> yield v
-                          | ExprShape.ShapeLambda(v, b) -> yield v; yield! vars b
-                          | ExprShape.ShapeCombination(_, es) -> for x in es do yield! vars x }
-                  vars memberBody |> Seq.distinct |> Seq.countBy (fun v -> v.Name) |> Seq.filter (fun (_, n) -> n > 1) |> Seq.map fst |> Set.ofSeq
+              Fields = fields
+              Substituted = aliases
+              Ambiguous =
+                  reached
+                  |> List.countBy (fun v -> v.Name) |> List.filter (fun (_, n) -> n > 1) |> List.map fst |> Set.ofList
               Name = name
               Names = Collections.Generic.Dictionary() }
 

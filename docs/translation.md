@@ -76,6 +76,10 @@ the enclosing member's reflected body: a `let`, the single application of a once
 function, or a lambda applied on the spot. A block in an `inline` function is beyond recovery in
 Release (it is expanded into each caller), and the analyzer's `DLR004` refuses it.
 
+Fields go by name, so a name two variables the block reaches share (an `x` shadowed, one read
+through a local function the optimizer inlined) is refused in Release: the compiler numbers such
+fields (`x`, `x0`) in an order of its own. Rename one.
+
 ### Control flow
 
 The expression converter has no node for `for`, `while`, `try` or `use`. They are emitted as
