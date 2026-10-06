@@ -268,6 +268,7 @@ module internal Seam =
 /// through `LanguagePrimitives`) instead of C#'s reference equality or "operator cannot be
 /// applied". Types C# handles itself — primitives, enums, strings, delegates, and any type that
 /// declares the operator — keep C#'s binding, as do all non-comparison operators.
+/// Not part of the supported API: public only because compiled blocks call it, and it may change in any release.
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type FSharpBinaryOperationBinder(csharp: BinaryOperationBinder) =
     inherit BinaryOperationBinder(csharp.Operation)
@@ -380,6 +381,7 @@ module internal MetaObjectArguments =
 /// The standard binders seal `Bind`, so the rule sits one level out: this binder answers a
 /// meta-object target with an F# function argument by the nested-site rule, and hands every
 /// other bind to the real binder, which the meta-object then sees as usual.
+/// Not part of the supported API: public only because compiled blocks call it, and it may change in any release.
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type MetaObjectAwareBinder(inner: DynamicMetaObjectBinder) =
     inherit DynamicMetaObjectBinder()
@@ -390,6 +392,7 @@ type MetaObjectAwareBinder(inner: DynamicMetaObjectBinder) =
 
 /// C#'s Invoke binder, aware of F# function targets (`Dlr.call` on a function value, and the
 /// value step of a member invocation).
+/// Not part of the supported API: public only because compiled blocks call it, and it may change in any release.
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type FSharpInvokeBinder(csharp: InvokeBinder) =
     inherit InvokeBinder(csharp.CallInfo)
@@ -414,6 +417,7 @@ type FSharpInvokeBinder(csharp: InvokeBinder) =
 /// for a delegate parameter converts, as in a call without byrefs) — as C#'s error suggestion.
 /// It goes first only where C# would crash: on .NET Framework, invoking an F# `internal` delegate
 /// (its `Expression.Invoke` looks `Invoke` up public-only; `DelegateMembers.csharpCannotInvoke`).
+/// Not part of the supported API: public only because compiled blocks call it, and it may change in any release.
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type FSharpByRefInvokeBinder(csharp: InvokeBinder, discard: bool, flags: CSharpArgumentInfoFlags[]) =
     inherit InvokeBinder(csharp.CallInfo)
@@ -474,6 +478,7 @@ type FSharpByRefInvokeBinder(csharp: InvokeBinder, discard: bool, flags: CSharpA
 /// it holds an `FSharpFunc` rather than a delegate, the rule applies the function instead. The
 /// decision is a binding rule restricted to the runtime type, so a site that sees several kinds of
 /// target keeps one cached rule per kind, as the DLR intends: no exceptions, no per-site state.
+/// Not part of the supported API: public only because compiled blocks call it, and it may change in any release.
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type FSharpInvokeMemberBinder(context: Type, name: string, csharp: InvokeMemberBinder, csharpInvoke: InvokeBinder) =
     inherit InvokeMemberBinder(name, false, csharp.CallInfo)
@@ -529,6 +534,7 @@ type FSharpInvokeMemberBinder(context: Type, name: string, csharp: InvokeMemberB
 /// C#'s InvokeMember binder for a static target (`Dlr.Static<T>.Overloads?M(…)`): C# binds, and
 /// our rule for F# optional parameters and function/delegate arguments on the static methods of
 /// `T` is its error suggestion — the same rules an instance call gets.
+/// Not part of the supported API: public only because compiled blocks call it, and it may change in any release.
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type FSharpStaticInvokeMemberBinder(context: Type, name: string, csharp: InvokeMemberBinder) =
     inherit InvokeMemberBinder(name, false, csharp.CallInfo)
@@ -547,6 +553,7 @@ type FSharpStaticInvokeMemberBinder(context: Type, name: string, csharp: InvokeM
 /// C#'s InvokeConstructor binder (`Dlr.new'<T>`) with our rule for F# optional parameters and
 /// function/delegate arguments. C#'s constructor binder takes no error suggestion — its failure
 /// is a rule that throws — so ours applies when C#'s bind is that throw, and only then.
+/// Not part of the supported API: public only because compiled blocks call it, and it may change in any release.
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type FSharpInvokeConstructorBinder(context: Type, t: Type, csharp: DynamicMetaObjectBinder) =
     inherit DynamicMetaObjectBinder()
@@ -572,6 +579,7 @@ type FSharpInvokeConstructorBinder(context: Type, t: Type, csharp: DynamicMetaOb
 /// signature (`w?onClick <- fun () -> …` on a script object, through MetaObjectAwareBinder); on a
 /// CLR target, our conversion of the value to the slot's type (an F# function to a delegate-typed
 /// property or field, a delegate to a function-typed one) as C#'s error suggestion (#153).
+/// Not part of the supported API: public only because compiled blocks call it, and it may change in any release.
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type FSharpSetMemberBinder(context: Type, name: string, csharp: SetMemberBinder) =
     inherit SetMemberBinder(name, false)
@@ -587,6 +595,7 @@ type FSharpSetMemberBinder(context: Type, name: string, csharp: SetMemberBinder)
 /// C#'s SetIndex, with the same conversion of the value as C#'s error suggestion: an F# function
 /// into a delegate-typed indexer slot or array element (a `Dictionary<string, Func<…>>`), a
 /// delegate into a function-typed one (#153).
+/// Not part of the supported API: public only because compiled blocks call it, and it may change in any release.
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type FSharpSetIndexBinder(context: Type, csharp: SetIndexBinder) =
     inherit SetIndexBinder(csharp.CallInfo)
@@ -600,6 +609,7 @@ type FSharpSetIndexBinder(context: Type, csharp: SetIndexBinder) =
 
 /// The value of a member read as `unit -> R`: an F# function is applied, a delegate invoked, any
 /// other value is the result itself.
+/// Not part of the supported API: public only because compiled blocks call it, and it may change in any release.
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type FSharpReadOrInvokeValueBinder(csharpInvoke: InvokeBinder) =
     inherit InvokeBinder(csharpInvoke.CallInfo)
@@ -618,6 +628,7 @@ type FSharpReadOrInvokeValueBinder(csharpInvoke: InvokeBinder) =
 /// A member read as `unit -> R`: a parameterless method is invoked; a property or field is read,
 /// then applied or invoked if it holds a function or delegate (decided by declared type when it
 /// says so, by runtime type through a nested site otherwise), else its value is the result.
+/// Not part of the supported API: public only because compiled blocks call it, and it may change in any release.
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type FSharpReadOrInvokeBinder(context: Type, name: string, csharp: InvokeMemberBinder, csharpInvoke: InvokeBinder) =
     inherit InvokeMemberBinder(name, false, csharp.CallInfo)

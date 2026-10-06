@@ -15,6 +15,7 @@ open FSharp.Quotations
 /// parameters — so a new key costs the binders and sites (~µs, a few hundred bytes), not a
 /// `LambdaExpression.Compile()`, and a repeated key costs one dictionary lookup. Bounded: at
 /// `Capacity` entries the cache is cleared and refills, a miss being cheap.
+/// Not part of the supported API: public only because compiled blocks call it, and it may change in any release.
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type SiteCache<'Key when 'Key: equality>(template: 'Key -> Expr) =
     let entries = System.Collections.Concurrent.ConcurrentDictionary<'Key, CallSite[]>()
@@ -68,6 +69,7 @@ type SiteCache<'Key when 'Key: equality>(template: 'Key -> Expr) =
     static member At(sites: CallSite[], i: int) : CallSite = sites.[i]
 
 /// One compiled `NamedOfCache` shape: its names (an empty name per positional), their hash, the delegate.
+/// Not part of the supported API: public only because compiled blocks call it, and it may change in any release.
 [<AllowNullLiteral; System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type NamedOfEntry(names: string[], hash: int, d: Delegate) =
     member _.Names = names
@@ -80,6 +82,7 @@ type NamedOfEntry(names: string[], hash: int, d: Delegate) =
 /// whole delegate is per key, not only its sites; bounded like `SiteCache`. The delegate takes
 /// the target, the fixed arguments and the splatted values as one `obj[]` (positional, then
 /// named).
+/// Not part of the supported API: public only because compiled blocks call it, and it may change in any release.
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type NamedOfCache(compile: string list -> Delegate) =
     /// The entries by the hash of their names, an immutable snapshot replaced whole under the

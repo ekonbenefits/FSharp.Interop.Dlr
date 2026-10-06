@@ -182,6 +182,7 @@ module internal FunctionShapes =
 /// accumulator) put each step on the runtime's slow shared-generic path, three times the cost. A
 /// class of its own rather than `FuncConvert`, whose wrappers lose their argument on Mono's
 /// interpreter (wasm).
+/// Not part of the supported API: public only because compiled blocks call it, and it may change in any release.
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type CurriedStep<'Prev, 'Own, 'A, 'R>(prev: 'Prev, own: 'Own, next: Func<CurriedStep<'Prev, 'Own, 'A, 'R>, 'A, 'R>) =
     inherit FSharpFunc<'A, 'R>()
@@ -290,6 +291,7 @@ module internal DelegateConversions =
             maker
 
 
+/// Not part of the supported API: public only because compiled blocks call it, and it may change in any release.
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 module DelegateFunction =
     /// The F# function of `funcType` over `d` — always a typed wrapper: the binder offers the
@@ -311,6 +313,7 @@ module DelegateFunction =
 /// delegate type (`dup; ldvirtftn Invoke; newobj`), or `Delegate.CreateDelegate` where dynamic code is not
 /// supported. The seam's past-sixteen-parameter conversion, a compiled lambda too, goes through
 /// it as well. Public: compiled blocks call `Over`.
+/// Not part of the supported API: public only because compiled blocks call it, and it may change in any release.
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type DelegateLiteral<'D when 'D :> Delegate> [<ExcludeFromCodeCoverage>] private () =
     static let factory : Func<'D, 'D> =
@@ -340,6 +343,7 @@ type DelegateLiteral<'D when 'D :> Delegate> [<ExcludeFromCodeCoverage>] private
 /// once per delegate type: `'D` calling the thunk, re-wrapped as `DelegateLiteral.Over` does, and
 /// on .NET Framework built at the public stand-in for an `internal` type. Public: compiled blocks
 /// call `Of`.
+/// Not part of the supported API: public only because compiled blocks call it, and it may change in any release.
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 type ParameterlessLiteral<'D, 'R when 'D :> Delegate> [<ExcludeFromCodeCoverage>] private () =
     static let factory : Func<FSharpFunc<unit, 'R>, 'D> =
@@ -361,6 +365,7 @@ type ParameterlessLiteral<'D, 'R when 'D :> Delegate> [<ExcludeFromCodeCoverage>
 /// per-call validation (~300 ns) or a LINQ closure (about the same). Where dynamic code is not
 /// supported, `CreateDelegate` it is. Past sixteen parameters (a custom delegate type), a
 /// compiled lambda applying the function. Public: compiled blocks call `Make`.
+/// Not part of the supported API: public only because compiled blocks call it, and it may change in any release.
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 module FunctionConversions =
     let private conversions = System.Collections.Concurrent.ConcurrentDictionary<struct (Type * Type), Func<obj, Delegate> option>(TypePairComparer.Instance)
@@ -431,6 +436,7 @@ module FunctionConversions =
 /// value is an F# function (curried, so partial application works) that invokes the member with
 /// the collected arguments when fully applied and converts the result; the site's binder handles
 /// methods, delegates and F# function values. Tupled variants for `A * B -> R`.
+/// Not part of the supported API: public only because compiled blocks call it, and it may change in any release.
 [<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
 [<AbstractClass; Sealed>]
 type FunctionMember =

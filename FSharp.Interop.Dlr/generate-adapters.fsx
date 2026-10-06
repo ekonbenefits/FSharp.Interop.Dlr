@@ -25,6 +25,7 @@ line "/// through `OptimizedClosures`, so `f a b` is one call. Up to five parame
 line "/// factory compiled once per pair (`FunctionBuilder`); no other shape is converted. The `Action`"
 line "/// wrappers take a result type parameter (instantiated to `unit`) because an `FSharpFunc<_, unit>`"
 line "/// must return the `Unit` object, which a method declared `: unit` (void) cannot."
+line "/// Not part of the supported API: public only because compiled blocks call it, and it may change in any release."
 line "[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]"
 line "module DelegateFunctions ="
 for n in 0 .. 5 do
@@ -63,6 +64,7 @@ line "/// Delegates over F# functions, for an F# function argument passed to a d
 line "/// one adapter per shape (curried/tupled × result/void, 0–16 parameters) whose `Invoke` method"
 line "/// has the delegate's exact signature; `FunctionConversions` emits a factory per (function type,"
 line "/// delegate type) over them."
+line "/// Not part of the supported API: public only because compiled blocks call it, and it may change in any release."
 line "[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]"
 line "module FunctionAdapters ="
 for n in 0 .. 16 do
