@@ -6,8 +6,6 @@
 [![Branch coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fekonbenefits%2FFSharp.Interop.Dlr%2Fbadges%2Fbranch.json)](https://ekonbenefits.github.io/FSharp.Interop.Dlr/coverage/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](License.txt)
 
-Experimental: not on NuGet yet, and the spelling of the API may still change.
-
 **C#'s `dynamic`, for F#.** Inside a `dlr { }` block, `x?Name`, `x?Name(a, b)` and `x?Name <- v`
 compile to what C# emits for `d.Name`, `d.Name(a, b)` and `d.Name = v` on a `dynamic`: one
 Microsoft.CSharp call site per operation, created once, dispatching on the target's runtime type.
