@@ -64,6 +64,12 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && matrix.configuration == 'Debug'
         run: FSharp.Interop.Dlr/check-internals.sh
 
+      # The compiled-tree examples in the docs match what the library builds today: Release, the
+      # state-machine path users ship (docs/trees refuses Debug).
+      - name: Docs compiled trees
+        if: matrix.os == 'ubuntu-latest' && matrix.configuration == 'Release'
+        run: dotnet run --configuration Release --project docs/trees --no-build -- check
+
       # The test project is an MTP executable (AnyUnit.TestingPlatform's
       # EnableAnyUnitRunner); each target framework's build is run
       # directly so each writes its own AnyUnit results file. The

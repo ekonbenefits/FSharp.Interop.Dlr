@@ -93,36 +93,66 @@ where no case matches throws the caught exception again through `DlrRuntime.reth
 trace kept (`Plumbing.rethrowing`). The builder's handlers have no `reraise ()`: the compiler's
 unmatched case there is already a rethrow.
 
-For `for i in items do try total <- total + o?Add(i, 1) with _ -> ()` over a `let mutable total`,
-the tree reads roughly as below: an approximate rendering (AgileObjects.ReadableExpressions, from a
-spike, with the site names added and each constant labelled), which may drift from what the code builds today.
+A loop with `try` over a `let mutable` compiles to ([all the examples](trees.md)):
+
+<!-- tree:loop -->
+```fsharp
+[<ReflectedDefinition>]
+let loop (o: obj) (items: int list) : int =
+    dlr {
+        let mutable total = 0
+        for i in items do
+            try total <- total + o?Add(i, 1)
+            with _ -> ()
+        return total
+    }
+```
 
 ```csharp
 sm =>
 {
-    // The block's let mutable, as a cell: the loop and try bodies are delegates
     var total = new FSharpRef<int>(0);
 
-    DlrRuntime.forEach(sm.items, i =>
-    {
-        DlrRuntime.tryWith(
-            () =>
+    DlrRuntime.forEach(
+        sm.items,
+        {
+            i =>
             {
-                // Constants, hoisted into the lambda that uses them: the Convert-to-int site
-                // and the InvokeMember "Add" site, created when the block was translated
-                var toInt = <constant CallSite<Func<CallSite, object, int>>>;
-                var add = <constant CallSite<Func<CallSite, object, int, int, object>>>;
+                DlrRuntime.tryWith(
+                    {
+                        () =>
+                        {
+                            var convertInt32 = <constant CallSite<Func<CallSite, object, int>>>;
+                            var invokeAdd = <constant CallSite<Func<CallSite, object, int, int, object>>>;
 
-                total.Value = total.Value + toInt.Target.Invoke(toInt, add.Target.Invoke(add, sm.o, i, 1));
+                            total.Value = total.Value + convertInt32.Target.Invoke(convertInt32, invokeAdd.Target.Invoke(
+                                invokeAdd,
+                                sm.o,
+                                i,
+                                1));
+
+                            return null;
+
+                            return null;
+                        }
+                    },
+                    {
+                        _arg2 =>
+                        {
+                            null;
+
+                            return null;
+                        }
+                    });
+
                 return null;
-            },
-            _ => null);
-        return null;
-    });
+            }
+        });
 
     return total.Value;
 }
 ```
+<!-- /tree:loop -->
 
 ### Mutables and structs
 

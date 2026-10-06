@@ -13,6 +13,34 @@ open System.Runtime.CompilerServices
 module internal SiteHoisting =
     open TranslatePatterns
 
+    /// A readable name for a hoisted site's local, after its operation (`getCount`, `invokeAdd`,
+    /// `convertInt32`, `add`): only a debugger or a rendering of the tree ever sees it.
+    let rec private operationName (binder: CallSiteBinder) : string =
+        let clean (s: string) = String(s |> Seq.filter Char.IsLetterOrDigit |> Array.ofSeq)
+        let lowerFirst (s: string) = if s = "" then s else string (Char.ToLowerInvariant s.[0]) + s.Substring 1
+        match binder with
+        | :? MetaObjectAwareBinder as m -> operationName m.Inner
+        | :? System.Dynamic.ConvertBinder as c -> "convert" + clean c.Type.Name
+        | :? System.Dynamic.GetMemberBinder as g -> "get" + clean g.Name
+        | :? System.Dynamic.SetMemberBinder as s -> "set" + clean s.Name
+        | :? System.Dynamic.InvokeMemberBinder as i -> "invoke" + clean i.Name
+        | :? System.Dynamic.InvokeBinder -> "invoke"
+        | :? System.Dynamic.GetIndexBinder -> "getIndex"
+        | :? System.Dynamic.SetIndexBinder -> "setIndex"
+        | :? System.Dynamic.BinaryOperationBinder as b -> lowerFirst (string b.Operation)
+        | :? System.Dynamic.UnaryOperationBinder as u -> lowerFirst (string u.Operation)
+        | b -> lowerFirst (clean (b.GetType().Name.Replace("CSharp", "").Replace("FSharp", "").Replace("Binder", "")))
+
+    /// `operationName`, made a valid identifier, and unique among the names already in `taken`.
+    let private siteName (binder: CallSiteBinder) (taken: string seq) =
+        let name =
+            match operationName binder with
+            | "" -> "site"
+            | n when Char.IsDigit n.[0] -> "site" + n
+            | n -> n
+        let taken = Set.ofSeq taken
+        Seq.initInfinite (fun i -> if i = 0 then name else name + string (i + 1)) |> Seq.find (taken.Contains >> not)
+
     /// The call sites of a compiled block hoisted into locals of the lambda that uses them.
     /// `LambdaExpression.Compile` keeps a reference-type constant in its closure's `Constants`
     /// array and re-reads and casts it at every use — two per site call (`site.Target` and the
@@ -56,7 +84,7 @@ module internal SiteHoisting =
                 match current.TryGetValue site with
                 | true, var -> var :> Expression
                 | _ ->
-                    let var = Expression.Variable(node.Type, "site")
+                    let var = Expression.Variable(node.Type, siteName site.Binder [ for v in current.Values -> v.Name ])
                     current.[site] <- var
                     var :> Expression
             | _ -> node :> Expression

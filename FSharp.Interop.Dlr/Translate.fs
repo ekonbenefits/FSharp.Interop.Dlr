@@ -23,6 +23,12 @@ module internal Translate =
     /// fallback path a `Func<obj, 'T>` over the Delay closure object.
     type Compiled = { Delegate: Delegate }
 
+    /// Receives each block's expression tree just before it is compiled, with the block's
+    /// container type. Null, and then free, unless set: `docs/trees` sets it by reflection to
+    /// generate the docs' examples.
+    type TreeHook private () =
+        static member val Sink : Action<Type, LambdaExpression> = null with get, set
+
     /// Compiles the reflected body of one `dlr { }` block. `closureType` is the block's
     /// compiler-generated container — its state machine struct, or in the fallback path the
     /// class of its `Delay` closure: its fields, named after the captured variables, are where
@@ -174,6 +180,9 @@ module internal Translate =
                 let lambda = Expr.NewDelegate(delegateType, [ closure ], rewritten)
                 let linq = LeafExpressionConverter.QuotationToExpression lambda :?> LambdaExpression
                 let hoisted = SiteHoister().Visit linq :?> LambdaExpression
+                match TreeHook.Sink with
+                | null -> ()
+                | sink -> sink.Invoke(closureType, hoisted)
                 if closureType.IsValueType then
                     // The machine comes by reference (a quotation variable cannot be byref):
                     // copy it into the by-value local the body was converted against. A byref
