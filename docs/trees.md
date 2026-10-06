@@ -13,7 +13,11 @@ How to read them:
   its fields.
 - Each `<constant CallSite<…>>` is a call site created once, when the block was translated, and
   hoisted into a local of the lambda that uses it. The local is named after its operation
-  (`getCount`, `invokeAdd`, `convertInt32`).
+  (`getCount`, `invokeAdd`, `convertInt32`); the comment above it, from the site's binder, says
+  what the site does and whose binder binds it.
+- F#'s `()` is a `null` typed `Unit`, so a `unit` result shows as `return null`. The translator
+  nests a block per `unit` statement and builder step; the display splices those into one, which
+  leaves the compiled tree unchanged.
 
 The examples use this type:
 
@@ -77,7 +81,7 @@ sm =>
 ## A loop with try, over a let mutable
 
 The loop and the `try` become `DlrRuntime` helpers over lambdas; the `let mutable` is a cell
-those lambdas can assign. The repeated `return null` lines are the F# body's `unit` results.
+those lambdas can assign.
 
 <!-- tree:loop -->
 ```fsharp
@@ -96,7 +100,6 @@ let loop (o: obj) (items: int list) : int =
 sm =>
 {
     var total = new FSharpRef<int>(0);
-
     DlrRuntime.forEach(
         sm.items,
         {
@@ -110,7 +113,6 @@ sm =>
                             var convertInt32 = <constant CallSite<Func<CallSite, object, int>>>;
                             // InvokeMember Add, 2 arguments: FSharpInvokeMemberBinder (C#'s, plus the F# rules), meta-object aware
                             var invokeAdd = <constant CallSite<Func<CallSite, object, int, int, object>>>;
-
                             total.Value = total.Value + convertInt32.Target.Invoke(convertInt32, invokeAdd.Target.Invoke(
                                 invokeAdd,
                                 sm.o,
@@ -118,18 +120,9 @@ sm =>
                                 1));
 
                             return null;
-
-                            return null;
                         }
                     },
-                    {
-                        _arg2 =>
-                        {
-                            null;
-
-                            return null;
-                        }
-                    });
+                    _arg2 => null);
 
                 return null;
             }
@@ -203,7 +196,6 @@ sm =>
     var invokeTryGetValue = <constant CallSite<Delegate5$1>>;
     // Convert to Boolean (implicit): C#'s binder
     var convertBoolean = <constant CallSite<Func<CallSite, object, bool>>>;
-
     var byRefResults =
     {
         var byRef = default(int);
@@ -223,7 +215,7 @@ sm =>
 
 ## A property set
 
-One `SetMember` site; a `unit` block returns `null` (the repeated `return null` lines are its `unit` results).
+One `SetMember` site; a `unit` block returns `null`.
 
 <!-- tree:set -->
 ```fsharp
@@ -236,12 +228,7 @@ sm =>
 {
     // SetMember Name: FSharpSetMemberBinder (C#'s, plus the F# rules), meta-object aware
     var setName = <constant CallSite<Func<CallSite, object, string, object>>>;
-
     setName.Target.Invoke(setName, sm.o, sm.name);
-
-    return null;
-
-    return null;
 
     return null;
 }
@@ -263,10 +250,7 @@ sm =>
 {
     // InvokeMember Touch: FSharpInvokeMemberBinder (C#'s, plus the F# rules), meta-object aware
     var invokeTouch = <constant CallSite<Action<CallSite, object>>>;
-
     invokeTouch.Target.Invoke(invokeTouch, sm.o);
-
-    return null;
 
     return null;
 }
@@ -343,9 +327,7 @@ sm =>
         convertInt32,
         {
             var positional = FSharpList<object>;
-
             var pairs = sm.kwargs;
-
             var d = (Func<object, object[], object>)NamedOfCache.Get(positional, pairs);
 
             return d.Invoke(sm.o, NamedOfCache.Values(positional, pairs));
@@ -485,7 +467,6 @@ sm =>
 {
     // InvokeMember Double, 1 argument: C#'s binder
     var invokeDouble = <constant CallSite<Delegate4$2>>;
-
     var byRefResults =
     {
         var byRef = sm.n.Value;
@@ -495,10 +476,6 @@ sm =>
     };
 
     sm.n.Value = byRefResults.Item2;
-
-    return null;
-
-    return null;
 
     return null;
 }

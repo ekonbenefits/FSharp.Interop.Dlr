@@ -58,6 +58,28 @@ let rec private describe (binder: CallSiteBinder) =
     | b when b.GetType().Namespace = "FSharp.Interop.Dlr" -> sprintf "%s: %s (C#'s, plus the F# rules)" operation (b.GetType().Name)
     | _ -> sprintf "%s: C#'s binder" operation
 
+/// For display only: a block nested in another is spliced into it (its variables with it), and
+/// the `()` values left mid-block are dropped. The translator nests a block per `unit` statement,
+/// builder step and body, each ending in `()`; the renderer would print every one of those as
+/// `return null`, though only the outermost is a result. The compiled tree is unchanged.
+let private flatten (tree: Expression) =
+    let isUnit (e: Expression) = match e with :? ConstantExpression as c -> c.Type = typeof<unit> | _ -> false
+    { new ExpressionVisitor() with
+        override this.VisitBlock(node) =
+            let node = base.VisitBlock node :?> BlockExpression
+            let last = node.Expressions.Count - 1
+            let variables = ResizeArray node.Variables
+            let spliced =
+                [ for i, e in Seq.indexed node.Expressions do
+                    match e with
+                    | :? BlockExpression as inner when i < last || inner.Type = node.Type ->
+                        variables.AddRange inner.Variables
+                        yield! inner.Expressions
+                    | e -> yield e ]
+            let kept = spliced |> List.indexed |> List.filter (fun (i, e) -> i = spliced.Length - 1 || not (isUnit e)) |> List.map snd
+            Expression.Block(node.Type, variables, kept) :> Expression }
+        .Visit tree
+
 /// Each hoisted site's local, by name, with what the site does: from the `var = constant` assignments.
 let private sitesIn (tree: Expression) =
     let found = Collections.Generic.Dictionary<string, string>()
@@ -90,7 +112,7 @@ let main args =
     let mutable current = ""
     typeof<DlrRun>.Assembly.GetType("FSharp.Interop.Dlr.Translate+TreeHook")
         .GetProperty("Sink", BindingFlags.NonPublic ||| BindingFlags.Public ||| BindingFlags.Static)
-        .SetValue(null, Action<Type, LambdaExpression>(fun _ tree -> trees.[current] <- labelConstants (sitesIn tree) (tree.ToReadableString())))
+        .SetValue(null, Action<Type, LambdaExpression>(fun _ tree -> trees.[current] <- labelConstants (sitesIn tree) ((flatten tree).ToReadableString())))
     for name, run in Examples.all do
         current <- name
         run ()

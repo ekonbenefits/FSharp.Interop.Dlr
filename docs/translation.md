@@ -112,7 +112,6 @@ let loop (o: obj) (items: int list) : int =
 sm =>
 {
     var total = new FSharpRef<int>(0);
-
     DlrRuntime.forEach(
         sm.items,
         {
@@ -126,7 +125,6 @@ sm =>
                             var convertInt32 = <constant CallSite<Func<CallSite, object, int>>>;
                             // InvokeMember Add, 2 arguments: FSharpInvokeMemberBinder (C#'s, plus the F# rules), meta-object aware
                             var invokeAdd = <constant CallSite<Func<CallSite, object, int, int, object>>>;
-
                             total.Value = total.Value + convertInt32.Target.Invoke(convertInt32, invokeAdd.Target.Invoke(
                                 invokeAdd,
                                 sm.o,
@@ -134,18 +132,9 @@ sm =>
                                 1));
 
                             return null;
-
-                            return null;
                         }
                     },
-                    {
-                        _arg2 =>
-                        {
-                            null;
-
-                            return null;
-                        }
-                    });
+                    _arg2 => null);
 
                 return null;
             }
