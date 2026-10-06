@@ -131,7 +131,7 @@ let private writeDocs (short: bool) =
                    [ "C# `dynamic`"; "`dlr { }`"; "FSharp.Interop.Dynamic" ]
                    [ "a lambda for a `Func` parameter (C#: a `Func` literal; dlr: an F# lambda in the block)", [ "CSharpRunFunc"; "FunctionToDelegate"; "^1" ]
                      "F# function member `w?Fn(1, 2)` (FSharp.Interop.Dynamic: `w?Fn 1 2`)", [ "^4"; "FunctionMember"; "DynamicFunctionMember" ]
-                     "optional parameter omitted `w?Bump(1)`", [ "^5"; "OptionalOmitted"; "^5" ]
+                     "F# optional parameter omitted `w?Bump(1)`", [ "^5"; "OptionalOmitted"; "^5" ]
                      "record `==` (structural only for `dlr`)", [ "CSharpEquals"; "StructuralEquals"; "DynamicEquals" ]
                      "constructor through the binder, `Dlr.new'<Widget>()`", [ "^6"; "Construct"; "^6" ]
                      "member name from a variable, alternating between two", [ "^7"; "ComputedName"; "DynamicComputedName" ]

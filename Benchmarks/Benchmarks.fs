@@ -267,7 +267,7 @@ type Core() =
     [<Benchmark(Description = "dlr F# function member call w?Fn(1, 2)")>]
     member _.FunctionMember() : int = dlr { return o?Fn(1, 2) }
 
-    [<Benchmark(Description = "dlr optional parameter omitted w?Bump(1)")>]
+    [<Benchmark(Description = "dlr F# optional parameter omitted w?Bump(1)")>]
     member _.OptionalOmitted() : int = dlr { return o?Bump(1) }
 
     [<Benchmark(Description = "dlr F# lambda for a Func parameter w?Run(fun x -> x)")>]

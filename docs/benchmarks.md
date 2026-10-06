@@ -51,7 +51,7 @@ Each column does what its language offers here, so the cells are not always like
 | --- | ---: | ---: | ---: |
 | a lambda for a `Func` parameter (C#: a `Func` literal; dlr: an F# lambda in the block) | 9.2 ns / 24 B | 313.3 ns / 200 B | —[^1] |
 | F# function member `w?Fn(1, 2)` (FSharp.Interop.Dynamic: `w?Fn 1 2`) | —[^4] | 18.2 ns / 48 B | 18,045 ns / 6553 B |
-| optional parameter omitted `w?Bump(1)` | —[^5] | 10.9 ns / 24 B | —[^5] |
+| F# optional parameter omitted `w?Bump(1)` | —[^5] | 10.9 ns / 24 B | —[^5] |
 | record `==` (structural only for `dlr`) | 14.8 ns / 72 B | 29.9 ns / 72 B | 359.5 ns / 504 B |
 | constructor through the binder, `Dlr.new'<Widget>()` | —[^6] | 9.5 ns / 32 B | —[^6] |
 | member name from a variable, alternating between two | —[^7] | 54.6 ns / 44 B | 2,178 ns / 772 B |
