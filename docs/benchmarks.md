@@ -31,7 +31,7 @@ Apple M1 Pro, 1 CPU, 10 logical and 10 physical cores
 | --- | ---: | ---: | ---: |
 | `a + b` on boxed ints | 7.7 ns / 24 B | 11.5 ns / 24 B | 6.9 ns / 24 B |
 | indexer `d["a"]` on a dictionary | 13.2 ns / 24 B | 17.7 ns / 24 B | 4,130 ns / 1992 B |
-| invoke a delegate value with 20 | 7.8 ns / 24 B | 11.9 ns / 24 B | 7,093 ns / 3440 B |
+| invoke a `Func<int, int>` held as `obj`, `f(20)` | 7.8 ns / 24 B | 11.9 ns / 24 B | 7,093 ns / 3440 B |
 | implicit conversion of a boxed int to int64 (FSharp.Interop.Dynamic: `Dyn.implicitConvert`[^3]) | 3.1 ns | 5.4 ns | 340.1 ns / 432 B |
 | static method chosen by an argument's runtime type | 7 ns / 24 B | 11.2 ns / 24 B | 7,156 ns / 3488 B |
 | named arguments `d.Add(b: 1, a: i)` | 7.5 ns / 24 B | 11.5 ns / 24 B | 7,617 ns / 3881 B |

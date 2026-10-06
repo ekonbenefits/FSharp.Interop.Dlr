@@ -120,7 +120,7 @@ let private writeDocs (short: bool) =
           yield! comparison r "Other operations" "" [ "C# `dynamic`"; "`dlr { }`"; "FSharp.Interop.Dynamic" ]
                    [ "`a + b` on boxed ints", [ "CSharpAdd"; "Add"; "DynamicAdd" ]
                      "indexer `d[\"a\"]` on a dictionary", [ "CSharpIndex"; "Index"; "DynamicIndex" ]
-                     "invoke a delegate value with 20", [ "CSharpInvokeDelegate"; "InvokeDelegate"; "DynamicInvokeDelegate" ]
+                     "invoke a `Func<int, int>` held as `obj`, `f(20)`", [ "CSharpInvokeDelegate"; "InvokeDelegate"; "DynamicInvokeDelegate" ]
                      "implicit conversion of a boxed int to int64 (FSharp.Interop.Dynamic: `Dyn.implicitConvert`[^3])", [ "CSharpConvert"; "Convert"; "DynamicConvert" ]
                      "static method chosen by an argument's runtime type", [ "CSharpStaticOverloads"; "StaticOverloads"; "DynamicStatic" ]
                      "named arguments `d.Add(b: 1, a: i)`", [ "CSharpNamedArgs"; "NamedArgs"; "DynamicNamedArgs" ]
