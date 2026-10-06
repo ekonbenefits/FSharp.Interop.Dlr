@@ -102,6 +102,18 @@ type Clicker() =
     [<CLIEvent>]
     member _.Clicked = clicked.Publish
     member _.Raise(n: int) = clicked.Trigger(n)
+/// Methods of many parameters, read as delegate types of each arity (#201): fourteen is the last
+/// with a typed invoker, past it the read is a function over a wide site.
+type Sums() =
+    member _.Sum5(a: int, b: int, c: int, d: int, e: int) = a + b + c + d + e
+    member _.Sum8(a: int, b: int, c: int, d: int, e: int, f: int, g: int, h: int) = a + b + c + d + e + f + g + h
+    member _.Sum14(a: int, b: int, c: int, d: int, e: int, f: int, g: int, h: int, i: int, j: int, k: int, l: int, m: int, n: int) =
+        a + b + c + d + e + f + g + h + i + j + k + l + m + n
+    member _.Sum16(a: int, b: int, c: int, d: int, e: int, f: int, g: int, h: int, i: int, j: int, k: int, l: int, m: int, n: int, o: int, p: int) =
+        a + b + c + d + e + f + g + h + i + j + k + l + m + n + o + p
+    member val Last = 0 with get, set
+    member this.Note14(a: int, b: int, c: int, d: int, e: int, f: int, g: int, h: int, i: int, j: int, k: int, l: int, m: int, n: int) =
+        this.Last <- a + b + c + d + e + f + g + h + i + j + k + l + m + n
 /// An internal delegate type a method is read as (#201): its Invoke and constructor are internal.
 type internal InternalPair = delegate of int * int -> int
 /// An event of an internal delegate type, whose Invoke and constructor F# compiles internal (#150).

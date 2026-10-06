@@ -128,6 +128,32 @@ let ``a method read as a delegate type: void, past five, an internal delegate, a
     (bind "Add").Invoke(5, 6) |> should equal 11
 
 [<Fact>]
+let ``reading a method as a delegate type has no arity limit`` () =
+    let sums = Sums()
+    let s: obj = sums
+    let five: Func<int, int, int, int, int, int> = dlr { return s?Sum5 }
+    five.Invoke(1, 2, 3, 4, 5) |> should equal 15
+    let sum6: Func<int, int, int, int, int, int, int> = dlr { return (box (Widget()))?Sum6 }          // a C# method of six parameters
+    sum6.Invoke(1, 2, 3, 4, 5, 6) |> should equal 21
+    let eight: Func<int, int, int, int, int, int, int, int, int64> = dlr { return s?Sum8 }            // the result converted
+    eight.Invoke(1, 2, 3, 4, 5, 6, 7, 8) |> should equal 36L
+    // Fourteen: the last typed invoker (the site's Func takes the CallSite and the target too).
+    let fourteen: Func<int, int, int, int, int, int, int, int, int, int, int, int, int, int, int> = dlr { return s?Sum14 }
+    fourteen.Invoke(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) |> should equal 105
+    let note14: Action<int, int, int, int, int, int, int, int, int, int, int, int, int, int> = dlr { return s?Note14 }
+    note14.Invoke(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+    sums.Last |> should equal 14
+    // Sixteen: the site is past Func's arity, so its delegate type is emitted at run time, which
+    // a quotation must not name (wasm): the read is the member read as a tupled function, converted.
+    let sixteen: Func<int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int> = dlr { return s?Sum16 }
+    sixteen.Invoke(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16) |> should equal 136
+    let sixUnit: Action<int, int, int, int, int, int> = dlr { return (box (Widget()))?Sum6 }           // an Action: a void site, the result dropped
+    sixUnit.Invoke(1, 2, 3, 4, 5, 6)
+    let name = "Sum8"
+    let keyed: Func<int, int, int, int, int, int, int, int, int> = dlr { return (?) s name }            // a computed name: a per-key site
+    keyed.Invoke(1, 1, 1, 1, 1, 1, 1, 1) |> should equal 8
+
+[<Fact>]
 let ``a member holding a delegate, read as a delegate type, is that delegate`` () =
     // Only a method falls back: a property, field or dynamic object's member is C#'s read, as before.
     let holders = Holders()
