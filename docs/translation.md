@@ -95,7 +95,7 @@ unmatched case there is already a rethrow.
 
 For `for i in items do try total <- total + o?Add(i, 1) with _ -> ()` over a `let mutable total`,
 the tree reads roughly as below: an approximate rendering (AgileObjects.ReadableExpressions, from a
-spike, the site locals `toInt` and `add` elided), which may drift from what the code builds today.
+spike, with the site names added and each constant labelled), which may drift from what the code builds today.
 
 ```csharp
 sm =>
@@ -108,7 +108,11 @@ sm =>
         DlrRuntime.tryWith(
             () =>
             {
-                // The member call through its two sites, as in call-sites.md
+                // Constants, hoisted into the lambda that uses them: the Convert-to-int site
+                // and the InvokeMember "Add" site, created when the block was translated
+                var toInt = <constant CallSite<Func<CallSite, object, int>>>;
+                var add = <constant CallSite<Func<CallSite, object, int, int, object>>>;
+
                 total.Value = total.Value + toInt.Target.Invoke(toInt, add.Target.Invoke(add, sm.o, i, 1));
                 return null;
             },
