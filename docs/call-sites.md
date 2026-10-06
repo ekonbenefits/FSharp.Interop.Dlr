@@ -171,18 +171,22 @@ For `let call (o: obj) (x: int) : int = dlr { return o?Add(x, 1) }`, the hoisted
 roughly as:
 
 ```csharp
-sm =>                                                             // the state machine, by value
+// sm: the block's state machine, passed by value
+sm =>
 {
-    var toInt = CallSite<Func<CallSite, object, int>>;               // Convert to the result type
-    var add   = CallSite<Func<CallSite, object, int, int, object>>;  // InvokeMember "Add"
+    // Constant: the Convert-to-int site, created when the block was translated
+    var toInt = <constant CallSite<Func<CallSite, object, int>>>;
+
+    // Constant: the InvokeMember "Add" site
+    var add = <constant CallSite<Func<CallSite, object, int, int, object>>>;
 
     return toInt.Target.Invoke(toInt, add.Target.Invoke(add, sm.o, sm.x, 1));
 }
 ```
 
 This is an approximate rendering (AgileObjects.ReadableExpressions, from a spike), with the site
-names added: each `var` is an assignment of the site object created at translation, and the
-rendering may drift from what the code builds today.
+names added and each constant labelled: the renderer prints only a constant's type. It may drift
+from what the code builds today.
 
 The alternative, a holder type with static fields per block (the C# compiler's shape,
 marginally faster), was built and rejected: a non-collectible holder cannot reference argument types from a
