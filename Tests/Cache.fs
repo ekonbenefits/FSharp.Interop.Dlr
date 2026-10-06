@@ -71,6 +71,26 @@ let ``values the optimizer inlines instead of capturing still resolve`` () =
     (fun (k: int) -> (dlr { return w?Add(k, 1) } : int)) 41 |> should equal 42
     (fun (a: int) (b: string) -> (dlr { return w?Greet(b, string a) } : string)) 7 "Hi" |> should equal "Hi, 7"
 
+/// A `let rec` local function the Release optimizer inlines into the block: recovered as its
+/// whole group (#198).
+let private recursiveLocal (o: obj) (seed: int) : int =
+    let x = seed
+    let rec f n = if n = 0 then x else f (n - 1)
+    let x = seed * 100
+    dlr { return o?Add(f 2, x) }
+
+let private mutuallyRecursiveLocals (o: obj) (seed: int) : int =
+    let k = seed + 1
+    let rec even n = if n = 0 then k else odd (n - 1)
+    and odd n = if n = 0 then -k else even (n - 1)
+    dlr { return o?Add(even 4, odd 3) }
+
+[<Fact>]
+let ``a recursive local function the optimizer inlines still resolves`` () =
+    let w = box (Widget())
+    recursiveLocal w 7 |> should equal 707
+    mutuallyRecursiveLocals w 7 |> should equal 16
+
 /// A shadowed name inside a local function the Release optimizer inlines: the machine captures
 /// only the later `x`, and the earlier one, reached through `f`'s recovered definition, read that
 /// field and returned 1400 (#196).
