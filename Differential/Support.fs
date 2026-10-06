@@ -10,6 +10,11 @@ type Ticks() =
     static member Next() = n <- n + 1; n
     static member Reset() = n <- 0
 
+/// A struct value: a captured one is read back as a copy.
+[<Struct>]
+type S(v: int) =
+    member _.V = v
+
 /// The block's target: it hands back what it was given.
 type Echo() =
     member _.Echo(a: int) = string a

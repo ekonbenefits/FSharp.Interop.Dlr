@@ -21,7 +21,10 @@ let main _ =
     let types = assembly.GetTypes()
     for m in types |> Array.filter (fun t -> t.FullName.StartsWith "Differential.Cases") |> Array.sortBy (fun t -> t.FullName) do
         for mi in m.GetMethods(BindingFlags.Public ||| BindingFlags.Static) |> Array.sortBy (fun mi -> mi.MetadataToken) do
-            let args : obj[] = if mi.GetParameters().Length = 4 then [| target; 7; 11; 5 |] else [| target; 7; 11 |]
+            let args : obj[] =
+                match mi.GetParameters() with
+                | [| _; _; _; p |] -> [| target; 7; 11; (if p.ParameterType = typeof<S> then box (S 5) else box 5) |]
+                | _ -> [| target; 7; 11 |]
             let run () =
                 Ticks.Reset()
                 outcome (fun () -> mi.Invoke(null, args))
