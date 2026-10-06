@@ -10,12 +10,19 @@ open System.Text.RegularExpressions
 open AgileObjects.ReadableExpressions
 open FSharp.Interop.Dlr
 
-let private root = Path.GetFullPath(Path.Combine(__SOURCE_DIRECTORY__, "..", ".."))
+/// The repository root: the nearest ancestor of the binary holding the solution file. Not
+/// __SOURCE_DIRECTORY__, which a CI build (ContinuousIntegrationBuild) maps to `/_/`.
+let private root =
+    let rec up (d: DirectoryInfo) =
+        if isNull d then failwith "repository root (FSharp.Interop.Dlr.slnx) not found above the binary"
+        elif File.Exists(Path.Combine(d.FullName, "FSharp.Interop.Dlr.slnx")) then d.FullName
+        else up d.Parent
+    up (DirectoryInfo AppContext.BaseDirectory)
 let private pages = [ "docs/trees.md"; "docs/call-sites.md"; "docs/translation.md" ]
 
 /// Each example's source: the lines between `// example: <name>` and `// end` in Examples.fs.
 let private sources =
-    let lines = File.ReadAllLines(Path.Combine(__SOURCE_DIRECTORY__, "Examples.fs"))
+    let lines = File.ReadAllLines(Path.Combine(root, "docs", "trees", "Examples.fs"))
     [ for i, line in Array.indexed lines do
         if line.StartsWith "// example: " then
             let body = lines |> Seq.skip (i + 1) |> Seq.takeWhile (fun l -> l <> "// end") |> String.concat "\n"
