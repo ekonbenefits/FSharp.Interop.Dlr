@@ -38,9 +38,18 @@ module internal TranslateBlock =
           /// How many nested lambdas of each kind (`for`, `try`, `fun`, …) have been named so far.
           Names: Collections.Generic.Dictionary<string, int>
           /// The free variables of the block's own body, by name: a container field of that name is
-          /// theirs. Another variable of the same name, reached through a recovered definition (a
-          /// shadowed `x` inside a local function the optimizer inlined), must not read it (#196).
-          Own: Map<string, Var> }
+          /// theirs (#196).
+          Own: Map<string, Var>
+          /// Names more than one variable of the enclosing member carries (a shadowed `x`).
+          Shared: Set<string> }
+        /// Whether `v` may use the container field of its name. The block's own variable of that
+        /// name may; any other may only when no other variable shares the name. Otherwise a
+        /// shadowed `x` reached through a local function the optimizer inlined would read another
+        /// `x`'s field, of the same name and type, without a word (#196).
+        member this.Owns (v: Var) =
+            match this.Own.TryFind v.Name with
+            | Some own -> own = v
+            | None -> not (this.Shared.Contains v.Name)
         /// The name for this block's next compiled part of `kind`, for its stack frame: F#'s
         /// closure style, `dlr@Program.fs:7-for`, then `-for-2`, `-for-3` in order.
         member this.NameFor (kind: string) =
@@ -168,8 +177,11 @@ module internal TranslateBlock =
         /// function, ...) instead of capturing it, so substitute that definition from the
         /// enclosing member's body; its own free variables resolve the same way.
         let read (block: Block) (resolve: Expr -> Expr) (v: Var) : Expr =
-            let shadowed = match block.Own.TryFind v.Name with Some own -> own <> v | None -> false
-            match (if shadowed then (false, null) else block.Fields.TryGetValue v.Name) with
+            if v.IsMutable && not (block.Owns v) then
+                // Its definition would give its initial value, not its current one.
+                raise (DlrTranslationException(
+                        sprintf "dlr { } reads the mutable '%s' through a local function, and another '%s' in the same member shares its name; rename one." v.Name v.Name))
+            match (if block.Owns v then block.Fields.TryGetValue v.Name else (false, null)) with
             | true, f when f.FieldType = v.Type -> Expr.FieldGet(block.Self, f)
             | true, f when isRefCell f v.Type ->
                 Expr.PropertyGet(Expr.FieldGet(block.Self, f), f.FieldType.GetProperty("Value"))
@@ -189,13 +201,15 @@ module internal TranslateBlock =
 
         /// Whether a captured variable is a mutable, stored in an FSharpRef cell.
         let isCell (block: Block) (v: Var) =
-            let shadowed = match block.Own.TryFind v.Name with Some own -> own <> v | None -> false
-            match (if shadowed then (false, null) else block.Fields.TryGetValue v.Name) with
+            match (if block.Owns v then block.Fields.TryGetValue v.Name else (false, null)) with
             | true, f -> isRefCell f v.Type
             | _ -> false
 
         /// `v <- value` on a captured `let mutable`: a write through its FSharpRef cell.
         let assign (block: Block) (v: Var) (value: Expr) : Expr =
+            if not (block.Owns v) then
+                raise (DlrTranslationException(
+                        sprintf "dlr { } assigns the mutable '%s' through a local function, and another '%s' in the same member shares its name; rename one." v.Name v.Name))
             match block.Fields.TryGetValue v.Name with
             | true, f when isRefCell f v.Type ->
                 Expr.PropertySet(Expr.FieldGet(block.Self, f), f.FieldType.GetProperty("Value"), value)

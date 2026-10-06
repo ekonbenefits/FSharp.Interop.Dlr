@@ -44,6 +44,14 @@ module internal Translate =
               Closure = closure
               Fields = Captures.fields closureType
               Own = Map.ofSeq [ for v in body.GetFreeVars() -> v.Name, v ]
+              Shared =
+                  let rec vars (e: Expr) =
+                      seq {
+                          match e with
+                          | ExprShape.ShapeVar v -> yield v
+                          | ExprShape.ShapeLambda(v, b) -> yield v; yield! vars b
+                          | ExprShape.ShapeCombination(_, es) -> for x in es do yield! vars x }
+                  vars memberBody |> Seq.distinct |> Seq.countBy (fun v -> v.Name) |> Seq.filter (fun (_, n) -> n > 1) |> Seq.map fst |> Set.ofSeq
               Name = name
               Names = Collections.Generic.Dictionary() }
 

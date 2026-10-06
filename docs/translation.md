@@ -241,9 +241,6 @@ Not specified, and read by `TranslateBlock.Captures` and `Discover`:
   markers are `NoInlining` so their arguments stay live and are hoisted into the machine.
 
 Where one of these does not hold, the translator raises `DlrTranslationException` on the first
-call at a site rather than guess: a field it expects is missing or of another type, or a variable it
-must recover has no definition. Those checks go by name and type, so a field of the right name and
-type that belongs to another variable would pass them; the field is used only by the block's own
-free variable of that name (#196), and the suite runs in Debug and Release to catch what the checks
-cannot. CI builds with the .NET 10 SDK, Debug and Release, on Linux and Windows
+call at a site rather than guess. Its checks go by name and type; the suite, in Debug and Release,
+covers what they cannot. CI builds with the .NET 10 SDK, Debug and Release, on Linux and Windows
 (net48 there too), at the FSharp.Core floor and on the latest release, and on browser-wasm.

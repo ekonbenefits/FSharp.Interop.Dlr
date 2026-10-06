@@ -86,11 +86,35 @@ let private shadowedThroughLambda (o: obj) (seed: int) : int =
     let x = seed * 100
     dlr { return o?Add(g (), x) }
 
+/// Neither shadowed `x` is the block's own: each is reached through a function.
+let private shadowedThroughTwoFunctions (o: obj) (seed: int) : int =
+    let x = seed
+    let f () = x
+    let x = seed * 100
+    let g () = x
+    dlr { return o?Add(f (), g ()) }
+
+/// A local function writing a shadowed mutable: if the optimizer inlines it, the write must not
+/// land in the later `x`'s cell.
+let private shadowedWrite (o: obj) : int =
+    let mutable x = 1
+    let set () = x <- 5
+    let mutable x = 100
+    dlr { set (); return o?Add(x, 0) }
+
 [<Fact>]
 let ``a shadowed name reached through an inlined local function reads its own value`` () =
     let w = box (Widget())
     shadowedThroughFunction w 7 |> should equal 707
     shadowedThroughLambda w 7 |> should equal 707
+    shadowedThroughTwoFunctions w 7 |> should equal 707
+
+[<Fact>]
+let ``a write to a shadowed mutable through a local function never lands in the other variable`` () =
+    // Release inlines `set` and must refuse the ambiguous write; Debug calls it and is right.
+    match (try Ok(shadowedWrite (box (Widget()))) with :? DlrTranslationException as e -> Error e.Message) with
+    | Ok n -> n |> should equal 100
+    | Error message -> message |> should haveSubstring "shares its name"
 
 [<Fact>]
 let ``clear then a call recompiles`` () =
