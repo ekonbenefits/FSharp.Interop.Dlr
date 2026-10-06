@@ -36,7 +36,13 @@ module internal TranslateBlock =
           /// The compiled block's name, `dlr__Program_fs@7`: its stack frame's name.
           Name: string
           /// How many nested lambdas of each kind (`for`, `try`, `fun`, …) have been named so far.
-          Names: Collections.Generic.Dictionary<string, int> }
+          Names: Collections.Generic.Dictionary<string, int>
+          /// Names two of the variables the block reaches share (#196): its free variables, and
+          /// those of the definitions it recovers for what the optimizer inlined (`Captures.reached`).
+          Ambiguous: Set<string>
+          /// Aliases (`let x = y` of an immutable `y`, `let x = 1`) the block reaches only through
+          /// a recovered definition: substituted, never a field, whatever field shares the name.
+          Substituted: Set<Var> }
         /// The name for this block's next compiled part of `kind`, for its stack frame: F#'s
         /// closure style, `dlr__Program_fs@7-for`, then `-for-2`, `-for-3` in order.
         member this.NameFor (kind: string) =
@@ -153,6 +159,38 @@ module internal TranslateBlock =
                 if not (List.contains f own) then fields.[f.Name] <- f
             fields :> _
 
+        /// The variables a block reaches: its free variables and, for each one with no field of
+        /// its name, those of the definition `read` would recover for it. An alias reached that
+        /// way (an immutable `let` of an immutable variable or of a literal) is the optimizer's to
+        /// substitute, never a field, so it stands for what it names: it is returned apart, not
+        /// counted with the rest. One of a mutable it keeps, holding the value at the time.
+        let reached (fields: Collections.Generic.IDictionary<string, Reflection.FieldInfo>) (memberBody: Expr) (body: Expr) : Var list * Set<Var> =
+            let own = body.GetFreeVars() |> Set.ofSeq
+            let rec go (seen: Set<Var>) counted aliases (pending: Var list) =
+                match pending with
+                | [] -> counted, aliases
+                | v :: rest when seen.Contains v -> go seen counted aliases rest
+                | v :: rest ->
+                    let seen = seen.Add v
+                    let def = letDefinition v memberBody
+                    let alias = not v.IsMutable && not (own.Contains v) && (match def with Some(Var y) -> not y.IsMutable | Some(Value _) -> true | _ -> false)
+                    let inner =
+                        if fields.ContainsKey v.Name && not alias then []
+                        else
+                            match def |> Option.orElse (parameterArgument v memberBody) with
+                            | Some d -> List.ofSeq (d.GetFreeVars())
+                            | None -> []
+                    if alias then go seen counted (Set.add v aliases) (inner @ rest)
+                    else go seen (v :: counted) aliases (inner @ rest)
+            go Set.empty [] Set.empty (List.ofSeq own)
+
+        /// Two variables of one name, one reached through a local function or alias the optimizer
+        /// inlined: the compiler names their fields `x`, `x0`, … in an order of its own, and a
+        /// recovered definition would run again, so neither tells which is which (#196).
+        let private ambiguous (v: Var) =
+            DlrTranslationException(
+                sprintf "dlr { } reaches two variables named '%s', one through a local function or alias the optimizer inlined; rename one." v.Name)
+
         let private isRefCell (f: Reflection.FieldInfo) (t: Type) =
             f.FieldType.IsGenericType
             && f.FieldType.GetGenericTypeDefinition() = typedefof<Ref<_>>
@@ -164,7 +202,8 @@ module internal TranslateBlock =
         /// function, ...) instead of capturing it, so substitute that definition from the
         /// enclosing member's body; its own free variables resolve the same way.
         let read (block: Block) (resolve: Expr -> Expr) (v: Var) : Expr =
-            match block.Fields.TryGetValue v.Name with
+            if block.Ambiguous.Contains v.Name then raise (ambiguous v)
+            match (if block.Substituted.Contains v then (false, null) else block.Fields.TryGetValue v.Name) with
             | true, f when f.FieldType = v.Type -> Expr.FieldGet(block.Self, f)
             | true, f when isRefCell f v.Type ->
                 Expr.PropertyGet(Expr.FieldGet(block.Self, f), f.FieldType.GetProperty("Value"))
@@ -185,11 +224,12 @@ module internal TranslateBlock =
         /// Whether a captured variable is a mutable, stored in an FSharpRef cell.
         let isCell (block: Block) (v: Var) =
             match block.Fields.TryGetValue v.Name with
-            | true, f -> isRefCell f v.Type
+            | true, f when not (block.Ambiguous.Contains v.Name) -> isRefCell f v.Type
             | _ -> false
 
         /// `v <- value` on a captured `let mutable`: a write through its FSharpRef cell.
         let assign (block: Block) (v: Var) (value: Expr) : Expr =
+            if block.Ambiguous.Contains v.Name then raise (ambiguous v)
             match block.Fields.TryGetValue v.Name with
             | true, f when isRefCell f v.Type ->
                 Expr.PropertySet(Expr.FieldGet(block.Self, f), f.FieldType.GetProperty("Value"), value)

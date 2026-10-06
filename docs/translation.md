@@ -76,6 +76,10 @@ the enclosing member's reflected body: a `let`, the single application of a once
 function, or a lambda applied on the spot. A block in an `inline` function is beyond recovery in
 Release (it is expanded into each caller), and the analyzer's `DLR004` refuses it.
 
+Fields go by name, so a name two variables the block reaches share (an `x` shadowed, one read
+through a local function or alias the optimizer inlined) is refused in Release: the compiler
+numbers such fields (`x`, `x0`) in an order of its own. The analyzer's `DLR007` warns of it.
+
 ### Control flow
 
 The expression converter has no node for `for`, `while`, `try` or `use`. They are emitted as
@@ -242,6 +246,7 @@ Not specified, and read by `TranslateBlock.Captures` and `Discover`:
 - The Release optimizer inlines constants, once-called local functions and applied lambdas. The
   markers are `NoInlining` so their arguments stay live and are hoisted into the machine.
 
-A change in any of these raises `DlrTranslationException` on the first call at a site; nothing
-binds silently wrong. CI builds with the .NET 10 SDK, Debug and Release, on Linux and Windows
+Where one of these does not hold, the translator raises `DlrTranslationException` on the first
+call at a site rather than guess. Its checks go by name and type; the suite, in Debug and Release,
+covers what they cannot. CI builds with the .NET 10 SDK, Debug and Release, on Linux and Windows
 (net48 there too), at the FSharp.Core floor and on the latest release, and on browser-wasm.

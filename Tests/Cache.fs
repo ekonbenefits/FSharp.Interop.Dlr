@@ -71,6 +71,128 @@ let ``values the optimizer inlines instead of capturing still resolve`` () =
     (fun (k: int) -> (dlr { return w?Add(k, 1) } : int)) 41 |> should equal 42
     (fun (a: int) (b: string) -> (dlr { return w?Greet(b, string a) } : string)) 7 "Hi" |> should equal "Hi, 7"
 
+/// A shadowed name inside a local function the Release optimizer inlines: the machine captures
+/// only the later `x`, and the earlier one, reached through `f`'s recovered definition, read that
+/// field and returned 1400 (#196).
+let private shadowedThroughFunction (o: obj) (seed: int) : int =
+    let x = seed
+    let f () = x
+    let x = seed * 100
+    dlr { return o?Add(f (), x) }
+
+let private shadowedThroughLambda (o: obj) (seed: int) : int =
+    let x = seed
+    let g = fun () -> x
+    let x = seed * 100
+    dlr { return o?Add(g (), x) }
+
+/// Neither shadowed `x` is the block's own: each is reached through a function.
+let private shadowedThroughTwoFunctions (o: obj) (seed: int) : int =
+    let x = seed
+    let f () = x
+    let x = seed * 100
+    let g () = x
+    dlr { return o?Add(f (), g ()) }
+
+/// A local function writing a shadowed mutable: if the optimizer inlines it, the write must not
+/// land in the later `x`'s cell.
+let private shadowedWrite (o: obj) : int =
+    let mutable x = 1
+    let set () = x <- 5
+    let mutable x = 100
+    // The analyzer reports it at build time (DLR007).
+    // fsharpanalyzer: ignore-line-next DLR007
+    dlr { set (); return o?Add(x, 0) }
+
+/// Both shadowed `x`s are real values, so the machine holds both, as `x` and `x0`: which is which
+/// is the compiler's to say.
+let private shadowedBothCaptured (o: obj) : int =
+    let x = Ticks.Next()
+    let f () = x
+    let x = Ticks.Next() * 100
+    // The analyzer reports it at build time (DLR007).
+    // fsharpanalyzer: ignore-line-next DLR007
+    dlr { return o?Add(f (), x) }
+
+/// `x` is also an unrelated lambda's parameter: nothing the block reaches shares the name.
+let private nameOfAnUnrelatedLambda (o: obj) : int =
+    let x = Ticks.Next()
+    let f () = x
+    let ys = [ 1 ] |> List.map (fun x -> x + 1)
+    dlr { return o?Add(f (), ys.Length) }
+
+let private mutableNameOfAnUnrelatedLambda (o: obj) : int =
+    let mutable n = 5
+    let get () = n
+    let ys = [ 1 ] |> List.map (fun n -> n + 1)
+    dlr { return o?Add(get (), ys.Length) }
+
+/// An alias of a mutable is a value of its own, taken when it is bound: the optimizer keeps it.
+let private aliasOfMutable (o: obj) : int =
+    let mutable y = 1
+    let x = y
+    let f () = x
+    y <- 2
+    dlr { return o?Add(f (), y) }
+
+let private aliasOfAnAliasOfMutable (o: obj) : int =
+    let mutable m = 1
+    let y = m
+    let x = y
+    let f () = x
+    m <- 2
+    dlr { return o?Add(f (), m) }
+
+let private aliasOfMutableShadowed (o: obj) : int =
+    let mutable y = 1
+    let x = y
+    let f () = x
+    y <- 2
+    let x = 100
+    // The analyzer reports it at build time (DLR007).
+    // fsharpanalyzer: ignore-line-next DLR007
+    dlr { return o?Add(x, f ()) }
+
+[<Fact>]
+let ``an alias of a mutable reached through a local function keeps the value it was bound to`` () =
+    let w = box (Widget())
+    aliasOfMutable w |> should equal 3
+    aliasOfAnAliasOfMutable w |> should equal 3
+    match (try Ok(aliasOfMutableShadowed w) with :? DlrTranslationException as e -> Error e.Message) with
+    | Ok n -> n |> should equal 101
+    | Error message -> message |> should haveSubstring "reaches two variables named 'x'"
+
+[<Fact>]
+let ``a shadowed name reached through an inlined local function reads its own value`` () =
+    let w = box (Widget())
+    shadowedThroughFunction w 7 |> should equal 707
+    shadowedThroughLambda w 7 |> should equal 707
+    shadowedThroughTwoFunctions w 7 |> should equal 707
+
+[<Fact>]
+let ``a write to a shadowed mutable through a local function never lands in the other variable`` () =
+    // Release inlines `set` and must refuse the ambiguous write; Debug calls it and is right.
+    match (try Ok(shadowedWrite (box (Widget()))) with :? DlrTranslationException as e -> Error e.Message) with
+    | Ok n -> n |> should equal 100
+    | Error message -> message |> should haveSubstring "rename one"
+
+[<Fact>]
+let ``two real values of one name, one through an inlined local function, are refused rather than guessed`` () =
+    // Release inlines `f`; Debug captures it and is right.
+    Ticks.Reset()
+    match (try Ok(shadowedBothCaptured (box (Widget()))) with :? DlrTranslationException as e -> Error e.Message) with
+    | Ok n -> n |> should equal 201
+    | Error message -> message |> should haveSubstring "reaches two variables named 'x'"
+
+[<Fact>]
+let ``a name an unrelated lambda also uses is still read from its field`` () =
+    let w = box (Widget())
+    Ticks.Reset()
+    nameOfAnUnrelatedLambda w |> should equal 2
+    Ticks.Reset()
+    nameOfAnUnrelatedLambda w |> should equal 2
+    mutableNameOfAnUnrelatedLambda w |> should equal 6
+
 [<Fact>]
 let ``clear then a call recompiles`` () =
     let w = box (Widget())

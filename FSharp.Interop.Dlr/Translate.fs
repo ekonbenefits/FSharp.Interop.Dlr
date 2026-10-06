@@ -36,13 +36,19 @@ module internal Translate =
     /// the body's free variables are read from at call time.
     let translate (name: string) (builderType: Type) (context: Type) (memberBody: Expr) (closureType: Type) (resultType: Type) (body: Expr) : Compiled =
         let closure = if closureType.IsValueType then Var("sm", closureType) else Var("closure", typeof<obj>)
+        let fields = Captures.fields closureType
+        let reached, aliases = Captures.reached fields memberBody body
         let block =
             { BuilderType = builderType
               Context = context
               MemberBody = memberBody
               ClosureType = closureType
               Closure = closure
-              Fields = Captures.fields closureType
+              Fields = fields
+              Substituted = aliases
+              Ambiguous =
+                  reached
+                  |> List.countBy (fun v -> v.Name) |> List.filter (fun (_, n) -> n > 1) |> List.map fst |> Set.ofList
               Name = name
               Names = Collections.Generic.Dictionary() }
 

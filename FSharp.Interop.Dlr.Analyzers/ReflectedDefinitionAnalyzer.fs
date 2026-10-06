@@ -42,6 +42,15 @@ let ArgumentMarkerCode = "DLR005"
 [<Literal>]
 let UndecodableCode = "DLR006"
 
+/// A `dlr { }` that reaches two values of one name, one through a local function or alias:
+/// `let x = …; let f () = x; let x = …; dlr { … f () … x … }`. Where the Release optimizer
+/// inlines `f`, the
+/// block's container holds both as `x` and `x0`, which nothing tells apart, and the first call
+/// raises DlrTranslationException (#196). A warning: whether `f` is inlined is the optimizer's
+/// call, and a Debug build never inlines it.
+[<Literal>]
+let ShadowedCode = "DLR007"
+
 let private isReflectedDefinition (attributes: seq<FSharpAttribute>) =
     attributes
     |> Seq.exists (fun a ->
@@ -608,6 +617,96 @@ let private analyzeUndecodable (typedTree: FSharpImplementationFileContents opti
               Range = block
               Fixes = [] })
 
+/// A local value, told apart from a shadowed one of the same name by where it is declared.
+let private localKey (v: FSharpMemberOrFunctionOrValue) =
+    v.DisplayName, v.DeclarationLocation.StartLine, v.DeclarationLocation.StartColumn
+
+/// The local values `e` reads or assigns that it does not bind itself.
+let private freeLocals (e: FSharpExpr) : FSharpMemberOrFunctionOrValue list =
+    let read = System.Collections.Generic.Dictionary<string * int * int, FSharpMemberOrFunctionOrValue>()
+    let bound = System.Collections.Generic.HashSet<string * int * int>()
+    let rec go (e: FSharpExpr) =
+        match e with
+        | FSharpExprPatterns.Value v
+        | FSharpExprPatterns.ValueSet(v, _) when not v.IsModuleValueOrMember -> read.[localKey v] <- v
+        | _ -> ()
+        match e with
+        | FSharpExprPatterns.Let((v, _, _), _) -> bound.Add(localKey v) |> ignore
+        | FSharpExprPatterns.LetRec(bindings, _) -> for (v, _, _) in bindings do bound.Add(localKey v) |> ignore
+        | FSharpExprPatterns.Lambda(v, _) -> bound.Add(localKey v) |> ignore
+        | FSharpExprPatterns.TryWith(_, v1, _, v2, _, _, _) -> bound.Add(localKey v1) |> ignore; bound.Add(localKey v2) |> ignore
+        | FSharpExprPatterns.DecisionTree(_, targets) -> for (vs, _) in targets do for v in vs do bound.Add(localKey v) |> ignore
+        | _ -> ()
+        for x in e.ImmediateSubExpressions do go x
+    go e
+    [ for KeyValue(k, v) in read do if not (bound.Contains k) then v ]
+
+/// The definitions of the member's local `let`s and `let rec`s, by `localKey`.
+let private localDefinitions (body: FSharpExpr) =
+    let defs = System.Collections.Generic.Dictionary<string * int * int, FSharpExpr>()
+    let rec go (e: FSharpExpr) =
+        match e with
+        | FSharpExprPatterns.Let((v, def, _), _) -> defs.[localKey v] <- def
+        | FSharpExprPatterns.LetRec(bindings, _) -> for (v, def, _) in bindings do defs.[localKey v] <- def
+        | _ -> ()
+        for x in e.ImmediateSubExpressions do go x
+    go body
+    defs
+
+/// For each block in a member: a name two values it reaches share, and the local function or
+/// alias the one not its own is reached through. The translator's `Captures.reached` at build
+/// time, taking every local function and alias (`let y = x` of an immutable `x`, a literal) the block reads as
+/// inlined (fields unknown): each stands for what its definition reads, and an alias reached
+/// that way is substituted, not counted.
+let private shadowedIn (body: FSharpExpr) (block: FSharpExpr) : (string * string) list =
+    let defs = localDefinitions body
+    let own = freeLocals block
+    let ownKeys = own |> List.map localKey |> Set.ofList
+    let isAlias (e: FSharpExpr) =
+        match e with
+        | FSharpExprPatterns.Value v -> not v.IsModuleValueOrMember && not v.IsMutable
+        | FSharpExprPatterns.Const _ -> true
+        | _ -> false
+    let isFunction (e: FSharpExpr) = match e with FSharpExprPatterns.Lambda _ -> true | _ -> false
+    let seen = System.Collections.Generic.HashSet<string * int * int>()
+    let counted = ResizeArray<FSharpMemberOrFunctionOrValue * string option>()
+    let rec visit (via: string option) (v: FSharpMemberOrFunctionOrValue) =
+        let key = localKey v
+        if seen.Add key then
+            let def = match defs.TryGetValue key with | true, d -> Some d | _ -> None
+            let alias = not v.IsMutable && not (ownKeys.Contains key) && (def |> Option.exists isAlias)
+            if not alias then counted.Add((v, via))
+            match def with
+            | Some d when not v.IsMutable && (isAlias d || isFunction d) ->
+                for inner in freeLocals d do visit (via |> Option.orElse (Some v.DisplayName)) inner
+            | _ -> ()
+    for v in own do visit None v
+    counted
+    |> Seq.groupBy (fun (v, _) -> v.DisplayName)
+    |> Seq.choose (fun (name, vs) ->
+        if Seq.length vs < 2 then None
+        else vs |> Seq.tryPick snd |> Option.map (fun via -> name, via))
+    |> List.ofSeq
+
+let private analyzeShadowed (typedTree: FSharpImplementationFileContents option) : Message list =
+    match typedTree with
+    | None -> []
+    | Some contents ->
+        let rec decls (ds: FSharpImplementationFileDeclaration list) =
+            ds |> List.collect (function
+                | FSharpImplementationFileDeclaration.Entity(_, sub) -> decls sub
+                | FSharpImplementationFileDeclaration.MemberOrFunctionOrValue(_, _, body) ->
+                    [ for b in blocksIn body do for found in shadowedIn body b -> b.Range, found ]
+                | FSharpImplementationFileDeclaration.InitAction _ -> [])
+        decls contents.Declarations
+        |> List.map (fun (r, (name, via)) ->
+            { Type = "dlr { } reaches two values of one name"
+              Message = sprintf "dlr { } reaches two values named '%s', one through '%s'. Where the Release optimizer inlines '%s', the block cannot tell them apart and its first call raises DlrTranslationException. Rename one." name via via
+              Code = ShadowedCode
+              Severity = Severity.Warning
+              Range = r
+              Fixes = [] })
+
 let private analyze (tree: ParsedInput) (typedTree: FSharpImplementationFileContents option) : Message list =
     let inline' = analyzeInline typedTree
     // A block DLR004 refuses gets no DLR001 as well: the add-the-attribute fix would not help it.
@@ -617,6 +716,7 @@ let private analyze (tree: ParsedInput) (typedTree: FSharpImplementationFileCont
     @ inline'
     @ analyzeArgumentMarkers typedTree
     @ analyzeUndecodable typedTree
+    @ analyzeShadowed typedTree
     @ match typedTree with
       | None -> []
       | Some contents ->
