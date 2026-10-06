@@ -252,6 +252,11 @@ whether the member is a method, a delegate or an F# function. So
 - `A * B -> R` calls with a tuple.
 - `unit -> R` reads a property or calls a parameterless method.
 
+Read as a delegate type, `x?Name` is the member's value, or, when the member is a method, the
+delegate over an invoker of it (#201). So a block passes a method where a `Func` is expected:
+`Api.Fold(dlr { return w?Add })`, the block typed `Func<int, int, int>` by the parameter. A
+property, field or dynamic object's member holding a delegate is read as itself.
+
 ### Events
 
 `Dlr.addAssign` / `Dlr.subtractAssign` are C#'s `+=` / `-=`. An IsEvent site picks the event

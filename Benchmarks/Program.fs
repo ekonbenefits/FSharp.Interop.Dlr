@@ -79,7 +79,8 @@ let private footnotes =
       "7", "C# has no spelling with a run-time member name or argument names, nor for invoking a value read as an F# function."
       "8", "FSharp.Interop.Dynamic takes its arguments as a tuple; a list of unknown length has no form."
       "9", "FSharp.Interop.Dynamic has no spelling for an `out` argument."
-      "10", "FSharp.Interop.Dynamic needs the type to match the member's own shape: a curried type calls the member one argument at a time, which fits a curried F# function, but a method takes its arguments together, so it reads only as a tupled function." ]
+      "10", "FSharp.Interop.Dynamic needs the type to match the member's own shape: a curried type calls the member one argument at a time, which fits a curried F# function, but a method takes its arguments together, so it reads only as a tupled function."
+      "11", "`dynamic` has no method groups: C# and FSharp.Interop.Dynamic read a method's name as a property, which fails (\"bound to a method\")." ]
 
 /// `docs`: run every suite and write docs/benchmarks.md (comparisons) and the README's "Measured"
 /// table (`readmeRows`), between its markers.
@@ -140,6 +141,7 @@ let private writeDocs (short: bool) =
                      "keyword arguments from data, two name lists alternating", [ "^7"; "NamedOfAlternating"; "DynamicNamedOfAlternating" ]
                      "a method read as a curried function, `let add: int -> int -> int = dlr { return w?Add }`, then applied", [ "^7"; "CurriedRead2"; "^10" ]
                      "the same read as a tupled function, `int * int -> int`", [ "^7"; "TupledRead2"; "DynamicTupledRead2" ]
+                     "the same read as a delegate type, `Func<int, int, int>` (a block passed where a `Func` is expected), then invoked", [ "^11"; "DelegateRead2"; "^11" ]
                      "past five arguments, a tupled function of six (`w?Sum6`; compiled once per site, one step over the tuple)", [ "^7"; "TupledRead6"; "DynamicTupledRead6" ]
                      "past five arguments, a curried function of six (compiled once per site, a step per argument)", [ "^7"; "CurriedRead6"; "^10" ]
                      "a value read as an F# function, `Dlr.call f : int -> int -> int`, then applied (FSharp.Interop.Dynamic: `!?f 1 2`)", [ "^7"; "CallAsFunction"; "DynamicInvokeFunction" ] ]

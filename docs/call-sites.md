@@ -111,6 +111,7 @@ void site, a `unit` read or operator just drops the value).
 | `Dlr.neg` … | `UnaryOperation` + `Convert` |
 | `Dlr.cast<T>` | `Convert` with `ConvertExplicit` |
 | `Dlr.implicit` | `Convert` |
+| `x?Name` typed as a delegate type | `GetMember` through `FSharpGetMemberOrMethodBinder` + `Convert`: C#'s rule for a property, field or dynamic object's member; where C# fails because the name is a method, the `MethodGroup` marker as its error suggestion, which the block answers with the `x?Name` read as a function type below (curried up to five parameters, tupled past them) converted to the delegate by `FunctionConversions` |
 | `x?Name` typed `A -> B -> R` | `InvokeMember` site with typed argument slots + `Convert`, wrapped in a curried F# function by `FunctionMember.CurriedN` / `TupledN` (past five, a function from a factory compiled once per function type and site type: `FunctionBuilder`); no `Convert` for a `… -> unit` result; `unit -> R` uses `FSharpReadOrInvokeBinder` |
 | `(?) x name`, variable name; `x?M(Dlr.typeArgsOf ts)`, variable list | see below |
 

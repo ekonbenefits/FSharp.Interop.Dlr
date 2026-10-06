@@ -249,6 +249,9 @@ type Core() =
     [<Benchmark(Description = "dlr w?Add read as int * int -> int, then applied")>]
     member _.TupledRead2() : int = let f: int * int -> int = dlr { return o?Add } in f (1, 2)
 
+    [<Benchmark(Description = "dlr w?Add read as Func<int, int, int>, then invoked")>]
+    member _.DelegateRead2() : int = let f: Func<int, int, int> = dlr { return o?Add } in f.Invoke(1, 2)
+
     [<Benchmark(Description = "dlr w?Sum6 read as a tupled function of six, then applied")>]
     member _.TupledRead6() : int = let f: int * int * int * int * int * int -> int = dlr { return o?Sum6 } in f (1, 2, 3, 4, 5, 6)
 

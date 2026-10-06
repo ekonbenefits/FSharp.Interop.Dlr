@@ -88,6 +88,11 @@ These three carry the function rule:
 - **`FSharpReadOrInvokeBinder`** (`x?Name` read as `unit -> R`). A parameterless method is
   invoked; a property or field is read (and applied if it is an F# function); on a dynamic
   target the value itself is the result unless it is a delegate or function.
+- **`FSharpGetMemberOrMethodBinder`** (`x?Name` read as a delegate type, #201). C#'s
+  `GetMember`, with ours as its error suggestion where the name is an accessible instance
+  method: the `MethodGroup` marker, restricted to the target's type. The block then builds the
+  delegate over the member read as a function. C# first, so a property, field or dynamic
+  object's member costs what it did (`Tests/HotPath.fs` pins it at 0 B).
 
 Named or generic calls use C#'s binder unchanged (only the meta-object argument rule still
 applies to them). A member read as `… -> unit` is invoked through a void, result-discarded site.
@@ -127,6 +132,12 @@ handed to a nested `Invoke` site that decides by the value's runtime type.
 
 Reading a member *as* a function (`FunctionMember.CurriedN`/`TupledN`) constructs an F# closure,
 so it has per-arity helpers up to five, like `OptimizedClosures`.
+
+A method read as a delegate type is that function converted (`FunctionConversions`): curried up
+to five parameters, where `InvokeFast` takes them in one call, and tupled past five, one step
+over the tuple instead of a step per argument. Per read, the invoker, its adapter and the
+delegate (`Tests/HotPath.fs` pins the bytes); per call, the adapter's hop on top of the
+function's.
 
 Past five, `FunctionBuilder` compiles a factory once per (function type, site type), so a
 computed name's per-key sites reuse it. The factory is a LINQ lambda taking the sites and the

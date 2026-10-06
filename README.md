@@ -144,6 +144,7 @@ The common forms; [docs/syntax.md](docs/syntax.md) has every one, with what each
 | `Dlr.cast<T> x` · `Dlr.implicit x` | explicit / implicit conversion |
 | `Dlr.Static<T>.Overloads?Name(a)` · `Dlr.new'<T>(a)` | static overload / constructor chosen by the arguments' runtime types |
 | `let f: int -> int -> int = dlr { return x?Add }` | a member read as an F# function |
+| `Api.Fold(dlr { return x?Add })` (a `Func<int, int, int>` parameter) | a method read as a delegate type |
 | `Dlr.call f (a, b)` · `Dlr.call f` typed `A -> R` | invoke the value itself, the `?` of values; read as a function, it is one |
 | `f \|> Dlr.apply (a, b)` | the same, target last for pipelines |
 
