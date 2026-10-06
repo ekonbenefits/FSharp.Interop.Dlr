@@ -71,6 +71,27 @@ let ``values the optimizer inlines instead of capturing still resolve`` () =
     (fun (k: int) -> (dlr { return w?Add(k, 1) } : int)) 41 |> should equal 42
     (fun (a: int) (b: string) -> (dlr { return w?Greet(b, string a) } : string)) 7 "Hi" |> should equal "Hi, 7"
 
+/// A shadowed name inside a local function the Release optimizer inlines: the machine captures
+/// only the later `x`, and the earlier one, reached through `f`'s recovered definition, read that
+/// field and returned 1400 (#196).
+let private shadowedThroughFunction (o: obj) (seed: int) : int =
+    let x = seed
+    let f () = x
+    let x = seed * 100
+    dlr { return o?Add(f (), x) }
+
+let private shadowedThroughLambda (o: obj) (seed: int) : int =
+    let x = seed
+    let g = fun () -> x
+    let x = seed * 100
+    dlr { return o?Add(g (), x) }
+
+[<Fact>]
+let ``a shadowed name reached through an inlined local function reads its own value`` () =
+    let w = box (Widget())
+    shadowedThroughFunction w 7 |> should equal 707
+    shadowedThroughLambda w 7 |> should equal 707
+
 [<Fact>]
 let ``clear then a call recompiles`` () =
     let w = box (Widget())

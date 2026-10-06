@@ -43,6 +43,7 @@ module internal Translate =
               ClosureType = closureType
               Closure = closure
               Fields = Captures.fields closureType
+              Own = Map.ofSeq [ for v in body.GetFreeVars() -> v.Name, v ]
               Name = name
               Names = Collections.Generic.Dictionary() }
 

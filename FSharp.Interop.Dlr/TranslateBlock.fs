@@ -36,7 +36,11 @@ module internal TranslateBlock =
           /// The compiled block's name, `dlr@Program.fs:7`: its stack frame's name.
           Name: string
           /// How many nested lambdas of each kind (`for`, `try`, `fun`, …) have been named so far.
-          Names: Collections.Generic.Dictionary<string, int> }
+          Names: Collections.Generic.Dictionary<string, int>
+          /// The free variables of the block's own body, by name: a container field of that name is
+          /// theirs. Another variable of the same name, reached through a recovered definition (a
+          /// shadowed `x` inside a local function the optimizer inlined), must not read it (#196).
+          Own: Map<string, Var> }
         /// The name for this block's next compiled part of `kind`, for its stack frame: F#'s
         /// closure style, `dlr@Program.fs:7-for`, then `-for-2`, `-for-3` in order.
         member this.NameFor (kind: string) =
@@ -164,7 +168,8 @@ module internal TranslateBlock =
         /// function, ...) instead of capturing it, so substitute that definition from the
         /// enclosing member's body; its own free variables resolve the same way.
         let read (block: Block) (resolve: Expr -> Expr) (v: Var) : Expr =
-            match block.Fields.TryGetValue v.Name with
+            let shadowed = match block.Own.TryFind v.Name with Some own -> own <> v | None -> false
+            match (if shadowed then (false, null) else block.Fields.TryGetValue v.Name) with
             | true, f when f.FieldType = v.Type -> Expr.FieldGet(block.Self, f)
             | true, f when isRefCell f v.Type ->
                 Expr.PropertyGet(Expr.FieldGet(block.Self, f), f.FieldType.GetProperty("Value"))
@@ -184,7 +189,8 @@ module internal TranslateBlock =
 
         /// Whether a captured variable is a mutable, stored in an FSharpRef cell.
         let isCell (block: Block) (v: Var) =
-            match block.Fields.TryGetValue v.Name with
+            let shadowed = match block.Own.TryFind v.Name with Some own -> own <> v | None -> false
+            match (if shadowed then (false, null) else block.Fields.TryGetValue v.Name) with
             | true, f -> isRefCell f v.Type
             | _ -> false
 
