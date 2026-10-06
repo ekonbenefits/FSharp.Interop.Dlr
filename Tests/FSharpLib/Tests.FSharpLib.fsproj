@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- A block in another assembly than its callers (#180): the Release optimizer inlines small
+       functions across assemblies too, so Tests/Resumable.fs calls this one from outside. -->
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0</TargetFrameworks>
+    <IsPackable>false</IsPackable>
+    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Blocks.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" Condition="'$(FSharpCoreResolved)' == ''" />
+    <PackageReference Include="FSharp.Core" VersionOverride="$(FSharpCoreResolved)" Condition="'$(FSharpCoreResolved)' != ''" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\FSharp.Interop.Dlr\FSharp.Interop.Dlr.fsproj" />
+  </ItemGroup>
+
+</Project>

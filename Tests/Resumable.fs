@@ -54,6 +54,11 @@ let ``a small function holding a block, called from another module`` () =
     Small.count (box (Widget())) |> should equal 3
     Small.count Fixtures.plainWidget |> should equal 3
 
+[<Fact>]
+let ``a small function holding a block, called from another assembly`` () =
+    Tests.FSharpLib.Blocks.count (box (Widget())) |> should equal 3
+    Tests.FSharpLib.Blocks.count Fixtures.plainWidget |> should equal 3
+
 [<ReflectedDefinition>]
 [<Fact>]
 let ``a captured tuple formatted with sprintf "%A %s"`` () =
