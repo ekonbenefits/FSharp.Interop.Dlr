@@ -25,9 +25,9 @@ let ``the library is fully strong-name signed, not delay-signed`` () =
     header.StrongNameSignatureDirectory.Size |> should be (greaterThan 0)
 
 [<Fact>]
-let ``a trimmed or NativeAOT publish warns at each block`` () =
-    // The .NET build marks the entry points every block compiles to, so the publish names the
-    // user's dlr { } line; the netstandard2.0 build (net48) has no such attributes to carry.
+let ``the entry points every block compiles to carry RequiresUnreferencedCode and RequiresDynamicCode`` () =
+    // So a NativeAOT publish, or a trimmed one with ILLinkWarningLevel 5, names the user's dlr { }
+    // line; the netstandard2.0 build (net48) has no such attributes to carry.
 #if NETFRAMEWORK
     raise (AnyUnit.IgnoreException "the netstandard2.0 build carries no trimming attributes")
 #else
