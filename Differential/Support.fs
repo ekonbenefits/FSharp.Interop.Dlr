@@ -15,6 +15,9 @@ type Ticks() =
 type S(v: int) =
     member _.V = v
 
+/// Applies `h`, inlined with it wherever it is called (`InlineIfLambda`).
+let inline applyInline ([<InlineIfLambda>] h: unit -> 'T) : 'T = h ()
+
 /// The block's target: it hands back what it was given.
 type Echo() =
     member _.Echo(a: int) = string a
