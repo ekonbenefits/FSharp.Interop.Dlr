@@ -200,6 +200,10 @@ module internal IlOrder =
                     match recover fv with
                     | Some(Lambda _ as def) ->
                         for a in args do walk depth a
+                        // Its parameters are bound here, at the call (a local of MoveNext, or of the
+                        // closure's Invoke): never fields.
+                        let rec parameters (e: Expr) = match e with Lambda(p, b) -> opaque.Add p |> ignore; parameters b | _ -> ()
+                        parameters def
                         walk (depth + 1) (lambdaBody def)
                     | Some(LetRecursive(bindings, _)) ->
                         // Not inlined: a closure created here, whose body runs (once, as far as
@@ -285,7 +289,21 @@ module internal IlOrder =
         // through FSharpFunc.InvokeFast in the IL, not a call to the marker.
         let reads events = events |> Option.map (List.choose (function Read r -> Some r | Landmark _ -> None))
         let ilR, qR = reads (ilEvents machine (fun f -> (parse f).IsSome)), reads (quotationEvents isBuilder hasField recover substituted assumed names.Contains body)
+        // A field the family takes in (`x1`, `x_0`) that is also the name of one of the member's
+        // own variables may be that variable's: nothing tells which, so refuse.
+        let memberNames =
+            let names = Collections.Generic.HashSet<string>()
+            let rec go (e: Expr) =
+                match e with
+                | ShapeVar v -> names.Add v.Name |> ignore
+                | ShapeLambda(v, b) -> names.Add v.Name |> ignore; go b
+                | ShapeCombination(_, es) -> for x in es do go x
+            go memberBody
+            names
+        let clash =
+            fields.Keys |> Seq.exists (fun f -> not (names.Contains f) && (parse f).IsSome && memberNames.Contains f)
         match ilR, qR with
+        | _ when clash -> None
         | Some il, Some q when il.Length = q.Length ->
             let fits (f: FieldInfo) (v: Var) (element: int option) =
                 match element, parse f.Name with

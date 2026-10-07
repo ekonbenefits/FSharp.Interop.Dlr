@@ -174,17 +174,19 @@ module internal TranslateBlock =
             | Let(_, d, b) -> effectFree d && effectFree b
             | LetRecursive(bs, b) -> List.forall (snd >> effectFree) bs && effectFree b
             | Call(None, mi, args) ->
-                mi.DeclaringType.FullName = "Microsoft.FSharp.Core.Operators" && mi.Name.StartsWith "op_" && List.forall effectFree args
+                mi.DeclaringType.FullName = "Microsoft.FSharp.Core.Operators"
+                && (mi.Name.StartsWith "op_" || mi.Name = "Fst" || mi.Name = "Snd")
+                && List.forall effectFree args
             | _ -> false
 
-        /// Element `i` of a split tuple `v` that has no field. One the definition gives effect-free
-        /// (a constant, an alias, an operator on those) the optimizer substituted: that. Any other
-        /// it dropped, which it does only for an element nothing reads (were it read, there would
-        /// be a field for it): a default value, never seen.
-        let missingElement (memberBody: Expr) (v: Var) (i: int) : Expr =
+        /// Element `i` of a split tuple `v` that has no field: the definition's, when it gives it
+        /// effect-free (the optimizer substituted it). Not otherwise: a dropped element may still be
+        /// read, as another field (a tuple of another tuple's elements reads that one's) or under
+        /// the block's own name for it, so there is nothing to tell it is unread.
+        let missingElement (memberBody: Expr) (v: Var) (i: int) : Expr option =
             match letDefinition v memberBody with
-            | Some(NewTuple es) when effectFree es.[i] -> es.[i]
-            | _ -> Expr.DefaultValue (FSharpType.GetTupleElements v.Type).[i]
+            | Some(NewTuple es) when effectFree es.[i] -> Some es.[i]
+            | _ -> None
 
         /// The field element `i` of a reference tuple the Release optimizer split is held in: `t_0`,
         /// `t_1`, … (`ExpandStructuralBinding`), with `$tupleElem` after each when its definition
@@ -209,7 +211,8 @@ module internal TranslateBlock =
                 let found = FSharpType.GetTupleElements v.Type |> Array.mapi (fun i _ -> elementField fields v i) |> List.ofArray
                 if List.forall Option.isNone found then None
                 else
-                    Some(found |> List.mapi (fun i f -> match f with Some f -> Choice1Of2 f | None -> Choice2Of2(missingElement memberBody v i)))
+                    let parts = found |> List.mapi (fun i f -> match f with Some f -> Some(Choice1Of2 f) | None -> missingElement memberBody v i |> Option.map Choice2Of2)
+                    if List.forall Option.isSome parts then Some(List.choose id parts) else None
 
         /// The variables a block reaches: its free variables and, for each one with no field of
         /// its name, those of the definition `read` would recover for it. An alias reached that
@@ -273,7 +276,10 @@ module internal TranslateBlock =
                     Expr.NewTuple [ for j, f in List.indexed fs ->
                                         match f with
                                         | Some f -> Expr.FieldGet(block.Self, f)
-                                        | None -> resolve (missingElement block.MemberBody v j) ]
+                                        | None ->
+                                            match missingElement block.MemberBody v j with
+                                            | Some e -> resolve e
+                                            | None -> raise (ambiguous v) ]
             | None ->
             match (match block.Resolved.TryFind(v, None) with
                    | Some f -> (true, f)

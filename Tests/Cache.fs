@@ -142,6 +142,49 @@ let ``a tuple the block reads whole is not built again`` () =
     | Ok n -> n |> should equal 71
     | Error message -> message |> should haveSubstring "would run the definition of 't' again"
 
+/// A tuple built from another tuple's element: Release substitutes `t_0` by `u_1`, a field of
+/// another name, so `t_0` has no field though it is read (#208 review).
+let private elementOfAnotherTuple (o: obj) (u: int * int) : string =
+    let t = (snd u, Ticks.Next())
+    dlr { return o?Echo(fst t, snd t) }
+
+let private elementOfAnotherLocalTuple (o: obj) (seed: int) : string =
+    let u = (seed * 10 + 1, Ticks.Next())
+    let t = (fst u, Ticks.Next())
+    dlr { return o?Echo(fst t, snd t) }
+
+/// An element the block binds itself: Release captures it under the block's name, `b`.
+let private elementBoundInTheBlock (o: obj) (seed: int) : string =
+    let t = (seed * 10 + 1, Ticks.Next())
+    dlr {
+        let b = snd t
+        return o?Echo(fst t, b) }
+
+/// A user's `x1` beside a shared `x` (whose fields are `x`, `x0`, …), and an inlined function's
+/// parameter `x` applied to a constant, which the IL never reads (#208 review).
+let private userX1BesideSharedX (o: obj) (seed: int) : string =
+    let f x = x + 1
+    let x = seed * 10 + 1
+    let h () = x
+    let x = seed * 10 + 2
+    let x1 = seed * 10 + 3
+    // The analyzer reports it at build time (DLR007).
+    // fsharpanalyzer: ignore-line-next DLR007
+    dlr { return o?Echo(f 5, h (), x, x1) }
+
+[<Fact>]
+let ``what the optimizer did to a tuple or a shared name is never guessed`` () =
+    let echo = box (CaptureEcho())
+    let check (expected: string) (run: unit -> string) =
+        Ticks.Reset()
+        match (try Ok(run ()) with :? DlrTranslationException as e -> Error e.Message) with
+        | Ok value -> value |> should equal expected
+        | Error _ -> ()
+    check "31|1" (fun () -> elementOfAnotherTuple echo (0, 31))
+    check "31|2" (fun () -> elementOfAnotherLocalTuple echo 3)
+    check "31|1" (fun () -> elementBoundInTheBlock echo 3)
+    check "6|31|32|33" (fun () -> userX1BesideSharedX echo 3)
+
 /// A shadowed name inside a local function the Release optimizer inlines: the machine captures
 /// only the later `x`, and the earlier one, reached through `f`'s recovered definition, read that
 /// field and returned 1400 (#196).
