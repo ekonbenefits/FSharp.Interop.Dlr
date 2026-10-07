@@ -68,6 +68,11 @@ let ``a bound call allocates nothing but, for a value result, its box`` () : uni
     let methodAsDelegate () = (dlr { return w?Add } : Func<int, int, int>) |> ignore
     let add: Func<int, int, int> = dlr { return w?Add }
     let invokeDelegate () = add.Invoke(1, 2) |> ignore
+    // An F# function converted to a delegate type (#202): the adapter (24 B) and the delegate
+    // over it (64 B on .NET 10, 8 B less on .NET 11), per conversion, as for an argument.
+    let f = box (fun (x: int) -> x + 1)
+    let functionToDelegate () = (dlr { return Dlr.implicit f } : Func<int, int>) |> ignore
+    bytes functionToDelegate |> should lessThanOrEqualTo 88L
     bytes delegateProperty |> should equal 0L
     bytes methodAsDelegate |> should lessThanOrEqualTo 104L
     bytes invokeDelegate |> should lessThanOrEqualTo box'

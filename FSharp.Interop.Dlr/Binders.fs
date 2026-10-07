@@ -214,6 +214,15 @@ module internal Binders =
 
     /// C#'s InvokeMember binder wrapped to apply F# function values (see FSharpInvokeMemberBinder)
     /// for positional, non-generic calls of any arity; otherwise C#'s binder as is.
+    /// C#'s Convert to `resultType`; to a delegate or F# function type through
+    /// `FSharpConvertBinder`, so a function value becomes a delegate and back (#202). Every
+    /// other type keeps C#'s binder as it is.
+    let private convertBinder (context: Type) (flags: CSharpBinderFlags) (resultType: Type) : CallSiteBinder =
+        let csharp = Binder.Convert(flags, resultType, context)
+        if typeof<Delegate>.IsAssignableFrom resultType || FSharp.Reflection.FSharpType.IsFunction resultType then
+            FSharpConvertBinder(csharp :?> ConvertBinder) :> CallSiteBinder
+        else csharp
+
     let private smartInvokeMember (context: Type) (name: string) (typeArgs: Type list) (discard: bool) (all: Arg list) : CallSiteBinder =
         let args = List.tail all
         let flags = resultFlags discard
@@ -407,7 +416,7 @@ module internal Binders =
                 // Past fourteen the site is wide: the member read as a function, converted
                 // (`delegateRead` checked that it converts).
                 invoke (FunctionConversions.tryConversion functionType delegateType).Value (functionMember context name functionType target')
-        let converted = siteCall (Binder.Convert(CSharpBinderFlags.None, delegateType, context)) [ dynamicArg (Expr.Var valueVar) ] delegateType
+        let converted = siteCall (convertBinder context CSharpBinderFlags.None delegateType) [ dynamicArg (Expr.Var valueVar) ] delegateType
         Expr.Let(targetVar, target.Expr,
           Expr.Let(valueVar, read,
             Expr.IfThenElse(Expr.Call(typeof<MethodGroup>.GetMethod("Is"), [ Expr.Var valueVar ]), invoker, converted)))
@@ -477,11 +486,8 @@ module internal Binders =
     let convert (context: Type) (resultType: Type) (e: Expr) : Expr =
         if resultType = typeof<obj> then e
         elif resultType = typeof<unit> then Expr.Sequential(e, Expr.Value(()))
-        else
-            let binder = Binder.Convert(CSharpBinderFlags.None, resultType, context)
-            siteCall binder [ dynamicArg e ] resultType
+        else siteCall (convertBinder context CSharpBinderFlags.None resultType) [ dynamicArg e ] resultType
 
     /// Explicit conversion (a C# cast) of an `obj`-typed expression to `resultType`.
     let convertExplicit (context: Type) (resultType: Type) (e: Expr) : Expr =
-        let binder = Binder.Convert(CSharpBinderFlags.ConvertExplicit, resultType, context)
-        siteCall binder [ dynamicArg e ] resultType
+        siteCall (convertBinder context CSharpBinderFlags.ConvertExplicit resultType) [ dynamicArg e ] resultType

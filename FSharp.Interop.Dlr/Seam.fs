@@ -655,6 +655,24 @@ type FSharpReadOrInvokeBinder(context: Type, name: string, csharp: InvokeMemberB
 
     override _.FallbackInvoke(target, args, errorSuggestion) = value.FallbackInvoke(target, args, errorSuggestion)
 
+/// A value converted to a delegate or F# function type (a block's result, `Dlr.implicit`,
+/// `Dlr.cast`; #202): C#'s Convert, with the argument conversions (`Fallback.conversion`: an F#
+/// function to a delegate, a delegate to a function) as its error suggestion, where C# sees an
+/// `FSharpFunc` and a `Func` as unrelated. To `Delegate` itself ours goes first: C# would bind
+/// FSharpFunc's op_Implicit to a `Converter`, wrong for a `unit -> R` (`DynamicInvoke()` fails).
+/// Not part of the supported API: public only because compiled blocks call it, and it may change in any release.
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+type FSharpConvertBinder(csharp: ConvertBinder) =
+    inherit ConvertBinder(csharp.Type, csharp.Explicit)
+    override this.FallbackConvert(target, errorSuggestion) =
+        let ours =
+            if target.HasValue && not (FunctionShapes.isNullValue target) then
+                Fallback.conversion this.Type target
+                |> Option.map (fun e -> DynamicMetaObject(Expression.Convert(e, this.Type), FunctionShapes.restrictArg target))
+            else None
+        let toAbstractDelegate = (this.Type = typeof<Delegate> || this.Type = typeof<MulticastDelegate>) && target.HasValue && (FunctionShapes.domains target.LimitType).IsSome
+        Seam.oursFirstWhen toAbstractDelegate ours errorSuggestion (fun suggestion -> csharp.FallbackConvert(target, suggestion))
+
 /// A member read as a delegate type (`Api.Fold(dlr { return x?Add })`, #201): C#'s GetMember, with
 /// our rule as its error suggestion where C# fails because the name is a method, or the target is
 /// a dynamic object with nothing to read: the `MethodGroup` marker, which the block answers with
