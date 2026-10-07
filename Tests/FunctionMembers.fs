@@ -177,6 +177,13 @@ let ``a method read as a delegate type fails as C# would: no such member at the 
     (fun () -> (dlr { return w?Nope } : Func<int, int>) |> ignore) |> should throw typeof<RuntimeBinderException>
     let one: Func<int, int> = dlr { return w?Add }                   // read: fine, as for a function type
     (fun () -> one.Invoke 1 |> ignore) |> should throw typeof<RuntimeBinderException>
+    // A dynamic object that answers the call but has no member to read: the function type only
+    // calls, so it works; the delegate type reads first (a member holding a delegate is that
+    // delegate), and there is nothing to read, as in C# (`Func<int, int, int> f = d.Add`).
+    let proxy: obj = InvokeOnly()
+    let viaFunction: int -> int -> int = dlr { return proxy?Add }
+    viaFunction 1 2 |> should equal 3
+    (fun () -> (dlr { return proxy?Add } : Func<int, int, int>) |> ignore) |> should throw typeof<RuntimeBinderException>
 
 [<Fact>]
 let ``a function-typed result applied on the spot, with nothing captured`` () =

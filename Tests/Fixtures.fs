@@ -122,6 +122,11 @@ type DynamicAdd() =
     member _.Sub(a: int, b: int) = a - b
     override _.TryGetMember(binder, result) =
         if binder.Name = "Add" then result <- box (Func<int, int, int>(fun a b -> 1000 + a + b)); true else false
+/// A DynamicObject that answers calls only (`TryInvokeMember`), with no member to read: a proxy.
+type InvokeOnly() =
+    inherit DynamicObject()
+    override _.TryInvokeMember(binder, args, result) =
+        if binder.Name = "Add" then result <- box (unbox<int> args.[0] + unbox<int> args.[1]); true else false
 /// An internal delegate type a method is read as (#201): its Invoke and constructor are internal.
 type internal InternalPair = delegate of int * int -> int
 /// An event of an internal delegate type, whose Invoke and constructor F# compiles internal (#150).
