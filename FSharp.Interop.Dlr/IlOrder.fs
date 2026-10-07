@@ -128,10 +128,9 @@ module internal IlOrder =
     let private quotationEvents (isBuilder: Expr option -> bool) (hasField: Var -> bool) (recover: Var -> Expr option) (substituted: Var -> bool) (assumed: Collections.Generic.HashSet<Var>) (family: string -> bool) (body: Expr) : Event list option =
         let events = ResizeArray()
         let mutable ok = true
-        let debug = not (isNull (Environment.GetEnvironmentVariable "DLR_IL_DEBUG"))
         let opaque = Collections.Generic.HashSet<Var>()
-        let fail (why: string) (e: Expr) =
-            if debug && ok then eprintfn "walk gives up (%s) at %s" why (let s = sprintf "%A" e in s.Substring(0, min 300 s.Length))
+        // Each give-up names its reason where it is called.
+        let fail (_reason: string) (_at: Expr) =
             ok <- false
         let rec lambdaBody (e: Expr) =
             match e with
@@ -286,8 +285,6 @@ module internal IlOrder =
         // through FSharpFunc.InvokeFast in the IL, not a call to the marker.
         let reads events = events |> Option.map (List.choose (function Read r -> Some r | Landmark _ -> None))
         let ilR, qR = reads (ilEvents machine (fun f -> (parse f).IsSome)), reads (quotationEvents isBuilder hasField recover substituted assumed names.Contains body)
-        if not (isNull (Environment.GetEnvironmentVariable "DLR_IL_DEBUG")) then
-            eprintfn "IL %A\nQ %A" ilR (qR |> Option.map (List.map (fun r -> let (v: Var), (i: int option) = unbox r in sprintf "%s#%d%A" v.Name (v.GetHashCode()) i)))
         match ilR, qR with
         | Some il, Some q when il.Length = q.Length ->
             let fits (f: FieldInfo) (v: Var) (element: int option) =
@@ -327,7 +324,5 @@ module internal IlOrder =
                 |> List.map (fun ((v, isElement), ks) -> (v, isElement), ks |> List.map (fun (_, f) -> List.findIndex ((=) f.Name) declared) |> List.min)
                 |> List.groupBy (fun ((v, isElement), _) -> v.Name, isElement)
                 |> List.forall (fun (_, vs) -> List.sortBy (fst >> fst >> bindingOrder) vs = List.sortBy snd vs)
-            if not (isNull (Environment.GetEnvironmentVariable "DLR_IL_DEBUG")) then
-                eprintfn "pairing ok=%b ordered=%b keys=%A" ok ordered (byKey |> Map.toList |> List.map (fun ((v, i), f) -> sprintf "%s#%d%A->%s" v.Name (v.GetHashCode()) i f.Name))
             if ok && ordered then Some(byKey, Set.ofSeq assumed) else None
         | _ -> None
