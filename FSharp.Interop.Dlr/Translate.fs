@@ -94,8 +94,10 @@ module internal Translate =
             let rec tupleVar (e: Expr) : Var option =
                 match e with
                 | Var v when isCaptured bound v && FSharp.Reflection.FSharpType.IsTuple v.Type ->
+                    // Through an alias only when the optimizer substitutes it: one it keeps (of a
+                    // mutable) holds its own copy, in its own field.
                     match letDefinition v memberBody with
-                    | Some(Var _ as d) when not v.IsMutable -> tupleVar d |> Option.orElse (Some v)
+                    | Some(Var _ as d) when block.Substituted.Contains v -> tupleVar d |> Option.orElse (Some v)
                     | _ -> Some v
                 | Application(Var f, Value(_, t)) when t = typeof<unit> && isCaptured bound f && not (block.Fields.ContainsKey f.Name) ->
                     match letDefinition f memberBody with

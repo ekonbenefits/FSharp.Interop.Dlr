@@ -142,7 +142,7 @@ module internal IlOrder =
         let rec tupleOf (e: Expr) : Var option =
             match e with
             | Var v when family v.Name -> Some v
-            | Var a when not (hasField a) ->
+            | Var a when substituted a ->
                 match recover a with
                 | Some(Var _ as d) -> tupleOf d
                 | _ -> None
