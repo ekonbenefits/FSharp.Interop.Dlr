@@ -91,8 +91,10 @@ These three carry the function rule:
 - **`FSharpGetMemberOrMethodBinder`** (`x?Name` read as a delegate type, #201). C#'s
   `GetMember`, with ours as its error suggestion where the name is an accessible instance
   method: the `MethodGroup` marker, restricted to the target's type. The block then builds the
-  delegate over the member read as a function. C# first, so a property, field or dynamic
-  object's member costs what it did (`Tests/HotPath.fs` pins it at 0 B).
+  delegate over a `MemberInvokers` instance (past fourteen parameters, over the member read as
+  a function). Ours only where nothing else is suggested: a meta-object's own rule (a
+  `DynamicObject`'s `TryGetMember`) comes first, then C#'s, so a property, field or dynamic
+  object's member is read as before (`Tests/HotPath.fs` pins a property read at 0 B).
 
 Named or generic calls use C#'s binder unchanged (only the meta-object argument rule still
 applies to them). A member read as `… -> unit` is invoked through a void, result-discarded site.

@@ -114,6 +114,14 @@ type Sums() =
     member val Last = 0 with get, set
     member this.Note14(a: int, b: int, c: int, d: int, e: int, f: int, g: int, h: int, i: int, j: int, k: int, l: int, m: int, n: int) =
         this.Last <- a + b + c + d + e + f + g + h + i + j + k + l + m + n
+/// A DynamicObject whose CLR type has a method `Add` and whose `TryGetMember` also answers `Add`
+/// (a delegate) and `Plain`: read as a delegate type, its own answer comes first, as in C#.
+type DynamicAdd() =
+    inherit DynamicObject()
+    member _.Add(a: int, b: int) = a + b
+    member _.Sub(a: int, b: int) = a - b
+    override _.TryGetMember(binder, result) =
+        if binder.Name = "Add" then result <- box (Func<int, int, int>(fun a b -> 1000 + a + b)); true else false
 /// An internal delegate type a method is read as (#201): its Invoke and constructor are internal.
 type internal InternalPair = delegate of int * int -> int
 /// An event of an internal delegate type, whose Invoke and constructor F# compiles internal (#150).

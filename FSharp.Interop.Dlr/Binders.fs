@@ -362,7 +362,7 @@ module internal Binders =
         if not (typeof<Delegate>.IsAssignableFrom t) || t = typeof<Delegate> || t = typeof<MulticastDelegate> || t.ContainsGenericParameters then None else
         let invoke = DelegateMembers.invokeOf t
         let ps = [ for p in invoke.GetParameters() -> p.ParameterType ]
-        if isNull invoke || invoke.ReturnType.IsByRef || ps |> List.exists (fun p -> p.IsByRef) then None
+        if invoke.ReturnType.IsByRef || ps |> List.exists (fun p -> p.IsByRef) then None
         else
             let result = if invoke.ReturnType = voidType then typeof<unit> else invoke.ReturnType
             match ps with

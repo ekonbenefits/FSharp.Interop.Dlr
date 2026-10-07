@@ -237,6 +237,10 @@ module internal TranslatePatterns =
         | InvokeMember of target: Expr * name: Expr * args: Expr
         | SetMember of target: Expr * name: Expr * value: Expr
 
+    /// An expression typed as a delegate type a member can be read as (#201), with the function
+    /// type its invoker takes past fourteen parameters (`Binders.delegateRead`).
+    let (|DelegateRead|_|) (e: Expr) = Binders.delegateRead e.Type
+
     let (|MemberOp|_|) (e: Expr) =
         match e with
         | Application(EtaReduced(Op opDynamic [ Unboxed target; name ]), args) -> Some(InvokeMember(target, name, args))

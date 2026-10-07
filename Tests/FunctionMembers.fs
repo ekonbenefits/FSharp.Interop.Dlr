@@ -163,6 +163,13 @@ let ``a member holding a delegate, read as a delegate type, is that delegate`` (
     let e: obj = bag ()
     let fromExpando: Func<int, int> = dlr { return e?Del }
     fromExpando.Invoke 21 |> should equal 42
+    // A dynamic object's own member comes before its CLR type's method of the name, as in C#; a
+    // name it does not answer falls back to the method.
+    let d: obj = DynamicAdd()
+    let dynamicAdd: Func<int, int, int> = dlr { return d?Add }
+    dynamicAdd.Invoke(1, 2) |> should equal 1003
+    let clrSub: Func<int, int, int> = dlr { return d?Sub }
+    clrSub.Invoke(5, 2) |> should equal 3
 
 [<Fact>]
 let ``a method read as a delegate type fails as C# would: no such member at the read, no fitting overload at the call`` () =

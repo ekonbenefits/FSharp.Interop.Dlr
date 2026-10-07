@@ -448,10 +448,9 @@ module internal TranslateMembers =
                 | Literal name -> Binders.functionMember context (string name) e.Type (targetArg bound target)
                 | _ -> computedName nameExpr target [] e.Type (fun name targetArg _ -> Binders.functionMember context name e.Type targetArg)
                 |> Some
-            | MemberOp(GetMember(target, nameExpr)) when (match Binders.delegateRead e.Type with Some _ -> true | None -> false) ->
+            | MemberOp(GetMember(target, nameExpr)) & DelegateRead functionType ->
                 // Read as a delegate type (#201): the member's value, or an invoker of it when it
                 // is a method, so `Api.Fold(dlr { return x?Add })` passes `Add` as the `Func`.
-                let functionType = (Binders.delegateRead e.Type).Value
                 match nameExpr with
                 | Literal name -> Binders.delegateMember context (string name) e.Type functionType (targetArg bound target)
                 | _ -> computedName nameExpr target [] e.Type (fun name targetArg _ -> Binders.delegateMember context name e.Type functionType targetArg)
