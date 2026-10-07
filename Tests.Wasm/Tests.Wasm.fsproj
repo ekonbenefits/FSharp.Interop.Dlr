@@ -44,6 +44,7 @@
     <Compile Include="..\Tests\Index.fs" Link="Index.fs" />
     <Compile Include="..\Tests\Body.fs" Link="Body.fs" />
     <Compile Include="..\Tests\Cache.fs" Link="Cache.fs" />
+    <Compile Include="..\Tests\Captures.fs" Link="Captures.fs" />
     <Compile Include="..\Tests\Loops.fs" Link="Loops.fs" />
     <Compile Include="..\Tests\DynamicObjects.fs" Link="DynamicObjects.fs" />
     <Compile Include="..\Tests\TryBlocks.fs" Link="TryBlocks.fs" />
