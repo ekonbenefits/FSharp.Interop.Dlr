@@ -35,9 +35,13 @@ FSharp.Interop.Dlr/check-internals.sh  # each idiom fixed more than once has one
   job that writes widens its own `permissions:`; checkouts set `persist-credentials: false`. Run `zizmor .github/` locally before pushing a
   workflow change.
   The local gate still comes first: CI has no macOS leg, and a red push costs a cycle.
-- `Differential/run.sh` (#200, ~15 min, not in the gate): every generated capture shape run in
-  Debug and Release; Release must match Debug or refuse, and `DLR007` must warn of exactly the
-  refusals. Run it after any change to `Captures`, `letDefinition` or the analyzer's walk.
+- `Differential/run.sh` (#200, minutes, local, not in CI): every case of the capture grammar
+  (`Differential/Grammar.fsx`) run in Debug and Release; Release must match Debug or refuse, and
+  `DLR007` must warn of exactly the two-variable refusals. Run it after any change to `Captures`,
+  `letDefinition` or the analyzer's walk, then `dotnet fsi Differential/pin.fsx` to regenerate
+  `Tests/Captures.fs`: a three-way covering set of the cases, pinned to their Debug values and to
+  whether Release refuses them, which CI runs. A pinned case that changes, better or worse, fails
+  until pinned again; never edit the generated file.
 - A cold review by a general-purpose subagent (read the diff, verify every claim with a test,
   no edits) has caught things Copilot missed; worth one per non-trivial PR when asked.
 
