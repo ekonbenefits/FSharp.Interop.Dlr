@@ -669,12 +669,12 @@ type FSharpGetMemberOrMethodBinder(context: Type, name: string, csharp: GetMembe
         let ours =
             if target.HasValue && not (isNull target.Value) then
                 let t = target.LimitType
-                let isMethod =
+                let isMethod () =
                     t.GetMethods(Accessibility.all)
                     |> Array.exists (fun m -> m.Name = name && not m.IsStatic && not m.IsSpecialName && Accessibility.method' context t m)
                 // A dynamic object with nothing to read may still answer a call (`TryInvokeMember`,
                 // a proxy): the invoker asks it at the call, as a member read as a function does.
-                if isMethod || target.Value :? IDynamicMetaObjectProvider then
+                if target.Value :? IDynamicMetaObjectProvider || isMethod () then
                     Some(DynamicMetaObject(Expression.Constant(MethodGroup.Instance, typeof<obj>), BindingRestrictions.GetTypeRestriction(target.Expression, t)))
                 else None
             else None

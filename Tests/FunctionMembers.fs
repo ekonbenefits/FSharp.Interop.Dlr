@@ -187,7 +187,13 @@ let ``a method read as a delegate type fails as a call would: no CLR member at t
     viaDelegate.Invoke(1, 2) |> should equal 3
     let e: obj = Fixtures.expando []
     let missing: Func<int, int> = dlr { return e?Nope }
-    (fun () -> missing.Invoke 1 |> ignore) |> should throw typeof<RuntimeBinderException>
+    let atCall = AnyUnit.Run.Assert.Current.Throws<RuntimeBinderException>(fun () -> missing.Invoke 1 |> ignore)
+    atCall.Message |> should haveSubstring "'System.Dynamic.ExpandoObject' does not contain a definition for 'Nope'"
+    // A DynamicObject's two probes (its TryGetMember answering false), the name no method either.
+    let d: obj = DynamicAdd()
+    let missingDynamic: Func<int, int> = dlr { return d?Nope }
+    let atDynamicCall = AnyUnit.Run.Assert.Current.Throws<RuntimeBinderException>(fun () -> missingDynamic.Invoke 1 |> ignore)
+    atDynamicCall.Message |> should haveSubstring "does not contain a definition for 'Nope'"
 
 [<Fact>]
 let ``a function-typed result applied on the spot, with nothing captured`` () =

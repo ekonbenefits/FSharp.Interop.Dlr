@@ -257,7 +257,8 @@ delegate over an invoker of it (#201). So a block passes a method where a `Func`
 `Api.Fold(dlr { return w?Add })`, the block typed `Func<int, int, int>` by the parameter. A
 property, field or dynamic object's member holding a delegate is read as itself. A dynamic
 object with nothing to read is asked at the call, as for a function type: a proxy that only
-answers calls (`TryInvokeMember`) works, and a member it lacks fails at the first call.
+answers calls (`TryInvokeMember`) works, and a member it lacks fails at the first call. One that
+answers every read (a `JObject`, null for a missing key) is read as that answer, as in C#.
 
 ### Events
 
