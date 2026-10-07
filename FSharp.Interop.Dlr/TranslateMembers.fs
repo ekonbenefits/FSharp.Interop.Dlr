@@ -176,7 +176,7 @@ module internal TranslateMembers =
         /// code is `let sites = cache.Get((name, types)) in delegate.Invoke(sites.[0], …, target, args…)`.
         /// Argument names in `Dlr.named` stay static. This is the core over prepared arguments;
         /// the name and type expressions must be valid where the result is placed.
-        let private keyedSiteRaw (key: KeySpec) (targetInfo: Binders.Arg) (argInfos: Binders.Arg list) (site: string -> Type list -> Binders.Arg -> Binders.Arg list -> Expr) : Expr =
+        let private keyedSiteTyped (key: KeySpec) (targetInfo: Binders.Arg) (argInfos: Binders.Arg list) (site: string -> Type list -> Binders.Arg -> Binders.Arg list -> Expr) : Expr * Type =
             let targetVar = Var("target", targetInfo.Type)
             // A byref argument (`Dlr.out` / `Dlr.ref`) is passed as its value: a quotation variable cannot be a byref.
             let argVars = argInfos |> List.mapi (fun i a -> Var(sprintf "a%d" i, (if a.Type.IsByRef then a.Expr.Type else a.Type)))
@@ -226,12 +226,18 @@ module internal TranslateMembers =
             let linq = LeafExpressionConverter.QuotationToExpression (lambdaOver parameters boxed) :?> LambdaExpression
             let compiled = (SiteHoister().Visit linq :?> LambdaExpression).Compile()
             let invocation = Expr.Call(Expr.Value(compiled, siteDelegate), siteDelegate.GetMethod("Invoke"), packArguments parameters arguments)
-            Expr.Let(sitesVar, Expr.Call(Expr.Value(cache, cacheType), cacheType.GetMethod("Get"), [ Expr.NewTuple [ nameE; typesE ] ]), invocation)
+            Expr.Let(sitesVar, Expr.Call(Expr.Value(cache, cacheType), cacheType.GetMethod("Get"), [ Expr.NewTuple [ nameE; typesE ] ]), invocation),
+            placeholder.Type
 
-        /// `keyedSiteRaw`'s call (an `obj`) converted to `resultType`.
+        /// The keyed call, boxed to `obj` whatever the operation's own type.
+        let private keyedSiteRaw key targetInfo argInfos site : Expr = fst (keyedSiteTyped key targetInfo argInfos site)
+
+        /// `keyedSiteRaw`'s call converted to `resultType`: cast back where the operation already is
+        /// of that type (a member read as a function or delegate type), converted otherwise (a
+        /// call's result, which may be a delegate typed as a function or back, #207).
         let private keyedSiteCore (block: Block) (key: KeySpec) (targetInfo: Binders.Arg) (argInfos: Binders.Arg list) (resultType: Type) (site: string -> Type list -> Binders.Arg -> Binders.Arg list -> Expr) : Expr =
-            let call = keyedSiteRaw key targetInfo argInfos site
-            if FSharpType.IsFunction resultType then Expr.Coerce(call, resultType) else block.Convert resultType call
+            let call, operationType = keyedSiteTyped key targetInfo argInfos site
+            if operationType = resultType then Expr.Coerce(call, resultType) else block.Convert resultType call
 
         /// The key of a computed name / run-time type arguments, its expressions rewritten in
         /// the block's scope.

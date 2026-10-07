@@ -144,3 +144,23 @@ let ``a function that does not fit the delegate fails as C# does`` () =
     // Browser-wasm trims resource strings, leaving the key.
     if string Runtime.InteropServices.RuntimeInformation.OSArchitecture <> "Wasm" then
         ex.Message |> should haveSubstring "Cannot implicitly convert type"
+
+[<Fact>]
+let ``a computed name's call result and a member read's nested result convert too`` () =
+    // The same conversions behind a computed name (a per-key site), and for the result of a
+    // member read as a function or delegate type, which is itself a function or delegate.
+    let m: obj = Makers()
+    let name = "MakeDelegate"
+    let keyed: int -> int = dlr { return ((?) m name) () }
+    keyed 1 |> should equal 21
+    let invoked: int -> int = dlr { return m |> Dlr.invoke name () }
+    invoked 1 |> should equal 21
+    let other = "MakeFunction"
+    let keyedBack: Func<int, int> = dlr { return ((?) m other) () }
+    keyedBack.Invoke 1 |> should equal 11
+    let curry: int -> Func<int, int> = dlr { return m?Curry }
+    (curry 2).Invoke 3 |> should equal 5
+    let curryDelegate: Func<int, Func<int, int>> = dlr { return m?Curry }
+    curryDelegate.Invoke(2).Invoke 3 |> should equal 5
+    let curryBack: Func<int, int -> int> = dlr { return m?CurryDelegate }
+    curryBack.Invoke 2 3 |> should equal 6

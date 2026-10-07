@@ -345,6 +345,9 @@ type Arith(value: int) =
 type Makers() =
     member _.MakeFunction() : int -> int = fun x -> x + 10
     member _.MakeDelegate() : Func<int, int> = Func<int, int>(fun x -> x + 20)
+    /// A function or delegate whose result is itself one, read as a function or delegate type.
+    member _.Curry(a: int) : int -> int = fun b -> a + b
+    member _.CurryDelegate(a: int) : Func<int, int> = Func<int, int>(fun b -> a * b)
 /// A DynamicObject that converts itself to a `Func<int, int>` (`TryConvert`).
 type ConvertsToFunc() =
     inherit DynamicObject()

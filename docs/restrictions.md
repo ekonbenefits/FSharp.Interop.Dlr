@@ -106,7 +106,8 @@ sees an `FSharpFunc` and a `Func` as unrelated types.
   array element: `x?Handler <- fun a b -> …`.
 - And for a conversion: a block's result, `Dlr.implicit`, `Dlr.cast`. A property holding an F#
   function reads as a `Func` (`(dlr { return h?AsFunction } : Func<int, int>)`), a `Func` as an
-  F# function; to `Delegate` itself, the `Func`/`Action` of the function's signature.
+  F# function; to `Delegate` itself, the `Func`/`Action` of the function's signature (up to
+  sixteen parameters).
 
 An F# function handed to a **dynamic object** (a script host's object, a `DynamicObject`)
 arrives as the delegate of its own signature: `int -> unit` as an `Action<int>`. Every
