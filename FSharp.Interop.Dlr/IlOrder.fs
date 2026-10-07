@@ -125,7 +125,7 @@ module internal IlOrder =
     /// marker calls. A variable with no field is the optimizer's to inline: its recovered
     /// definition (`recover`) stands where it is read, a local function's body after its
     /// arguments. A builder call's lambdas are its loop and try bodies, inline in `MoveNext`.
-    let private quotationEvents (isBuilder: Expr option -> bool) (hasField: Var -> bool) (recover: Var -> Expr option) (family: string -> bool) (body: Expr) : Event list option =
+    let private quotationEvents (isBuilder: Expr option -> bool) (hasField: Var -> bool) (recover: Var -> Expr option) (substituted: Var -> bool) (family: string -> bool) (body: Expr) : Event list option =
         let events = ResizeArray()
         let mutable ok = true
         let debug = not (isNull (Environment.GetEnvironmentVariable "DLR_IL_DEBUG"))
@@ -159,6 +159,7 @@ module internal IlOrder =
             | TupleGet(inner, i) when (tupleOf inner).IsSome -> events.Add(Read(box ((tupleOf inner).Value, Some i)))
             | Call(None, mi, [ inner ]) when mi.DeclaringType.FullName = "Microsoft.FSharp.Core.Operators" && (mi.Name = "Fst" || mi.Name = "Snd") && (tupleOf inner).IsSome ->
                 events.Add(Read(box ((tupleOf inner).Value, Some(if mi.Name = "Fst" then 0 else 1))))
+            | Var v when family v.Name && substituted v -> ()
             | Var v when family v.Name -> events.Add(Read(box (v, (None: int option))))
             | Var v when not (hasField v) ->
                 match recover v with
@@ -219,8 +220,11 @@ module internal IlOrder =
             | TryWith(body, fv, filter, cv, handler) ->
                 walk depth body; opaque.Add fv |> ignore; opaque.Add cv |> ignore; walk depth filter; walk depth handler
             | Lambda _ ->
-                // A closure of its own: its reads are not in MoveNext.
-                if (e.GetFreeVars() |> Seq.exists (fun v -> family v.Name)) then fail "nested lambda" e
+                // Inlined where it stands, or a closure created there whose reads `ilEvents`
+                // follows to the same place: either way its reads come here.
+                let rec parameters (e: Expr) = match e with Lambda(p, b) -> opaque.Add p |> ignore; parameters b | _ -> ()
+                parameters e
+                walk depth (lambdaBody e)
             | ShapeVar _ -> ()
             | ShapeLambda _ -> ()
             | ShapeCombination(_, es) -> for x in es do walk depth x
@@ -229,7 +233,7 @@ module internal IlOrder =
 
     /// Each variable named in `names`, and the field of the machine it is, when the IL and the
     /// quotation agree; None otherwise.
-    let resolve (machine: Type) (fields: Collections.Generic.IDictionary<string, FieldInfo>) (isBuilder: Expr option -> bool) (recover: Var -> Expr option) (memberBody: Expr) (names: Set<string>) (body: Expr) : Map<Var * int option, FieldInfo> option =
+    let resolve (machine: Type) (fields: Collections.Generic.IDictionary<string, FieldInfo>) (isBuilder: Expr option -> bool) (recover: Var -> Expr option) (substituted: Var -> bool) (memberBody: Expr) (names: Set<string>) (body: Expr) : Map<Var * int option, FieldInfo> option =
         // Where each variable is bound in the member, in source order (a lambda's parameter, a
         // let's variable, a pattern's).
         let bindingOrder =
@@ -262,7 +266,7 @@ module internal IlOrder =
         // Landmarks are dropped: an over-applied marker (`o?M(a, b)`) is a function value called
         // through FSharpFunc.InvokeFast in the IL, not a call to the marker.
         let reads events = events |> Option.map (List.choose (function Read r -> Some r | Landmark _ -> None))
-        let ilR, qR = reads (ilEvents machine (fun f -> (parse f).IsSome)), reads (quotationEvents isBuilder hasField recover names.Contains body)
+        let ilR, qR = reads (ilEvents machine (fun f -> (parse f).IsSome)), reads (quotationEvents isBuilder hasField recover substituted names.Contains body)
         if not (isNull (Environment.GetEnvironmentVariable "DLR_IL_DEBUG")) then
             eprintfn "IL %A\nQ %A" ilR (qR |> Option.map (List.map (fun r -> let (v: Var), (i: int option) = unbox r in sprintf "%s#%d%A" v.Name (v.GetHashCode()) i)))
         match ilR, qR with
@@ -275,6 +279,10 @@ module internal IlOrder =
                 | Some i, Some(_, Some digits) ->
                     digits.StartsWith(string i) && Reflection.FSharpType.IsTuple v.Type
                     && f.FieldType = (Reflection.FSharpType.GetTupleElements v.Type).[i]
+                // An element of a tuple kept whole (a mutable one is never split).
+                | Some _, Some(_, None) ->
+                    f.FieldType = v.Type
+                    || (f.FieldType.IsGenericType && f.FieldType.GetGenericTypeDefinition() = typedefof<Ref<_>> && f.FieldType.GetGenericArguments().[0] = v.Type)
                 | _ -> false
             let mutable byKey = Map.empty<Var * int option, FieldInfo>
             let mutable byField = Map.empty<string, Var * int option>
@@ -295,9 +303,11 @@ module internal IlOrder =
             let ordered =
                 byKey
                 |> Map.toList
-                |> List.groupBy (fun ((v, _), _) -> v)
-                |> List.map (fun (v, ks) -> v, ks |> List.map (fun (_, f) -> List.findIndex ((=) f.Name) declared) |> List.min)
-                |> List.groupBy (fun (v, _) -> v.Name)
-                |> List.forall (fun (_, vs) -> List.sortBy (fst >> bindingOrder) vs = List.sortBy snd vs)
+                |> List.groupBy (fun ((v, _), f) -> v, (parse f.Name |> Option.bind snd).IsSome)
+                |> List.map (fun ((v, isElement), ks) -> (v, isElement), ks |> List.map (fun (_, f) -> List.findIndex ((=) f.Name) declared) |> List.min)
+                |> List.groupBy (fun ((v, isElement), _) -> v.Name, isElement)
+                |> List.forall (fun (_, vs) -> List.sortBy (fst >> fst >> bindingOrder) vs = List.sortBy snd vs)
+            if not (isNull (Environment.GetEnvironmentVariable "DLR_IL_DEBUG")) then
+                eprintfn "pairing ok=%b ordered=%b keys=%A" ok ordered (byKey |> Map.toList |> List.map (fun ((v, i), f) -> sprintf "%s#%d%A->%s" v.Name (v.GetHashCode()) i f.Name))
             if ok && ordered then Some byKey else None
         | _ -> None

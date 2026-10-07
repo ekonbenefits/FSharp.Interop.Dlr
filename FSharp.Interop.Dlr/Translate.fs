@@ -38,13 +38,19 @@ module internal Translate =
         let closure = if closureType.IsValueType then Var("sm", closureType) else Var("closure", typeof<obj>)
         let fields = Captures.fields closureType
         let reached, aliases = Captures.reached fields memberBody body
+        // A literal is its own definition wherever it is read (the optimizer substitutes it).
+        let aliases =
+            reached
+            |> List.filter (fun v -> not v.IsMutable && (match letDefinition v memberBody with Some(Value _) -> true | _ -> false))
+            |> Set.ofList
+            |> Set.union aliases
         let shared = reached |> List.countBy (fun v -> v.Name) |> List.filter (fun (_, n) -> n > 1) |> List.map fst |> Set.ofList
         // Which of the machine's `x`, `x0`, … each shared name's variables are, from the IL.
         let resolved =
             if shared.IsEmpty then Map.empty
             else
                 let recover v = letDefinition v memberBody |> Option.orElse (parameterArgument v memberBody)
-                IlOrder.resolve closureType fields (function Some r -> r.Type = builderType | None -> false) recover memberBody shared body
+                IlOrder.resolve closureType fields (function Some r -> r.Type = builderType | None -> false) recover aliases.Contains memberBody shared body
                 |> Option.defaultValue Map.empty
         let block =
             { BuilderType = builderType
@@ -87,7 +93,7 @@ module internal Translate =
             // directly or through what it inlines: an alias, a local function applied to unit.
             let rec tupleVar (e: Expr) : Var option =
                 match e with
-                | Var v when isCaptured bound v && FSharp.Reflection.FSharpType.IsTuple v.Type && not (block.Fields.ContainsKey v.Name) ->
+                | Var v when isCaptured bound v && FSharp.Reflection.FSharpType.IsTuple v.Type ->
                     match letDefinition v memberBody with
                     | Some(Var _ as d) when not v.IsMutable -> tupleVar d |> Option.orElse (Some v)
                     | _ -> Some v

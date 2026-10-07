@@ -258,8 +258,10 @@ module internal TranslateBlock =
             match (match block.Resolved.TryFind(v, None) with
                    | Some f -> (true, f)
                    | None ->
-                       if block.Ambiguous.Contains v.Name then raise (ambiguous v)
-                       if block.Substituted.Contains v then (false, null) else block.Fields.TryGetValue v.Name) with
+                       // An alias is its definition, whatever shares its name.
+                       if block.Substituted.Contains v then (false, null)
+                       elif block.Ambiguous.Contains v.Name then raise (ambiguous v)
+                       else block.Fields.TryGetValue v.Name) with
             | true, f when f.FieldType = v.Type -> Expr.FieldGet(block.Self, f)
             | true, f when isRefCell f v.Type ->
                 Expr.PropertyGet(Expr.FieldGet(block.Self, f), f.FieldType.GetProperty("Value"))
@@ -289,6 +291,8 @@ module internal TranslateBlock =
         /// optimizer split `v` (`elementField`); None to read `v` itself.
         let element (block: Block) (v: Var) (i: int) : Expr option =
             match block.Resolved.TryFind(v, Some i) with
+            | Some f when f.FieldType = v.Type -> Some(Expr.TupleGet(Expr.FieldGet(block.Self, f), i))
+            | Some f when isRefCell f v.Type -> Some(Expr.TupleGet(Expr.PropertyGet(Expr.FieldGet(block.Self, f), f.FieldType.GetProperty("Value")), i))
             | Some f -> Some(Expr.FieldGet(block.Self, f))
             | None ->
             if block.Ambiguous.Contains v.Name then raise (ambiguous v)
