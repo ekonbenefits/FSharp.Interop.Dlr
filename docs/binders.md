@@ -219,6 +219,16 @@ An array is indexed by any integer type C# takes (`int`, `uint`, `long`, `ulong`
 narrower ones). A struct target is assigned (and, by the call fallback, called) in its box, as
 C# does.
 
+### Conversions
+
+A value converted to a delegate or F# function type takes the same conversions (#202): a
+block's result (`(dlr { return h?AsFunction } : Func<int, int>)`), `Dlr.implicit` and
+`Dlr.cast`. **`FSharpConvertBinder`** wraps C#'s `Convert` and offers `Fallback.conversion`,
+restricted to the value's type, as its error suggestion. To any other type the site is C#'s
+binder as is. What C# converts itself (a delegate of the type, a `TryConvert`, null,
+`FSharpFunc`'s `op_Implicit` to a `Converter`) stays C#'s; to `Delegate` itself ours goes first,
+as for a slot, since a `Converter<Unit, R>` of a `unit -> R` fails a `DynamicInvoke()`.
+
 ### Meta-object targets
 
 Meta-object targets have no parameter types to drive that. Every script host and
