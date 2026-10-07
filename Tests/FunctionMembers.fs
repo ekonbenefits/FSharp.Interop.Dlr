@@ -171,6 +171,12 @@ let ``a member holding a delegate, read as a delegate type, is that delegate`` (
     let clrSub: Func<int, int, int> = dlr { return d?Sub }
     clrSub.Invoke(5, 2) |> should equal 3
 
+/// C#'s "does not contain a definition for 'name'"; browser-wasm trims resource strings, leaving
+/// the resource key.
+let private noSuchMember (name: string) (ex: RuntimeBinderException) =
+    if string Runtime.InteropServices.RuntimeInformation.OSArchitecture = "Wasm" then ex.Message |> should equal "NoSuchMember"
+    else ex.Message |> should haveSubstring (sprintf "does not contain a definition for '%s'" name)
+
 [<Fact>]
 let ``a method read as a delegate type fails as a call would: no CLR member at the read, a dynamic object or overload at the call`` () =
     let w: obj = Widget()
@@ -188,12 +194,12 @@ let ``a method read as a delegate type fails as a call would: no CLR member at t
     let e: obj = Fixtures.expando []
     let missing: Func<int, int> = dlr { return e?Nope }
     let atCall = AnyUnit.Run.Assert.Current.Throws<RuntimeBinderException>(fun () -> missing.Invoke 1 |> ignore)
-    atCall.Message |> should haveSubstring "'System.Dynamic.ExpandoObject' does not contain a definition for 'Nope'"
+    atCall |> noSuchMember "Nope"
     // A DynamicObject's two probes (its TryGetMember answering false), the name no method either.
     let d: obj = DynamicAdd()
     let missingDynamic: Func<int, int> = dlr { return d?Nope }
     let atDynamicCall = AnyUnit.Run.Assert.Current.Throws<RuntimeBinderException>(fun () -> missingDynamic.Invoke 1 |> ignore)
-    atDynamicCall.Message |> should haveSubstring "does not contain a definition for 'Nope'"
+    atDynamicCall |> noSuchMember "Nope"
 
 [<Fact>]
 let ``a function-typed result applied on the spot, with nothing captured`` () =
