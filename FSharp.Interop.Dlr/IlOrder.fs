@@ -203,16 +203,21 @@ module internal IlOrder =
                 target |> Option.iter (walk depth)
                 for a in args do
                     match a with
-                    | Lambda _ -> walk depth (lambdaBody a)
+                    | Lambda _ ->
+                        let rec parameters (e: Expr) = match e with Lambda(p, b) -> opaque.Add p |> ignore; parameters b | _ -> ()
+                        parameters a
+                        walk depth (lambdaBody a)
                     | _ -> walk depth a
             | Call(target, mi, args) ->
                 target |> Option.iter (walk depth)
                 for a in args do walk depth a
                 if isMarker mi then events.Add(Landmark mi.Name)
             // Binding forms: the generic shape gives their bodies as lambdas, which they are not.
-            | Let(_, d, b) -> walk depth d; walk depth b
-            | ForIntegerRangeLoop(_, a, b, body) -> walk depth a; walk depth b; walk depth body
-            | TryWith(body, _, filter, _, handler) -> walk depth body; walk depth filter; walk depth handler
+            // Variables bound inside the block are its own, never captures: not recovered.
+            | Let(v, d, b) -> walk depth d; opaque.Add v |> ignore; walk depth b
+            | ForIntegerRangeLoop(v, a, b, body) -> walk depth a; walk depth b; opaque.Add v |> ignore; walk depth body
+            | TryWith(body, fv, filter, cv, handler) ->
+                walk depth body; opaque.Add fv |> ignore; opaque.Add cv |> ignore; walk depth filter; walk depth handler
             | Lambda _ ->
                 // A closure of its own: its reads are not in MoveNext.
                 if (e.GetFreeVars() |> Seq.exists (fun v -> family v.Name)) then fail "nested lambda" e
