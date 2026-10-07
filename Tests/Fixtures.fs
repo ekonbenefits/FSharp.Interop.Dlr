@@ -341,6 +341,18 @@ type Arith(value: int) =
         // Only "Value" exists; anything else is a genuine miss.
         if binder.Name = "Value" then result <- box value; true else false
 
+/// Results a block converts between F# function and delegate types (#202).
+type Makers() =
+    member _.MakeFunction() : int -> int = fun x -> x + 10
+    member _.MakeDelegate() : Func<int, int> = Func<int, int>(fun x -> x + 20)
+    /// A function or delegate whose result is itself one, read as a function or delegate type.
+    member _.Curry(a: int) : int -> int = fun b -> a + b
+    member _.CurryDelegate(a: int) : Func<int, int> = Func<int, int>(fun b -> a * b)
+/// A DynamicObject that converts itself to a `Func<int, int>` (`TryConvert`).
+type ConvertsToFunc() =
+    inherit DynamicObject()
+    override _.TryConvert(binder, result) =
+        if binder.Type = typeof<Func<int, int>> then result <- box (Func<int, int>(fun x -> x - 1)); true else false
 /// IDynamicMetaObjectProvider implemented directly, without DynamicObject.
 type Bag() =
     let data = Dictionary<string, obj>()

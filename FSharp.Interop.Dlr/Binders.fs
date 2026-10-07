@@ -212,6 +212,15 @@ module internal Binders =
         let csharp = Binder.SetMember(CSharpBinderFlags.None, name, context, [ argInfo target; argInfo value ]) :?> SetMemberBinder
         siteCall (MetaObjectAwareBinder(FSharpSetMemberBinder(context, name, csharp))) [ target; value ] typeof<obj>
 
+    /// C#'s Convert to `resultType`; to a delegate or F# function type through
+    /// `FSharpConvertBinder`, so a function value becomes a delegate and back (#202). Every
+    /// other type keeps C#'s binder as it is.
+    let private convertBinder (context: Type) (flags: CSharpBinderFlags) (resultType: Type) : CallSiteBinder =
+        let csharp = Binder.Convert(flags, resultType, context)
+        if typeof<Delegate>.IsAssignableFrom resultType || FSharp.Reflection.FSharpType.IsFunction resultType then
+            FSharpConvertBinder(csharp :?> ConvertBinder) :> CallSiteBinder
+        else csharp
+
     /// C#'s InvokeMember binder wrapped to apply F# function values (see FSharpInvokeMemberBinder)
     /// for positional, non-generic calls of any arity; otherwise C#'s binder as is.
     let private smartInvokeMember (context: Type) (name: string) (typeArgs: Type list) (discard: bool) (all: Arg list) : CallSiteBinder =
@@ -303,7 +312,7 @@ module internal Binders =
                 // must not name (see WideSite).
                 let sites =
                     [ yield invokeSite
-                      if not discard then yield site (Binder.Convert(CSharpBinderFlags.None, resultType, context)) [ dynamicArg (Expr.Value(null, typeof<obj>)) ] resultType ]
+                      if not discard then yield site (convertBinder context CSharpBinderFlags.None resultType) [ dynamicArg (Expr.Value(null, typeof<obj>)) ] resultType ]
                     |> List.map (function Patterns.Value(v, t) -> v, t | _ -> failwith "unreachable")
                 let factoryType = Expression.GetFuncType(Array.ofList ([ for _ in sites -> typeof<CallSite> ] @ [ typeof<obj>; functionType ]))
                 // The factory depends on the function type and the sites' types, not on the sites:
@@ -329,7 +338,7 @@ module internal Binders =
                 let helper = if argTypes.IsEmpty then helper else helper.MakeGenericMethod(Array.ofList argTypes)
                 Expr.Call(helper, [ invokeSite; target.Expr ])
             else
-                let convertSite = site (Binder.Convert(CSharpBinderFlags.None, resultType, context)) [ dynamicArg (Expr.Value(null, typeof<obj>)) ] resultType
+                let convertSite = site (convertBinder context CSharpBinderFlags.None resultType) [ dynamicArg (Expr.Value(null, typeof<obj>)) ] resultType
                 let helper = typeof<FunctionMember>.GetMethod(shape).MakeGenericMethod(Array.ofList (argTypes @ [ resultType ]))
                 Expr.Call(helper, [ invokeSite; convertSite; target.Expr ])
         if shortcut then
@@ -399,7 +408,7 @@ module internal Binders =
                 let invokeSite = site (memberInvoker context name target' all discard) all (if discard then voidType else typeof<obj>)
                 let sites, typeArgs =
                     if discard then [ invokeSite ], ps
-                    else [ invokeSite; site (Binder.Convert(CSharpBinderFlags.None, invokeMethod.ReturnType, context)) [ dynamicArg (Expr.Value(null, typeof<obj>)) ] invokeMethod.ReturnType ], ps @ [ invokeMethod.ReturnType ]
+                    else [ invokeSite; site (convertBinder context CSharpBinderFlags.None invokeMethod.ReturnType) [ dynamicArg (Expr.Value(null, typeof<obj>)) ] invokeMethod.ReturnType ], ps @ [ invokeMethod.ReturnType ]
                 let def = typeof<MemberInvokers.Action0>.DeclaringType.GetNestedType((if discard then "Action" else "Func") + string ps.Length + (if typeArgs.IsEmpty then "" else "`" + string typeArgs.Length))
                 let invokerType = if typeArgs.IsEmpty then def else def.MakeGenericType(Array.ofList typeArgs)
                 invoke (FunctionConversions.over invokerType delegateType) (Expr.NewObject(invokerType.GetConstructors().[0], sites @ [ Expr.Coerce(target'.Expr, typeof<obj>) ]))
@@ -407,7 +416,7 @@ module internal Binders =
                 // Past fourteen the site is wide: the member read as a function, converted
                 // (`delegateRead` checked that it converts).
                 invoke (FunctionConversions.tryConversion functionType delegateType).Value (functionMember context name functionType target')
-        let converted = siteCall (Binder.Convert(CSharpBinderFlags.None, delegateType, context)) [ dynamicArg (Expr.Var valueVar) ] delegateType
+        let converted = siteCall (convertBinder context CSharpBinderFlags.None delegateType) [ dynamicArg (Expr.Var valueVar) ] delegateType
         Expr.Let(targetVar, target.Expr,
           Expr.Let(valueVar, read,
             Expr.IfThenElse(Expr.Call(typeof<MethodGroup>.GetMethod("Is"), [ Expr.Var valueVar ]), invoker, converted)))
@@ -477,11 +486,8 @@ module internal Binders =
     let convert (context: Type) (resultType: Type) (e: Expr) : Expr =
         if resultType = typeof<obj> then e
         elif resultType = typeof<unit> then Expr.Sequential(e, Expr.Value(()))
-        else
-            let binder = Binder.Convert(CSharpBinderFlags.None, resultType, context)
-            siteCall binder [ dynamicArg e ] resultType
+        else siteCall (convertBinder context CSharpBinderFlags.None resultType) [ dynamicArg e ] resultType
 
     /// Explicit conversion (a C# cast) of an `obj`-typed expression to `resultType`.
     let convertExplicit (context: Type) (resultType: Type) (e: Expr) : Expr =
-        let binder = Binder.Convert(CSharpBinderFlags.ConvertExplicit, resultType, context)
-        siteCall binder [ dynamicArg e ] resultType
+        siteCall (convertBinder context CSharpBinderFlags.ConvertExplicit resultType) [ dynamicArg e ] resultType

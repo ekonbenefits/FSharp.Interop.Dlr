@@ -46,19 +46,20 @@ exactly as C# would.
 
 **Our rule first** (`ours1`):
 - structural `=` / `<` on records and unions;
-- a `Delegate`-typed parameter or slot given an F# function;
+- a `Delegate`-typed parameter, slot or conversion given an F# function;
 - an F# internal delegate invoked on .NET Framework.
 
 **Our rule as C#'s error suggestion** (`ours2`):
 - an F# function member applied;
 - F# optional parameters filled;
-- a function ↔ delegate argument converted;
+- a function ↔ delegate argument, assigned value or converted value (a block's result,
+  `Dlr.implicit`, `Dlr.cast`) converted;
 - constructors and static overloads by the same rules.
 
 **Meta-object targets** (`meta`; a script object, a `DynamicObject`): an F# function argument or
 value becomes the delegate of its signature, then the meta-object binds as usual.
 
-The invoke, set-member and set-index binders state which case they are in through
+The invoke, set-member, set-index and convert binders state which case they are in through
 `Seam.oursFirstWhen`; structural `==` and a `Delegate`-typed parameter decide in their own
 binders (`FSharpBinaryOperationBinder`, `FSharpInvokeMemberBinder`). Both paths produce DLR rules
 restricted on runtime types, so the decision is cached per type like everything else.
@@ -218,6 +219,16 @@ parameter, ours goes first (`assignsAbstractDelegate`): C# would store that
 An array is indexed by any integer type C# takes (`int`, `uint`, `long`, `ulong` and the
 narrower ones). A struct target is assigned (and, by the call fallback, called) in its box, as
 C# does.
+
+### Conversions
+
+A value converted to a delegate or F# function type takes the same conversions (#202): a
+block's result (`(dlr { return h?AsFunction } : Func<int, int>)`), `Dlr.implicit` and
+`Dlr.cast`. **`FSharpConvertBinder`** wraps C#'s `Convert` and offers `Fallback.conversion`,
+restricted to the value's type, as its error suggestion. To any other type the site is C#'s
+binder as is. What C# converts itself (a delegate of the type, a `TryConvert`, null,
+`FSharpFunc`'s `op_Implicit` to a `Converter`) stays C#'s; to `Delegate` itself ours goes first,
+as for a slot, since a `Converter<Unit, R>` of a `unit -> R` fails a `DynamicInvoke()`.
 
 ### Meta-object targets
 

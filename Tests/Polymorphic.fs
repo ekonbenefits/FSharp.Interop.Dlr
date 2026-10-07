@@ -65,6 +65,23 @@ let ``read as a delegate type: a method, a held delegate, a dynamic object's own
         obj.ReferenceEquals(bind expando, held) |> should equal true
 
 [<Fact>]
+let ``converted to a delegate type: a delegate, two kinds of F# function, a TryConvert object and null through one site`` () =
+    // #202: C#'s rules (the delegate itself, TryConvert, null) and ours (an F# function) alternate.
+    let toFunc (v: obj) : Func<int, int> = dlr { return Dlr.implicit v }
+    let held = Func<int, int>(fun x -> x * 2)
+    let delegate' = box held
+    let lambda = box (fun (x: int) -> x + 100)
+    let partial = box ((fun (a: int) (b: int) -> a * b) 7)        // another closure type
+    let convertible = box (ConvertsToFunc())
+    let none: obj = null
+    for _ in 1 .. rounds do
+        [ toFunc delegate'; toFunc lambda; toFunc partial; toFunc convertible ]
+        |> List.map (fun f -> f.Invoke 3)
+        |> should equal [ 6; 103; 21; 2 ]
+        obj.ReferenceEquals(toFunc delegate', held) |> should equal true
+        isNull (toFunc none) |> should equal true
+
+[<Fact>]
 let ``unit -> R: a property, a parameterless method, a delegate and an F# function through one site`` () =
     let bind (o: obj) : unit -> int = dlr { return o?Value }
     let property = box {| Value = 1 |}
