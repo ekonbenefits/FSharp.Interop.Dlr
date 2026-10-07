@@ -388,12 +388,12 @@ module internal Binders =
             Expr.Coerce(Expr.Call(Expr.Value(factory, typeof<Func<obj, Delegate>>), typeof<Func<obj, Delegate>>.GetMethod("Invoke"),
                                   [ Expr.Coerce(instance, typeof<obj>) ]), delegateType)
         let invoker =
-            let invokeMethod = DelegateMembers.invokeOf delegateType
-            let ps = [ for p in invokeMethod.GetParameters() -> p.ParameterType ]
             match functionType with
             | None ->
                 // The delegate straight over a `MemberInvokers` instance holding the sites: one hop
                 // from the delegate to the site call.
+                let invokeMethod = DelegateMembers.invokeOf delegateType
+                let ps = [ for p in invokeMethod.GetParameters() -> p.ParameterType ]
                 let discard = invokeMethod.ReturnType = voidType
                 let all = target' :: [ for t in ps -> typedArg (Expr.Value(null, t)) ]
                 let invokeSite = site (memberInvoker context name target' all discard) all (if discard then voidType else typeof<obj>)

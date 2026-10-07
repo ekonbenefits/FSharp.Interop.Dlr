@@ -341,6 +341,10 @@ module internal TranslateMembers =
         let private namedOfCall (block: Block) (rewriteIn: Rewrite) bound (target: Expr) (argExprs: Expr list) (resultType: Type) (discard: bool) (operation: Binders.Arg -> Binders.Arg list -> Expr) : Expr option =
             namedOfCallKeyed block rewriteIn bound target argExprs resultType discard None (fun _ t args -> operation t args)
 
+        /// An expression typed as a delegate type a member can be read as (#201), with the function
+        /// type its invoker takes past fourteen parameters (`Binders.delegateRead`).
+        let private (|DelegateRead|_|) (e: Expr) = Binders.delegateRead e.Type
+
         /// `(?) x name` with a computed name (no type arguments): see keyedSite.
         let private computedName block rewriteIn bound (nameExpr: Expr) (target: Expr) (argExprs: Expr list) (resultType: Type) (site: string -> Binders.Arg -> Binders.Arg list -> Expr) : Expr =
             keyedSite block rewriteIn bound nameExpr (StaticTypes []) target argExprs resultType (fun name _ targetArg args -> site name targetArg args)
