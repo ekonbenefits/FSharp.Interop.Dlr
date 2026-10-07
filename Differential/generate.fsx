@@ -81,6 +81,11 @@ let reaches =
         Defs = (fun _ n k -> [ sprintf "let rec r%d i = if i = 0 then %s else r%d (i - 1)" k n k ]); Read = fun t _ k -> t.Get (sprintf "r%d 2" k) }
       { Name = "lambda-value"; Direct = false; NeedsMutable = false
         Defs = (fun _ n k -> [ sprintf "let g%d = fun () -> %s" k n ]); Read = fun t _ k -> t.Get (sprintf "g%d ()" k) }
+      // `inline`: inlined in Release, a specialized local function in Debug (#200).
+      { Name = "inline-fun"; Direct = false; NeedsMutable = false
+        Defs = (fun _ n k -> [ sprintf "let inline i%d () = %s" k n ]); Read = fun t _ k -> t.Get (sprintf "i%d ()" k) }
+      { Name = "inline-lambda"; Direct = true; NeedsMutable = false
+        Defs = (fun _ _ _ -> []); Read = fun t n _ -> t.Get (sprintf "applyInline (fun () -> %s)" n) }
       { Name = "setter"; Direct = false; NeedsMutable = true
         Defs = (fun t n k -> [ sprintf "let s%d () = %s <- %s; %s" k n (t.Of (t.Get n + " + 100")) n ]); Read = fun t _ k -> t.Get (sprintf "s%d ()" k) } ]
 
@@ -152,7 +157,8 @@ let identifier (s: string) = s.Replace("-", "_")
 let dir = Path.Combine(__SOURCE_DIRECTORY__, "Cases")
 if Directory.Exists dir then Directory.Delete(dir, true)
 Directory.CreateDirectory dir |> ignore
-let perFile = 300
+// Small modules: a block's first call looks for its body among its module's members.
+let perFile = 40
 cases
 |> List.chunkBySize perFile
 |> List.iteri (fun i chunk ->
