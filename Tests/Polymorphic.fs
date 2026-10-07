@@ -47,6 +47,24 @@ let ``read as a function type: alternating kinds behind one bound function`` () 
         [ fromMethod 10 5; fromDelegate 10 5; fromFunction 10 5 ] |> should equal [ 115; 50; 5 ]
 
 [<Fact>]
+let ``read as a delegate type: a method, a held delegate, a dynamic object's own and a proxy through one site`` () =
+    // #201: the marker rule (a method, a dynamic object with nothing to read) and plain reads of a
+    // held delegate alternate at one site; a held delegate comes back as itself.
+    let bind (o: obj) : Func<int, int, int> = dlr { return o?Add }
+    let held = Func<int, int, int>(fun a b -> a * b)
+    let method' = box (Counted(100))
+    let property = box {| Add = held |}
+    let expando = box (Fixtures.expando [ "Add", box held ])
+    let dynamicOwn = box (DynamicAdd())                     // its own Add over its CLR type's method
+    let proxy = box (InvokeOnly())                          // nothing to read: asked at the call
+    for _ in 1 .. rounds do
+        [ bind method'; bind property; bind expando; bind dynamicOwn; bind proxy ]
+        |> List.map (fun f -> f.Invoke(10, 5))
+        |> should equal [ 115; 50; 50; 1015; 15 ]
+        obj.ReferenceEquals(bind property, held) |> should equal true
+        obj.ReferenceEquals(bind expando, held) |> should equal true
+
+[<Fact>]
 let ``unit -> R: a property, a parameterless method, a delegate and an F# function through one site`` () =
     let bind (o: obj) : unit -> int = dlr { return o?Value }
     let property = box {| Value = 1 |}

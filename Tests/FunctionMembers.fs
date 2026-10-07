@@ -154,6 +154,29 @@ let ``reading a method as a delegate type has no arity limit`` () =
     keyed.Invoke(1, 1, 1, 1, 1, 1, 1, 1) |> should equal 8
 
 [<Fact>]
+let ``a delegate's own parameter boundaries hold: a tuple parameter, a unit parameter, a function result`` () =
+    // Each `Invoke` parameter is one slot, whatever its type: an F# function type would read
+    // `int * int` as two parameters, `unit` as none and `-> (int -> int)` as one more.
+    let b: obj = Boundaries()
+    let pair: Func<int * int, int> = dlr { return b?Pair }
+    let unit': Func<unit, int> = dlr { return b?Unit }
+    let adder: Func<int -> int> = dlr { return b?Adder }
+    pair.Invoke((2, 3)) |> should equal 5
+    unit'.Invoke(()) |> should equal 7
+    adder.Invoke() 4 |> should equal 5
+    let pairHeld: Func<int * int, int> = dlr { return b?PairHeld }
+    let unitHeld: Func<unit, int> = dlr { return b?UnitHeld }
+    let adderHeld: Func<int -> int> = dlr { return b?AdderHeld }
+    pairHeld.Invoke((2, 3)) |> should equal 6
+    unitHeld.Invoke(()) |> should equal 9
+    adderHeld.Invoke() 4 |> should equal 40
+    // Past fourteen, where the read of a method goes through a function type, one returning a
+    // function is left to C#: a property holding it is read, a method is C#'s error at the read.
+    let wideHeld: WideToFunction = dlr { return b?WideHeld }
+    wideHeld.Invoke(2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) 5 |> should equal 7
+    (fun () -> (dlr { return b?Wide } : WideToFunction) |> ignore) |> should throw typeof<RuntimeBinderException>
+
+[<Fact>]
 let ``a member holding a delegate, read as a delegate type, is that delegate`` () =
     // Only a method falls back: a property, field or dynamic object's member is C#'s read, as before.
     let holders = Holders()

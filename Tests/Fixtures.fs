@@ -114,6 +114,20 @@ type Sums() =
     member val Last = 0 with get, set
     member this.Note14(a: int, b: int, c: int, d: int, e: int, f: int, g: int, h: int, i: int, j: int, k: int, l: int, m: int, n: int) =
         this.Last <- a + b + c + d + e + f + g + h + i + j + k + l + m + n
+/// A delegate of fifteen parameters returning an F# function: past the typed invokers, where the
+/// read of a method would go through a function type that cannot keep the result apart (#201).
+type WideToFunction = delegate of int * int * int * int * int * int * int * int * int * int * int * int * int * int * int -> (int -> int)
+/// Delegate signatures whose parameter boundaries an F# function type would blur (#201): a tuple
+/// parameter, a unit parameter, a function result; as methods and as properties holding them.
+type Boundaries() =
+    member _.Pair(p: int * int) = fst p + snd p
+    member _.Unit(_: unit) = 7
+    member _.Adder() : int -> int = fun x -> x + 1
+    member val PairHeld = Func<int * int, int>(fun (a, b) -> a * b) with get
+    member val UnitHeld = Func<unit, int>(fun () -> 9) with get
+    member val AdderHeld = Func<int -> int>(fun () -> fun x -> x * 10) with get
+    member _.Wide(a: int, _: int, _: int, _: int, _: int, _: int, _: int, _: int, _: int, _: int, _: int, _: int, _: int, _: int, _: int) : int -> int = fun x -> x * a
+    member val WideHeld = WideToFunction(fun a _ _ _ _ _ _ _ _ _ _ _ _ _ _ -> fun x -> x + a) with get
 /// A DynamicObject whose CLR type has a method `Add` and whose `TryGetMember` also answers `Add`
 /// (a delegate) and `Plain`: read as a delegate type, its own answer comes first, as in C#.
 type DynamicAdd() =
