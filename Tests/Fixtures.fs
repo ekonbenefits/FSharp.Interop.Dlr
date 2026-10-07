@@ -122,7 +122,8 @@ type DynamicAdd() =
     member _.Sub(a: int, b: int) = a - b
     override _.TryGetMember(binder, result) =
         if binder.Name = "Add" then result <- box (Func<int, int, int>(fun a b -> 1000 + a + b)); true else false
-/// A DynamicObject that answers calls only (`TryInvokeMember`), with no member to read: a proxy.
+/// A DynamicObject that answers calls only (`TryInvokeMember`), with no member to read: a proxy,
+/// which a member read as a delegate type asks at the call (#201).
 type InvokeOnly() =
     inherit DynamicObject()
     override _.TryInvokeMember(binder, args, result) =

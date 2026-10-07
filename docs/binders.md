@@ -90,7 +90,8 @@ These three carry the function rule:
   target the value itself is the result unless it is a delegate or function.
 - **`FSharpGetMemberOrMethodBinder`** (`x?Name` read as a delegate type, #201). C#'s
   `GetMember`, with ours as its error suggestion where the name is an accessible instance
-  method: the `MethodGroup` marker, restricted to the target's type. The block then builds the
+  method, or the target is a dynamic object with nothing to read (asked at the call, as a
+  function type's invoker is): the `MethodGroup` marker, restricted to the target's type. The block then builds the
   delegate over a `MemberInvokers` instance (past fourteen parameters, over the member read as
   a function). Ours only where nothing else is suggested: a meta-object's own rule (a
   `DynamicObject`'s `TryGetMember`) comes first, then C#'s, so a property, field or dynamic

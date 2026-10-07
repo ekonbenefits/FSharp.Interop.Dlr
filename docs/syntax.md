@@ -255,9 +255,9 @@ whether the member is a method, a delegate or an F# function. So
 Read as a delegate type, `x?Name` is the member's value, or, when the member is a method, the
 delegate over an invoker of it (#201). So a block passes a method where a `Func` is expected:
 `Api.Fold(dlr { return w?Add })`, the block typed `Func<int, int, int>` by the parameter. A
-property, field or dynamic object's member holding a delegate is read as itself. So a dynamic
-object must have the member to read (its `TryGetMember`): one that only answers calls
-(`TryInvokeMember`) fails the read, as in C#, where a function type would only call it.
+property, field or dynamic object's member holding a delegate is read as itself. A dynamic
+object with nothing to read is asked at the call, as for a function type: a proxy that only
+answers calls (`TryInvokeMember`) works, and a member it lacks fails at the first call.
 
 ### Events
 

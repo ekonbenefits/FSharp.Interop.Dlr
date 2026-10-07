@@ -86,8 +86,8 @@ delegate-typed members and delegate values.
   `let add: int -> int -> int = dlr { return w?Add }`. Curried or tupled, any arity.
 - A method can be read as a delegate type, as a block passed where a `Func` is expected:
   `Api.Fold(dlr { return w?Add })`. Any arity, `internal` delegate types included; no `ref` or
-  `out` parameters. A dynamic object is read first, so it must have the member, not only answer
-  a call to it (a function type only calls).
+  `out` parameters. A dynamic object with nothing to read is asked at the call, as for a function
+  type, so a proxy that only answers calls works.
 
 C# has no form for any of these: `dynamic` has no method groups.
 

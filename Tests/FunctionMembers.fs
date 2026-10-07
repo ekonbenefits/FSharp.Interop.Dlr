@@ -172,18 +172,22 @@ let ``a member holding a delegate, read as a delegate type, is that delegate`` (
     clrSub.Invoke(5, 2) |> should equal 3
 
 [<Fact>]
-let ``a method read as a delegate type fails as C# would: no such member at the read, no fitting overload at the call`` () =
+let ``a method read as a delegate type fails as a call would: no CLR member at the read, a dynamic object or overload at the call`` () =
     let w: obj = Widget()
     (fun () -> (dlr { return w?Nope } : Func<int, int>) |> ignore) |> should throw typeof<RuntimeBinderException>
     let one: Func<int, int> = dlr { return w?Add }                   // read: fine, as for a function type
     (fun () -> one.Invoke 1 |> ignore) |> should throw typeof<RuntimeBinderException>
-    // A dynamic object that answers the call but has no member to read: the function type only
-    // calls, so it works; the delegate type reads first (a member holding a delegate is that
-    // delegate), and there is nothing to read, as in C# (`Func<int, int, int> f = d.Add`).
+    // A dynamic object with nothing to read is asked at the call, as a member read as a function
+    // is: a proxy answering calls only works (C# fails the read, `Func<int, int, int> f = d.Add`),
+    // and a member it does not have fails at the first call, not at the read.
     let proxy: obj = InvokeOnly()
     let viaFunction: int -> int -> int = dlr { return proxy?Add }
+    let viaDelegate: Func<int, int, int> = dlr { return proxy?Add }
     viaFunction 1 2 |> should equal 3
-    (fun () -> (dlr { return proxy?Add } : Func<int, int, int>) |> ignore) |> should throw typeof<RuntimeBinderException>
+    viaDelegate.Invoke(1, 2) |> should equal 3
+    let e: obj = Fixtures.expando []
+    let missing: Func<int, int> = dlr { return e?Nope }
+    (fun () -> missing.Invoke 1 |> ignore) |> should throw typeof<RuntimeBinderException>
 
 [<Fact>]
 let ``a function-typed result applied on the spot, with nothing captured`` () =
