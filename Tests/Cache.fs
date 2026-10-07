@@ -99,6 +99,49 @@ let ``a recursive local function the optimizer inlines still resolves`` () =
     mutuallyRecursiveLocals w 7 |> should equal 16
     recursiveSiblingShadowed w 7 |> should equal 23
 
+/// A tuple the block reads whole: Release splits it into a field per element (`t_0`, `t_1`),
+/// and its definition must not run again (#203).
+let private wholeTuple (o: obj) : int =
+    let t = (Ticks.Next(), Ticks.Next() * 10)
+    dlr { return o?Add(fst t, snd t) }
+
+/// One element a constant: the optimizer inlines it and gives it no field.
+let private tupleWithAConstant (o: obj) : int =
+    let t = (Ticks.Next(), 70)
+    dlr { return o?Add(fst t, snd t) }
+
+/// Built in an `if`: the elements become mutable locals, `t_0$tupleElem`.
+let private branchingTuple (o: obj) : int =
+    let t = if Ticks.Next() > 0 then (Ticks.Next(), 70) else (0, 0)
+    dlr { return o?Add(fst t, snd t) }
+
+/// Built behind lets: its elements are fields under their own names, and its definition runs
+/// `Ticks.Next()` again, so it is refused rather than recovered.
+let private tupleBehindLets (o: obj) : int =
+    let t = (let a = Ticks.Next() in let b = 70 in (a, b))
+    dlr { return o?Add(fst t, snd t) }
+
+/// Only its first element read: Release keeps only `t_0`, which `fst t` reads.
+let private firstOfATuple (o: obj) : int =
+    let t = (Ticks.Next(), Ticks.Next() * 10)
+    dlr { return o?Add(fst t, 0) }
+
+[<Fact>]
+let ``a tuple the block reads whole is not built again`` () =
+    let w = box (Widget())
+    Ticks.Reset()
+    wholeTuple w |> should equal 21
+    Ticks.Reset()
+    firstOfATuple w |> should equal 1
+    Ticks.Reset()
+    tupleWithAConstant w |> should equal 71
+    Ticks.Reset()
+    branchingTuple w |> should equal 72
+    Ticks.Reset()
+    match (try Ok(tupleBehindLets w) with :? DlrTranslationException as e -> Error e.Message) with
+    | Ok n -> n |> should equal 71
+    | Error message -> message |> should haveSubstring "would run the definition of 't' again"
+
 /// A shadowed name inside a local function the Release optimizer inlines: the machine captures
 /// only the later `x`, and the earlier one, reached through `f`'s recovered definition, read that
 /// field and returned 1400 (#196).

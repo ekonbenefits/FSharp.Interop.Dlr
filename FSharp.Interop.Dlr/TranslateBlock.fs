@@ -159,6 +159,55 @@ module internal TranslateBlock =
                 if not (List.contains f own) then fields.[f.Name] <- f
             fields :> _
 
+        /// Whether recovering `e` runs nothing twice: the optimizer moves no effect into the
+        /// block's closure, so an effect in a recovered definition has run already, outside it
+        /// (#203). Literals, variables, lambdas (built, not run), the F# operators, and tuples,
+        /// unions, records, lets of those.
+        let rec effectFree (e: Expr) =
+            match e with
+            | Value _ | Var _ | Lambda _ | DefaultValue _ -> true
+            | NewTuple es | NewUnionCase(_, es) | NewRecord(_, es) -> List.forall effectFree es
+            | Coerce(x, _) | TupleGet(x, _) -> effectFree x
+            | Let(_, d, b) -> effectFree d && effectFree b
+            | LetRecursive(bs, b) -> List.forall (snd >> effectFree) bs && effectFree b
+            | Call(None, mi, args) ->
+                mi.DeclaringType.FullName = "Microsoft.FSharp.Core.Operators" && mi.Name.StartsWith "op_" && List.forall effectFree args
+            | _ -> false
+
+        /// The field element `i` of a reference tuple the Release optimizer split is held in: `t_0`,
+        /// `t_1`, … (`ExpandStructuralBinding`), with `$tupleElem` after each when its definition
+        /// branched (`TryRewriteBranchingTupleBinding`); an element nothing reads has none (#203).
+        let elementField (fields: Collections.Generic.IDictionary<string, Reflection.FieldInfo>) (v: Var) (i: int) : Reflection.FieldInfo option =
+            if not (FSharpType.IsTuple v.Type) || v.Type.IsValueType || fields.ContainsKey v.Name then None
+            else
+                let t = (FSharpType.GetTupleElements v.Type).[i]
+                [ sprintf "%s_%d" v.Name i; sprintf "%s_%d$tupleElem" v.Name i ]
+                |> List.tryPick (fun name ->
+                    match fields.TryGetValue name with
+                    | true, f when f.FieldType = t -> Some f
+                    | _ -> None)
+
+        /// The fields a reference tuple the Release optimizer split is held in, one per element:
+        /// `t_0`, `t_1`, … (`ExpandStructuralBinding`), with `$tupleElem` after each when its
+        /// definition branched (`TryRewriteBranchingTupleBinding`). Its definition would run again
+        /// (#203). An element with no field (a constant the optimizer inlined) is the one in the
+        /// definition's tuple, when that is effect-free.
+        let elements (fields: Collections.Generic.IDictionary<string, Reflection.FieldInfo>) (memberBody: Expr) (v: Var) : Choice<Reflection.FieldInfo, Expr> list option =
+            if not (FSharpType.IsTuple v.Type) || v.Type.IsValueType then None
+            else
+                let found = FSharpType.GetTupleElements v.Type |> Array.mapi (fun i _ -> elementField fields v i) |> List.ofArray
+                if List.forall Option.isNone found then None
+                else
+                    // An element the optimizer inlined (a constant) has no field: the definition's.
+                    let literal = match letDefinition v memberBody with Some(NewTuple es) -> Some es | _ -> None
+                    let parts =
+                        found |> List.mapi (fun i f ->
+                            match f, literal with
+                            | Some f, _ -> Some(Choice1Of2 f)
+                            | None, Some es when effectFree es.[i] -> Some(Choice2Of2 es.[i])
+                            | None, _ -> None)
+                    if List.forall Option.isSome parts then Some(List.choose id parts) else None
+
         /// The variables a block reaches: its free variables and, for each one with no field of
         /// its name, those of the definition `read` would recover for it. An alias reached that
         /// way (an immutable `let` of an immutable variable or of a literal) is the optimizer's to
@@ -175,7 +224,7 @@ module internal TranslateBlock =
                     let def = letDefinition v memberBody
                     let alias = not v.IsMutable && not (own.Contains v) && (match def with Some(Var y) -> not y.IsMutable | Some(Value _) -> true | _ -> false)
                     let inner =
-                        if fields.ContainsKey v.Name && not alias then []
+                        if (fields.ContainsKey v.Name || (elementField fields v 0).IsSome || (elements fields memberBody v).IsSome) && not alias then []
                         else
                             match def |> Option.orElse (parameterArgument v memberBody) with
                             | Some d -> List.ofSeq (d.GetFreeVars())
@@ -200,7 +249,8 @@ module internal TranslateBlock =
         /// A captured `let mutable` is stored as an FSharpRef cell; read through it. When there is
         /// no such field the optimizer inlined the variable's definition (a literal, a local
         /// function, ...) instead of capturing it, so substitute that definition from the
-        /// enclosing member's body; its own free variables resolve the same way.
+        /// enclosing member's body; its own free variables resolve the same way. A tuple split
+        /// into a field per element is rebuilt from those (`elements`).
         let read (block: Block) (resolve: Expr -> Expr) (v: Var) : Expr =
             if block.Ambiguous.Contains v.Name then raise (ambiguous v)
             match (if block.Substituted.Contains v then (false, null) else block.Fields.TryGetValue v.Name) with
@@ -211,15 +261,30 @@ module internal TranslateBlock =
                 raise (DlrTranslationException(
                         sprintf "dlr { } captured '%s' as %s but the body uses it as %s." v.Name f.FieldType.Name v.Type.Name))
             | _ ->
+                match (if block.Substituted.Contains v then None else elements block.Fields block.MemberBody v) with
+                | Some parts -> Expr.NewTuple [ for p in parts -> match p with Choice1Of2 f -> Expr.FieldGet(block.Self, f) | Choice2Of2 e -> resolve e ]
+                | None ->
+                let recovered (def: Expr) =
+                    if effectFree def then resolve def
+                    else
+                        raise (DlrTranslationException(
+                                sprintf "dlr { } would run the definition of '%s' again: the optimizer did not capture it as itself (fields: %s). Bind it to a value the block reads directly." v.Name (String.Join(", ", block.Fields.Keys))))
                 match letDefinition v block.MemberBody with
-                | Some def -> resolve def
+                | Some def -> recovered def
                 | None ->
                     match parameterArgument v block.MemberBody with
-                    | Some arg -> resolve arg
+                    | Some arg -> recovered arg
                     | None ->
                         raise (DlrTranslationException(
                                 sprintf "dlr { } could not find captured variable '%s' on closure %s (fields: %s), a let binding for it, or a single application supplying it (the optimizer inlined it; give the enclosing local function more than one call site or hoist the block)."
                                     v.Name block.ClosureType.Name (String.Join(", ", block.Fields.Keys))))
+
+        /// `fst v`, `snd v` or element `i` of `v` otherwise, read from its own field when the
+        /// optimizer split `v` (`elementField`); None to read `v` itself.
+        let element (block: Block) (v: Var) (i: int) : Expr option =
+            if block.Ambiguous.Contains v.Name then raise (ambiguous v)
+            if block.Substituted.Contains v then None
+            else elementField block.Fields v i |> Option.map (fun f -> Expr.FieldGet(block.Self, f))
 
         /// Whether a captured variable is a mutable, stored in an FSharpRef cell.
         let isCell (block: Block) (v: Var) =

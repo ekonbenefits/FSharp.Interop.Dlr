@@ -76,6 +76,16 @@ module internal Translate =
             match inPlace (fun v -> isCaptured bound v && Captures.isCell block v) (Captures.read block rewrite) (Captures.assign block) rewrite e with
             | Some written -> written
             | None ->
+            // An element of a captured tuple the optimizer split into a field per element.
+            let element =
+                match e with
+                | TupleGet(Var v, i) when isCaptured bound v -> Captures.element block v i
+                | Call(None, mi, [ Var v ]) when isCaptured bound v && mi.DeclaringType.FullName = "Microsoft.FSharp.Core.Operators" && (mi.Name = "Fst" || mi.Name = "Snd") ->
+                    Captures.element block v (if mi.Name = "Fst" then 0 else 1)
+                | _ -> None
+            match element with
+            | Some read -> read
+            | None ->
             match e with
             | Var v when isCaptured bound v -> Captures.read block (rewriteIn bound) v
             | VarSet(v, value) when isCaptured bound v -> Captures.assign block v (rewrite value)
