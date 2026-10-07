@@ -38,7 +38,9 @@ module internal Translate =
         let closure = if closureType.IsValueType then Var("sm", closureType) else Var("closure", typeof<obj>)
         let fields = Captures.fields closureType
         let reached, aliases = Captures.reached fields memberBody body
-        // A literal is its own definition wherever it is read (the optimizer substitutes it).
+        // A literal is its own definition wherever it is read (the optimizer substitutes it). Not
+        // an alias: its definition is a variable, read by name, and in Debug the alias has a
+        // field of its own while that name may be the other variable's.
         let aliases =
             reached
             |> List.filter (fun v -> not v.IsMutable && (match letDefinition v memberBody with Some(Value _) -> true | _ -> false))
@@ -46,12 +48,12 @@ module internal Translate =
             |> Set.union aliases
         let shared = reached |> List.countBy (fun v -> v.Name) |> List.filter (fun (_, n) -> n > 1) |> List.map fst |> Set.ofList
         // Which of the machine's `x`, `x0`, … each shared name's variables are, from the IL.
-        let resolved =
-            if shared.IsEmpty then Map.empty
+        let resolved, confirmed =
+            if shared.IsEmpty then Map.empty, Set.empty
             else
                 let recover v = letDefinition v memberBody |> Option.orElse (parameterArgument v memberBody)
                 IlOrder.resolve closureType fields (function Some r -> r.Type = builderType | None -> false) recover aliases.Contains memberBody shared body
-                |> Option.defaultValue Map.empty
+                |> Option.defaultValue (Map.empty, Set.empty)
         let block =
             { BuilderType = builderType
               Context = context
@@ -59,7 +61,8 @@ module internal Translate =
               ClosureType = closureType
               Closure = closure
               Fields = fields
-              Substituted = aliases
+              // With the aliases the IL showed substituted (`IlOrder.resolve`).
+              Substituted = Set.union aliases confirmed
               Resolved = resolved
               Ambiguous = shared
               Name = name

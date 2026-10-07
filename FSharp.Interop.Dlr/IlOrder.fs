@@ -125,7 +125,7 @@ module internal IlOrder =
     /// marker calls. A variable with no field is the optimizer's to inline: its recovered
     /// definition (`recover`) stands where it is read, a local function's body after its
     /// arguments. A builder call's lambdas are its loop and try bodies, inline in `MoveNext`.
-    let private quotationEvents (isBuilder: Expr option -> bool) (hasField: Var -> bool) (recover: Var -> Expr option) (substituted: Var -> bool) (family: string -> bool) (body: Expr) : Event list option =
+    let private quotationEvents (isBuilder: Expr option -> bool) (hasField: Var -> bool) (recover: Var -> Expr option) (substituted: Var -> bool) (assumed: Collections.Generic.HashSet<Var>) (family: string -> bool) (body: Expr) : Event list option =
         let events = ResizeArray()
         let mutable ok = true
         let debug = not (isNull (Environment.GetEnvironmentVariable "DLR_IL_DEBUG"))
@@ -160,6 +160,10 @@ module internal IlOrder =
             | Call(None, mi, [ inner ]) when mi.DeclaringType.FullName = "Microsoft.FSharp.Core.Operators" && (mi.Name = "Fst" || mi.Name = "Snd") && (tupleOf inner).IsSome ->
                 events.Add(Read(box ((tupleOf inner).Value, Some(if mi.Name = "Fst" then 0 else 1))))
             | Var v when family v.Name && substituted v -> ()
+            | Var v when family v.Name && not v.IsMutable && (match recover v with Some(Var y) -> not y.IsMutable && not (family y.Name) | _ -> false) ->
+                // An alias the optimizer substitutes has no field and no read; if the IL agrees
+                // (no read left over), it is read through its definition.
+                assumed.Add v |> ignore
             | Var v when family v.Name -> events.Add(Read(box (v, (None: int option))))
             | Var v when not (hasField v) ->
                 match recover v with
@@ -233,7 +237,8 @@ module internal IlOrder =
 
     /// Each variable named in `names`, and the field of the machine it is, when the IL and the
     /// quotation agree; None otherwise.
-    let resolve (machine: Type) (fields: Collections.Generic.IDictionary<string, FieldInfo>) (isBuilder: Expr option -> bool) (recover: Var -> Expr option) (substituted: Var -> bool) (memberBody: Expr) (names: Set<string>) (body: Expr) : Map<Var * int option, FieldInfo> option =
+    let resolve (machine: Type) (fields: Collections.Generic.IDictionary<string, FieldInfo>) (isBuilder: Expr option -> bool) (recover: Var -> Expr option) (substituted: Var -> bool) (memberBody: Expr) (names: Set<string>) (body: Expr) : (Map<Var * int option, FieldInfo> * Set<Var>) option =
+        let assumed = Collections.Generic.HashSet<Var>()
         // Where each variable is bound in the member, in source order (a lambda's parameter, a
         // let's variable, a pattern's).
         let bindingOrder =
@@ -266,7 +271,7 @@ module internal IlOrder =
         // Landmarks are dropped: an over-applied marker (`o?M(a, b)`) is a function value called
         // through FSharpFunc.InvokeFast in the IL, not a call to the marker.
         let reads events = events |> Option.map (List.choose (function Read r -> Some r | Landmark _ -> None))
-        let ilR, qR = reads (ilEvents machine (fun f -> (parse f).IsSome)), reads (quotationEvents isBuilder hasField recover substituted names.Contains body)
+        let ilR, qR = reads (ilEvents machine (fun f -> (parse f).IsSome)), reads (quotationEvents isBuilder hasField recover substituted assumed names.Contains body)
         if not (isNull (Environment.GetEnvironmentVariable "DLR_IL_DEBUG")) then
             eprintfn "IL %A\nQ %A" ilR (qR |> Option.map (List.map (fun r -> let (v: Var), (i: int option) = unbox r in sprintf "%s#%d%A" v.Name (v.GetHashCode()) i)))
         match ilR, qR with
@@ -285,7 +290,8 @@ module internal IlOrder =
                     || (f.FieldType.IsGenericType && f.FieldType.GetGenericTypeDefinition() = typedefof<Ref<_>> && f.FieldType.GetGenericArguments().[0] = v.Type)
                 | _ -> false
             let mutable byKey = Map.empty<Var * int option, FieldInfo>
-            let mutable byField = Map.empty<string, Var * int option>
+            // A field is one variable's (its whole and an element may share a tuple kept whole).
+            let mutable byField = Map.empty<string, Var>
             let mutable ok = true
             for (fieldName, read) in List.zip il q do
                 match fields.TryGetValue(unbox<string> fieldName) with
@@ -295,8 +301,8 @@ module internal IlOrder =
                 if not (fits f v element) then ok <- false
                 match byKey.TryFind(v, element), byField.TryFind f.Name with
                 | Some f', _ when f'.Name <> f.Name -> ok <- false
-                | _, Some k when k <> (v, element) -> ok <- false
-                | _ -> byKey <- byKey.Add((v, element), f); byField <- byField.Add(f.Name, (v, element))
+                | _, Some w when w <> v -> ok <- false
+                | _ -> byKey <- byKey.Add((v, element), f); byField <- byField.Add(f.Name, v)
             // The cross-check: the machine declares a name's fields in the order its variables are
             // bound, so ordering the variables by binding orders their fields by declaration.
             let declared = machine.GetFields(BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic) |> Array.map (fun f -> f.Name) |> List.ofArray
@@ -309,5 +315,5 @@ module internal IlOrder =
                 |> List.forall (fun (_, vs) -> List.sortBy (fst >> fst >> bindingOrder) vs = List.sortBy snd vs)
             if not (isNull (Environment.GetEnvironmentVariable "DLR_IL_DEBUG")) then
                 eprintfn "pairing ok=%b ordered=%b keys=%A" ok ordered (byKey |> Map.toList |> List.map (fun ((v, i), f) -> sprintf "%s#%d%A->%s" v.Name (v.GetHashCode()) i f.Name))
-            if ok && ordered then Some byKey else None
+            if ok && ordered then Some(byKey, Set.ofSeq assumed) else None
         | _ -> None
