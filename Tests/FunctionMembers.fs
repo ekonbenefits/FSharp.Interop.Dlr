@@ -93,6 +93,137 @@ let ``a member read as a function type is a curried invoker of it`` () =
     let addTupled: int * int -> int = dlr { return w?Add }
     addTupled (40, 2) |> should equal 42
 
+let private fold (f: Func<int, int, int>) = f.Invoke(40, 2)
+
+[<Fact>]
+let ``a method read as a delegate type is an invoker of it, so a block passes it where a Func is expected`` () =
+    // #201: the block's type is the parameter's, `Func<int, int, int>`. C# has no method groups
+    // through `dynamic`; a method's name read as a delegate type is the delegate over an invoker.
+    let w: obj = Widget()
+    let folded = fold (dlr { return w?Add })
+    folded |> should equal 42
+    let add: Func<int, int, int> = dlr { return w?Add }
+    add.Invoke(1, 2) |> should equal 3
+    let describe: Func<string> = dlr { return w?Describe }
+    describe.Invoke() |> should equal "described"
+    let pick: Func<obj, string> = dlr { return w?Pick }          // the overload per invocation, by the argument
+    pick.Invoke(box 1) |> should equal "int"
+    pick.Invoke(box "s") |> should equal "string"
+
+[<Fact>]
+let ``a method read as a delegate type: void, past five, an internal delegate, a computed name`` () =
+    let widget = Widget()
+    let w: obj = widget
+    let touch: Action = dlr { return w?Touch }
+    touch.Invoke()
+    widget.Touched |> should equal 1
+    let sum6: Func<int, int, int, int, int, int, int> = dlr { return w?Sum6 }
+    sum6.Invoke(1, 2, 3, 4, 5, 6) |> should equal 21
+    let touch15: Action<int, int, int, int, int, int, int, int, int, int, int, int, int, int, int> = dlr { return w?Touch15 }
+    touch15.Invoke(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+    widget.Touched |> should equal 16
+    let pair: InternalPair = dlr { return w?Add }
+    pair.Invoke(3, 4) |> should equal 7
+    let bind (name: string) : Func<int, int, int> = dlr { return (?) w name }
+    (bind "Add").Invoke(5, 6) |> should equal 11
+
+[<Fact>]
+let ``reading a method as a delegate type has no arity limit`` () =
+    let sums = Sums()
+    let s: obj = sums
+    let five: Func<int, int, int, int, int, int> = dlr { return s?Sum5 }
+    five.Invoke(1, 2, 3, 4, 5) |> should equal 15
+    let sum6: Func<int, int, int, int, int, int, int> = dlr { return (box (Widget()))?Sum6 }          // a C# method of six parameters
+    sum6.Invoke(1, 2, 3, 4, 5, 6) |> should equal 21
+    let eight: Func<int, int, int, int, int, int, int, int, int64> = dlr { return s?Sum8 }            // the result converted
+    eight.Invoke(1, 2, 3, 4, 5, 6, 7, 8) |> should equal 36L
+    // Fourteen: the last typed invoker (the site's Func takes the CallSite and the target too).
+    let fourteen: Func<int, int, int, int, int, int, int, int, int, int, int, int, int, int, int> = dlr { return s?Sum14 }
+    fourteen.Invoke(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) |> should equal 105
+    let note14: Action<int, int, int, int, int, int, int, int, int, int, int, int, int, int> = dlr { return s?Note14 }
+    note14.Invoke(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+    sums.Last |> should equal 14
+    // Sixteen: the site is past Func's arity, so its delegate type is emitted at run time, which
+    // a quotation must not name (wasm): the read is the member read as a tupled function, converted.
+    let sixteen: Func<int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int> = dlr { return s?Sum16 }
+    sixteen.Invoke(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16) |> should equal 136
+    let sixUnit: Action<int, int, int, int, int, int> = dlr { return (box (Widget()))?Sum6 }           // an Action: a void site, the result dropped
+    sixUnit.Invoke(1, 2, 3, 4, 5, 6)
+    let name = "Sum8"
+    let keyed: Func<int, int, int, int, int, int, int, int, int> = dlr { return (?) s name }            // a computed name: a per-key site
+    keyed.Invoke(1, 1, 1, 1, 1, 1, 1, 1) |> should equal 8
+
+[<Fact>]
+let ``a delegate's own parameter boundaries hold: a tuple parameter, a unit parameter, a function result`` () =
+    // Each `Invoke` parameter is one slot, whatever its type: an F# function type would read
+    // `int * int` as two parameters, `unit` as none and `-> (int -> int)` as one more.
+    let b: obj = Boundaries()
+    let pair: Func<int * int, int> = dlr { return b?Pair }
+    let unit': Func<unit, int> = dlr { return b?Unit }
+    let adder: Func<int -> int> = dlr { return b?Adder }
+    pair.Invoke((2, 3)) |> should equal 5
+    unit'.Invoke(()) |> should equal 7
+    adder.Invoke() 4 |> should equal 5
+    let pairHeld: Func<int * int, int> = dlr { return b?PairHeld }
+    let unitHeld: Func<unit, int> = dlr { return b?UnitHeld }
+    let adderHeld: Func<int -> int> = dlr { return b?AdderHeld }
+    pairHeld.Invoke((2, 3)) |> should equal 6
+    unitHeld.Invoke(()) |> should equal 9
+    adderHeld.Invoke() 4 |> should equal 40
+    // Past fourteen, where the read of a method goes through a function type, one returning a
+    // function is left to C#: a property holding it is read, a method is C#'s error at the read.
+    let wideHeld: WideToFunction = dlr { return b?WideHeld }
+    wideHeld.Invoke(2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) 5 |> should equal 7
+    (fun () -> (dlr { return b?Wide } : WideToFunction) |> ignore) |> should throw typeof<RuntimeBinderException>
+
+[<Fact>]
+let ``a member holding a delegate, read as a delegate type, is that delegate`` () =
+    // Only a method falls back: a property, field or dynamic object's member is C#'s read, as before.
+    let holders = Holders()
+    let h: obj = holders
+    let held: Func<int> = dlr { return h?AsDelegate }
+    obj.ReferenceEquals(held, holders.AsDelegate) |> should equal true
+    let e: obj = bag ()
+    let fromExpando: Func<int, int> = dlr { return e?Del }
+    fromExpando.Invoke 21 |> should equal 42
+    // A dynamic object's own member comes before its CLR type's method of the name, as in C#; a
+    // name it does not answer falls back to the method.
+    let d: obj = DynamicAdd()
+    let dynamicAdd: Func<int, int, int> = dlr { return d?Add }
+    dynamicAdd.Invoke(1, 2) |> should equal 1003
+    let clrSub: Func<int, int, int> = dlr { return d?Sub }
+    clrSub.Invoke(5, 2) |> should equal 3
+
+/// C#'s "does not contain a definition for 'name'"; browser-wasm trims resource strings, leaving
+/// the resource key.
+let private noSuchMember (name: string) (ex: RuntimeBinderException) =
+    if string Runtime.InteropServices.RuntimeInformation.OSArchitecture = "Wasm" then ex.Message |> should equal "NoSuchMember"
+    else ex.Message |> should haveSubstring (sprintf "does not contain a definition for '%s'" name)
+
+[<Fact>]
+let ``a method read as a delegate type fails as a call would: no CLR member at the read, a dynamic object or overload at the call`` () =
+    let w: obj = Widget()
+    (fun () -> (dlr { return w?Nope } : Func<int, int>) |> ignore) |> should throw typeof<RuntimeBinderException>
+    let one: Func<int, int> = dlr { return w?Add }                   // read: fine, as for a function type
+    (fun () -> one.Invoke 1 |> ignore) |> should throw typeof<RuntimeBinderException>
+    // A dynamic object with nothing to read is asked at the call, as a member read as a function
+    // is: a proxy answering calls only works (C# fails the read, `Func<int, int, int> f = d.Add`),
+    // and a member it does not have fails at the first call, not at the read.
+    let proxy: obj = InvokeOnly()
+    let viaFunction: int -> int -> int = dlr { return proxy?Add }
+    let viaDelegate: Func<int, int, int> = dlr { return proxy?Add }
+    viaFunction 1 2 |> should equal 3
+    viaDelegate.Invoke(1, 2) |> should equal 3
+    let e: obj = Fixtures.expando []
+    let missing: Func<int, int> = dlr { return e?Nope }
+    let atCall = AnyUnit.Run.Assert.Current.Throws<RuntimeBinderException>(fun () -> missing.Invoke 1 |> ignore)
+    atCall |> noSuchMember "Nope"
+    // A DynamicObject's two probes (its TryGetMember answering false), the name no method either.
+    let d: obj = DynamicAdd()
+    let missingDynamic: Func<int, int> = dlr { return d?Nope }
+    let atDynamicCall = AnyUnit.Run.Assert.Current.Throws<RuntimeBinderException>(fun () -> missingDynamic.Invoke 1 |> ignore)
+    atDynamicCall |> noSuchMember "Nope"
+
 [<Fact>]
 let ``a function-typed result applied on the spot, with nothing captured`` () =
     // The compiler takes the non-resumable path for this shape without a warning and, the block

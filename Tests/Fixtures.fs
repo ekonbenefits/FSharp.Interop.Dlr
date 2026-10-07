@@ -102,6 +102,48 @@ type Clicker() =
     [<CLIEvent>]
     member _.Clicked = clicked.Publish
     member _.Raise(n: int) = clicked.Trigger(n)
+/// Methods of many parameters, read as delegate types of each arity (#201): fourteen is the last
+/// with a typed invoker, past it the read is a function over a wide site.
+type Sums() =
+    member _.Sum5(a: int, b: int, c: int, d: int, e: int) = a + b + c + d + e
+    member _.Sum8(a: int, b: int, c: int, d: int, e: int, f: int, g: int, h: int) = a + b + c + d + e + f + g + h
+    member _.Sum14(a: int, b: int, c: int, d: int, e: int, f: int, g: int, h: int, i: int, j: int, k: int, l: int, m: int, n: int) =
+        a + b + c + d + e + f + g + h + i + j + k + l + m + n
+    member _.Sum16(a: int, b: int, c: int, d: int, e: int, f: int, g: int, h: int, i: int, j: int, k: int, l: int, m: int, n: int, o: int, p: int) =
+        a + b + c + d + e + f + g + h + i + j + k + l + m + n + o + p
+    member val Last = 0 with get, set
+    member this.Note14(a: int, b: int, c: int, d: int, e: int, f: int, g: int, h: int, i: int, j: int, k: int, l: int, m: int, n: int) =
+        this.Last <- a + b + c + d + e + f + g + h + i + j + k + l + m + n
+/// A delegate of fifteen parameters returning an F# function: past the typed invokers, where the
+/// read of a method would go through a function type that cannot keep the result apart (#201).
+type WideToFunction = delegate of int * int * int * int * int * int * int * int * int * int * int * int * int * int * int -> (int -> int)
+/// Delegate signatures whose parameter boundaries an F# function type would blur (#201): a tuple
+/// parameter, a unit parameter, a function result; as methods and as properties holding them.
+type Boundaries() =
+    member _.Pair(p: int * int) = fst p + snd p
+    member _.Unit(_: unit) = 7
+    member _.Adder() : int -> int = fun x -> x + 1
+    member val PairHeld = Func<int * int, int>(fun (a, b) -> a * b) with get
+    member val UnitHeld = Func<unit, int>(fun () -> 9) with get
+    member val AdderHeld = Func<int -> int>(fun () -> fun x -> x * 10) with get
+    member _.Wide(a: int, _: int, _: int, _: int, _: int, _: int, _: int, _: int, _: int, _: int, _: int, _: int, _: int, _: int, _: int) : int -> int = fun x -> x * a
+    member val WideHeld = WideToFunction(fun a _ _ _ _ _ _ _ _ _ _ _ _ _ _ -> fun x -> x + a) with get
+/// A DynamicObject whose CLR type has a method `Add` and whose `TryGetMember` also answers `Add`
+/// (a delegate) and `Plain`: read as a delegate type, its own answer comes first, as in C#.
+type DynamicAdd() =
+    inherit DynamicObject()
+    member _.Add(a: int, b: int) = a + b
+    member _.Sub(a: int, b: int) = a - b
+    override _.TryGetMember(binder, result) =
+        if binder.Name = "Add" then result <- box (Func<int, int, int>(fun a b -> 1000 + a + b)); true else false
+/// A DynamicObject that answers calls only (`TryInvokeMember`), with no member to read: a proxy,
+/// which a member read as a delegate type asks at the call (#201).
+type InvokeOnly() =
+    inherit DynamicObject()
+    override _.TryInvokeMember(binder, args, result) =
+        if binder.Name = "Add" then result <- box (unbox<int> args.[0] + unbox<int> args.[1]); true else false
+/// An internal delegate type a method is read as (#201): its Invoke and constructor are internal.
+type internal InternalPair = delegate of int * int -> int
 /// An event of an internal delegate type, whose Invoke and constructor F# compiles internal (#150).
 type internal InternalNotify = delegate of obj * int -> unit
 type InternalClicker() =

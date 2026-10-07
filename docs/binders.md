@@ -88,6 +88,14 @@ These three carry the function rule:
 - **`FSharpReadOrInvokeBinder`** (`x?Name` read as `unit -> R`). A parameterless method is
   invoked; a property or field is read (and applied if it is an F# function); on a dynamic
   target the value itself is the result unless it is a delegate or function.
+- **`FSharpGetMemberOrMethodBinder`** (`x?Name` read as a delegate type, #201). C#'s
+  `GetMember`, with ours as its error suggestion where the name is an accessible instance
+  method, or the target is a dynamic object with nothing to read (asked at the call, as a
+  function type's invoker is): the `MethodGroup` marker, restricted to the target's type. The block then builds the
+  delegate over a `MemberInvokers` instance (past fourteen parameters, over the member read as
+  a function). Ours only where nothing else is suggested: a meta-object's own rule (a
+  `DynamicObject`'s `TryGetMember`) comes first, then C#'s, so a property, field or dynamic
+  object's member is read as before (`Tests/HotPath.fs` pins a property read at 0 B).
 
 Named or generic calls use C#'s binder unchanged (only the meta-object argument rule still
 applies to them). A member read as `… -> unit` is invoked through a void, result-discarded site.
@@ -127,6 +135,14 @@ handed to a nested `Invoke` site that decides by the value's runtime type.
 
 Reading a member *as* a function (`FunctionMember.CurriedN`/`TupledN`) constructs an F# closure,
 so it has per-arity helpers up to five, like `OptimizedClosures`.
+
+A method read as a delegate type does not go through an F# function: `MemberInvokers` (generated
+with the adapters, `generate-adapters.fsx`) has an invoker per shape, holding the sites and the
+target, whose `Invoke` has the delegate's exact signature, and `FunctionConversions.over` binds
+the delegate straight to it, by the delegate type's own constructor (so an `internal` delegate
+type works). Per read, the invoker and the delegate (`Tests/HotPath.fs` pins the bytes); per
+call, one delegate hop to the site call. Past fourteen parameters the site is wide, and the
+read is the member read as a tupled function, converted.
 
 Past five, `FunctionBuilder` compiles a factory once per (function type, site type), so a
 computed name's per-key sites reuse it. The factory is a LINQ lambda taking the sites and the

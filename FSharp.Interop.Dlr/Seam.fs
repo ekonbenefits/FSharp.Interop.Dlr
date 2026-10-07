@@ -654,3 +654,31 @@ type FSharpReadOrInvokeBinder(context: Type, name: string, csharp: InvokeMemberB
             | None -> DynamicMetaObject(Expression.Dynamic(value, typeof<obj>, read), restriction)
 
     override _.FallbackInvoke(target, args, errorSuggestion) = value.FallbackInvoke(target, args, errorSuggestion)
+
+/// A member read as a delegate type (`Api.Fold(dlr { return x?Add })`, #201): C#'s GetMember, with
+/// our rule as its error suggestion where C# fails because the name is a method, or the target is
+/// a dynamic object with nothing to read: the `MethodGroup` marker, which the block answers with
+/// an invoker of the member as the delegate (a dynamic object is asked at the call).
+/// A property, field or dynamic object's member keeps its own rule (a meta-object's, then C#'s),
+/// so that read costs what it did.
+/// Not part of the supported API: public only because compiled blocks call it, and it may change in any release.
+[<System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+type FSharpGetMemberOrMethodBinder(context: Type, name: string, csharp: GetMemberBinder) =
+    inherit GetMemberBinder(name, false)
+    override _.FallbackGetMember(target, errorSuggestion) =
+        let ours =
+            if target.HasValue && not (isNull target.Value) then
+                let t = target.LimitType
+                let isMethod () =
+                    t.GetMethods(Accessibility.all)
+                    |> Array.exists (fun m -> m.Name = name && not m.IsStatic && not m.IsSpecialName && Accessibility.method' context t m)
+                // A dynamic object with nothing to read may still answer a call (`TryInvokeMember`,
+                // a proxy): the invoker asks it at the call, as a member read as a function does.
+                if target.Value :? IDynamicMetaObjectProvider || isMethod () then
+                    Some(DynamicMetaObject(Expression.Constant(MethodGroup.Instance, typeof<obj>), BindingRestrictions.GetTypeRestriction(target.Expression, t)))
+                else None
+            else None
+        // Ours only where nothing else is suggested: a meta-object's own rule (a DynamicObject's
+        // `TryGetMember ? value : fallback`) arrives as the suggestion and comes first, as in C#;
+        // its first probe, with none, gets ours as the inner fallback.
+        csharp.FallbackGetMember(target, (if isNull errorSuggestion then defaultArg ours null else errorSuggestion))

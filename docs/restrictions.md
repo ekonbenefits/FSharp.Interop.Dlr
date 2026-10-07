@@ -84,8 +84,12 @@ delegate-typed members and delegate values.
   `h?OnPair(3, 4)`, `f |> Dlr.apply 21`. Curried or tupled, any arity.
 - Any member, or the value itself (`Dlr.call f`), can be read as an F# function type:
   `let add: int -> int -> int = dlr { return w?Add }`. Curried or tupled, any arity.
+- A method can be read as a delegate type, as a block passed where a `Func` is expected:
+  `Api.Fold(dlr { return w?Add })`. Any arity, `internal` delegate types included; no `ref` or
+  `out` parameters. A dynamic object with nothing to read is asked at the call, as for a function
+  type, so a proxy that only answers calls works.
 
-C# has no form for either.
+C# has no form for any of these: `dynamic` has no method groups.
 
 ### 2. Functions and delegates convert both ways
 

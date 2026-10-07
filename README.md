@@ -144,6 +144,7 @@ The common forms; [docs/syntax.md](docs/syntax.md) has every one, with what each
 | `Dlr.cast<T> x` · `Dlr.implicit x` | explicit / implicit conversion |
 | `Dlr.Static<T>.Overloads?Name(a)` · `Dlr.new'<T>(a)` | static overload / constructor chosen by the arguments' runtime types |
 | `let f: int -> int -> int = dlr { return x?Add }` | a member read as an F# function |
+| `Api.Fold(dlr { return x?Add })` (a `Func<int, int, int>` parameter) | a method read as a delegate type |
 | `Dlr.call f (a, b)` · `Dlr.call f` typed `A -> R` | invoke the value itself, the `?` of values; read as a function, it is one |
 | `f \|> Dlr.apply (a, b)` | the same, target last for pipelines |
 
@@ -172,6 +173,6 @@ and the full [docs/benchmarks.md](docs/benchmarks.md) (every suite, allocations,
 <!-- benchmarks:start -->
 | ns per call | static | C# `dynamic` | **`dlr { }`** | reflection (cached) | FSharp.Interop.Dynamic |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| method call `w.Add(i, 1)` | 1.2 | 7.4 | **11.5** | 35.7 | 7,485 |
-| property get `w.Count` | 0 | 6.7 | **10.8** | 12 | 3,942 |
+| method call `w.Add(i, 1)` | 1.2 | 7.8 | **11.6** | 35.7 | 7,681 |
+| property get `w.Count` | 0 | 7.2 | **10.8** | 12.7 | 3,980 |
 <!-- benchmarks:end -->

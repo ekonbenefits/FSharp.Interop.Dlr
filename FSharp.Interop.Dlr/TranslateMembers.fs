@@ -341,6 +341,10 @@ module internal TranslateMembers =
         let private namedOfCall (block: Block) (rewriteIn: Rewrite) bound (target: Expr) (argExprs: Expr list) (resultType: Type) (discard: bool) (operation: Binders.Arg -> Binders.Arg list -> Expr) : Expr option =
             namedOfCallKeyed block rewriteIn bound target argExprs resultType discard None (fun _ t args -> operation t args)
 
+        /// An expression typed as a delegate type a member can be read as (#201), with the function
+        /// type its invoker takes past fourteen parameters (`Binders.delegateRead`).
+        let private (|DelegateRead|_|) (e: Expr) = Binders.delegateRead e.Type
+
         /// `(?) x name` with a computed name (no type arguments): see keyedSite.
         let private computedName block rewriteIn bound (nameExpr: Expr) (target: Expr) (argExprs: Expr list) (resultType: Type) (site: string -> Binders.Arg -> Binders.Arg list -> Expr) : Expr =
             keyedSite block rewriteIn bound nameExpr (StaticTypes []) target argExprs resultType (fun name _ targetArg args -> site name targetArg args)
@@ -447,6 +451,13 @@ module internal TranslateMembers =
                 match nameExpr with
                 | Literal name -> Binders.functionMember context (string name) e.Type (targetArg bound target)
                 | _ -> computedName nameExpr target [] e.Type (fun name targetArg _ -> Binders.functionMember context name e.Type targetArg)
+                |> Some
+            | MemberOp(GetMember(target, nameExpr)) & DelegateRead functionType ->
+                // Read as a delegate type (#201): the member's value, or an invoker of it when it
+                // is a method, so `Api.Fold(dlr { return x?Add })` passes `Add` as the `Func`.
+                match nameExpr with
+                | Literal name -> Binders.delegateMember context (string name) e.Type functionType (targetArg bound target)
+                | _ -> computedName nameExpr target [] e.Type (fun name targetArg _ -> Binders.delegateMember context name e.Type functionType targetArg)
                 |> Some
             | MemberOp(GetMember(target, nameExpr)) ->
                 match nameExpr with
