@@ -40,8 +40,9 @@ module internal TranslateBlock =
           /// Names two of the variables the block reaches share (#196): its free variables, and
           /// those of the definitions it recovers for what the optimizer inlined (`Captures.reached`).
           Ambiguous: Set<string>
-          /// The field each variable of a shared name is, read off the IL (`IlOrder`).
-          Resolved: Map<Var, Reflection.FieldInfo>
+          /// The field each read of a shared name is, read off the IL (`IlOrder`): a variable, or
+          /// an element of a split tuple. Any other read of a shared name is refused.
+          Resolved: Map<Var * int option, Reflection.FieldInfo>
           /// Aliases (`let x = y` of an immutable `y`, `let x = 1`) the block reaches only through
           /// a recovered definition: substituted, never a field, whatever field shares the name.
           Substituted: Set<Var> }
@@ -254,10 +255,11 @@ module internal TranslateBlock =
         /// enclosing member's body; its own free variables resolve the same way. A tuple split
         /// into a field per element is rebuilt from those (`elements`).
         let read (block: Block) (resolve: Expr -> Expr) (v: Var) : Expr =
-            if block.Ambiguous.Contains v.Name then raise (ambiguous v)
-            match (match block.Resolved.TryFind v with
+            match (match block.Resolved.TryFind(v, None) with
                    | Some f -> (true, f)
-                   | None -> if block.Substituted.Contains v then (false, null) else block.Fields.TryGetValue v.Name) with
+                   | None ->
+                       if block.Ambiguous.Contains v.Name then raise (ambiguous v)
+                       if block.Substituted.Contains v then (false, null) else block.Fields.TryGetValue v.Name) with
             | true, f when f.FieldType = v.Type -> Expr.FieldGet(block.Self, f)
             | true, f when isRefCell f v.Type ->
                 Expr.PropertyGet(Expr.FieldGet(block.Self, f), f.FieldType.GetProperty("Value"))
@@ -286,20 +288,24 @@ module internal TranslateBlock =
         /// `fst v`, `snd v` or element `i` of `v` otherwise, read from its own field when the
         /// optimizer split `v` (`elementField`); None to read `v` itself.
         let element (block: Block) (v: Var) (i: int) : Expr option =
+            match block.Resolved.TryFind(v, Some i) with
+            | Some f -> Some(Expr.FieldGet(block.Self, f))
+            | None ->
             if block.Ambiguous.Contains v.Name then raise (ambiguous v)
             if block.Substituted.Contains v then None
             else elementField block.Fields v i |> Option.map (fun f -> Expr.FieldGet(block.Self, f))
 
         /// Whether a captured variable is a mutable, stored in an FSharpRef cell.
         let isCell (block: Block) (v: Var) =
-            match (match block.Resolved.TryFind v with Some f -> (true, f) | None -> block.Fields.TryGetValue v.Name) with
-            | true, f when not (block.Ambiguous.Contains v.Name) -> isRefCell f v.Type
+            match (match block.Resolved.TryFind(v, None) with Some f -> (true, f) | None -> if block.Ambiguous.Contains v.Name then (false, null) else block.Fields.TryGetValue v.Name) with
+            | true, f -> isRefCell f v.Type
             | _ -> false
 
         /// `v <- value` on a captured `let mutable`: a write through its FSharpRef cell.
         let assign (block: Block) (v: Var) (value: Expr) : Expr =
-            if block.Ambiguous.Contains v.Name then raise (ambiguous v)
-            match (match block.Resolved.TryFind v with Some f -> (true, f) | None -> block.Fields.TryGetValue v.Name) with
+            match (match block.Resolved.TryFind(v, None) with
+                   | Some f -> (true, f)
+                   | None -> (if block.Ambiguous.Contains v.Name then raise (ambiguous v)); block.Fields.TryGetValue v.Name) with
             | true, f when isRefCell f v.Type ->
                 Expr.PropertySet(Expr.FieldGet(block.Self, f), f.FieldType.GetProperty("Value"), value)
             | _ ->

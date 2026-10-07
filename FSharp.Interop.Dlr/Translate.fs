@@ -44,7 +44,7 @@ module internal Translate =
             if shared.IsEmpty then Map.empty
             else
                 let recover v = letDefinition v memberBody |> Option.orElse (parameterArgument v memberBody)
-                IlOrder.resolve closureType fields (fun mi -> mi.DeclaringType = builderType) recover memberBody shared body
+                IlOrder.resolve closureType fields (function Some r -> r.Type = builderType | None -> false) recover memberBody shared body
                 |> Option.defaultValue Map.empty
         let block =
             { BuilderType = builderType
@@ -55,7 +55,7 @@ module internal Translate =
               Fields = fields
               Substituted = aliases
               Resolved = resolved
-              Ambiguous = shared |> Set.filter (fun n -> reached |> List.exists (fun v -> v.Name = n && not (resolved.ContainsKey v)))
+              Ambiguous = shared
               Name = name
               Names = Collections.Generic.Dictionary() }
 
@@ -83,12 +83,25 @@ module internal Translate =
             match inPlace (fun v -> isCaptured bound v && Captures.isCell block v) (Captures.read block rewrite) (Captures.assign block) rewrite e with
             | Some written -> written
             | None ->
-            // An element of a captured tuple the optimizer split into a field per element.
+            // An element of a captured tuple the optimizer split into a field per element, read
+            // directly or through what it inlines: an alias, a local function applied to unit.
+            let rec tupleVar (e: Expr) : Var option =
+                match e with
+                | Var v when isCaptured bound v && FSharp.Reflection.FSharpType.IsTuple v.Type && not (block.Fields.ContainsKey v.Name) ->
+                    match letDefinition v memberBody with
+                    | Some(Var _ as d) when not v.IsMutable -> tupleVar d |> Option.orElse (Some v)
+                    | _ -> Some v
+                | Application(Var f, Value(_, t)) when t = typeof<unit> && isCaptured bound f && not (block.Fields.ContainsKey f.Name) ->
+                    match letDefinition f memberBody with
+                    | Some(Lambda(_, b)) -> tupleVar b
+                    | _ -> None
+                | _ -> None
             let element =
                 match e with
-                | TupleGet(Var v, i) when isCaptured bound v -> Captures.element block v i
-                | Call(None, mi, [ Var v ]) when isCaptured bound v && mi.DeclaringType.FullName = "Microsoft.FSharp.Core.Operators" && (mi.Name = "Fst" || mi.Name = "Snd") ->
-                    Captures.element block v (if mi.Name = "Fst" then 0 else 1)
+                | TupleGet(inner, i) ->
+                    tupleVar inner |> Option.bind (fun v -> Captures.element block v i)
+                | Call(None, mi, [ inner ]) when mi.DeclaringType.FullName = "Microsoft.FSharp.Core.Operators" && (mi.Name = "Fst" || mi.Name = "Snd") ->
+                    tupleVar inner |> Option.bind (fun v -> Captures.element block v (if mi.Name = "Fst" then 0 else 1))
                 | _ -> None
             match element with
             | Some read -> read
