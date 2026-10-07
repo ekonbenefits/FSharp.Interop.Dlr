@@ -38,6 +38,14 @@ module internal Translate =
         let closure = if closureType.IsValueType then Var("sm", closureType) else Var("closure", typeof<obj>)
         let fields = Captures.fields closureType
         let reached, aliases = Captures.reached fields memberBody body
+        let shared = reached |> List.countBy (fun v -> v.Name) |> List.filter (fun (_, n) -> n > 1) |> List.map fst |> Set.ofList
+        // Which of the machine's `x`, `x0`, … each shared name's variables are, from the IL.
+        let resolved =
+            if shared.IsEmpty then Map.empty
+            else
+                let recover v = letDefinition v memberBody |> Option.orElse (parameterArgument v memberBody)
+                IlOrder.resolve closureType fields (fun mi -> mi.DeclaringType = builderType) recover memberBody shared body
+                |> Option.defaultValue Map.empty
         let block =
             { BuilderType = builderType
               Context = context
@@ -46,9 +54,8 @@ module internal Translate =
               Closure = closure
               Fields = fields
               Substituted = aliases
-              Ambiguous =
-                  reached
-                  |> List.countBy (fun v -> v.Name) |> List.filter (fun (_, n) -> n > 1) |> List.map fst |> Set.ofList
+              Resolved = resolved
+              Ambiguous = shared |> Set.filter (fun n -> reached |> List.exists (fun v -> v.Name = n && not (resolved.ContainsKey v)))
               Name = name
               Names = Collections.Generic.Dictionary() }
 

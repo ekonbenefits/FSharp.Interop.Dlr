@@ -53,6 +53,7 @@
     <Compile Include="Binders.fs" />
     <Compile Include="TranslatePatterns.fs" />
     <Compile Include="SiteHoister.fs" />
+    <Compile Include="IlOrder.fs" />
     <Compile Include="TranslateBlock.fs" />
     <Compile Include="TranslateMembers.fs" />
     <Compile Include="Translate.fs" />
