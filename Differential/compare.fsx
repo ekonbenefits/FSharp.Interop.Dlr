@@ -1,7 +1,8 @@
 // Release against Debug, per case: the same results, or Release refusing the block with a
 // DlrTranslationException. Anything else is a block bound silently wrong, and fails (exit 1).
 // A case Debug itself fails is listed too: Debug is the oracle. Given the analyzer's output too,
-// its DLR007 warnings must be the cases Release refuses, no more and no fewer.
+// its DLR007 warnings must be the cases Release refuses as two variables of one name, no more
+// and no fewer.
 //   dotnet fsi compare.fsx debug.txt release.txt [analyzer.txt]
 
 open System.IO
@@ -49,7 +50,8 @@ if args.Length > 2 then
         File.ReadAllLines args.[2]
         |> Array.choose (fun l -> let m = warning.Match l in if m.Success then Some(caseAt m.Groups.[1].Value (int m.Groups.[2].Value)) else None)
         |> Set.ofArray
-    let refusedIds = release |> Map.filter (fun _ r -> isRefusal r.[1]) |> Map.keys |> Set.ofSeq
+    // DLR007 is the two-variables refusal only; a tuple Release cannot rebuild is refused otherwise.
+    let refusedIds = release |> Map.filter (fun _ r -> isRefusal r.[1] && r.[1].Contains "reaches two variables") |> Map.keys |> Set.ofSeq
     for id in Set.difference refusedIds warned do
         analyzerMismatches <- analyzerMismatches + 1
         printfn "NOT WARNED %s: Release refuses it, DLR007 is silent" id

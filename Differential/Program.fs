@@ -21,10 +21,17 @@ let main _ =
     let types = assembly.GetTypes()
     for m in types |> Array.filter (fun t -> t.FullName.StartsWith "Differential.Cases") |> Array.sortBy (fun t -> t.FullName) do
         for mi in m.GetMethods(BindingFlags.Public ||| BindingFlags.Static) |> Array.sortBy (fun mi -> mi.MetadataToken) do
+            // o, seed, seed2, then the case's own `x`: 5, an S of 5, or a tuple (5, 70), which F#
+            // compiles as two parameters.
             let args : obj[] =
-                match mi.GetParameters() with
-                | [| _; _; _; p |] -> [| target; 7; 11; (if p.ParameterType = typeof<S> then box (S 5) else box 5) |]
-                | _ -> [| target; 7; 11 |]
+                let own = mi.GetParameters() |> Array.skip 3 |> Array.map (fun p -> p.ParameterType)
+                let x : obj[] =
+                    match own with
+                    | [||] -> [||]
+                    | [| t |] when t = typeof<S> -> [| S 5 |]
+                    | [| _ |] -> [| 5 |]
+                    | _ -> [| 5; 70 |]
+                Array.append [| target; 7; 11 |] x
             let run () =
                 Ticks.Reset()
                 outcome (fun () -> mi.Invoke(null, args))

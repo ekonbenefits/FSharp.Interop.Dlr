@@ -20,6 +20,12 @@ type Ty =
 
 let int' = { Name = "int"; Annotation = "int"; Of = id; Get = id }
 let struct' = { Name = "struct"; Annotation = "S"; Of = sprintf "S(%s)"; Get = sprintf "(%s).V" }
+/// A reference tuple, which the Release optimizer splits into a local per element (#203); and one
+/// built in an `if`, whose elements become mutable locals.
+let tuple' = { Name = "tuple"; Annotation = "int * int"; Of = sprintf "(%s, 70)"; Get = sprintf "fst (%s)" }
+let branching' =
+    { Name = "branching"; Annotation = "int * int"
+      Of = sprintf "(if seed2 > 0 then (%s, 70) else (0, 0))"; Get = sprintf "fst (%s)" }
 
 /// How a value named `n` is bound: its lines before the rest of the member, given the rest.
 type Binding =
@@ -119,8 +125,8 @@ let cases =
     [ // One value, every way in, with and without an unrelated lambda's parameter of its name; of
       // each type, and named `x`, `Data` (the machine has a field of its own by that name) or
       // `matchValue` (a name the compiler gives its own locals).
-      for t in [ int'; struct' ] do
-        for n in [ "x"; "Data"; "matchValue" ] do
+      for t in [ int'; struct'; tuple'; branching' ] do
+        for n in (if t.Name = "int" || t.Name = "struct" then [ "x"; "Data"; "matchValue" ] else [ "x" ]) do
           for b in bindings do
             for r in reaches do
               if fits b r then
@@ -129,7 +135,7 @@ let cases =
                     make (sprintf "one_%s_%s_%s_%s_%s%s" t.Name n b.Name r.Name p (if d then "_distractor" else "")) t n None (b, r) d p
       // Two `x`s: the outer reached indirectly (the inner shadows it), the inner any way; structs
       // at the top only.
-      for t in [ int'; struct' ] do
+      for t in [ int'; struct'; tuple'; branching' ] do
         for ob in bindings do
           for orr in reaches do
             if not orr.Direct && fits ob orr then

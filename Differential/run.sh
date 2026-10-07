@@ -11,6 +11,9 @@ for c in debug release; do
   dotnet build -c $c > /dev/null
   dotnet run -c $c --no-build > "$out/$c.txt"
 done
+# The analyzer per file (analyze.fsx), over the fsc arguments the Release build used.
 dotnet build ../FSharp.Interop.Dlr.Analyzers -c Release > /dev/null
-dotnet fsharp-analyzers --project Differential.fsproj --analyzers-path ../FSharp.Interop.Dlr.Analyzers/bin/Release/net10.0 --code-root .. > "$out/analyzer.txt" 2>&1 || true
+dotnet build -c Release --no-incremental -p:ProvideCommandLineArgs=true -getItem:FscCommandLineArgs > "$out/fscargs.json"
+python3 -c 'import json,sys; print("\n".join(i["Identity"] for i in json.load(open(sys.argv[1]))["Items"]["FscCommandLineArgs"] if not i["Identity"].startswith("--embed")))' "$out/fscargs.json" > "$out/fsc.args"
+dotnet fsi analyze.fsx "$out/fsc.args" > "$out/analyzer.txt" < /dev/null
 dotnet fsi compare.fsx "$out/debug.txt" "$out/release.txt" "$out/analyzer.txt"
