@@ -46,19 +46,20 @@ exactly as C# would.
 
 **Our rule first** (`ours1`):
 - structural `=` / `<` on records and unions;
-- a `Delegate`-typed parameter or slot given an F# function;
+- a `Delegate`-typed parameter, slot or conversion given an F# function;
 - an F# internal delegate invoked on .NET Framework.
 
 **Our rule as C#'s error suggestion** (`ours2`):
 - an F# function member applied;
 - F# optional parameters filled;
-- a function ↔ delegate argument converted;
+- a function ↔ delegate argument, assigned value or converted value (a block's result,
+  `Dlr.implicit`, `Dlr.cast`) converted;
 - constructors and static overloads by the same rules.
 
 **Meta-object targets** (`meta`; a script object, a `DynamicObject`): an F# function argument or
 value becomes the delegate of its signature, then the meta-object binds as usual.
 
-The invoke, set-member and set-index binders state which case they are in through
+The invoke, set-member, set-index and convert binders state which case they are in through
 `Seam.oursFirstWhen`; structural `==` and a `Delegate`-typed parameter decide in their own
 binders (`FSharpBinaryOperationBinder`, `FSharpInvokeMemberBinder`). Both paths produce DLR rules
 restricted on runtime types, so the decision is cached per type like everything else.
