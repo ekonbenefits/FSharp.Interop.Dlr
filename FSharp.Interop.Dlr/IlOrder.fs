@@ -309,6 +309,12 @@ module internal IlOrder =
                 | false, _ -> ok <- false
                 | true, f ->
                 let v, element = unbox<Var * int option> read
+                // A whole read the optimizer narrowed to one element (the rest unread): that
+                // element's, by the index its field's name begins with.
+                let element =
+                    match element, parse f.Name with
+                    | None, Some(_, Some digits) when Reflection.FSharpType.IsTuple v.Type -> Some(int (string digits.[0]))
+                    | _ -> element
                 if not (fits f v element) then ok <- false
                 match byKey.TryFind(v, element), byField.TryFind f.Name with
                 | Some f', _ when f'.Name <> f.Name -> ok <- false

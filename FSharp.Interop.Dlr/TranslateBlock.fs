@@ -177,6 +177,15 @@ module internal TranslateBlock =
                 mi.DeclaringType.FullName = "Microsoft.FSharp.Core.Operators" && mi.Name.StartsWith "op_" && List.forall effectFree args
             | _ -> false
 
+        /// Element `i` of a split tuple `v` that has no field. One the definition gives effect-free
+        /// (a constant, an alias, an operator on those) the optimizer substituted: that. Any other
+        /// it dropped, which it does only for an element nothing reads (were it read, there would
+        /// be a field for it): a default value, never seen.
+        let missingElement (memberBody: Expr) (v: Var) (i: int) : Expr =
+            match letDefinition v memberBody with
+            | Some(NewTuple es) when effectFree es.[i] -> es.[i]
+            | _ -> Expr.DefaultValue (FSharpType.GetTupleElements v.Type).[i]
+
         /// The field element `i` of a reference tuple the Release optimizer split is held in: `t_0`,
         /// `t_1`, … (`ExpandStructuralBinding`), with `$tupleElem` after each when its definition
         /// branched (`TryRewriteBranchingTupleBinding`); an element nothing reads has none (#203).
@@ -193,23 +202,14 @@ module internal TranslateBlock =
         /// The fields a reference tuple the Release optimizer split is held in, one per element:
         /// `t_0`, `t_1`, … (`ExpandStructuralBinding`), with `$tupleElem` after each when its
         /// definition branched (`TryRewriteBranchingTupleBinding`). Its definition would run again
-        /// (#203). An element with no field (a constant the optimizer inlined) is the one in the
-        /// definition's tuple, when that is effect-free.
+        /// (#203). An element with no field is `missingElement`'s.
         let elements (fields: Collections.Generic.IDictionary<string, Reflection.FieldInfo>) (memberBody: Expr) (v: Var) : Choice<Reflection.FieldInfo, Expr> list option =
             if not (FSharpType.IsTuple v.Type) || v.Type.IsValueType then None
             else
                 let found = FSharpType.GetTupleElements v.Type |> Array.mapi (fun i _ -> elementField fields v i) |> List.ofArray
                 if List.forall Option.isNone found then None
                 else
-                    // An element the optimizer inlined (a constant) has no field: the definition's.
-                    let literal = match letDefinition v memberBody with Some(NewTuple es) -> Some es | _ -> None
-                    let parts =
-                        found |> List.mapi (fun i f ->
-                            match f, literal with
-                            | Some f, _ -> Some(Choice1Of2 f)
-                            | None, Some es when effectFree es.[i] -> Some(Choice2Of2 es.[i])
-                            | None, _ -> None)
-                    if List.forall Option.isSome parts then Some(List.choose id parts) else None
+                    Some(found |> List.mapi (fun i f -> match f with Some f -> Choice1Of2 f | None -> Choice2Of2(missingElement memberBody v i)))
 
         /// The variables a block reaches: its free variables and, for each one with no field of
         /// its name, those of the definition `read` would recover for it. An alias reached that
@@ -255,6 +255,26 @@ module internal TranslateBlock =
         /// enclosing member's body; its own free variables resolve the same way. A tuple split
         /// into a field per element is rebuilt from those (`elements`).
         let read (block: Block) (resolve: Expr -> Expr) (v: Var) : Expr =
+            // A shared name's split tuple read whole, whose elements the IL resolved (`IlOrder`):
+            // rebuilt from them, a missing one as `missingElement`.
+            let resolvedElements =
+                if not (FSharpType.IsTuple v.Type) || v.Type.IsValueType || block.Resolved.ContainsKey(v, None) then None
+                else
+                    let fs = FSharpType.GetTupleElements v.Type |> Array.mapi (fun j _ -> block.Resolved.TryFind(v, Some j)) |> List.ofArray
+                    if List.exists Option.isSome fs then Some fs else None
+            match resolvedElements with
+            | Some fs ->
+                let whole (f: Reflection.FieldInfo) =
+                    if isRefCell f v.Type then Expr.PropertyGet(Expr.FieldGet(block.Self, f), f.FieldType.GetProperty("Value"))
+                    else Expr.FieldGet(block.Self, f)
+                match fs |> List.tryPick (function Some f when f.FieldType = v.Type || isRefCell f v.Type -> Some f | _ -> None) with
+                | Some f -> whole f
+                | None ->
+                    Expr.NewTuple [ for j, f in List.indexed fs ->
+                                        match f with
+                                        | Some f -> Expr.FieldGet(block.Self, f)
+                                        | None -> resolve (missingElement block.MemberBody v j) ]
+            | None ->
             match (match block.Resolved.TryFind(v, None) with
                    | Some f -> (true, f)
                    | None ->
