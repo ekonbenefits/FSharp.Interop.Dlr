@@ -139,12 +139,23 @@ module internal IlOrder =
             | _ -> e
         /// The tuple variable of a shared name `e` is, seen through what the optimizer inlines: an
         /// alias, or a local function applied to unit whose body is it.
+        /// A tuple of constants and immutable variables of other names: the optimizer substitutes
+        /// its elements, which then have no field and no read (if the IL agrees).
+        let plain (v: Var) =
+            not v.IsMutable
+            && (match recover v with
+                | Some(NewTuple es) -> es |> List.forall (function Value _ -> true | Var y -> not y.IsMutable && not (family y.Name) | _ -> false)
+                | _ -> false)
         let rec tupleOf (e: Expr) : Var option =
             match e with
             | Var v when family v.Name -> Some v
-            | Var a when substituted a ->
+            | Var a when not (family a.Name) && not a.IsMutable ->
+                // An alias of an immutable variable: substituted, or (if the IL agrees) assumed so.
                 match recover a with
-                | Some(Var _ as d) -> tupleOf d
+                | Some(Var y as d) when not y.IsMutable ->
+                    let found = tupleOf d
+                    if found.IsSome && not (substituted a) then assumed.Add a |> ignore
+                    found
                 | _ -> None
             | Application(Var f, Value(_, t)) when t = typeof<unit> && not (hasField f) ->
                 match recover f with
@@ -156,6 +167,9 @@ module internal IlOrder =
             else
             match e with
             | Var v when opaque.Contains v -> ()
+            | TupleGet(inner, _) when (tupleOf inner).IsSome && plain (tupleOf inner).Value -> assumed.Add (tupleOf inner).Value |> ignore
+            | Call(None, mi, [ inner ]) when mi.DeclaringType.FullName = "Microsoft.FSharp.Core.Operators" && (mi.Name = "Fst" || mi.Name = "Snd") && (tupleOf inner).IsSome && plain (tupleOf inner).Value ->
+                assumed.Add (tupleOf inner).Value |> ignore
             | TupleGet(inner, i) when (tupleOf inner).IsSome -> events.Add(Read(box ((tupleOf inner).Value, Some i)))
             | Call(None, mi, [ inner ]) when mi.DeclaringType.FullName = "Microsoft.FSharp.Core.Operators" && (mi.Name = "Fst" || mi.Name = "Snd") && (tupleOf inner).IsSome ->
                 events.Add(Read(box ((tupleOf inner).Value, Some(if mi.Name = "Fst" then 0 else 1))))

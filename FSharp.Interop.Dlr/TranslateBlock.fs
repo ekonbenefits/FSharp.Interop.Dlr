@@ -295,8 +295,9 @@ module internal TranslateBlock =
             | Some f when isRefCell f v.Type -> Some(Expr.TupleGet(Expr.PropertyGet(Expr.FieldGet(block.Self, f), f.FieldType.GetProperty("Value")), i))
             | Some f -> Some(Expr.FieldGet(block.Self, f))
             | None ->
-            if block.Ambiguous.Contains v.Name then raise (ambiguous v)
+            // Substituted (its definition, read whole), before any refusal of a shared name.
             if block.Substituted.Contains v then None
+            elif block.Ambiguous.Contains v.Name then raise (ambiguous v)
             else elementField block.Fields v i |> Option.map (fun f -> Expr.FieldGet(block.Self, f))
 
         /// Whether a captured variable is a mutable, stored in an FSharpRef cell.
