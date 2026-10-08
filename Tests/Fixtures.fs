@@ -480,3 +480,8 @@ type CaptureEcho() =
     member _.Echo(a: int, b: int) = sprintf "%d|%d" a b
     member _.Echo(a: int, b: int, c: int) = sprintf "%d|%d|%d" a b c
     member _.Echo(a: int, b: int, c: int, d: int) = sprintf "%d|%d|%d|%d" a b c d
+
+/// Module-level immutable values: an alias of one the Release optimizer folds into the block.
+module CaptureConstants =
+    let answer = 42
+    let name = "dlr"

@@ -206,6 +206,33 @@ let private userT0BesideSplitTuple (o: obj) : string =
     let t_0 = 999
     dlr { return o?Echo(fst t, t_0) }
 
+/// A split element the optimizer names after the block's own binding (`a`, not `t_0`), from a
+/// mutable changed since: rebuilt from the definition it would read the mutable's current value.
+let private elementOfAMutableRenamedInTheBlock (o: obj) : string =
+    let mutable m = Ticks.Next()
+    let t = (m, 70)
+    m <- 99
+    dlr {
+        let a = fst t
+        return o?Echo(a, m) }
+
+/// The `t_0` collision in the one Release shape that takes the closure path.
+let private userT0BesideSplitTupleClosure (o: obj) : string =
+    let t = (Ticks.Next(), 70)
+    let t_0 = 999
+    (dlr { return fun () -> o?Echo(fst t, t_0) } : unit -> string) ()
+
+/// An alias of a module's immutable values: the optimizer folds them into the block, and reading
+/// them again runs nothing.
+let private aliasOfModuleValues (o: obj) : string =
+    let n = CaptureConstants.answer
+    let s = CaptureConstants.name
+    dlr { return o?Echo(n, s.Length) }
+
+[<Fact>]
+let ``an alias of a module's immutable value the optimizer folds still resolves`` () =
+    aliasOfModuleValues (box (CaptureEcho())) |> should equal "42|3"
+
 [<Fact>]
 let ``what the optimizer did to a tuple or a shared name is never guessed`` () =
     let echo = box (CaptureEcho())
@@ -221,6 +248,8 @@ let ``what the optimizer did to a tuple or a shared name is never guessed`` () =
     check "31|32|33" (fun () -> sharedXBesideXs echo 3)
     check "1002|71" (fun () -> patternBoundReadsReordered echo 7)
     check "1|999" (fun () -> userT0BesideSplitTuple echo)
+    check "1|99" (fun () -> elementOfAMutableRenamedInTheBlock echo)
+    check "1|999" (fun () -> userT0BesideSplitTupleClosure echo)
 #if DEBUG
     // Debug splits no tuple: nothing to refuse.
     Ticks.Reset()

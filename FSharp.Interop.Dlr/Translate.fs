@@ -49,8 +49,14 @@ module internal Translate =
               Ambiguous =
                   reached
                   |> List.countBy (fun v -> v.Name) |> List.filter (fun (_, n) -> n > 1) |> List.map fst |> Set.ofList
-                  // Only the Release state machine has split tuples.
-                  |> Set.union (if closureType.IsValueType then Captures.elementNameClashes memberBody else Set.empty)
+                  // Only an optimized build splits a tuple (the state machine, or in Release the closure
+                  // of `(dlr { … } : unit -> R) ()`), and not one it captures whole as a field.
+                  |> Set.union (
+                      let optimized =
+                          closureType.IsValueType
+                          || not (closureType.Assembly.GetCustomAttributes(typeof<Diagnostics.DebuggableAttribute>, false)
+                                  |> Seq.exists (fun a -> (a :?> Diagnostics.DebuggableAttribute).IsJITOptimizerDisabled))
+                      if optimized then Captures.elementNameClashes (fun t -> not (fields.ContainsKey t)) memberBody else Set.empty)
               Name = name
               Names = Collections.Generic.Dictionary() }
 

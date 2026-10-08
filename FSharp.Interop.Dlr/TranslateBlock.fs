@@ -161,11 +161,19 @@ module internal TranslateBlock =
 
         /// Whether recovering `e` runs nothing twice: the optimizer moves no effect into the
         /// block's closure, so an effect in a recovered definition has run already, outside it
-        /// (#203). Literals, variables, lambdas (built, not run), the F# operators on primitives,
-        /// and tuples, unions, records, lets of those.
+        /// (#203). Literals, immutable variables and module values, lambdas (built, not run), the
+        /// F# operators on primitives, and tuples, unions, records, lets of those.
         let rec effectFree (e: Expr) =
             match e with
-            | Value _ | Var _ | Lambda _ | DefaultValue _ -> true
+            | Value _ | Lambda _ | DefaultValue _ -> true
+            // Not a mutable: read again, it gives its current value, not the one bound (#211 review).
+            | Var v -> not v.IsMutable
+            // A module's immutable value (`let answer = 42`): reading it runs nothing. Not a class's
+            // static property, whose getter can run code.
+            | PropertyGet(None, p, []) ->
+                not p.CanWrite
+                && (p.DeclaringType.GetCustomAttributes(typeof<CompilationMappingAttribute>, false)
+                    |> Seq.exists (fun a -> (a :?> CompilationMappingAttribute).SourceConstructFlags = SourceConstructFlags.Module))
             | NewTuple es | NewUnionCase(_, es) | NewRecord(_, es) -> List.forall effectFree es
             | Coerce(x, _) | TupleGet(x, _) -> effectFree x
             | Let(_, d, b) -> effectFree d && effectFree b
@@ -224,7 +232,9 @@ module internal TranslateBlock =
         /// Names a split tuple's element field and a variable of the member could both have: a
         /// variable named `t_0` beside a tuple `t`. The optimizer's `t_0` then becomes `t_00` or the
         /// user's does, in an order of its own, so neither is told apart by name: both refused.
-        let elementNameClashes (memberBody: Expr) : Set<string> =
+        /// `split`: whether the container may hold `t` split (a container with a field `t` holds it
+        /// whole, as every Debug closure does).
+        let elementNameClashes (split: string -> bool) (memberBody: Expr) : Set<string> =
             let vars = Collections.Generic.HashSet<Var>(HashIdentity.Reference)
             let rec go (e: Expr) =
                 match e with
@@ -234,7 +244,7 @@ module internal TranslateBlock =
             go memberBody
             let names = vars |> Seq.map (fun v -> v.Name) |> Set.ofSeq
             set [ for v in vars do
-                    if FSharpType.IsTuple v.Type && not v.Type.IsValueType then
+                    if FSharpType.IsTuple v.Type && not v.Type.IsValueType && split v.Name then
                         for i in 0 .. (FSharpType.GetTupleElements v.Type).Length - 1 do
                             let element = sprintf "%s_%d" v.Name i
                             if names.Contains element then

@@ -77,7 +77,7 @@ of a once-called local function, or a lambda applied on the spot. A block in an 
 Release (it is expanded into each caller), and the analyzer's `DLR004` refuses it.
 
 A recovered definition runs in the block, so only an effect-free one is recovered (literals,
-variables, lambdas, `fst`/`snd` and arithmetic, comparison and bitwise operators on primitives, and
+immutable variables and module values, lambdas, `fst`/`snd` and arithmetic, comparison and bitwise operators on primitives, and
 tuples, unions and records of those; not `|>` nor an operator on a user's type): an effect in it
 has already run outside the block. A tuple the optimizer split into a field per element (`t_0`,
 `t_1`) is rebuilt from those fields; a variable named like one of them (`t_0` beside a tuple `t`)
