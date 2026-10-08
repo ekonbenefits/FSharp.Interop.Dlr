@@ -480,6 +480,7 @@ type CaptureEcho() =
     member _.Echo(a: int) = string a
     member _.Echo(a: int, b: int) = sprintf "%d|%d" a b
     member _.Echo(a: int, b: int, c: int) = sprintf "%d|%d|%d" a b c
+    member _.Echo(a: int, b: int, c: int, d: int) = sprintf "%d|%d|%d|%d" a b c d
 
 /// The capture cases' struct value: a captured one is read back as a copy.
 [<Struct>]

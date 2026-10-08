@@ -13559,8 +13559,8 @@ module Captures =
           "one_struct_matchValue_let-alias_fun-twice_local-fun_distractor", (fun o -> CaptureCases00.one_struct_matchValue_let_alias_fun_twice_local_fun_distractor o 7 11), "22|1001", false
           "one_tuple_x_let-literal_fun_block-loop", (fun o -> CaptureCases00.one_tuple_x_let_literal_fun_block_loop o 7 11), "502", false
           "one_tuple_x_let-alias_direct_applied-lambda_distractor", (fun o -> CaptureCases00.one_tuple_x_let_alias_direct_applied_lambda_distractor o 7 11), "11|1001", false
-          "one_branching_x_let-literal_fun-twice_top_distractor", (fun o -> CaptureCases00.one_branching_x_let_literal_fun_twice_top_distractor o 7 11), "1004|1001", true
-          "one_branching_x_let-alias_alias_local-fun", (fun o -> CaptureCases00.one_branching_x_let_alias_alias_local_fun o 7 11), "11", true
+          "one_branching_x_let-literal_fun-twice_top_distractor", (fun o -> CaptureCases00.one_branching_x_let_literal_fun_twice_top_distractor o 7 11), "1004|1001", false
+          "one_branching_x_let-alias_alias_local-fun", (fun o -> CaptureCases00.one_branching_x_let_alias_alias_local_fun o 7 11), "11", false
           "one_branching_x_param_inline-lambda_block-try_distractor", (fun o -> CaptureCases00.one_branching_x_param_inline_lambda_block_try_distractor o 7 11 (5, 70)), "5|1001", true
           "one_int_x_mutable-pure_rec_block-try", (fun o -> CaptureCases00.one_int_x_mutable_pure_rec_block_try o 7 11), "73", false
           "one_int_Data_let-alias_lambda-value_block-try_distractor", (fun o -> CaptureCases00.one_int_Data_let_alias_lambda_value_block_try_distractor o 7 11), "11|1001", false
@@ -13576,8 +13576,8 @@ module Captures =
           "one_struct_Data_tuple_lambda-value_applied-lambda", (fun o -> CaptureCases00.one_struct_Data_tuple_lambda_value_applied_lambda o 7 11), "72", false
           "one_tuple_x_mutable-pure_lambda-value_local-fun_distractor", (fun o -> CaptureCases00.one_tuple_x_mutable_pure_lambda_value_local_fun_distractor o 7 11), "73|1001", false
           "one_tuple_x_mutable-call_setter_top", (fun o -> CaptureCases00.one_tuple_x_mutable_call_setter_top o 7 11), "1103", false
-          "one_tuple_x_match_inline-fun_block-try_distractor", (fun o -> CaptureCases00.one_tuple_x_match_inline_fun_block_try_distractor o 7 11), "72|1001", true
-          "one_branching_x_tuple_inline-fun_block-loop", (fun o -> CaptureCases00.one_branching_x_tuple_inline_fun_block_loop o 7 11), "72", true
+          "one_tuple_x_match_inline-fun_block-try_distractor", (fun o -> CaptureCases00.one_tuple_x_match_inline_fun_block_try_distractor o 7 11), "72|1001", false
+          "one_branching_x_tuple_inline-fun_block-loop", (fun o -> CaptureCases00.one_branching_x_tuple_inline_fun_block_loop o 7 11), "72", false
           "one_int_Data_mutable-call_setter_block-loop_distractor", (fun o -> CaptureCases00.one_int_Data_mutable_call_setter_block_loop_distractor o 7 11), "1103|1001", false
           "one_struct_Data_let-alias_rec_block-loop", (fun o -> CaptureCases00.one_struct_Data_let_alias_rec_block_loop o 7 11), "11", false
           "one_tuple_x_lambda_rec_top_distractor", (fun o -> CaptureCases00.one_tuple_x_lambda_rec_top_distractor o 7 11), "72|1001", false
@@ -13596,11 +13596,11 @@ module Captures =
           "one_struct_Data_mutable-pure_alias_block-try_distractor", (fun o -> CaptureCases01.one_struct_Data_mutable_pure_alias_block_try_distractor o 7 11), "73|1001", false
           "one_struct_Data_for_inline-fun_local-fun_distractor", (fun o -> CaptureCases01.one_struct_Data_for_inline_fun_local_fun_distractor o 7 11), "72|1001", false
           "one_struct_Data_param_fun-twice_top", (fun o -> CaptureCases01.one_struct_Data_param_fun_twice_top o 7 11 (CaptureValue 5)), "10", false
-          "one_tuple_x_tuple_fun-twice_block-loop_distractor", (fun o -> CaptureCases01.one_tuple_x_tuple_fun_twice_block_loop_distractor o 7 11), "144|1001", true
+          "one_tuple_x_tuple_fun-twice_block-loop_distractor", (fun o -> CaptureCases01.one_tuple_x_tuple_fun_twice_block_loop_distractor o 7 11), "144|1001", false
           "one_branching_x_let-pure_rec_applied-lambda", (fun o -> CaptureCases01.one_branching_x_let_pure_rec_applied_lambda o 7 11), "72", false
-          "one_branching_x_let-call_lambda-value_top", (fun o -> CaptureCases01.one_branching_x_let_call_lambda_value_top o 7 11), "1002", true
+          "one_branching_x_let-call_lambda-value_top", (fun o -> CaptureCases01.one_branching_x_let_call_lambda_value_top o 7 11), "1002", false
           "one_branching_x_mutable-call_direct_local-fun_distractor", (fun o -> CaptureCases01.one_branching_x_mutable_call_direct_local_fun_distractor o 7 11), "1003|1001", false
-          "one_branching_x_lambda_fun_block-try", (fun o -> CaptureCases01.one_branching_x_lambda_fun_block_try o 7 11), "72", true
+          "one_branching_x_lambda_fun_block-try", (fun o -> CaptureCases01.one_branching_x_lambda_fun_block_try o 7 11), "72", false
           "one_int_Data_mutable-pure_setter_local-fun", (fun o -> CaptureCases01.one_int_Data_mutable_pure_setter_local_fun o 7 11), "173", false
           "one_int_matchValue_tuple_rec_top", (fun o -> CaptureCases01.one_int_matchValue_tuple_rec_top o 7 11), "72", false
           "one_struct_x_for_fun_top", (fun o -> CaptureCases01.one_struct_x_for_fun_top o 7 11), "72", false
@@ -13619,7 +13619,7 @@ module Captures =
           "one_struct_matchValue_let-pure_direct_block-try_distractor", (fun o -> CaptureCases01.one_struct_matchValue_let_pure_direct_block_try_distractor o 7 11), "72|1001", false
           "one_struct_matchValue_for_rec_block-try_distractor", (fun o -> CaptureCases01.one_struct_matchValue_for_rec_block_try_distractor o 7 11), "72|1001", false
           "one_tuple_x_let-call_direct_block-loop", (fun o -> CaptureCases01.one_tuple_x_let_call_direct_block_loop o 7 11), "1002", false
-          "one_tuple_x_match_lambda-value_applied-lambda", (fun o -> CaptureCases01.one_tuple_x_match_lambda_value_applied_lambda o 7 11), "72", true
+          "one_tuple_x_match_lambda-value_applied-lambda", (fun o -> CaptureCases01.one_tuple_x_match_lambda_value_applied_lambda o 7 11), "72", false
           "one_branching_x_mutable-call_inline-lambda_applied-lambda", (fun o -> CaptureCases01.one_branching_x_mutable_call_inline_lambda_applied_lambda o 7 11), "1003", false
           "one_branching_x_for_lambda-value_block-loop_distractor", (fun o -> CaptureCases01.one_branching_x_for_lambda_value_block_loop_distractor o 7 11), "72|1001", false
           "one_int_x_let-literal_fun-twice_local-fun", (fun o -> CaptureCases01.one_int_x_let_literal_fun_twice_local_fun o 7 11), "1004", false
@@ -13629,7 +13629,7 @@ module Captures =
           "one_struct_matchValue_mutable-pure_setter_applied-lambda", (fun o -> CaptureCases02.one_struct_matchValue_mutable_pure_setter_applied_lambda o 7 11), "173", false
           "one_struct_matchValue_param_inline-lambda_block-try", (fun o -> CaptureCases02.one_struct_matchValue_param_inline_lambda_block_try o 7 11 (CaptureValue 5)), "5", false
           "one_tuple_x_let-alias_fun-twice_block-try", (fun o -> CaptureCases02.one_tuple_x_let_alias_fun_twice_block_try o 7 11), "22", false
-          "one_branching_x_let-alias_inline-fun_top_distractor", (fun o -> CaptureCases02.one_branching_x_let_alias_inline_fun_top_distractor o 7 11), "11|1001", true
+          "one_branching_x_let-alias_inline-fun_top_distractor", (fun o -> CaptureCases02.one_branching_x_let_alias_inline_fun_top_distractor o 7 11), "11|1001", false
           "one_int_x_mutable-call_alias_top_distractor", (fun o -> CaptureCases02.one_int_x_mutable_call_alias_top_distractor o 7 11), "1003|1001", false
           "one_int_matchValue_mutable-call_setter_block-try_distractor", (fun o -> CaptureCases02.one_int_matchValue_mutable_call_setter_block_try_distractor o 7 11), "1103|1001", false
           "one_int_matchValue_lambda_lambda-value_applied-lambda_distractor", (fun o -> CaptureCases02.one_int_matchValue_lambda_lambda_value_applied_lambda_distractor o 7 11), "72|1001", false
@@ -13637,9 +13637,9 @@ module Captures =
           "one_struct_Data_lambda_fun-twice_block-try_distractor", (fun o -> CaptureCases02.one_struct_Data_lambda_fun_twice_block_try_distractor o 7 11), "144|1001", false
           "one_tuple_x_let-literal_alias_applied-lambda_distractor", (fun o -> CaptureCases02.one_tuple_x_let_literal_alias_applied_lambda_distractor o 7 11), "502|1001", false
           "one_tuple_x_tuple_direct_block-try", (fun o -> CaptureCases02.one_tuple_x_tuple_direct_block_try o 7 11), "72", false
-          "one_branching_x_let-call_alias_block-try_distractor", (fun o -> CaptureCases02.one_branching_x_let_call_alias_block_try_distractor o 7 11), "1002|1001", true
+          "one_branching_x_let-call_alias_block-try_distractor", (fun o -> CaptureCases02.one_branching_x_let_call_alias_block_try_distractor o 7 11), "1002|1001", false
           "one_branching_x_mutable-pure_direct_top", (fun o -> CaptureCases02.one_branching_x_mutable_pure_direct_top o 7 11), "73", false
-          "one_branching_x_tuple_fun_applied-lambda_distractor", (fun o -> CaptureCases02.one_branching_x_tuple_fun_applied_lambda_distractor o 7 11), "72|1001", true
+          "one_branching_x_tuple_fun_applied-lambda_distractor", (fun o -> CaptureCases02.one_branching_x_tuple_fun_applied_lambda_distractor o 7 11), "72|1001", false
           "one_int_Data_let-literal_fun_block-try_distractor", (fun o -> CaptureCases02.one_int_Data_let_literal_fun_block_try_distractor o 7 11), "502|1001", false
           "one_int_Data_match_direct_local-fun_distractor", (fun o -> CaptureCases02.one_int_Data_match_direct_local_fun_distractor o 7 11), "72|1001", false
           "one_int_Data_param_direct_applied-lambda", (fun o -> CaptureCases02.one_int_Data_param_direct_applied_lambda o 7 11 5), "5", false
@@ -13665,13 +13665,13 @@ module Captures =
           "one_struct_matchValue_param_direct_block-loop_distractor", (fun o -> CaptureCases02.one_struct_matchValue_param_direct_block_loop_distractor o 7 11 (CaptureValue 5)), "5|1001", false
           "one_tuple_x_let-pure_fun_top_distractor", (fun o -> CaptureCases02.one_tuple_x_let_pure_fun_top_distractor o 7 11), "72|1001", false
           "one_tuple_x_mutable-call_lambda-value_block-try_distractor", (fun o -> CaptureCases02.one_tuple_x_mutable_call_lambda_value_block_try_distractor o 7 11), "1003|1001", false
-          "one_tuple_x_tuple_alias_local-fun", (fun o -> CaptureCases03.one_tuple_x_tuple_alias_local_fun o 7 11), "72", true
+          "one_tuple_x_tuple_alias_local-fun", (fun o -> CaptureCases03.one_tuple_x_tuple_alias_local_fun o 7 11), "72", false
           "one_tuple_x_lambda_inline-lambda_applied-lambda", (fun o -> CaptureCases03.one_tuple_x_lambda_inline_lambda_applied_lambda o 7 11), "72", true
           "one_tuple_x_for_direct_top_distractor", (fun o -> CaptureCases03.one_tuple_x_for_direct_top_distractor o 7 11), "72|1001", false
-          "one_branching_x_let-pure_fun-twice_local-fun", (fun o -> CaptureCases03.one_branching_x_let_pure_fun_twice_local_fun o 7 11), "144", true
-          "one_branching_x_match_fun_top", (fun o -> CaptureCases03.one_branching_x_match_fun_top o 7 11), "72", true
+          "one_branching_x_let-pure_fun-twice_local-fun", (fun o -> CaptureCases03.one_branching_x_let_pure_fun_twice_local_fun o 7 11), "144", false
+          "one_branching_x_match_fun_top", (fun o -> CaptureCases03.one_branching_x_match_fun_top o 7 11), "72", false
           "one_branching_x_for_inline-fun_block-try", (fun o -> CaptureCases03.one_branching_x_for_inline_fun_block_try o 7 11), "72", false
-          "one_branching_x_param_alias_top", (fun o -> CaptureCases03.one_branching_x_param_alias_top o 7 11 (5, 70)), "5", true
+          "one_branching_x_param_alias_top", (fun o -> CaptureCases03.one_branching_x_param_alias_top o 7 11 (5, 70)), "5", false
           "one_int_Data_mutable-call_rec_applied-lambda", (fun o -> CaptureCases03.one_int_Data_mutable_call_rec_applied_lambda o 7 11), "1003", false
           "one_int_Data_param_inline-fun_block-try", (fun o -> CaptureCases03.one_int_Data_param_inline_fun_block_try o 7 11 5), "5", false
           "one_int_matchValue_tuple_fun-twice_applied-lambda", (fun o -> CaptureCases03.one_int_matchValue_tuple_fun_twice_applied_lambda o 7 11), "144", false
@@ -13687,8 +13687,8 @@ module Captures =
           "one_struct_matchValue_tuple_direct_local-fun_distractor", (fun o -> CaptureCases03.one_struct_matchValue_tuple_direct_local_fun_distractor o 7 11), "72|1001", false
           "one_tuple_x_let-call_rec_applied-lambda_distractor", (fun o -> CaptureCases03.one_tuple_x_let_call_rec_applied_lambda_distractor o 7 11), "1002|1001", false
           "one_tuple_x_mutable-pure_inline-lambda_top_distractor", (fun o -> CaptureCases03.one_tuple_x_mutable_pure_inline_lambda_top_distractor o 7 11), "73|1001", false
-          "one_tuple_x_param_fun-twice_applied-lambda_distractor", (fun o -> CaptureCases03.one_tuple_x_param_fun_twice_applied_lambda_distractor o 7 11 (5, 70)), "10|1001", true
-          "one_branching_x_let-pure_lambda-value_block-try_distractor", (fun o -> CaptureCases03.one_branching_x_let_pure_lambda_value_block_try_distractor o 7 11), "72|1001", true
+          "one_tuple_x_param_fun-twice_applied-lambda_distractor", (fun o -> CaptureCases03.one_tuple_x_param_fun_twice_applied_lambda_distractor o 7 11 (5, 70)), "10|1001", false
+          "one_branching_x_let-pure_lambda-value_block-try_distractor", (fun o -> CaptureCases03.one_branching_x_let_pure_lambda_value_block_try_distractor o 7 11), "72|1001", false
           "one_branching_x_let-literal_direct_applied-lambda", (fun o -> CaptureCases03.one_branching_x_let_literal_direct_applied_lambda o 7 11), "502", false
           "one_branching_x_lambda_direct_block-loop_distractor", (fun o -> CaptureCases03.one_branching_x_lambda_direct_block_loop_distractor o 7 11), "72|1001", false
           "one_int_Data_let-pure_lambda-value_block-loop", (fun o -> CaptureCases03.one_int_Data_let_pure_lambda_value_block_loop o 7 11), "72", false
@@ -13710,15 +13710,15 @@ module Captures =
           "one_tuple_x_mutable-pure_fun_block-try_distractor", (fun o -> CaptureCases04.one_tuple_x_mutable_pure_fun_block_try_distractor o 7 11), "73|1001", false
           "one_tuple_x_mutable-call_fun-twice_local-fun", (fun o -> CaptureCases04.one_tuple_x_mutable_call_fun_twice_local_fun o 7 11), "2006", false
           "one_tuple_x_mutable-call_inline-fun_applied-lambda_distractor", (fun o -> CaptureCases04.one_tuple_x_mutable_call_inline_fun_applied_lambda_distractor o 7 11), "1003|1001", false
-          "one_tuple_x_tuple_lambda-value_top_distractor", (fun o -> CaptureCases04.one_tuple_x_tuple_lambda_value_top_distractor o 7 11), "72|1001", true
-          "one_tuple_x_lambda_alias_block-loop_distractor", (fun o -> CaptureCases04.one_tuple_x_lambda_alias_block_loop_distractor o 7 11), "72|1001", true
+          "one_tuple_x_tuple_lambda-value_top_distractor", (fun o -> CaptureCases04.one_tuple_x_tuple_lambda_value_top_distractor o 7 11), "72|1001", false
+          "one_tuple_x_lambda_alias_block-loop_distractor", (fun o -> CaptureCases04.one_tuple_x_lambda_alias_block_loop_distractor o 7 11), "72|1001", false
           "one_branching_x_let-literal_inline-lambda_block-loop", (fun o -> CaptureCases04.one_branching_x_let_literal_inline_lambda_block_loop o 7 11), "502", true
           "one_branching_x_let-alias_rec_block-try_distractor", (fun o -> CaptureCases04.one_branching_x_let_alias_rec_block_try_distractor o 7 11), "11|1001", false
           "one_branching_x_mutable-pure_fun-twice_block-loop", (fun o -> CaptureCases04.one_branching_x_mutable_pure_fun_twice_block_loop o 7 11), "146", false
           "one_branching_x_mutable-pure_setter_block-try", (fun o -> CaptureCases04.one_branching_x_mutable_pure_setter_block_try o 7 11), "173", false
           "one_branching_x_match_inline-lambda_local-fun_distractor", (fun o -> CaptureCases04.one_branching_x_match_inline_lambda_local_fun_distractor o 7 11), "72|1001", true
           "one_branching_x_for_fun-twice_applied-lambda_distractor", (fun o -> CaptureCases04.one_branching_x_for_fun_twice_applied_lambda_distractor o 7 11), "144|1001", false
-          "one_branching_x_param_fun_local-fun", (fun o -> CaptureCases04.one_branching_x_param_fun_local_fun o 7 11 (5, 70)), "5", true
+          "one_branching_x_param_fun_local-fun", (fun o -> CaptureCases04.one_branching_x_param_fun_local_fun o 7 11 (5, 70)), "5", false
           "one_int_Data_let-alias_inline-fun_local-fun", (fun o -> CaptureCases04.one_int_Data_let_alias_inline_fun_local_fun o 7 11), "11", false
           "one_int_Data_mutable-call_fun_local-fun_distractor", (fun o -> CaptureCases04.one_int_Data_mutable_call_fun_local_fun_distractor o 7 11), "1003|1001", false
           "one_int_Data_tuple_fun_top", (fun o -> CaptureCases04.one_int_Data_tuple_fun_top o 7 11), "72", false
@@ -13734,11 +13734,11 @@ module Captures =
           "one_struct_Data_tuple_inline-fun_block-loop_distractor", (fun o -> CaptureCases04.one_struct_Data_tuple_inline_fun_block_loop_distractor o 7 11), "72|1001", false
           "one_tuple_x_mutable-pure_alias_top", (fun o -> CaptureCases04.one_tuple_x_mutable_pure_alias_top o 7 11), "73", false
           "one_tuple_x_mutable-call_rec_block-loop", (fun o -> CaptureCases04.one_tuple_x_mutable_call_rec_block_loop o 7 11), "1003", false
-          "one_tuple_x_match_fun-twice_top", (fun o -> CaptureCases04.one_tuple_x_match_fun_twice_top o 7 11), "144", true
-          "one_branching_x_let-call_inline-fun_applied-lambda", (fun o -> CaptureCases04.one_branching_x_let_call_inline_fun_applied_lambda o 7 11), "1002", true
-          "one_branching_x_let-alias_lambda-value_applied-lambda", (fun o -> CaptureCases04.one_branching_x_let_alias_lambda_value_applied_lambda o 7 11), "11", true
+          "one_tuple_x_match_fun-twice_top", (fun o -> CaptureCases04.one_tuple_x_match_fun_twice_top o 7 11), "144", false
+          "one_branching_x_let-call_inline-fun_applied-lambda", (fun o -> CaptureCases04.one_branching_x_let_call_inline_fun_applied_lambda o 7 11), "1002", false
+          "one_branching_x_let-alias_lambda-value_applied-lambda", (fun o -> CaptureCases04.one_branching_x_let_alias_lambda_value_applied_lambda o 7 11), "11", false
           "one_branching_x_mutable-call_alias_block-loop", (fun o -> CaptureCases04.one_branching_x_mutable_call_alias_block_loop o 7 11), "1003", false
-          "one_branching_x_match_alias_applied-lambda", (fun o -> CaptureCases04.one_branching_x_match_alias_applied_lambda o 7 11), "72", true
+          "one_branching_x_match_alias_applied-lambda", (fun o -> CaptureCases04.one_branching_x_match_alias_applied_lambda o 7 11), "72", false
           "one_branching_x_for_rec_top", (fun o -> CaptureCases04.one_branching_x_for_rec_top o 7 11), "72", false
           "one_int_Data_let-pure_fun_block-try", (fun o -> CaptureCases04.one_int_Data_let_pure_fun_block_try o 7 11), "72", false
           "one_int_Data_let-call_lambda-value_applied-lambda", (fun o -> CaptureCases04.one_int_Data_let_call_lambda_value_applied_lambda o 7 11), "1002", false
@@ -13759,13 +13759,13 @@ module Captures =
           "one_tuple_x_let-literal_rec_block-try", (fun o -> CaptureCases05.one_tuple_x_let_literal_rec_block_try o 7 11), "502", false
           "one_tuple_x_mutable-pure_setter_applied-lambda_distractor", (fun o -> CaptureCases05.one_tuple_x_mutable_pure_setter_applied_lambda_distractor o 7 11), "173|1001", false
           "one_tuple_x_tuple_rec_applied-lambda", (fun o -> CaptureCases05.one_tuple_x_tuple_rec_applied_lambda o 7 11), "72", false
-          "one_tuple_x_lambda_fun-twice_local-fun", (fun o -> CaptureCases05.one_tuple_x_lambda_fun_twice_local_fun o 7 11), "144", true
+          "one_tuple_x_lambda_fun-twice_local-fun", (fun o -> CaptureCases05.one_tuple_x_lambda_fun_twice_local_fun o 7 11), "144", false
           "one_tuple_x_for_fun_applied-lambda", (fun o -> CaptureCases05.one_tuple_x_for_fun_applied_lambda o 7 11), "72", false
           "one_tuple_x_param_direct_top", (fun o -> CaptureCases05.one_tuple_x_param_direct_top o 7 11 (5, 70)), "5", false
-          "one_branching_x_let-pure_fun_block-loop", (fun o -> CaptureCases05.one_branching_x_let_pure_fun_block_loop o 7 11), "72", true
+          "one_branching_x_let-pure_fun_block-loop", (fun o -> CaptureCases05.one_branching_x_let_pure_fun_block_loop o 7 11), "72", false
           "one_branching_x_let-pure_inline-lambda_top", (fun o -> CaptureCases05.one_branching_x_let_pure_inline_lambda_top o 7 11), "72", true
           "one_branching_x_let-call_rec_local-fun", (fun o -> CaptureCases05.one_branching_x_let_call_rec_local_fun o 7 11), "1002", false
-          "one_branching_x_let-literal_lambda-value_local-fun", (fun o -> CaptureCases05.one_branching_x_let_literal_lambda_value_local_fun o 7 11), "502", true
+          "one_branching_x_let-literal_lambda-value_local-fun", (fun o -> CaptureCases05.one_branching_x_let_literal_lambda_value_local_fun o 7 11), "502", false
           "one_branching_x_mutable-pure_inline-fun_local-fun", (fun o -> CaptureCases05.one_branching_x_mutable_pure_inline_fun_local_fun o 7 11), "73", false
           "one_branching_x_mutable-call_fun-twice_block-try", (fun o -> CaptureCases05.one_branching_x_mutable_call_fun_twice_block_try o 7 11), "2006", false
           "one_branching_x_match_direct_block-try", (fun o -> CaptureCases05.one_branching_x_match_direct_block_try o 7 11), "72", false
@@ -13823,23 +13823,23 @@ module Captures =
           "one_tuple_x_let-alias_alias_block-loop", (fun o -> CaptureCases06.one_tuple_x_let_alias_alias_block_loop o 7 11), "11", false
           "one_tuple_x_let-alias_lambda-value_top", (fun o -> CaptureCases06.one_tuple_x_let_alias_lambda_value_top o 7 11), "11", false
           "one_tuple_x_match_direct_block-loop", (fun o -> CaptureCases06.one_tuple_x_match_direct_block_loop o 7 11), "72", false
-          "one_tuple_x_match_fun_local-fun", (fun o -> CaptureCases06.one_tuple_x_match_fun_local_fun o 7 11), "72", true
+          "one_tuple_x_match_fun_local-fun", (fun o -> CaptureCases06.one_tuple_x_match_fun_local_fun o 7 11), "72", false
           "one_tuple_x_lambda_direct_block-try", (fun o -> CaptureCases06.one_tuple_x_lambda_direct_block_try o 7 11), "72", false
           "one_tuple_x_for_fun-twice_block-loop", (fun o -> CaptureCases07.one_tuple_x_for_fun_twice_block_loop o 7 11), "144", false
           "one_tuple_x_for_alias_block-try", (fun o -> CaptureCases07.one_tuple_x_for_alias_block_try o 7 11), "72", false
-          "one_tuple_x_param_fun_block-loop", (fun o -> CaptureCases07.one_tuple_x_param_fun_block_loop o 7 11 (5, 70)), "5", true
-          "one_tuple_x_param_alias_block-try", (fun o -> CaptureCases07.one_tuple_x_param_alias_block_try o 7 11 (5, 70)), "5", true
-          "one_branching_x_let-call_fun_block-loop", (fun o -> CaptureCases07.one_branching_x_let_call_fun_block_loop o 7 11), "1002", true
-          "one_branching_x_let-literal_alias_block-try", (fun o -> CaptureCases07.one_branching_x_let_literal_alias_block_try o 7 11), "502", true
+          "one_tuple_x_param_fun_block-loop", (fun o -> CaptureCases07.one_tuple_x_param_fun_block_loop o 7 11 (5, 70)), "5", false
+          "one_tuple_x_param_alias_block-try", (fun o -> CaptureCases07.one_tuple_x_param_alias_block_try o 7 11 (5, 70)), "5", false
+          "one_branching_x_let-call_fun_block-loop", (fun o -> CaptureCases07.one_branching_x_let_call_fun_block_loop o 7 11), "1002", false
+          "one_branching_x_let-literal_alias_block-try", (fun o -> CaptureCases07.one_branching_x_let_literal_alias_block_try o 7 11), "502", false
           "one_branching_x_let-alias_direct_block-loop", (fun o -> CaptureCases07.one_branching_x_let_alias_direct_block_loop o 7 11), "11", false
           "one_branching_x_mutable-call_fun_top", (fun o -> CaptureCases07.one_branching_x_mutable_call_fun_top o 7 11), "1003", false
-          "one_branching_x_tuple_fun-twice_local-fun", (fun o -> CaptureCases07.one_branching_x_tuple_fun_twice_local_fun o 7 11), "144", true
-          "one_branching_x_tuple_alias_block-try", (fun o -> CaptureCases07.one_branching_x_tuple_alias_block_try o 7 11), "72", true
-          "one_branching_x_lambda_fun-twice_top", (fun o -> CaptureCases07.one_branching_x_lambda_fun_twice_top o 7 11), "144", true
-          "one_branching_x_lambda_alias_applied-lambda", (fun o -> CaptureCases07.one_branching_x_lambda_alias_applied_lambda o 7 11), "72", true
+          "one_branching_x_tuple_fun-twice_local-fun", (fun o -> CaptureCases07.one_branching_x_tuple_fun_twice_local_fun o 7 11), "144", false
+          "one_branching_x_tuple_alias_block-try", (fun o -> CaptureCases07.one_branching_x_tuple_alias_block_try o 7 11), "72", false
+          "one_branching_x_lambda_fun-twice_top", (fun o -> CaptureCases07.one_branching_x_lambda_fun_twice_top o 7 11), "144", false
+          "one_branching_x_lambda_alias_applied-lambda", (fun o -> CaptureCases07.one_branching_x_lambda_alias_applied_lambda o 7 11), "72", false
           "one_branching_x_lambda_rec_local-fun", (fun o -> CaptureCases07.one_branching_x_lambda_rec_local_fun o 7 11), "72", false
           "one_branching_x_for_direct_local-fun", (fun o -> CaptureCases07.one_branching_x_for_direct_local_fun o 7 11), "72", false
-          "one_branching_x_param_fun-twice_block-loop", (fun o -> CaptureCases07.one_branching_x_param_fun_twice_block_loop o 7 11 (5, 70)), "10", true
+          "one_branching_x_param_fun-twice_block-loop", (fun o -> CaptureCases07.one_branching_x_param_fun_twice_block_loop o 7 11 (5, 70)), "10", false
           "one_branching_x_param_rec_applied-lambda", (fun o -> CaptureCases07.one_branching_x_param_rec_applied_lambda o 7 11 (5, 70)), "5", false
           "one_int_x_let-call_inline-fun_top", (fun o -> CaptureCases07.one_int_x_let_call_inline_fun_top o 7 11), "1002", false
           "one_int_Data_let-pure_direct_local-fun", (fun o -> CaptureCases07.one_int_Data_let_pure_direct_local_fun o 7 11), "72", false
@@ -13885,32 +13885,32 @@ module Captures =
           "one_tuple_x_mutable-call_fun_block-try", (fun o -> CaptureCases08.one_tuple_x_mutable_call_fun_block_try o 7 11), "1003", false
           "one_tuple_x_mutable-call_alias_block-try", (fun o -> CaptureCases08.one_tuple_x_mutable_call_alias_block_try o 7 11), "1003", false
           "one_tuple_x_mutable-call_inline-lambda_local-fun", (fun o -> CaptureCases08.one_tuple_x_mutable_call_inline_lambda_local_fun o 7 11), "1003", false
-          "one_tuple_x_tuple_fun_local-fun", (fun o -> CaptureCases08.one_tuple_x_tuple_fun_local_fun o 7 11), "72", true
-          "one_tuple_x_tuple_inline-fun_local-fun", (fun o -> CaptureCases08.one_tuple_x_tuple_inline_fun_local_fun o 7 11), "72", true
+          "one_tuple_x_tuple_fun_local-fun", (fun o -> CaptureCases08.one_tuple_x_tuple_fun_local_fun o 7 11), "72", false
+          "one_tuple_x_tuple_inline-fun_local-fun", (fun o -> CaptureCases08.one_tuple_x_tuple_inline_fun_local_fun o 7 11), "72", false
           "one_tuple_x_tuple_inline-lambda_applied-lambda", (fun o -> CaptureCases08.one_tuple_x_tuple_inline_lambda_applied_lambda o 7 11), "72", true
-          "one_tuple_x_match_alias_top", (fun o -> CaptureCases08.one_tuple_x_match_alias_top o 7 11), "72", true
+          "one_tuple_x_match_alias_top", (fun o -> CaptureCases08.one_tuple_x_match_alias_top o 7 11), "72", false
           "one_tuple_x_match_rec_applied-lambda", (fun o -> CaptureCases08.one_tuple_x_match_rec_applied_lambda o 7 11), "72", false
           "one_tuple_x_match_inline-lambda_block-loop", (fun o -> CaptureCases08.one_tuple_x_match_inline_lambda_block_loop o 7 11), "72", true
-          "one_tuple_x_lambda_fun_top", (fun o -> CaptureCases08.one_tuple_x_lambda_fun_top o 7 11), "72", true
-          "one_tuple_x_lambda_lambda-value_local-fun", (fun o -> CaptureCases08.one_tuple_x_lambda_lambda_value_local_fun o 7 11), "72", true
-          "one_tuple_x_lambda_inline-fun_block-loop", (fun o -> CaptureCases08.one_tuple_x_lambda_inline_fun_block_loop o 7 11), "72", true
+          "one_tuple_x_lambda_fun_top", (fun o -> CaptureCases08.one_tuple_x_lambda_fun_top o 7 11), "72", false
+          "one_tuple_x_lambda_lambda-value_local-fun", (fun o -> CaptureCases08.one_tuple_x_lambda_lambda_value_local_fun o 7 11), "72", false
+          "one_tuple_x_lambda_inline-fun_block-loop", (fun o -> CaptureCases08.one_tuple_x_lambda_inline_fun_block_loop o 7 11), "72", false
           "one_tuple_x_for_rec_local-fun", (fun o -> CaptureCases08.one_tuple_x_for_rec_local_fun o 7 11), "72", false
           "one_tuple_x_for_lambda-value_applied-lambda", (fun o -> CaptureCases08.one_tuple_x_for_lambda_value_applied_lambda o 7 11), "72", false
           "one_tuple_x_for_inline-fun_top", (fun o -> CaptureCases08.one_tuple_x_for_inline_fun_top o 7 11), "72", false
-          "one_tuple_x_param_lambda-value_applied-lambda", (fun o -> CaptureCases08.one_tuple_x_param_lambda_value_applied_lambda o 7 11 (5, 70)), "5", true
-          "one_tuple_x_param_inline-fun_local-fun", (fun o -> CaptureCases08.one_tuple_x_param_inline_fun_local_fun o 7 11 (5, 70)), "5", true
+          "one_tuple_x_param_lambda-value_applied-lambda", (fun o -> CaptureCases08.one_tuple_x_param_lambda_value_applied_lambda o 7 11 (5, 70)), "5", false
+          "one_tuple_x_param_inline-fun_local-fun", (fun o -> CaptureCases08.one_tuple_x_param_inline_fun_local_fun o 7 11 (5, 70)), "5", false
           "one_tuple_x_param_inline-lambda_local-fun", (fun o -> CaptureCases08.one_tuple_x_param_inline_lambda_local_fun o 7 11 (5, 70)), "5", true
           "one_branching_x_let-pure_direct_block-loop", (fun o -> CaptureCases08.one_branching_x_let_pure_direct_block_loop o 7 11), "72", false
-          "one_branching_x_let-pure_alias_local-fun", (fun o -> CaptureCases08.one_branching_x_let_pure_alias_local_fun o 7 11), "72", true
-          "one_branching_x_let-pure_inline-fun_top", (fun o -> CaptureCases08.one_branching_x_let_pure_inline_fun_top o 7 11), "72", true
+          "one_branching_x_let-pure_alias_local-fun", (fun o -> CaptureCases08.one_branching_x_let_pure_alias_local_fun o 7 11), "72", false
+          "one_branching_x_let-pure_inline-fun_top", (fun o -> CaptureCases08.one_branching_x_let_pure_inline_fun_top o 7 11), "72", false
           "one_branching_x_let-call_direct_applied-lambda", (fun o -> CaptureCases08.one_branching_x_let_call_direct_applied_lambda o 7 11), "1002", false
-          "one_branching_x_let-call_fun-twice_block-try", (fun o -> CaptureCases08.one_branching_x_let_call_fun_twice_block_try o 7 11), "2004", true
+          "one_branching_x_let-call_fun-twice_block-try", (fun o -> CaptureCases08.one_branching_x_let_call_fun_twice_block_try o 7 11), "2004", false
           "one_branching_x_let-call_inline-lambda_local-fun", (fun o -> CaptureCases09.one_branching_x_let_call_inline_lambda_local_fun o 7 11), "1002", true
-          "one_branching_x_let-literal_fun_local-fun", (fun o -> CaptureCases09.one_branching_x_let_literal_fun_local_fun o 7 11), "502", true
+          "one_branching_x_let-literal_fun_local-fun", (fun o -> CaptureCases09.one_branching_x_let_literal_fun_local_fun o 7 11), "502", false
           "one_branching_x_let-literal_rec_block-loop", (fun o -> CaptureCases09.one_branching_x_let_literal_rec_block_loop o 7 11), "502", false
-          "one_branching_x_let-literal_inline-fun_local-fun", (fun o -> CaptureCases09.one_branching_x_let_literal_inline_fun_local_fun o 7 11), "502", true
-          "one_branching_x_let-alias_fun_block-loop", (fun o -> CaptureCases09.one_branching_x_let_alias_fun_block_loop o 7 11), "11", true
-          "one_branching_x_let-alias_fun-twice_applied-lambda", (fun o -> CaptureCases09.one_branching_x_let_alias_fun_twice_applied_lambda o 7 11), "22", true
+          "one_branching_x_let-literal_inline-fun_local-fun", (fun o -> CaptureCases09.one_branching_x_let_literal_inline_fun_local_fun o 7 11), "502", false
+          "one_branching_x_let-alias_fun_block-loop", (fun o -> CaptureCases09.one_branching_x_let_alias_fun_block_loop o 7 11), "11", false
+          "one_branching_x_let-alias_fun-twice_applied-lambda", (fun o -> CaptureCases09.one_branching_x_let_alias_fun_twice_applied_lambda o 7 11), "22", false
           "one_branching_x_let-alias_inline-lambda_block-try", (fun o -> CaptureCases09.one_branching_x_let_alias_inline_lambda_block_try o 7 11), "11", true
           "one_branching_x_mutable-pure_fun_local-fun", (fun o -> CaptureCases09.one_branching_x_mutable_pure_fun_local_fun o 7 11), "73", false
           "one_branching_x_mutable-pure_alias_applied-lambda", (fun o -> CaptureCases09.one_branching_x_mutable_pure_alias_applied_lambda o 7 11), "73", false
@@ -13923,20 +13923,20 @@ module Captures =
           "one_branching_x_mutable-call_setter_top", (fun o -> CaptureCases09.one_branching_x_mutable_call_setter_top o 7 11), "1103", false
           "one_branching_x_tuple_direct_top", (fun o -> CaptureCases09.one_branching_x_tuple_direct_top o 7 11), "72", false
           "one_branching_x_tuple_rec_block-try", (fun o -> CaptureCases09.one_branching_x_tuple_rec_block_try o 7 11), "72", false
-          "one_branching_x_tuple_lambda-value_block-loop", (fun o -> CaptureCases09.one_branching_x_tuple_lambda_value_block_loop o 7 11), "72", true
+          "one_branching_x_tuple_lambda-value_block-loop", (fun o -> CaptureCases09.one_branching_x_tuple_lambda_value_block_loop o 7 11), "72", false
           "one_branching_x_tuple_inline-lambda_block-loop", (fun o -> CaptureCases09.one_branching_x_tuple_inline_lambda_block_loop o 7 11), "72", true
-          "one_branching_x_match_fun-twice_local-fun", (fun o -> CaptureCases09.one_branching_x_match_fun_twice_local_fun o 7 11), "144", true
-          "one_branching_x_match_lambda-value_block-try", (fun o -> CaptureCases09.one_branching_x_match_lambda_value_block_try o 7 11), "72", true
-          "one_branching_x_match_inline-fun_local-fun", (fun o -> CaptureCases09.one_branching_x_match_inline_fun_local_fun o 7 11), "72", true
-          "one_branching_x_lambda_lambda-value_block-try", (fun o -> CaptureCases09.one_branching_x_lambda_lambda_value_block_try o 7 11), "72", true
-          "one_branching_x_lambda_inline-fun_block-try", (fun o -> CaptureCases09.one_branching_x_lambda_inline_fun_block_try o 7 11), "72", true
+          "one_branching_x_match_fun-twice_local-fun", (fun o -> CaptureCases09.one_branching_x_match_fun_twice_local_fun o 7 11), "144", false
+          "one_branching_x_match_lambda-value_block-try", (fun o -> CaptureCases09.one_branching_x_match_lambda_value_block_try o 7 11), "72", false
+          "one_branching_x_match_inline-fun_local-fun", (fun o -> CaptureCases09.one_branching_x_match_inline_fun_local_fun o 7 11), "72", false
+          "one_branching_x_lambda_lambda-value_block-try", (fun o -> CaptureCases09.one_branching_x_lambda_lambda_value_block_try o 7 11), "72", false
+          "one_branching_x_lambda_inline-fun_block-try", (fun o -> CaptureCases09.one_branching_x_lambda_inline_fun_block_try o 7 11), "72", false
           "one_branching_x_lambda_inline-lambda_block-loop", (fun o -> CaptureCases09.one_branching_x_lambda_inline_lambda_block_loop o 7 11), "72", true
           "one_branching_x_for_fun_block-try", (fun o -> CaptureCases09.one_branching_x_for_fun_block_try o 7 11), "72", false
           "one_branching_x_for_alias_local-fun", (fun o -> CaptureCases09.one_branching_x_for_alias_local_fun o 7 11), "72", false
           "one_branching_x_for_inline-lambda_applied-lambda", (fun o -> CaptureCases09.one_branching_x_for_inline_lambda_applied_lambda o 7 11), "72", false
           "one_branching_x_param_direct_local-fun", (fun o -> CaptureCases09.one_branching_x_param_direct_local_fun o 7 11 (5, 70)), "5", false
-          "one_branching_x_param_lambda-value_block-try", (fun o -> CaptureCases09.one_branching_x_param_lambda_value_block_try o 7 11 (5, 70)), "5", true
-          "one_branching_x_param_inline-fun_block-loop", (fun o -> CaptureCases09.one_branching_x_param_inline_fun_block_loop o 7 11 (5, 70)), "5", true
+          "one_branching_x_param_lambda-value_block-try", (fun o -> CaptureCases09.one_branching_x_param_lambda_value_block_try o 7 11 (5, 70)), "5", false
+          "one_branching_x_param_inline-fun_block-loop", (fun o -> CaptureCases09.one_branching_x_param_inline_fun_block_loop o 7 11 (5, 70)), "5", false
           "one_branching_x_param_inline-lambda_block-loop", (fun o -> CaptureCases09.one_branching_x_param_inline_lambda_block_loop o 7 11 (5, 70)), "5", true
           "one_int_x_let-pure_fun-twice_block-try", (fun o -> CaptureCases09.one_int_x_let_pure_fun_twice_block_try o 7 11), "144", false
           "one_int_x_let-pure_rec_block-try", (fun o -> CaptureCases09.one_int_x_let_pure_rec_block_try o 7 11), "72", false
@@ -14147,7 +14147,7 @@ module Captures =
           "two_tuple_mutable-pure_fun__lambda_alias_top", (fun o -> CaptureCases14.two_tuple_mutable_pure_fun__lambda_alias_top o 7 11), "72|72", true
           "two_tuple_tuple_lambda-value__let-call_fun_top", (fun o -> CaptureCases15.two_tuple_tuple_lambda_value__let_call_fun_top o 7 11), "71|1002", true
           "two_tuple_for_fun-twice__let-pure_inline-fun_top", (fun o -> CaptureCases15.two_tuple_for_fun_twice__let_pure_inline_fun_top o 7 11), "142|72", true
-          "two_branching_let-call_inline-fun__mutable-pure_alias_top", (fun o -> CaptureCases15.two_branching_let_call_inline_fun__mutable_pure_alias_top o 7 11), "1001|73", true
+          "two_branching_let-call_inline-fun__mutable-pure_alias_top", (fun o -> CaptureCases15.two_branching_let_call_inline_fun__mutable_pure_alias_top o 7 11), "1001|73", false
           "two_branching_mutable-call_setter__mutable-call_fun_top", (fun o -> CaptureCases15.two_branching_mutable_call_setter__mutable_call_fun_top o 7 11), "1102|2003", true
           "two_int_let-pure_fun__match_alias_applied-lambda", (fun o -> CaptureCases15.two_int_let_pure_fun__match_alias_applied_lambda o 7 11), "71|72", true
           "two_int_let-pure_inline-fun__lambda_direct_applied-lambda", (fun o -> CaptureCases15.two_int_let_pure_inline_fun__lambda_direct_applied_lambda o 7 11), "71|72", true
@@ -14787,7 +14787,7 @@ module Captures =
           "two_tuple_let-call_inline-fun__let-pure_rec_top", (fun o -> CaptureCases30.two_tuple_let_call_inline_fun__let_pure_rec_top o 7 11), "1001|72", true
           "two_tuple_let-literal_fun__match_direct_top", (fun o -> CaptureCases31.two_tuple_let_literal_fun__match_direct_top o 7 11), "501|72", true
           "two_tuple_mutable-pure_fun__for_rec_top", (fun o -> CaptureCases31.two_tuple_mutable_pure_fun__for_rec_top o 7 11), "72|72", true
-          "two_tuple_mutable-pure_alias__match_alias_top", (fun o -> CaptureCases31.two_tuple_mutable_pure_alias__match_alias_top o 7 11), "72|72", true
+          "two_tuple_mutable-pure_alias__match_alias_top", (fun o -> CaptureCases31.two_tuple_mutable_pure_alias__match_alias_top o 7 11), "72|72", false
           "two_tuple_mutable-pure_setter__tuple_inline-fun_top", (fun o -> CaptureCases31.two_tuple_mutable_pure_setter__tuple_inline_fun_top o 7 11), "172|72", true
           "two_tuple_for_rec__let-alias_fun-twice_top", (fun o -> CaptureCases31.two_tuple_for_rec__let_alias_fun_twice_top o 7 11), "71|22", true
           "two_tuple_param_rec__let-call_rec_top", (fun o -> CaptureCases31.two_tuple_param_rec__let_call_rec_top o 7 11 (5, 70)), "5|1002", true

@@ -161,8 +161,8 @@ module internal TranslateBlock =
 
         /// Whether recovering `e` runs nothing twice: the optimizer moves no effect into the
         /// block's closure, so an effect in a recovered definition has run already, outside it
-        /// (#203). Literals, variables, lambdas (built, not run), the F# operators, and tuples,
-        /// unions, records, lets of those.
+        /// (#203). Literals, variables, lambdas (built, not run), the F# operators on primitives,
+        /// and tuples, unions, records, lets of those.
         let rec effectFree (e: Expr) =
             match e with
             | Value _ | Var _ | Lambda _ | DefaultValue _ -> true
@@ -170,8 +170,21 @@ module internal TranslateBlock =
             | Coerce(x, _) | TupleGet(x, _) -> effectFree x
             | Let(_, d, b) -> effectFree d && effectFree b
             | LetRecursive(bs, b) -> List.forall (snd >> effectFree) bs && effectFree b
-            | Call(None, mi, args) ->
-                mi.DeclaringType.FullName = "Microsoft.FSharp.Core.Operators" && mi.Name.StartsWith "op_" && List.forall effectFree args
+            | Call(None, mi, args) when mi.DeclaringType.FullName = "Microsoft.FSharp.Core.Operators" ->
+                // `fst`/`snd`, and the arithmetic, comparison, bitwise and `not` operators on
+                // primitives and strings. Not every operator: one on a user's type calls the user's
+                // code (`+`, `=` through `Equals`), and `|>` calls a function.
+                let primitive (t: Type) = t.IsPrimitive || t = typeof<string> || t = typeof<decimal>
+                let plain =
+                    match mi.Name with
+                    | "Fst" | "Snd" -> true
+                    | "op_Addition" | "op_Subtraction" | "op_Multiply" | "op_Division" | "op_Modulus"
+                    | "op_UnaryNegation" | "op_UnaryPlus"
+                    | "op_Equality" | "op_Inequality" | "op_LessThan" | "op_GreaterThan" | "op_LessThanOrEqual" | "op_GreaterThanOrEqual"
+                    | "op_BitwiseAnd" | "op_BitwiseOr" | "op_ExclusiveOr" | "op_LogicalNot" | "op_LeftShift" | "op_RightShift" | "Not" ->
+                        args |> List.forall (fun a -> primitive a.Type)
+                    | _ -> false
+                plain && List.forall effectFree args
             | _ -> false
 
         /// The field element `i` of a reference tuple the Release optimizer split is held in: `t_0`,
