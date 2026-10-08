@@ -14,7 +14,8 @@
 //   dotnet fsi capturemap.fsx <fsc args file, one per line> <project dir> <output map>
 //
 // Map lines (tab-separated): `B file line` starts a block; then `V field name ordinal` or
-// `E field name ordinal element`. A block any of whose fields is not attributed is left out: it
+// `E field name ordinal element`, and `U name ordinal element` for a split tuple's element nothing
+// in the optimized member keeps (unused). A block any of whose fields is not attributed is left out: it
 // keeps the strict behaviour.
 
 #r "nuget: FSharp.Compiler.Service, 43.12.400"
@@ -123,6 +124,10 @@ let splitParameter (group: FSharpMemberOrFunctionOrValue list) =
     | Some b :: _ when group.Length > 1 && List.forall ((=) (Some b)) parts -> Some b
     | _ -> None
 
+/// Each binding's construct (the `let`, or the application of a lambda applied on the spot):
+/// a temporary the optimizer makes of the whole binding has its range.
+let bindRanges = Dictionary<string * string, range>()
+
 /// Split parameters' elements: (name, declaration) → (tuple parameter's name, element).
 let splitElements = Dictionary<string * string, string * int>()
 
@@ -147,11 +152,11 @@ let bindings (args: FSharpMemberOrFunctionOrValue list list) (body: FSharpExpr) 
                     | _ -> false) ->
             rebuilt.Add(sourceKey v) |> ignore
             order.Add((v, Some d)); go b
-        | FSharpExprPatterns.Let((v, d, _), b) -> go d; order.Add((v, Some d)); go b
+        | FSharpExprPatterns.Let((v, d, _), b) -> go d; bindRanges.[sourceKey v] <- e.Range; order.Add((v, Some d)); go b
         | FSharpExprPatterns.LetRec(bs, b) -> (for (v, d, _) in bs do order.Add((v, Some d))); (for (_, d, _) in bs do go d); go b
         // A lambda applied on the spot: its parameter's value is the argument. As a quotation
         // has it: the parameter, its body, then the argument.
-        | FSharpExprPatterns.Application(FSharpExprPatterns.Lambda(v, b), _, [ arg ]) -> order.Add((v, Some arg)); go b; go arg
+        | FSharpExprPatterns.Application(FSharpExprPatterns.Lambda(v, b), _, [ arg ]) -> bindRanges.[sourceKey v] <- e.Range; order.Add((v, Some arg)); go b; go arg
         | FSharpExprPatterns.Lambda(v, b) -> order.Add((v, None)); go b
         | FSharpExprPatterns.TryWith(b, v1, f, v2, h, _, _) -> go b; order.Add((v1, None)); go f; order.Add((v2, None)); go h
         | FSharpExprPatterns.DecisionTree(d, targets) -> go d; for (vs, t) in targets do (for v in vs do order.Add((v, None))); go t
@@ -246,14 +251,14 @@ let rec members (opt: FSharpImplementationFileDeclaration list) =
                     match blockKey e with
                     | None -> ()
                     | Some(file, line) ->
-                        let entries =
-                            fieldsOf definitions e
-                            |> List.map (fun (field, v) ->
+                        // A value of the optimized member: the source variable (name, ordinal) it is,
+                        // and the element when it is one of a split tuple's; None when not attributed.
+                        let attribute (v: FSharpMemberOrFunctionOrValue) : (string * int * int option) option =
                                 match bySource.TryGetValue(sourceKey v) with
                                 | true, (_, n, _) when splitElements.ContainsKey(sourceKey v) ->
                                     let name, i = splitElements.[sourceKey v]
-                                    Some(sprintf "E\t%s\t%s\t%d\t%d" field name n i)
-                                | true, (sv, n, _) -> Some(sprintf "V\t%s\t%s\t%d" field sv.LogicalName n)
+                                    Some(name, n, Some i)
+                                | true, (sv, n, _) -> Some(sv.LogicalName, n, None)
                                 | _ ->
                                     // The optimizer's own: a temporary `<tuple>_<i>` (an element), or a value
                                     // it re-created under the source name (a pattern's). Attributed to the one
@@ -261,10 +266,17 @@ let rec members (opt: FSharpImplementationFileDeclaration list) =
                                     // has its range, or whose own binding it starts at (the branching
                                     // rewrite's `$tupleElem`); else none.
                                     let r = v.DeclarationLocation
-                                    let owner (name: string) =
-                                        bySource.Values
+                                    let owner (name: string) (fits: FSharpMemberOrFunctionOrValue -> bool) =
+                                        let candidates =
+                                            bySource.Values |> Seq.filter (fun (sv, _, _) -> sv.LogicalName = name && fits sv) |> List.ofSeq
+                                        // The binding the optimizer made the temporary of, whole: exactly one
+                                        // whose construct has its range; else by value, below.
+                                        match candidates |> List.filter (fun (sv, _, _) -> match bindRanges.TryGetValue(sourceKey sv) with | true, br -> br = r | _ -> false) with
+                                        | [ one ] -> [ one ]
+                                        | _ ->
+                                        candidates
                                         |> Seq.filter (fun (sv, _, d) ->
-                                            sv.LogicalName = name
+                                            true
                                             && ((match d |> Option.bind (valueRange bySource) with Some vr -> contains vr r | None -> false)
                                                 || (match d with Some d -> d.Range = r | None -> false)
                                                 || (match d |> Option.bind (valueRange bySource) with Some vr -> contains r vr | None -> false)
@@ -278,13 +290,51 @@ let rec members (opt: FSharpImplementationFileDeclaration list) =
                                         | _ -> None
                                     match element with
                                     | Some(tuple, i) ->
-                                        match owner tuple |> List.filter (fun (sv, _, _) -> sv.FullType.IsTupleType) with
-                                        | [ (sv, n, _) ] -> Some(sprintf "E\t%s\t%s\t%d\t%d" field sv.LogicalName n i)
+                                        let elementOf (sv: FSharpMemberOrFunctionOrValue) =
+                                            sv.FullType.IsTupleType && i < sv.FullType.GenericArguments.Count
+                                            && sv.FullType.GenericArguments.[i].Format(FSharpDisplayContext.Empty) = v.FullType.Format(FSharpDisplayContext.Empty)
+                                        match owner tuple elementOf with
+                                        | [ (sv, n, _) ] -> Some(sv.LogicalName, n, Some i)
                                         | _ -> None
                                     | None ->
-                                        match owner v.LogicalName with
-                                        | [ (sv, n, _) ] -> Some(sprintf "V\t%s\t%s\t%d" field sv.LogicalName n)
-                                        | _ -> None)
+                                        match owner v.LogicalName (fun sv -> sv.FullType.Format(FSharpDisplayContext.Empty) = v.FullType.Format(FSharpDisplayContext.Empty)) with
+                                        | [ (sv, n, _) ] -> Some(sv.LogicalName, n, None)
+                                        | _ -> None
+                        let fields = fieldsOf definitions e
+                        let attributed = fields |> List.map (fun (field, v) -> field, attribute v)
+                        let entries =
+                            attributed |> List.map (fun (field, a) ->
+                                match a with
+                                | Some(name, n, None) -> Some(sprintf "V\t%s\t%s\t%d" field name n)
+                                | Some(name, n, Some i) -> Some(sprintf "E\t%s\t%s\t%d\t%d" field name n i)
+                                | None -> None)
+                        // A split tuple's element with no field, and no temporary of it read anywhere in the
+                        // optimized member: unused. (An element read must be in the machine: a field, or
+                        // substituted, which only an effect-free definition is, and the run time takes
+                        // that first.)
+                        let unused =
+                            let elementsOf = Dictionary<string * int, int>()
+                            for (sv, n, _) in bySource.Values do
+                                if sv.FullType.IsTupleType then elementsOf.[(sv.LogicalName, n)] <- sv.FullType.GenericArguments.Count
+                            let split = attributed |> List.choose (function (_, Some(name, n, Some _)) -> Some(name, n) | _ -> None) |> List.distinct
+                            let present = HashSet<string * int * int>()
+                            let rec all (e: FSharpExpr) =
+                                match e with
+                                // Read, not merely bound or set: the branching rewrite makes and assigns a
+                                // local for every element, read or not.
+                                | FSharpExprPatterns.Value v ->
+                                    match attribute v with
+                                    | Some(name, n, Some i) -> present.Add((name, n, i)) |> ignore
+                                    | _ -> ()
+                                | _ -> ()
+                                for x in e.ImmediateSubExpressions do all x
+                            all obody
+                            [ for (name, n) in split do
+                                match elementsOf.TryGetValue((name, n)) with
+                                | true, count ->
+                                    for j in 0 .. count - 1 do
+                                        if not (present.Contains((name, n, j))) then yield sprintf "U\t%s\t%d\t%d" name n j
+                                | _ -> () ]
                         if not (List.forall Option.isSome entries) then
                             for (field, v), entry in List.zip (fieldsOf definitions e) entries do
                                 if entry.IsNone then eprintfn "UNATTRIBUTED %s (%s at %s) block %s:%d" field v.LogicalName (v.DeclarationLocation.ToString()) (Path.GetFileName file) line
@@ -292,6 +342,7 @@ let rec members (opt: FSharpImplementationFileDeclaration list) =
                             mapped <- mapped + 1
                             lines.Add(sprintf "B\t%s\t%d" file line)
                             for e in entries do lines.Add e.Value
+                            for u in unused do lines.Add u
                 | _ -> for x in e.ImmediateSubExpressions do machines x
             machines obody
         | _ -> ()

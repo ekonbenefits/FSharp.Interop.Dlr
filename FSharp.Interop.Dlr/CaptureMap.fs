@@ -8,13 +8,15 @@ open System.Reflection
 
 /// One field of a block's Release state machine and the source variable it holds: the
 /// variable's name and its order among the member's bindings of that name, and for a split
-/// tuple's element field, the element.
-type internal CaptureEntry = { Field: string; Name: string; Ordinal: int; Element: int option }
+/// tuple's element field, the element. `Unused`: no field, a split tuple's element the
+/// compiler keeps nowhere.
+type internal CaptureEntry = { Field: string; Name: string; Ordinal: int; Element: int option; Unused: bool }
 
 /// The capture map a build companion embeds (`FSharp.Interop.Dlr.CaptureMap`), computed from the
 /// compiler's optimized tree: which variable each field of each block's state machine holds, so
 /// captures bind exactly instead of by name. Tab-separated lines: `B file line` starts a block;
-/// `V field name ordinal` and `E field name ordinal element` follow.
+/// `V field name ordinal` and `E field name ordinal element` follow, and `U name ordinal element`
+/// for a split tuple's element nothing keeps.
 module internal CaptureMap =
 
     [<Literal>]
@@ -41,9 +43,12 @@ module internal CaptureMap =
                     flush ()
                     key <- Some(struct (file, int at))
                     entries <- []
-                | [| "V"; field; name; ordinal |] -> entries <- { Field = field; Name = name; Ordinal = int ordinal; Element = None } :: entries
+                | [| "V"; field; name; ordinal |] -> entries <- { Field = field; Name = name; Ordinal = int ordinal; Element = None; Unused = false } :: entries
                 | [| "E"; field; name; ordinal; element |] ->
-                    entries <- { Field = field; Name = name; Ordinal = int ordinal; Element = Some(int element) } :: entries
+                    entries <- { Field = field; Name = name; Ordinal = int ordinal; Element = Some(int element); Unused = false } :: entries
+                // A split tuple's element nothing in the optimized member keeps.
+                | [| "U"; name; ordinal; element |] ->
+                    entries <- { Field = ""; Name = name; Ordinal = int ordinal; Element = Some(int element); Unused = true } :: entries
                 | _ -> ()
                 line <- reader.ReadLine()
             flush ()
