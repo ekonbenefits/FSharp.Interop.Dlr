@@ -199,6 +199,13 @@ let private patternBoundReadsReordered (o: obj) (seed: int) : string =
             return o?Echo(r.A, r.B) }
     | None -> "none"
 
+/// A user's `t_0` beside a tuple `t` the optimizer splits: the split element gets `t_00`, and
+/// `t_0` is the user's (Copilot on #211).
+let private userT0BesideSplitTuple (o: obj) : string =
+    let t = (Ticks.Next(), 70)
+    let t_0 = 999
+    dlr { return o?Echo(fst t, t_0) }
+
 [<Fact>]
 let ``what the optimizer did to a tuple or a shared name is never guessed`` () =
     let echo = box (CaptureEcho())
@@ -213,6 +220,12 @@ let ``what the optimizer did to a tuple or a shared name is never guessed`` () =
     check "6|31|32|33" (fun () -> userX1BesideSharedX echo 3)
     check "31|32|33" (fun () -> sharedXBesideXs echo 3)
     check "1002|71" (fun () -> patternBoundReadsReordered echo 7)
+    check "1|999" (fun () -> userT0BesideSplitTuple echo)
+#if DEBUG
+    // Debug splits no tuple: nothing to refuse.
+    Ticks.Reset()
+    userT0BesideSplitTuple echo |> should equal "1|999"
+#endif
 
 /// A shadowed name inside a local function the Release optimizer inlines: the machine captures
 /// only the later `x`, and the earlier one, reached through `f`'s recovered definition, read that

@@ -221,6 +221,26 @@ module internal TranslateBlock =
                             | None, _ -> None)
                     if List.forall Option.isSome parts then Some(List.choose id parts) else None
 
+        /// Names a split tuple's element field and a variable of the member could both have: a
+        /// variable named `t_0` beside a tuple `t`. The optimizer's `t_0` then becomes `t_00` or the
+        /// user's does, in an order of its own, so neither is told apart by name: both refused.
+        let elementNameClashes (memberBody: Expr) : Set<string> =
+            let vars = Collections.Generic.HashSet<Var>(HashIdentity.Reference)
+            let rec go (e: Expr) =
+                match e with
+                | ShapeVar v -> vars.Add v |> ignore
+                | ShapeLambda(v, b) -> vars.Add v |> ignore; go b
+                | ShapeCombination(_, es) -> for x in es do go x
+            go memberBody
+            let names = vars |> Seq.map (fun v -> v.Name) |> Set.ofSeq
+            set [ for v in vars do
+                    if FSharpType.IsTuple v.Type && not v.Type.IsValueType then
+                        for i in 0 .. (FSharpType.GetTupleElements v.Type).Length - 1 do
+                            let element = sprintf "%s_%d" v.Name i
+                            if names.Contains element then
+                                yield v.Name
+                                yield element ]
+
         /// The variables a block reaches: its free variables and, for each one with no field of
         /// its name, those of the definition `read` would recover for it. An alias reached that
         /// way (an immutable `let` of an immutable variable or of a literal) is the optimizer's to

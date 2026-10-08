@@ -49,6 +49,8 @@ module internal Translate =
               Ambiguous =
                   reached
                   |> List.countBy (fun v -> v.Name) |> List.filter (fun (_, n) -> n > 1) |> List.map fst |> Set.ofList
+                  // Only the Release state machine has split tuples.
+                  |> Set.union (if closureType.IsValueType then Captures.elementNameClashes memberBody else Set.empty)
               Name = name
               Names = Collections.Generic.Dictionary() }
 
