@@ -427,21 +427,31 @@ module internal IlOrder =
                     |> List.forall (fun (_, vs) -> List.sortBy (fst >> fst >> bindingOrder) vs = List.sortBy snd vs)
                 // Or, where the compiler declares fields in an order of its own (a tuple bound by a
                 // pattern, split as it goes), the order their values were computed in (`storeOrder`).
+                // The fill order, when it traces every field: Some whether it agrees, None when it
+                // cannot tell (no filling method found, or a value not a local's or a parameter's).
                 let flowed () =
                     match storeOrder machine (fun f -> (parse f).IsSome) with
-                    | None -> false
+                    | None -> None
                     | Some at ->
-                        byKey
-                        |> Map.toList
-                        |> List.groupBy (fun ((v, _), f) -> v, (parse f.Name |> Option.bind snd).IsSome)
-                        |> List.map (fun ((v, isElement), ks) ->
-                            (v, isElement), ks |> List.map (fun (_, f) -> match at.TryGetValue f.Name with | true, p -> p | _ -> None))
-                        |> List.groupBy (fun ((v, isElement), _) -> v.Name, isElement)
-                        |> List.forall (fun (_, vs) ->
-                            let known = vs |> List.map (fun (k, ps) -> k, (if List.forall Option.isSome ps then Some(ps |> List.choose id |> List.min) else None))
-                            known |> List.forall (snd >> Option.isSome)
-                            && (let byBinding = known |> List.sortBy (fst >> fst >> bindingOrder) |> List.map (snd >> Option.get)
-                                byBinding = List.sort byBinding && List.distinct byBinding = byBinding))
-                if ok && (ordered || flowed ()) then Some(byKey, Set.ofSeq assumed) else None
+                        let groups =
+                            byKey
+                            |> Map.toList
+                            |> List.groupBy (fun ((v, _), f) -> v, (parse f.Name |> Option.bind snd).IsSome)
+                            |> List.map (fun ((v, isElement), ks) ->
+                                (v, isElement), ks |> List.map (fun (_, f) -> match at.TryGetValue f.Name with | true, p -> p | _ -> None))
+                        if groups |> List.exists (fun (_, ps) -> ps |> List.exists Option.isNone) then None
+                        else
+                            groups
+                            |> List.map (fun (k, ps) -> k, ps |> List.choose id |> List.min)
+                            |> List.groupBy (fun ((v, isElement), _) -> v.Name, isElement)
+                            |> List.forall (fun (_, vs) ->
+                                let byBinding = vs |> List.sortBy (fst >> fst >> bindingOrder) |> List.map snd
+                                byBinding = List.sort byBinding && List.distinct byBinding = byBinding)
+                            |> Some
+                // The fill order decides when it traces every field (#210 review: the declaration
+                // order can agree by coincidence with a pairing the optimizer's reordered reads
+                // swapped); the declaration order only when it cannot.
+                let agrees = match flowed () with Some flows -> flows | None -> ordered
+                if ok && agrees then Some(byKey, Set.ofSeq assumed) else None
             | _ -> None
         attempt false |> Option.orElse (attempt true)

@@ -182,6 +182,23 @@ let private sharedXBesideXs (o: obj) (seed: int) : string =
     // fsharpanalyzer: ignore-line-next DLR007
     dlr { return o?Echo(h (), x, xs) }
 
+type private Pair = { A: int; B: int }
+
+/// A pattern-bound `x` (split later, so its element field is `x_00`) and a record whose fields are
+/// written B then A: the optimizer reorders the two pure reads, and the declaration order agreed
+/// with the swapped pairing by coincidence (#210 review).
+let private patternBoundReadsReordered (o: obj) (seed: int) : string =
+    match Some((seed * 10 + 1, 70)) with
+    | Some x ->
+        let f1 () = x
+        let x = (Ticks.Next() * 1000 + 2, 71)
+        // The analyzer reports it at build time (DLR007).
+        // fsharpanalyzer: ignore-line-next DLR007
+        dlr {
+            let r = { B = fst (f1 ()); A = fst x }
+            return o?Echo(r.A, r.B) }
+    | None -> "none"
+
 [<Fact>]
 let ``what the optimizer did to a tuple or a shared name is never guessed`` () =
     let echo = box (CaptureEcho())
@@ -195,6 +212,7 @@ let ``what the optimizer did to a tuple or a shared name is never guessed`` () =
     check "31|1" (fun () -> elementBoundInTheBlock echo 3)
     check "6|31|32|33" (fun () -> userX1BesideSharedX echo 3)
     check "31|32|33" (fun () -> sharedXBesideXs echo 3)
+    check "1002|71" (fun () -> patternBoundReadsReordered echo 7)
 
 /// A shadowed name inside a local function the Release optimizer inlines: the machine captures
 /// only the later `x`, and the earlier one, reached through `f`'s recovered definition, read that
