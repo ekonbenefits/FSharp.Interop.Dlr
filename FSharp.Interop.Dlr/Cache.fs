@@ -51,7 +51,9 @@ module DlrCache =
                 let name =
                     if String.IsNullOrEmpty file then "dlr__" + identifier t.Name
                     else sprintf "dlr__%s@%d" (identifier (file.Substring(file.LastIndexOfAny [| '/'; '\\' |] + 1))) line
-                Translate.translate name builderType found.Context found.MemberBody t resultType found.Body)
+                // The build's capture map, when it has an entry for this block (`CaptureMap`).
+                let captureMap = if String.IsNullOrEmpty file then None else CaptureMap.find t.Assembly file line
+                Translate.translate name builderType found.Context found.MemberBody t resultType found.Body captureMap)
 
 /// One compiled-machine cache entry, immutable, so a reference to it is atomic to read and to
 /// swap, stamped with the clear generation it was compiled under.

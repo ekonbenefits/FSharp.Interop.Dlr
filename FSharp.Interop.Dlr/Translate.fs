@@ -34,10 +34,55 @@ module internal Translate =
     /// compiler-generated container — its state machine struct, or in the fallback path the
     /// class of its `Delay` closure: its fields, named after the captured variables, are where
     /// the body's free variables are read from at call time.
-    let translate (name: string) (builderType: Type) (context: Type) (memberBody: Expr) (closureType: Type) (resultType: Type) (body: Expr) : Compiled =
+    /// Each variable of the member by its identity in a capture map: its name and its order among
+    /// the member's bindings of that name, in the order a quotation lays them out (pre-order).
+    let private identities (memberBody: Expr) =
+        let byIdentity = Collections.Generic.Dictionary<struct (string * int), Var>()
+        let counts = Collections.Generic.Dictionary<string, int>()
+        let rec go (e: Expr) =
+            match e with
+            | ShapeVar _ -> ()
+            | ShapeLambda(v, b) ->
+                let n = match counts.TryGetValue v.Name with | true, n -> n | _ -> 0
+                counts.[v.Name] <- n + 1
+                byIdentity.[struct (v.Name, n)] <- v
+                go b
+            | ShapeCombination(_, es) -> for x in es do go x
+        go memberBody
+        byIdentity
+
+    /// The fields a capture map gives this block's variables, when it matches the machine exactly:
+    /// every entry a variable of the member, its field one of the machine's of a type that fits,
+    /// and the machine no field the map leaves out. Otherwise None, and the block keeps the strict
+    /// binding by name.
+    let private exactly (closureType: Type) (fields: Collections.Generic.IDictionary<string, Reflection.FieldInfo>) (memberBody: Expr) (entries: CaptureEntry list) =
+        if not closureType.IsValueType then None
+        else
+        let ids = identities memberBody
+        let fits (f: Reflection.FieldInfo) (v: Var) (element: int option) =
+            match element with
+            | None ->
+                f.FieldType = v.Type
+                || (f.FieldType.IsGenericType && f.FieldType.GetGenericTypeDefinition() = typedefof<Ref<_>> && f.FieldType.GetGenericArguments().[0] = v.Type)
+            | Some i ->
+                FSharp.Reflection.FSharpType.IsTuple v.Type && not v.Type.IsValueType
+                && i < (FSharp.Reflection.FSharpType.GetTupleElements v.Type).Length
+                && f.FieldType = (FSharp.Reflection.FSharpType.GetTupleElements v.Type).[i]
+        let resolved =
+            entries |> List.map (fun e ->
+                match ids.TryGetValue(struct (e.Name, e.Ordinal)), fields.TryGetValue e.Field with
+                | (true, v), (true, f) when fits f v e.Element -> Some((v, e.Element), f)
+                | _ -> None)
+        let mapped = entries |> List.map (fun e -> e.Field) |> Set.ofList
+        if List.forall Option.isSome resolved && mapped = Set.ofSeq fields.Keys && mapped.Count = entries.Length then
+            Some(resolved |> List.choose id |> Map.ofList)
+        else None
+
+    let translate (name: string) (builderType: Type) (context: Type) (memberBody: Expr) (closureType: Type) (resultType: Type) (body: Expr) (captureMap: CaptureEntry list option) : Compiled =
         let closure = if closureType.IsValueType then Var("sm", closureType) else Var("closure", typeof<obj>)
         let fields = Captures.fields closureType
         let reached, aliases = Captures.reached fields memberBody body
+        let exact = captureMap |> Option.bind (exactly closureType fields memberBody)
         let block =
             { BuilderType = builderType
               Context = context
@@ -45,8 +90,11 @@ module internal Translate =
               ClosureType = closureType
               Closure = closure
               Fields = fields
-              Substituted = aliases
+              Substituted = (if exact.IsSome then Set.empty else aliases)
+              Resolved = defaultArg exact Map.empty
+              Exact = exact.IsSome
               Ambiguous =
+                  if exact.IsSome then Set.empty else
                   reached
                   |> List.countBy (fun v -> v.Name) |> List.filter (fun (_, n) -> n > 1) |> List.map fst |> Set.ofList
                   // Only the Release state machine has split tuples.
@@ -88,7 +136,7 @@ module internal Translate =
                     | Some(Var y as d) when block.Substituted.Contains v || (not v.IsMutable && not y.IsMutable && not (block.Ambiguous.Contains y.Name)) ->
                         tupleVar d |> Option.orElse (Some v)
                     | _ -> Some v
-                | Application(Var f, Value(_, t)) when t = typeof<unit> && isCaptured bound f && not (block.Fields.ContainsKey f.Name) ->
+                | Application(Var f, Value(_, t)) when t = typeof<unit> && isCaptured bound f && not (if block.Exact then block.Resolved.ContainsKey(f, None) else block.Fields.ContainsKey f.Name) ->
                     match letDefinition f memberBody with
                     | Some(Lambda(_, b)) -> tupleVar b
                     | _ -> None

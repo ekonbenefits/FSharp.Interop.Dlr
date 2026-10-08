@@ -17,6 +17,12 @@
     <Compile Include="Program.fs" />
   </ItemGroup>
 
+  <!-- The build companion's capture map (prototype): Companion/capturemap.fsx writes it from the
+       Release build's fsc arguments; -p:DlrCaptureMap=<path> embeds it. -->
+  <ItemGroup Condition="'$(DlrCaptureMap)' != ''">
+    <EmbeddedResource Include="$(DlrCaptureMap)" LogicalName="FSharp.Interop.Dlr.CaptureMap" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="FSharp.Core" />
   </ItemGroup>
