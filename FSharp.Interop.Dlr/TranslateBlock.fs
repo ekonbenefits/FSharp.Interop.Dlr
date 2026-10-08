@@ -47,6 +47,10 @@ module internal TranslateBlock =
           /// (`CaptureMap`), when it matches the machine exactly; then `Exact`, and no field is
           /// ever looked up by name.
           Resolved: Map<Var * int option, Reflection.FieldInfo>
+          /// A split tuple's elements the map says nothing keeps.
+          Unused: Set<Var * int>
+          /// Each tuple type and element the member reads explicitly (`fst`, `snd`, `TupleGet`).
+          ElementReads: Collections.Generic.HashSet<Type * int>
           Exact: bool }
         /// The name for this block's next compiled part of `kind`, for its stack frame: F#'s
         /// closure style, `dlr__Program_fs@7-for`, then `-for-2`, `-for-3` in order.
@@ -321,7 +325,17 @@ module internal TranslateBlock =
                             let fs = FSharpType.GetTupleElements v.Type |> Array.mapi (fun j _ -> block.Resolved.TryFind(v, Some j)) |> List.ofArray
                             if List.forall Option.isNone fs then None
                             else
-                                let parts = fs |> List.mapi (fun j f -> match f with Some f -> Some(Choice1Of2 f) | None -> missingElement block.MemberBody v j |> Option.map Choice2Of2)
+                                let parts =
+                                    fs |> List.mapi (fun j f ->
+                                        match f with
+                                        | Some f -> Some(Choice1Of2 f)
+                                        | None ->
+                                            match missingElement block.MemberBody v j with
+                                            | Some e -> Some(Choice2Of2 e)
+                                            // Kept nowhere, and read explicitly nowhere in the member: unused.
+                                            | None when block.Unused.Contains((v, j)) && not (block.ElementReads.Contains((v.Type, j))) ->
+                                                Some(Choice2Of2(Expr.DefaultValue (FSharpType.GetTupleElements v.Type).[j]))
+                                            | None -> None)
                                 if List.forall Option.isSome parts then Some(List.choose id parts)
                                 else raise (DlrTranslationException(sprintf "dlr { } reads the tuple '%s' whole, but the optimizer kept only some of its elements." v.Name))
                     elif block.Substituted.Contains v then None
