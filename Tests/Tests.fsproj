@@ -76,7 +76,6 @@
     <Compile Include="Index.fs" />
     <Compile Include="Body.fs" />
     <Compile Include="Cache.fs" />
-    <Compile Include="Captures.fs" />
     <Compile Include="Loops.fs" />
     <Compile Include="DynamicObjects.fs" />
     <Compile Include="TryBlocks.fs" />
