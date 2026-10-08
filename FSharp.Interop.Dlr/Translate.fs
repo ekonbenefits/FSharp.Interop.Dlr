@@ -49,6 +49,14 @@ module internal Translate =
               Ambiguous =
                   reached
                   |> List.countBy (fun v -> v.Name) |> List.filter (fun (_, n) -> n > 1) |> List.map fst |> Set.ofList
+                  // Only an optimized build splits a tuple (the state machine, or in Release the closure
+                  // of `(dlr { … } : unit -> R) ()`), and not one it captures whole as a field.
+                  |> Set.union (
+                      let optimized =
+                          closureType.IsValueType
+                          || not (closureType.Assembly.GetCustomAttributes(typeof<Diagnostics.DebuggableAttribute>, false)
+                                  |> Seq.exists (fun a -> (a :?> Diagnostics.DebuggableAttribute).IsJITOptimizerDisabled))
+                      if optimized then Captures.elementNameClashes (fun t -> not (fields.ContainsKey t)) memberBody else Set.empty)
               Name = name
               Names = Collections.Generic.Dictionary() }
 
@@ -75,6 +83,31 @@ module internal Translate =
             // A mutable struct captured from outside the block, mutated in place (see `inPlace`).
             match inPlace (fun v -> isCaptured bound v && Captures.isCell block v) (Captures.read block rewrite) (Captures.assign block) rewrite e with
             | Some written -> written
+            | None ->
+            // An element of a captured tuple the optimizer split into a field per element, read
+            // directly or through what it inlines: a local function applied to unit, or an
+            // immutable alias of an immutable variable (that value) whose name is no other's.
+            let rec tupleVar (e: Expr) : Var option =
+                match e with
+                | Var v when isCaptured bound v && FSharp.Reflection.FSharpType.IsTuple v.Type ->
+                    match letDefinition v memberBody with
+                    | Some(Var y as d) when block.Substituted.Contains v || (not v.IsMutable && not y.IsMutable && not (block.Ambiguous.Contains y.Name)) ->
+                        tupleVar d |> Option.orElse (Some v)
+                    | _ -> Some v
+                | Application(Var f, Value(_, t)) when t = typeof<unit> && isCaptured bound f && not (block.Fields.ContainsKey f.Name) ->
+                    match letDefinition f memberBody with
+                    | Some(Lambda(_, b)) -> tupleVar b
+                    | _ -> None
+                | _ -> None
+            let element =
+                match e with
+                | TupleGet(inner, i) ->
+                    tupleVar inner |> Option.bind (fun v -> Captures.element block v i)
+                | Call(None, mi, [ inner ]) when mi.DeclaringType.FullName = "Microsoft.FSharp.Core.Operators" && (mi.Name = "Fst" || mi.Name = "Snd") ->
+                    tupleVar inner |> Option.bind (fun v -> Captures.element block v (if mi.Name = "Fst" then 0 else 1))
+                | _ -> None
+            match element with
+            | Some read -> read
             | None ->
             match e with
             | Var v when isCaptured bound v -> Captures.read block (rewriteIn bound) v

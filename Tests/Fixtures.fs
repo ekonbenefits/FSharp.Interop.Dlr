@@ -527,3 +527,15 @@ type Slots() =
 type DelegateMembers() =
     member val Run: Func<Func<int, int>, int> = Func<Func<int, int>, int>(fun f -> f.Invoke 21) with get
     member val Apply: (int -> int) -> int = (fun f -> f 21) with get
+
+/// The capture tests' target (Tests/Cache.fs): it hands back what it was given.
+type CaptureEcho() =
+    member _.Echo(a: int) = string a
+    member _.Echo(a: int, b: int) = sprintf "%d|%d" a b
+    member _.Echo(a: int, b: int, c: int) = sprintf "%d|%d|%d" a b c
+    member _.Echo(a: int, b: int, c: int, d: int) = sprintf "%d|%d|%d|%d" a b c d
+
+/// Module-level immutable values: an alias of one the Release optimizer folds into the block.
+module CaptureConstants =
+    let answer = 42
+    let name = "dlr"

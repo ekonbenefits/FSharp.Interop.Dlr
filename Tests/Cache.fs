@@ -99,6 +99,163 @@ let ``a recursive local function the optimizer inlines still resolves`` () =
     mutuallyRecursiveLocals w 7 |> should equal 16
     recursiveSiblingShadowed w 7 |> should equal 23
 
+/// A tuple the block reads whole: Release splits it into a field per element (`t_0`, `t_1`),
+/// and its definition must not run again (#203).
+let private wholeTuple (o: obj) : int =
+    let t = (Ticks.Next(), Ticks.Next() * 10)
+    dlr { return o?Add(fst t, snd t) }
+
+/// One element a constant: the optimizer inlines it and gives it no field.
+let private tupleWithAConstant (o: obj) : int =
+    let t = (Ticks.Next(), 70)
+    dlr { return o?Add(fst t, snd t) }
+
+/// Built in an `if`: the elements become mutable locals, `t_0$tupleElem`.
+let private branchingTuple (o: obj) : int =
+    let t = if Ticks.Next() > 0 then (Ticks.Next(), 70) else (0, 0)
+    dlr { return o?Add(fst t, snd t) }
+
+/// Built behind lets: its elements are fields under their own names, and its definition runs
+/// `Ticks.Next()` again, so it is refused rather than recovered.
+let private tupleBehindLets (o: obj) : int =
+    let t = (let a = Ticks.Next() in let b = 70 in (a, b))
+    dlr { return o?Add(fst t, snd t) }
+
+/// Only its first element read: Release keeps only `t_0`, which `fst t` reads.
+let private firstOfATuple (o: obj) : int =
+    let t = (Ticks.Next(), Ticks.Next() * 10)
+    dlr { return o?Add(fst t, 0) }
+
+[<Fact>]
+let ``a tuple the block reads whole is not built again`` () =
+    let w = box (Widget())
+    Ticks.Reset()
+    wholeTuple w |> should equal 21
+    Ticks.Reset()
+    firstOfATuple w |> should equal 1
+    Ticks.Reset()
+    tupleWithAConstant w |> should equal 71
+    Ticks.Reset()
+    branchingTuple w |> should equal 72
+    Ticks.Reset()
+    match (try Ok(tupleBehindLets w) with :? DlrTranslationException as e -> Error e.Message) with
+    | Ok n -> n |> should equal 71
+    | Error message -> message |> should haveSubstring "would run the definition of 't' again"
+
+/// A tuple built from another tuple's element: Release substitutes `t_0` by `u_1`, a field of
+/// another name, so `t_0` has no field though it is read (found reviewing an IL-alignment spike, #200).
+let private elementOfAnotherTuple (o: obj) (u: int * int) : string =
+    let t = (snd u, Ticks.Next())
+    dlr { return o?Echo(fst t, snd t) }
+
+let private elementOfAnotherLocalTuple (o: obj) (seed: int) : string =
+    let u = (seed * 10 + 1, Ticks.Next())
+    let t = (fst u, Ticks.Next())
+    dlr { return o?Echo(fst t, snd t) }
+
+/// An element the block binds itself: Release captures it under the block's name, `b`.
+let private elementBoundInTheBlock (o: obj) (seed: int) : string =
+    let t = (seed * 10 + 1, Ticks.Next())
+    dlr {
+        let b = snd t
+        return o?Echo(fst t, b) }
+
+/// A user's `x1` beside a shared `x` (whose fields are `x`, `x0`, …), and an inlined function's
+/// parameter `x` applied to a constant, which the IL never reads (found reviewing an IL-alignment spike, #200).
+let private userX1BesideSharedX (o: obj) (seed: int) : string =
+    let f x = x + 1
+    let x = seed * 10 + 1
+    let h () = x
+    let x = seed * 10 + 2
+    let x1 = seed * 10 + 3
+    // The analyzer reports it at build time (DLR007).
+    // fsharpanalyzer: ignore-line-next DLR007
+    dlr { return o?Echo(f 5, h (), x, x1) }
+
+/// A shared `x` beside a captured `xs`: a name `x` begins, not one of its fields.
+let private sharedXBesideXs (o: obj) (seed: int) : string =
+    let x = seed * 10 + 1
+    let h () = x
+    let x = seed * 10 + 2
+    let xs = seed * 10 + 3
+    // The analyzer reports it at build time (DLR007).
+    // fsharpanalyzer: ignore-line-next DLR007
+    dlr { return o?Echo(h (), x, xs) }
+
+type private Pair = { A: int; B: int }
+
+/// A pattern-bound `x` (split later, so its element field is `x_00`) and a record whose fields are
+/// written B then A: the optimizer reorders the two pure reads, and the declaration order agreed
+/// with the swapped pairing by coincidence (found reviewing an IL-alignment spike, #200).
+let private patternBoundReadsReordered (o: obj) (seed: int) : string =
+    match Some((seed * 10 + 1, 70)) with
+    | Some x ->
+        let f1 () = x
+        let x = (Ticks.Next() * 1000 + 2, 71)
+        // The analyzer reports it at build time (DLR007).
+        // fsharpanalyzer: ignore-line-next DLR007
+        dlr {
+            let r = { B = fst (f1 ()); A = fst x }
+            return o?Echo(r.A, r.B) }
+    | None -> "none"
+
+/// A user's `t_0` beside a tuple `t` the optimizer splits: the split element gets `t_00`, and
+/// `t_0` is the user's (Copilot on #211).
+let private userT0BesideSplitTuple (o: obj) : string =
+    let t = (Ticks.Next(), 70)
+    let t_0 = 999
+    dlr { return o?Echo(fst t, t_0) }
+
+/// A split element the optimizer names after the block's own binding (`a`, not `t_0`), from a
+/// mutable changed since: rebuilt from the definition it would read the mutable's current value.
+let private elementOfAMutableRenamedInTheBlock (o: obj) : string =
+    let mutable m = Ticks.Next()
+    let t = (m, 70)
+    m <- 99
+    dlr {
+        let a = fst t
+        return o?Echo(a, m) }
+
+/// The `t_0` collision in the one Release shape that takes the closure path.
+let private userT0BesideSplitTupleClosure (o: obj) : string =
+    let t = (Ticks.Next(), 70)
+    let t_0 = 999
+    (dlr { return fun () -> o?Echo(fst t, t_0) } : unit -> string) ()
+
+/// An alias of a module's immutable values: the optimizer folds them into the block, and reading
+/// them again runs nothing.
+let private aliasOfModuleValues (o: obj) : string =
+    let n = CaptureConstants.answer
+    let s = CaptureConstants.name
+    dlr { return o?Echo(n, s.Length) }
+
+[<Fact>]
+let ``an alias of a module's immutable value the optimizer folds still resolves`` () =
+    aliasOfModuleValues (box (CaptureEcho())) |> should equal "42|3"
+
+[<Fact>]
+let ``what the optimizer did to a tuple or a shared name is never guessed`` () =
+    let echo = box (CaptureEcho())
+    let check (expected: string) (run: unit -> string) =
+        Ticks.Reset()
+        match (try Ok(run ()) with :? DlrTranslationException as e -> Error e.Message) with
+        | Ok value -> value |> should equal expected
+        | Error _ -> ()
+    check "31|1" (fun () -> elementOfAnotherTuple echo (0, 31))
+    check "31|2" (fun () -> elementOfAnotherLocalTuple echo 3)
+    check "31|1" (fun () -> elementBoundInTheBlock echo 3)
+    check "6|31|32|33" (fun () -> userX1BesideSharedX echo 3)
+    check "31|32|33" (fun () -> sharedXBesideXs echo 3)
+    check "1002|71" (fun () -> patternBoundReadsReordered echo 7)
+    check "1|999" (fun () -> userT0BesideSplitTuple echo)
+    check "1|99" (fun () -> elementOfAMutableRenamedInTheBlock echo)
+    check "1|999" (fun () -> userT0BesideSplitTupleClosure echo)
+#if DEBUG
+    // Debug splits no tuple: nothing to refuse.
+    Ticks.Reset()
+    userT0BesideSplitTuple echo |> should equal "1|999"
+#endif
+
 /// A shadowed name inside a local function the Release optimizer inlines: the machine captures
 /// only the later `x`, and the earlier one, reached through `f`'s recovered definition, read that
 /// field and returned 1400 (#196).

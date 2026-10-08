@@ -35,6 +35,9 @@ FSharp.Interop.Dlr/check-internals.sh  # each idiom fixed more than once has one
   job that writes widens its own `permissions:`; checkouts set `persist-credentials: false`. Run `zizmor .github/` locally before pushing a
   workflow change.
   The local gate still comes first: CI has no macOS leg, and a red push costs a cycle.
+- Captures (`Captures`, `letDefinition`, the analyzer's walk) were checked against a generated
+  Debug-vs-Release differential test (#200), kept outside the repository; a change there is worth
+  rerunning it, and every shape it found is pinned in `Tests/Cache.fs`.
 - A cold review by a general-purpose subagent (read the diff, verify every claim with a test,
   no edits) has caught things Copilot missed; worth one per non-trivial PR when asked.
 
