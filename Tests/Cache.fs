@@ -172,6 +172,16 @@ let private userX1BesideSharedX (o: obj) (seed: int) : string =
     // fsharpanalyzer: ignore-line-next DLR007
     dlr { return o?Echo(f 5, h (), x, x1) }
 
+/// A shared `x` beside a captured `xs`: a name `x` begins, not one of its fields.
+let private sharedXBesideXs (o: obj) (seed: int) : string =
+    let x = seed * 10 + 1
+    let h () = x
+    let x = seed * 10 + 2
+    let xs = seed * 10 + 3
+    // The analyzer reports it at build time (DLR007).
+    // fsharpanalyzer: ignore-line-next DLR007
+    dlr { return o?Echo(h (), x, xs) }
+
 [<Fact>]
 let ``what the optimizer did to a tuple or a shared name is never guessed`` () =
     let echo = box (CaptureEcho())
@@ -184,6 +194,7 @@ let ``what the optimizer did to a tuple or a shared name is never guessed`` () =
     check "31|2" (fun () -> elementOfAnotherLocalTuple echo 3)
     check "31|1" (fun () -> elementBoundInTheBlock echo 3)
     check "6|31|32|33" (fun () -> userX1BesideSharedX echo 3)
+    check "31|32|33" (fun () -> sharedXBesideXs echo 3)
 
 /// A shadowed name inside a local function the Release optimizer inlines: the machine captures
 /// only the later `x`, and the earlier one, reached through `f`'s recovered definition, read that

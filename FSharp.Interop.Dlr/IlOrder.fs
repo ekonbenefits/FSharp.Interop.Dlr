@@ -282,6 +282,7 @@ module internal IlOrder =
                 let digits (s: string) = s |> Seq.forall Char.IsDigit
                 match rest.IndexOf '_' with
                 | -1 when digits rest -> Some(n, None)
+                | -1 -> None   // another name it begins (`xs` for `x`)
                 | at when digits (rest.Substring(0, at)) && rest.Length > at + 1 && digits (rest.Substring(at + 1)) -> Some(n, Some(rest.Substring(at + 1)))
                 | _ -> None)
         let hasField (v: Var) = fields.ContainsKey v.Name
