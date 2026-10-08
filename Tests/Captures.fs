@@ -14061,7 +14061,7 @@ module Captures =
           "two_branching_let-literal_lambda-value__tuple_fun_top", (fun o -> CaptureCases12.two_branching_let_literal_lambda_value__tuple_fun_top o 7 11), "501|72", false
           "two_branching_let-alias_fun__let-literal_inline-lambda_top", (fun o -> CaptureCases12.two_branching_let_alias_fun__let_literal_inline_lambda_top o 7 11), "7|502", true
           "two_branching_mutable-pure_fun-twice__match_lambda-value_top", (fun o -> CaptureCases12.two_branching_mutable_pure_fun_twice__match_lambda_value_top o 7 11), "144|72", false
-          "two_branching_match_inline-fun__let-alias_direct_top", (fun o -> CaptureCases12.two_branching_match_inline_fun__let_alias_direct_top o 7 11), "71|11", true
+          "two_branching_match_inline-fun__let-alias_direct_top", (fun o -> CaptureCases12.two_branching_match_inline_fun__let_alias_direct_top o 7 11), "71|11", false
           "two_int_mutable-pure_alias__lambda_lambda-value_block-loop", (fun o -> CaptureCases12.two_int_mutable_pure_alias__lambda_lambda_value_block_loop o 7 11), "72|72", false
           "two_int_mutable-call_fun__mutable-call_setter_applied-lambda", (fun o -> CaptureCases12.two_int_mutable_call_fun__mutable_call_setter_applied_lambda o 7 11), "1002|2103", false
           "two_int_tuple_fun__mutable-pure_lambda-value_top", (fun o -> CaptureCases12.two_int_tuple_fun__mutable_pure_lambda_value_top o 7 11), "71|73", false
@@ -14145,7 +14145,7 @@ module Captures =
           "two_struct_match_rec__for_fun_top", (fun o -> CaptureCases14.two_struct_match_rec__for_fun_top o 7 11), "71|72", false
           "two_struct_param_alias__let-alias_lambda-value_top", (fun o -> CaptureCases14.two_struct_param_alias__let_alias_lambda_value_top o 7 11 (CaptureValue 5)), "5|11", false
           "two_tuple_mutable-pure_fun__lambda_alias_top", (fun o -> CaptureCases14.two_tuple_mutable_pure_fun__lambda_alias_top o 7 11), "72|72", false
-          "two_tuple_tuple_lambda-value__let-call_fun_top", (fun o -> CaptureCases15.two_tuple_tuple_lambda_value__let_call_fun_top o 7 11), "71|1002", true
+          "two_tuple_tuple_lambda-value__let-call_fun_top", (fun o -> CaptureCases15.two_tuple_tuple_lambda_value__let_call_fun_top o 7 11), "71|1002", false
           "two_tuple_for_fun-twice__let-pure_inline-fun_top", (fun o -> CaptureCases15.two_tuple_for_fun_twice__let_pure_inline_fun_top o 7 11), "142|72", false
           "two_branching_let-call_inline-fun__mutable-pure_alias_top", (fun o -> CaptureCases15.two_branching_let_call_inline_fun__mutable_pure_alias_top o 7 11), "1001|73", false
           "two_branching_mutable-call_setter__mutable-call_fun_top", (fun o -> CaptureCases15.two_branching_mutable_call_setter__mutable_call_fun_top o 7 11), "1102|2003", true
@@ -14168,7 +14168,7 @@ module Captures =
           "two_struct_lambda_rec__let-literal_direct_top", (fun o -> CaptureCases15.two_struct_lambda_rec__let_literal_direct_top o 7 11), "71|502", false
           "two_struct_param_lambda-value__mutable-call_rec_top", (fun o -> CaptureCases15.two_struct_param_lambda_value__mutable_call_rec_top o 7 11 (CaptureValue 5)), "5|1003", false
           "two_tuple_let-pure_lambda-value__mutable-call_fun-twice_top", (fun o -> CaptureCases15.two_tuple_let_pure_lambda_value__mutable_call_fun_twice_top o 7 11), "71|2006", false
-          "two_tuple_mutable-pure_setter__let-alias_inline-lambda_top", (fun o -> CaptureCases15.two_tuple_mutable_pure_setter__let_alias_inline_lambda_top o 7 11), "172|11", true
+          "two_tuple_mutable-pure_setter__let-alias_inline-lambda_top", (fun o -> CaptureCases15.two_tuple_mutable_pure_setter__let_alias_inline_lambda_top o 7 11), "172|11", false
           "two_tuple_mutable-call_alias__mutable-pure_rec_top", (fun o -> CaptureCases15.two_tuple_mutable_call_alias__mutable_pure_rec_top o 7 11), "1002|73", false
           "two_tuple_tuple_alias__let-literal_inline-fun_top", (fun o -> CaptureCases15.two_tuple_tuple_alias__let_literal_inline_fun_top o 7 11), "71|502", false
           "two_tuple_for_fun__let-call_inline-lambda_top", (fun o -> CaptureCases15.two_tuple_for_fun__let_call_inline_lambda_top o 7 11), "71|1002", false
@@ -14205,7 +14205,7 @@ module Captures =
           "two_tuple_mutable-call_setter__match_fun-twice_top", (fun o -> CaptureCases16.two_tuple_mutable_call_setter__match_fun_twice_top o 7 11), "1102|144", false
           "two_tuple_tuple_fun__tuple_rec_top", (fun o -> CaptureCases16.two_tuple_tuple_fun__tuple_rec_top o 7 11), "71|72", false
           "two_tuple_match_fun__let-literal_fun-twice_top", (fun o -> CaptureCases16.two_tuple_match_fun__let_literal_fun_twice_top o 7 11), "71|1004", false
-          "two_tuple_match_inline-fun__lambda_lambda-value_top", (fun o -> CaptureCases16.two_tuple_match_inline_fun__lambda_lambda_value_top o 7 11), "71|72", true
+          "two_tuple_match_inline-fun__lambda_lambda-value_top", (fun o -> CaptureCases16.two_tuple_match_inline_fun__lambda_lambda_value_top o 7 11), "71|72", false
           "two_tuple_param_alias__match_inline-lambda_top", (fun o -> CaptureCases16.two_tuple_param_alias__match_inline_lambda_top o 7 11 (5, 70)), "5|72", true
           "two_branching_let-call_fun-twice__mutable-call_setter_top", (fun o -> CaptureCases16.two_branching_let_call_fun_twice__mutable_call_setter_top o 7 11), "2002|2103", true
           "two_branching_lambda_alias__lambda_rec_top", (fun o -> CaptureCases16.two_branching_lambda_alias__lambda_rec_top o 7 11), "71|72", false
@@ -14326,7 +14326,7 @@ module Captures =
           "two_branching_mutable-call_lambda-value__mutable-pure_inline-lambda_top", (fun o -> CaptureCases19.two_branching_mutable_call_lambda_value__mutable_pure_inline_lambda_top o 7 11), "1002|73", false
           "two_branching_mutable-call_inline-fun__let-pure_lambda-value_top", (fun o -> CaptureCases19.two_branching_mutable_call_inline_fun__let_pure_lambda_value_top o 7 11), "1002|72", false
           "two_branching_tuple_lambda-value__match_rec_top", (fun o -> CaptureCases19.two_branching_tuple_lambda_value__match_rec_top o 7 11), "71|72", false
-          "two_branching_match_alias__let-literal_alias_top", (fun o -> CaptureCases19.two_branching_match_alias__let_literal_alias_top o 7 11), "71|502", true
+          "two_branching_match_alias__let-literal_alias_top", (fun o -> CaptureCases19.two_branching_match_alias__let_literal_alias_top o 7 11), "71|502", false
           "two_branching_match_rec__match_fun-twice_top", (fun o -> CaptureCases19.two_branching_match_rec__match_fun_twice_top o 7 11), "71|144", false
           "two_branching_match_lambda-value__mutable-call_inline-fun_top", (fun o -> CaptureCases19.two_branching_match_lambda_value__mutable_call_inline_fun_top o 7 11), "71|1003", false
           "two_branching_lambda_rec__for_inline-lambda_top", (fun o -> CaptureCases19.two_branching_lambda_rec__for_inline_lambda_top o 7 11), "71|72", false
@@ -14382,7 +14382,7 @@ module Captures =
           "two_tuple_let-pure_inline-fun__tuple_alias_top", (fun o -> CaptureCases20.two_tuple_let_pure_inline_fun__tuple_alias_top o 7 11), "71|72", false
           "two_tuple_let-call_alias__mutable-call_fun_top", (fun o -> CaptureCases20.two_tuple_let_call_alias__mutable_call_fun_top o 7 11), "1001|2003", false
           "two_tuple_let-call_lambda-value__let-alias_lambda-value_top", (fun o -> CaptureCases20.two_tuple_let_call_lambda_value__let_alias_lambda_value_top o 7 11), "1001|11", false
-          "two_tuple_let-call_inline-fun__let-literal_inline-lambda_top", (fun o -> CaptureCases20.two_tuple_let_call_inline_fun__let_literal_inline_lambda_top o 7 11), "1001|502", true
+          "two_tuple_let-call_inline-fun__let-literal_inline-lambda_top", (fun o -> CaptureCases20.two_tuple_let_call_inline_fun__let_literal_inline_lambda_top o 7 11), "1001|502", false
           "two_tuple_mutable-call_fun__let-alias_direct_top", (fun o -> CaptureCases20.two_tuple_mutable_call_fun__let_alias_direct_top o 7 11), "1002|11", false
           "two_tuple_mutable-call_lambda-value__tuple_inline-fun_top", (fun o -> CaptureCases20.two_tuple_mutable_call_lambda_value__tuple_inline_fun_top o 7 11), "1002|72", false
           "two_tuple_tuple_fun-twice__mutable-pure_direct_top", (fun o -> CaptureCases21.two_tuple_tuple_fun_twice__mutable_pure_direct_top o 7 11), "142|73", false
@@ -14446,7 +14446,7 @@ module Captures =
           "two_tuple_let-alias_lambda-value__lambda_inline-lambda_top", (fun o -> CaptureCases22.two_tuple_let_alias_lambda_value__lambda_inline_lambda_top o 7 11), "7|72", true
           "two_tuple_mutable-call_inline-fun__mutable-call_inline-lambda_top", (fun o -> CaptureCases22.two_tuple_mutable_call_inline_fun__mutable_call_inline_lambda_top o 7 11), "1002|2003", false
           "two_tuple_tuple_rec__let-pure_inline-lambda_top", (fun o -> CaptureCases22.two_tuple_tuple_rec__let_pure_inline_lambda_top o 7 11), "71|72", false
-          "two_tuple_match_inline-fun__let-pure_alias_top", (fun o -> CaptureCases22.two_tuple_match_inline_fun__let_pure_alias_top o 7 11), "71|72", true
+          "two_tuple_match_inline-fun__let-pure_alias_top", (fun o -> CaptureCases22.two_tuple_match_inline_fun__let_pure_alias_top o 7 11), "71|72", false
           "two_tuple_param_inline-fun__mutable-pure_fun_top", (fun o -> CaptureCases22.two_tuple_param_inline_fun__mutable_pure_fun_top o 7 11 (5, 70)), "5|73", false
           "two_branching_let-pure_alias__mutable-pure_lambda-value_top", (fun o -> CaptureCases22.two_branching_let_pure_alias__mutable_pure_lambda_value_top o 7 11), "71|73", false
           "two_branching_let-pure_inline-fun__mutable-call_setter_top", (fun o -> CaptureCases22.two_branching_let_pure_inline_fun__mutable_call_setter_top o 7 11), "71|1103", true
@@ -14517,7 +14517,7 @@ module Captures =
           "two_branching_mutable-call_rec__let-literal_direct_top", (fun o -> CaptureCases24.two_branching_mutable_call_rec__let_literal_direct_top o 7 11), "1002|502", false
           "two_branching_mutable-call_setter__let-alias_fun-twice_top", (fun o -> CaptureCases24.two_branching_mutable_call_setter__let_alias_fun_twice_top o 7 11), "1102|22", true
           "two_branching_tuple_inline-fun__let-pure_rec_top", (fun o -> CaptureCases24.two_branching_tuple_inline_fun__let_pure_rec_top o 7 11), "71|72", false
-          "two_branching_match_fun__let-pure_fun_top", (fun o -> CaptureCases24.two_branching_match_fun__let_pure_fun_top o 7 11), "71|72", true
+          "two_branching_match_fun__let-pure_fun_top", (fun o -> CaptureCases24.two_branching_match_fun__let_pure_fun_top o 7 11), "71|72", false
           "two_branching_for_alias__lambda_lambda-value_top", (fun o -> CaptureCases24.two_branching_for_alias__lambda_lambda_value_top o 7 11), "71|72", false
           "two_branching_param_lambda-value__mutable-call_setter_top", (fun o -> CaptureCases24.two_branching_param_lambda_value__mutable_call_setter_top o 7 11 (5, 70)), "5|1103", true
           "two_int_let-pure_fun__for_lambda-value_block-loop", (fun o -> CaptureCases24.two_int_let_pure_fun__for_lambda_value_block_loop o 7 11), "71|72", false
@@ -14584,7 +14584,7 @@ module Captures =
           "two_branching_mutable-pure_rec__let-alias_alias_top", (fun o -> CaptureCases25.two_branching_mutable_pure_rec__let_alias_alias_top o 7 11), "72|11", false
           "two_branching_mutable-pure_setter__mutable-pure_rec_top", (fun o -> CaptureCases25.two_branching_mutable_pure_setter__mutable_pure_rec_top o 7 11), "172|73", true
           "two_branching_tuple_fun__mutable-pure_fun_top", (fun o -> CaptureCases25.two_branching_tuple_fun__mutable_pure_fun_top o 7 11), "71|73", false
-          "two_branching_tuple_fun-twice__let-literal_alias_top", (fun o -> CaptureCases25.two_branching_tuple_fun_twice__let_literal_alias_top o 7 11), "142|502", true
+          "two_branching_tuple_fun-twice__let-literal_alias_top", (fun o -> CaptureCases25.two_branching_tuple_fun_twice__let_literal_alias_top o 7 11), "142|502", false
           "two_branching_lambda_fun__let-call_lambda-value_top", (fun o -> CaptureCases26.two_branching_lambda_fun__let_call_lambda_value_top o 7 11), "71|1002", false
           "two_branching_lambda_lambda-value__tuple_alias_top", (fun o -> CaptureCases26.two_branching_lambda_lambda_value__tuple_alias_top o 7 11), "71|72", false
           "two_int_let-pure_fun-twice__mutable-pure_alias_local-fun", (fun o -> CaptureCases26.two_int_let_pure_fun_twice__mutable_pure_alias_local_fun o 7 11), "142|73", false
@@ -14646,12 +14646,12 @@ module Captures =
           "two_tuple_mutable-call_setter__let-pure_fun_top", (fun o -> CaptureCases27.two_tuple_mutable_call_setter__let_pure_fun_top o 7 11), "1102|72", false
           "two_tuple_mutable-call_setter__lambda_alias_top", (fun o -> CaptureCases27.two_tuple_mutable_call_setter__lambda_alias_top o 7 11), "1102|72", false
           "two_tuple_mutable-call_setter__for_inline-lambda_top", (fun o -> CaptureCases27.two_tuple_mutable_call_setter__for_inline_lambda_top o 7 11), "1102|72", false
-          "two_tuple_tuple_fun-twice__lambda_lambda-value_top", (fun o -> CaptureCases27.two_tuple_tuple_fun_twice__lambda_lambda_value_top o 7 11), "142|72", true
+          "two_tuple_tuple_fun-twice__lambda_lambda-value_top", (fun o -> CaptureCases27.two_tuple_tuple_fun_twice__lambda_lambda_value_top o 7 11), "142|72", false
           "two_tuple_lambda_rec__tuple_inline-lambda_top", (fun o -> CaptureCases27.two_tuple_lambda_rec__tuple_inline_lambda_top o 7 11), "71|72", true
           "two_branching_let-literal_fun__for_rec_top", (fun o -> CaptureCases27.two_branching_let_literal_fun__for_rec_top o 7 11), "501|72", false
           "two_branching_mutable-pure_setter__let-pure_lambda-value_top", (fun o -> CaptureCases27.two_branching_mutable_pure_setter__let_pure_lambda_value_top o 7 11), "172|72", true
           "two_branching_mutable-call_setter__let-literal_inline-fun_top", (fun o -> CaptureCases27.two_branching_mutable_call_setter__let_literal_inline_fun_top o 7 11), "1102|502", true
-          "two_branching_tuple_fun__lambda_inline-fun_top", (fun o -> CaptureCases27.two_branching_tuple_fun__lambda_inline_fun_top o 7 11), "71|72", true
+          "two_branching_tuple_fun__lambda_inline-fun_top", (fun o -> CaptureCases27.two_branching_tuple_fun__lambda_inline_fun_top o 7 11), "71|72", false
           "two_branching_for_lambda-value__mutable-call_inline-lambda_top", (fun o -> CaptureCases27.two_branching_for_lambda_value__mutable_call_inline_lambda_top o 7 11), "71|1003", false
           "two_int_let-pure_fun__let-literal_fun-twice_block-try", (fun o -> CaptureCases27.two_int_let_pure_fun__let_literal_fun_twice_block_try o 7 11), "71|1004", false
           "two_int_let-pure_alias__mutable-pure_setter_block-loop", (fun o -> CaptureCases27.two_int_let_pure_alias__mutable_pure_setter_block_loop o 7 11), "71|173", false
@@ -14879,7 +14879,7 @@ module Captures =
           "two_struct_param_fun__for_inline-fun_top", (fun o -> CaptureCases33.two_struct_param_fun__for_inline_fun_top o 7 11 (CaptureValue 5)), "5|72", false
           "two_struct_param_inline-fun__mutable-pure_setter_top", (fun o -> CaptureCases33.two_struct_param_inline_fun__mutable_pure_setter_top o 7 11 (CaptureValue 5)), "5|173", false
           "two_tuple_let-pure_fun__let-pure_alias_top", (fun o -> CaptureCases33.two_tuple_let_pure_fun__let_pure_alias_top o 7 11), "71|72", false
-          "two_tuple_let-pure_fun__let-literal_inline-lambda_top", (fun o -> CaptureCases33.two_tuple_let_pure_fun__let_literal_inline_lambda_top o 7 11), "71|502", true
+          "two_tuple_let-pure_fun__let-literal_inline-lambda_top", (fun o -> CaptureCases33.two_tuple_let_pure_fun__let_literal_inline_lambda_top o 7 11), "71|502", false
           "two_tuple_let-call_fun__match_fun_top", (fun o -> CaptureCases33.two_tuple_let_call_fun__match_fun_top o 7 11), "1001|72", false
           "two_tuple_let-literal_fun__let-call_fun-twice_top", (fun o -> CaptureCases33.two_tuple_let_literal_fun__let_call_fun_twice_top o 7 11), "501|2004", false
           "two_tuple_let-literal_fun__let-alias_rec_top", (fun o -> CaptureCases33.two_tuple_let_literal_fun__let_alias_rec_top o 7 11), "501|11", false
@@ -14889,7 +14889,7 @@ module Captures =
           "two_tuple_mutable-call_lambda-value__mutable-pure_setter_top", (fun o -> CaptureCases33.two_tuple_mutable_call_lambda_value__mutable_pure_setter_top o 7 11), "1002|173", false
           "two_tuple_tuple_fun__let-alias_fun_top", (fun o -> CaptureCases33.two_tuple_tuple_fun__let_alias_fun_top o 7 11), "71|11", false
           "two_tuple_tuple_fun__for_rec_top", (fun o -> CaptureCases33.two_tuple_tuple_fun__for_rec_top o 7 11), "71|72", false
-          "two_tuple_match_fun__let-call_direct_top", (fun o -> CaptureCases33.two_tuple_match_fun__let_call_direct_top o 7 11), "71|1002", true
+          "two_tuple_match_fun__let-call_direct_top", (fun o -> CaptureCases33.two_tuple_match_fun__let_call_direct_top o 7 11), "71|1002", false
           "two_tuple_match_fun__let-alias_rec_top", (fun o -> CaptureCases33.two_tuple_match_fun__let_alias_rec_top o 7 11), "71|11", false
           "two_tuple_match_fun__for_alias_top", (fun o -> CaptureCases33.two_tuple_match_fun__for_alias_top o 7 11), "71|72", false
           "two_tuple_lambda_fun__let-alias_lambda-value_top", (fun o -> CaptureCases33.two_tuple_lambda_fun__let_alias_lambda_value_top o 7 11), "71|11", false
@@ -14910,7 +14910,7 @@ module Captures =
           "two_branching_mutable-call_inline-fun__mutable-pure_setter_top", (fun o -> CaptureCases34.two_branching_mutable_call_inline_fun__mutable_pure_setter_top o 7 11), "1002|173", true
           "two_branching_tuple_fun__mutable-pure_inline-lambda_top", (fun o -> CaptureCases34.two_branching_tuple_fun__mutable_pure_inline_lambda_top o 7 11), "71|73", false
           "two_branching_tuple_fun__tuple_lambda-value_top", (fun o -> CaptureCases34.two_branching_tuple_fun__tuple_lambda_value_top o 7 11), "71|72", false
-          "two_branching_match_fun__lambda_inline-fun_top", (fun o -> CaptureCases34.two_branching_match_fun__lambda_inline_fun_top o 7 11), "71|72", true
+          "two_branching_match_fun__lambda_inline-fun_top", (fun o -> CaptureCases34.two_branching_match_fun__lambda_inline_fun_top o 7 11), "71|72", false
           "two_branching_match_fun__for_inline-lambda_top", (fun o -> CaptureCases34.two_branching_match_fun__for_inline_lambda_top o 7 11), "71|72", false
           "two_branching_lambda_fun__match_inline-fun_top", (fun o -> CaptureCases34.two_branching_lambda_fun__match_inline_fun_top o 7 11), "71|72", false
           "two_branching_for_fun__let-call_fun_top", (fun o -> CaptureCases34.two_branching_for_fun__let_call_fun_top o 7 11), "71|1002", false

@@ -35,7 +35,8 @@ module internal IlOrder =
         && (let n = m.DeclaringType.FullName
             n.StartsWith "FSharp.Interop.Dlr.Operators" || n.StartsWith "FSharp.Interop.Dlr.Dlr")
 
-    /// A method's instructions: each opcode with its 4-byte token when it has one.
+    /// A method's instructions: each opcode with its operand when it is a token or a local's or
+    /// argument's index.
     let private instructions (m: MethodBase) : (OpCode * int) list option =
         match m.GetMethodBody() with
         | null -> None
@@ -59,7 +60,13 @@ module internal IlOrder =
                     | OperandType.InlineI8 | OperandType.InlineR -> 8
                     | OperandType.InlineSwitch -> 4 + 4 * BitConverter.ToInt32(il, i)
                     | _ -> 4
-                result.Add((op, (if size = 4 then BitConverter.ToInt32(il, i) else 0)))
+                let operand =
+                    match size with
+                    | 4 -> BitConverter.ToInt32(il, i)
+                    | 2 -> int (BitConverter.ToUInt16(il, i))
+                    | 1 -> int il.[i]
+                    | _ -> 0
+                result.Add((op, operand))
                 i <- i + size
         if ok then Some(List.ofSeq result) else None
 
@@ -121,11 +128,74 @@ module internal IlOrder =
         | null -> None
         | moveNext -> reads 0 moveNext machine (fun f -> if family f then Some f else None) |> Option.map (List.map (box >> Read))
 
+    /// When the value of each machine field in `family` was computed, in the method that fills the
+    /// machine: the member evaluates its bindings in source order (their effects must stay in
+    /// order), keeps each in a local, and copies it into the machine (`ldloc k; stfld x_00`). The
+    /// position of the last store to that local before the copy orders the fields by binding, a
+    /// signal of its own: data flow, not names nor declaration order. A parameter comes first.
+    /// None for a field whose value is not a local's or a parameter's.
+    let private storeOrder (machine: Type) (family: string -> bool) : Collections.Generic.IDictionary<string, int option> option =
+        let flags = BindingFlags.Instance ||| BindingFlags.Static ||| BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.DeclaredOnly
+        let rec types (t: Type) = seq { yield t; for n in t.GetNestedTypes(flags) do yield! types n }
+        let generic (m: MethodBase) =
+            (if m.DeclaringType.IsGenericType then m.DeclaringType.GetGenericArguments() else null),
+            (if m.IsGenericMethod then m.GetGenericArguments() else null)
+        let fieldOf (m: MethodBase) (token: int) =
+            let t, g = generic m
+            try Some(m.Module.ResolveField(token, t, g)) with _ -> None
+        let onMachine (f: FieldInfo option) = match f with Some f -> f.DeclaringType.Name = machine.Name | None -> false
+        if isNull machine.DeclaringType then None
+        else
+        let fills =
+            types machine.DeclaringType
+            |> Seq.filter (fun t -> t.Name <> machine.Name)
+            |> Seq.collect (fun t -> Seq.append (t.GetMethods flags |> Seq.cast<MethodBase>) (t.GetConstructors flags |> Seq.cast<MethodBase>))
+            |> Seq.tryPick (fun m ->
+                match instructions m with
+                | Some code when code |> List.exists (fun (op, token) -> op = OpCodes.Stfld && onMachine (fieldOf m token)) -> Some(m, code)
+                | _ -> None)
+        match fills with
+        | None -> None
+        | Some(m, code) ->
+        let local (op: OpCode) operand =
+            if op = OpCodes.Ldloc_0 || op = OpCodes.Stloc_0 then Some 0
+            elif op = OpCodes.Ldloc_1 || op = OpCodes.Stloc_1 then Some 1
+            elif op = OpCodes.Ldloc_2 || op = OpCodes.Stloc_2 then Some 2
+            elif op = OpCodes.Ldloc_3 || op = OpCodes.Stloc_3 then Some 3
+            elif op = OpCodes.Ldloc_S || op = OpCodes.Ldloc || op = OpCodes.Stloc_S || op = OpCodes.Stloc then Some operand
+            else None
+        let isStore (op: OpCode) = op = OpCodes.Stloc_0 || op = OpCodes.Stloc_1 || op = OpCodes.Stloc_2 || op = OpCodes.Stloc_3 || op = OpCodes.Stloc_S || op = OpCodes.Stloc
+        let isLoad (op: OpCode) = op = OpCodes.Ldloc_0 || op = OpCodes.Ldloc_1 || op = OpCodes.Ldloc_2 || op = OpCodes.Ldloc_3 || op = OpCodes.Ldloc_S || op = OpCodes.Ldloc
+        let argument (op: OpCode) operand =
+            if op = OpCodes.Ldarg_0 then Some 0 elif op = OpCodes.Ldarg_1 then Some 1
+            elif op = OpCodes.Ldarg_2 then Some 2 elif op = OpCodes.Ldarg_3 then Some 3
+            elif op = OpCodes.Ldarg_S || op = OpCodes.Ldarg then Some operand
+            else None
+        let lastStore = Collections.Generic.Dictionary<int, int>()
+        let result = Collections.Generic.Dictionary<string, int option>()
+        let code = Array.ofList code
+        for i in 0 .. code.Length - 1 do
+            let op, operand = code.[i]
+            if isStore op then lastStore.[(local op operand).Value] <- i
+            elif op = OpCodes.Stfld && i > 0 then
+                match fieldOf m operand with
+                | Some f when f.DeclaringType.Name = machine.Name && family f.Name ->
+                    let pop, poperand = code.[i - 1]
+                    let at =
+                        if isLoad pop then
+                            match lastStore.TryGetValue((local pop poperand).Value) with
+                            | true, at -> Some at
+                            | _ -> None
+                        else argument pop poperand |> Option.map (fun a -> a - 100000)
+                    result.[f.Name] <- at
+                | _ -> ()
+        Some(result :> _)
+
     /// The quotation's events, in evaluation order: reads of variables named in `family`, and
     /// marker calls. A variable with no field is the optimizer's to inline: its recovered
     /// definition (`recover`) stands where it is read, a local function's body after its
     /// arguments. A builder call's lambdas are its loop and try bodies, inline in `MoveNext`.
-    let private quotationEvents (isBuilder: Expr option -> bool) (hasField: Var -> bool) (recover: Var -> Expr option) (substituted: Var -> bool) (assumed: Collections.Generic.HashSet<Var>) (family: string -> bool) (body: Expr) : Event list option =
+    let private quotationEvents (isBuilder: Expr option -> bool) (hasField: Var -> bool) (recover: Var -> Expr option) (substituted: Var -> bool) (assumed: Collections.Generic.HashSet<Var>) (wholePlain: bool) (family: string -> bool) (body: Expr) : Event list option =
         let events = ResizeArray()
         let mutable ok = true
         let opaque = Collections.Generic.HashSet<Var>()
@@ -173,6 +243,9 @@ module internal IlOrder =
             | Call(None, mi, [ inner ]) when mi.DeclaringType.FullName = "Microsoft.FSharp.Core.Operators" && (mi.Name = "Fst" || mi.Name = "Snd") && (tupleOf inner).IsSome ->
                 events.Add(Read(box ((tupleOf inner).Value, Some(if mi.Name = "Fst" then 0 else 1))))
             | Var v when family v.Name && substituted v -> ()
+            // A tuple of constants (and other names' immutable variables) read whole: substituted
+            // (if the IL agrees).
+            | Var v when family v.Name && wholePlain && plain v -> assumed.Add v |> ignore
             | Var v when family v.Name && not v.IsMutable && (match recover v with Some(Var y) -> not y.IsMutable && not (family y.Name) | _ -> false) ->
                 // An alias the optimizer substitutes has no field and no read; if the IL agrees
                 // (no read left over), it is read through its definition.
@@ -255,7 +328,6 @@ module internal IlOrder =
     /// Each variable named in `names`, and the field of the machine it is, when the IL and the
     /// quotation agree; None otherwise.
     let resolve (machine: Type) (fields: Collections.Generic.IDictionary<string, FieldInfo>) (isBuilder: Expr option -> bool) (recover: Var -> Expr option) (substituted: Var -> bool) (memberBody: Expr) (names: Set<string>) (body: Expr) : (Map<Var * int option, FieldInfo> * Set<Var>) option =
-        let assumed = Collections.Generic.HashSet<Var>()
         // Where each variable is bound in the member, in source order (a lambda's parameter, a
         // let's variable, a pattern's).
         let bindingOrder =
@@ -289,65 +361,87 @@ module internal IlOrder =
         // Landmarks are dropped: an over-applied marker (`o?M(a, b)`) is a function value called
         // through FSharpFunc.InvokeFast in the IL, not a call to the marker.
         let reads events = events |> Option.map (List.choose (function Read r -> Some r | Landmark _ -> None))
-        let ilR, qR = reads (ilEvents machine (fun f -> (parse f).IsSome)), reads (quotationEvents isBuilder hasField recover substituted assumed names.Contains body)
-        // A field the family takes in (`x1`, `x_0`) that is also the name of one of the member's
-        // own variables may be that variable's: nothing tells which, so refuse.
-        let memberNames =
-            let names = Collections.Generic.HashSet<string>()
-            let rec go (e: Expr) =
-                match e with
-                | ShapeVar v -> names.Add v.Name |> ignore
-                | ShapeLambda(v, b) -> names.Add v.Name |> ignore; go b
-                | ShapeCombination(_, es) -> for x in es do go x
-            go memberBody
-            names
-        let clash =
-            fields.Keys |> Seq.exists (fun f -> not (names.Contains f) && (parse f).IsSome && memberNames.Contains f)
-        match ilR, qR with
-        | _ when clash -> None
-        | Some il, Some q when il.Length = q.Length ->
-            let fits (f: FieldInfo) (v: Var) (element: int option) =
-                match element, parse f.Name with
-                | None, Some(_, None) ->
-                    f.FieldType = v.Type
-                    || (f.FieldType.IsGenericType && f.FieldType.GetGenericTypeDefinition() = typedefof<Ref<_>> && f.FieldType.GetGenericArguments().[0] = v.Type)
-                | Some i, Some(_, Some digits) ->
-                    digits.StartsWith(string i) && Reflection.FSharpType.IsTuple v.Type
-                    && f.FieldType = (Reflection.FSharpType.GetTupleElements v.Type).[i]
-                // An element of a tuple kept whole (a mutable one is never split).
-                | Some _, Some(_, None) ->
-                    f.FieldType = v.Type
-                    || (f.FieldType.IsGenericType && f.FieldType.GetGenericTypeDefinition() = typedefof<Ref<_>> && f.FieldType.GetGenericArguments().[0] = v.Type)
-                | _ -> false
-            let mutable byKey = Map.empty<Var * int option, FieldInfo>
-            // A field is one variable's (its whole and an element may share a tuple kept whole).
-            let mutable byField = Map.empty<string, Var>
-            let mutable ok = true
-            for (fieldName, read) in List.zip il q do
-                match fields.TryGetValue(unbox<string> fieldName) with
-                | false, _ -> ok <- false
-                | true, f ->
-                let v, element = unbox<Var * int option> read
-                // A whole read the optimizer narrowed to one element (the rest unread): that
-                // element's, by the index its field's name begins with.
-                let element =
+        // First as read; then, if that does not pair, with a tuple of constants read whole taken as
+        // substituted too (a whole read keeps its field as often as not).
+        let attempt (wholePlain: bool) =
+            let assumed = Collections.Generic.HashSet<Var>()
+            let ilR, qR = reads (ilEvents machine (fun f -> (parse f).IsSome)), reads (quotationEvents isBuilder hasField recover substituted assumed wholePlain names.Contains body)
+            // A field the family takes in (`x1`, `x_0`) that is also the name of one of the member's
+            // own variables may be that variable's: nothing tells which, so refuse.
+            let memberNames =
+                let names = Collections.Generic.HashSet<string>()
+                let rec go (e: Expr) =
+                    match e with
+                    | ShapeVar v -> names.Add v.Name |> ignore
+                    | ShapeLambda(v, b) -> names.Add v.Name |> ignore; go b
+                    | ShapeCombination(_, es) -> for x in es do go x
+                go memberBody
+                names
+            let clash =
+                fields.Keys |> Seq.exists (fun f -> not (names.Contains f) && (parse f).IsSome && memberNames.Contains f)
+            match ilR, qR with
+            | _ when clash -> None
+            | Some il, Some q when il.Length = q.Length ->
+                let fits (f: FieldInfo) (v: Var) (element: int option) =
                     match element, parse f.Name with
-                    | None, Some(_, Some digits) when Reflection.FSharpType.IsTuple v.Type -> Some(int (string digits.[0]))
-                    | _ -> element
-                if not (fits f v element) then ok <- false
-                match byKey.TryFind(v, element), byField.TryFind f.Name with
-                | Some f', _ when f'.Name <> f.Name -> ok <- false
-                | _, Some w when w <> v -> ok <- false
-                | _ -> byKey <- byKey.Add((v, element), f); byField <- byField.Add(f.Name, v)
-            // The cross-check: the machine declares a name's fields in the order its variables are
-            // bound, so ordering the variables by binding orders their fields by declaration.
-            let declared = machine.GetFields(BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic) |> Array.map (fun f -> f.Name) |> List.ofArray
-            let ordered =
-                byKey
-                |> Map.toList
-                |> List.groupBy (fun ((v, _), f) -> v, (parse f.Name |> Option.bind snd).IsSome)
-                |> List.map (fun ((v, isElement), ks) -> (v, isElement), ks |> List.map (fun (_, f) -> List.findIndex ((=) f.Name) declared) |> List.min)
-                |> List.groupBy (fun ((v, isElement), _) -> v.Name, isElement)
-                |> List.forall (fun (_, vs) -> List.sortBy (fst >> fst >> bindingOrder) vs = List.sortBy snd vs)
-            if ok && ordered then Some(byKey, Set.ofSeq assumed) else None
-        | _ -> None
+                    | None, Some(_, None) ->
+                        f.FieldType = v.Type
+                        || (f.FieldType.IsGenericType && f.FieldType.GetGenericTypeDefinition() = typedefof<Ref<_>> && f.FieldType.GetGenericArguments().[0] = v.Type)
+                    | Some i, Some(_, Some digits) ->
+                        digits.StartsWith(string i) && Reflection.FSharpType.IsTuple v.Type
+                        && f.FieldType = (Reflection.FSharpType.GetTupleElements v.Type).[i]
+                    // An element of a tuple kept whole (a mutable one is never split).
+                    | Some _, Some(_, None) ->
+                        f.FieldType = v.Type
+                        || (f.FieldType.IsGenericType && f.FieldType.GetGenericTypeDefinition() = typedefof<Ref<_>> && f.FieldType.GetGenericArguments().[0] = v.Type)
+                    | _ -> false
+                let mutable byKey = Map.empty<Var * int option, FieldInfo>
+                // A field is one variable's (its whole and an element may share a tuple kept whole).
+                let mutable byField = Map.empty<string, Var>
+                let mutable ok = true
+                for (fieldName, read) in List.zip il q do
+                    match fields.TryGetValue(unbox<string> fieldName) with
+                    | false, _ -> ok <- false
+                    | true, f ->
+                    let v, element = unbox<Var * int option> read
+                    // A whole read the optimizer narrowed to one element (the rest unread): that
+                    // element's, by the index its field's name begins with.
+                    let element =
+                        match element, parse f.Name with
+                        | None, Some(_, Some digits) when Reflection.FSharpType.IsTuple v.Type -> Some(int (string digits.[0]))
+                        | _ -> element
+                    if not (fits f v element) then ok <- false
+                    match byKey.TryFind(v, element), byField.TryFind f.Name with
+                    | Some f', _ when f'.Name <> f.Name -> ok <- false
+                    | _, Some w when w <> v -> ok <- false
+                    | _ -> byKey <- byKey.Add((v, element), f); byField <- byField.Add(f.Name, v)
+                // The cross-check: the machine declares a name's fields in the order its variables are
+                // bound, so ordering the variables by binding orders their fields by declaration.
+                let declared = machine.GetFields(BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic) |> Array.map (fun f -> f.Name) |> List.ofArray
+                let ordered =
+                    byKey
+                    |> Map.toList
+                    |> List.groupBy (fun ((v, _), f) -> v, (parse f.Name |> Option.bind snd).IsSome)
+                    |> List.map (fun ((v, isElement), ks) -> (v, isElement), ks |> List.map (fun (_, f) -> List.findIndex ((=) f.Name) declared) |> List.min)
+                    |> List.groupBy (fun ((v, isElement), _) -> v.Name, isElement)
+                    |> List.forall (fun (_, vs) -> List.sortBy (fst >> fst >> bindingOrder) vs = List.sortBy snd vs)
+                // Or, where the compiler declares fields in an order of its own (a tuple bound by a
+                // pattern, split as it goes), the order their values were computed in (`storeOrder`).
+                let flowed () =
+                    match storeOrder machine (fun f -> (parse f).IsSome) with
+                    | None -> false
+                    | Some at ->
+                        byKey
+                        |> Map.toList
+                        |> List.groupBy (fun ((v, _), f) -> v, (parse f.Name |> Option.bind snd).IsSome)
+                        |> List.map (fun ((v, isElement), ks) ->
+                            (v, isElement), ks |> List.map (fun (_, f) -> match at.TryGetValue f.Name with | true, p -> p | _ -> None))
+                        |> List.groupBy (fun ((v, isElement), _) -> v.Name, isElement)
+                        |> List.forall (fun (_, vs) ->
+                            let known = vs |> List.map (fun (k, ps) -> k, (if List.forall Option.isSome ps then Some(ps |> List.choose id |> List.min) else None))
+                            known |> List.forall (snd >> Option.isSome)
+                            && (let byBinding = known |> List.sortBy (fst >> fst >> bindingOrder) |> List.map (snd >> Option.get)
+                                byBinding = List.sort byBinding && List.distinct byBinding = byBinding))
+                if ok && (ordered || flowed ()) then Some(byKey, Set.ofSeq assumed) else None
+            | _ -> None
+        attempt false |> Option.orElse (attempt true)
