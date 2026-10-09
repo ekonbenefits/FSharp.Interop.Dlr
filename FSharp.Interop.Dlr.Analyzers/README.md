@@ -17,6 +17,7 @@ code is reported without a fix: move it into a function.
 | `DLR005` | Error | a marker out of place inside a block — each a `DlrTranslationException` at the block's first call; the cases are listed below the table |
 | `DLR006` | Error | a `dlr { }` in a function or member whose reflected definition FSharp.Core will not decode — it holds `typeof<System.Void>` — so every block in it fails at run time with the not-found error naming the member |
 | `DLR007` | Warning | a `dlr { }` that reaches two values of one name, one through a local function or alias (`let x = …; let f () = x; let x = …; dlr { … f () … x … }`): where the Release optimizer inlines `f`, the block cannot tell them apart and its first call raises `DlrTranslationException`; rename one. A warning, since a Debug build never inlines `f` |
+| `DLR008` | Warning | a reflected definition that calls a module value its signature file (`.fsi`) leaves out, `private` ones included: where the Release optimizer inlines it, FSharp.Core cannot decode any of the assembly's reflected definitions and every `dlr { }` in it fails (#213); list it in the `.fsi` or mark it `[<MethodImpl(MethodImplOptions.NoInlining)>]`. A warning, since inlining is the optimizer's call |
 
 `DLR005` reports: an argument marker — `Dlr.named`, `Dlr.namedOf`, `Dlr.argsOf`, `Dlr.typeArgs`,
 `Dlr.typeArgsOf`, `Dlr.out`, `Dlr.outAs`, `Dlr.ref` — anywhere but as an argument of a call (a member call, `Dlr.invoke`, `Dlr.call` /

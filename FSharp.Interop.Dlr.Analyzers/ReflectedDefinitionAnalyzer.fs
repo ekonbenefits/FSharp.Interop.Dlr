@@ -51,6 +51,14 @@ let UndecodableCode = "DLR006"
 [<Literal>]
 let ShadowedCode = "DLR007"
 
+/// A reflected definition (any, with a block or not) that calls or reads a module value its
+/// signature file leaves out. The Release optimizer may inline such a value at every call and
+/// erase it; the stored quotation still names it, so FSharp.Core cannot decode the assembly's
+/// reflected definitions at all, and every `dlr { }` in the assembly fails (#213). A warning:
+/// whether it is inlined is the optimizer's call (small functions are), and a Debug build does not.
+[<Literal>]
+let HiddenBySignatureCode = "DLR008"
+
 let private isReflectedDefinition (attributes: seq<FSharpAttribute>) =
     attributes
     |> Seq.exists (fun a ->
@@ -712,6 +720,57 @@ let private analyzeShadowed (typedTree: FSharpImplementationFileContents option)
               Range = r
               Fixes = [] })
 
+/// Whether a module value is left out of its module's signature file: the module has one (its
+/// signature location is in a `.fsi`), the value's own signature location is its declaration.
+let private hiddenBySignature (v: FSharpMemberOrFunctionOrValue) =
+    try
+        v.IsModuleValueOrMember
+        && not v.IsMember
+        && (match v.DeclaringEntity with
+            | Some e when e.IsFSharpModule ->
+                match e.SignatureLocation, v.SignatureLocation with
+                | Some es, Some vs -> es.FileName.EndsWith ".fsi" && not (vs.FileName.EndsWith ".fsi")
+                | _ -> false
+            | _ -> false)
+        && not (v.Attributes |> Seq.exists (fun a ->
+                    a.AttributeType.DisplayName = "MethodImplAttribute"
+                    && a.ConstructorArguments |> Seq.exists (fun (_, arg) ->
+                        match arg with
+                        | :? int as flags -> flags &&& 8 <> 0   // MethodImplOptions.NoInlining
+                        | o -> (string o).Contains "NoInlining")))
+    with _ -> false
+
+/// Each reflected definition's calls and reads of values its module's signature hides: the call
+/// and the value.
+let rec private hiddenInReflected (reflected: bool) (decls: FSharpImplementationFileDeclaration list) : (range * FSharpMemberOrFunctionOrValue * FSharpMemberOrFunctionOrValue) list =
+    decls
+    |> List.collect (fun decl ->
+        match decl with
+        | FSharpImplementationFileDeclaration.Entity(entity, sub) -> hiddenInReflected (reflected || isReflectedDefinition entity.Attributes) sub
+        | FSharpImplementationFileDeclaration.MemberOrFunctionOrValue(mfv, _, body) when reflected || memberIsReflected mfv ->
+            let rec uses (e: FSharpExpr) =
+                [ match e with
+                  | FSharpExprPatterns.Call(_, v, _, _, _) | FSharpExprPatterns.Value v when hiddenBySignature v -> yield e.Range, mfv, v
+                  | _ -> ()
+                  for x in e.ImmediateSubExpressions do yield! uses x ]
+            uses body
+        | _ -> [])
+
+let private analyzeHiddenBySignature (typedTree: FSharpImplementationFileContents option) : Message list =
+    match typedTree with
+    | None -> []
+    | Some contents ->
+        hiddenInReflected false contents.Declarations
+        |> List.distinctBy (fun (r, _, v) -> r.StartLine, r.StartColumn, v.DisplayName)
+        |> List.map (fun (r, owner, v) ->
+            { Type = "reflected definition calls a value the signature hides"
+              Message =
+                sprintf "'%s' has a reflected definition that uses '%s', which the signature file leaves out. Where the Release optimizer inlines '%s' it erases it, and FSharp.Core then cannot decode any of this assembly's reflected definitions: every dlr { } in the assembly fails. Add '%s' to the signature, or mark it [<MethodImpl(MethodImplOptions.NoInlining)>]." owner.DisplayName v.DisplayName v.DisplayName v.DisplayName
+              Code = HiddenBySignatureCode
+              Severity = Severity.Warning
+              Range = r
+              Fixes = [] })
+
 let private analyze (tree: ParsedInput) (typedTree: FSharpImplementationFileContents option) : Message list =
     let inline' = analyzeInline typedTree
     // A block DLR004 refuses gets no DLR001 as well: the add-the-attribute fix would not help it.
@@ -722,6 +781,7 @@ let private analyze (tree: ParsedInput) (typedTree: FSharpImplementationFileCont
     @ analyzeArgumentMarkers typedTree
     @ analyzeUndecodable typedTree
     @ analyzeShadowed typedTree
+    @ analyzeHiddenBySignature typedTree
     @ match typedTree with
       | None -> []
       | Some contents ->
