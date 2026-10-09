@@ -700,3 +700,26 @@ let reflectedCaller (n: int) : int =
     hidden |> List.map (fun m -> m.Message.Split('\'').[3]) |> List.sort |> should equal [ "alsoHidden"; "fakePinned"; "nested"; "privateNested"; "wrap" ]
     hidden |> List.forall (fun m -> m.Severity = Severity.Warning) |> should equal true
     Assert.messageContains "every dlr { } in the assembly fails" hidden.Head |> should equal true
+
+
+[<Fact>]
+let ``a block inside another is reported as redundant, at any depth`` () =
+    let msgs =
+        run """
+module Impl =
+    let w = box 1
+    [<ReflectedDefinition>]
+    let single () : int = dlr { return 1 }
+    [<ReflectedDefinition>]
+    let nested () : int =
+        dlr {
+            let a: int = dlr { return 1 }
+            let f (x: int) : int = dlr { return x + (dlr { return 2 } : int) }
+            return a + f 3
+        }
+"""
+        |> List.filter (fun m -> m.Code = ReflectedDefinitionAnalyzer.NestedCode)
+    let lines = msgs |> List.map (fun m -> m.Range.StartLine) |> List.sort
+    lines |> List.map (fun l -> l - lines.Head) |> should equal [ 0; 1; 1 ]   // the let a block, f's and the one in it
+    msgs |> List.forall (fun m -> m.Severity = Severity.Info) |> should equal true
+    msgs.Head.Message |> should haveSubstring "redundant"
