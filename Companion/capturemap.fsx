@@ -214,8 +214,10 @@ let contains (outer: range) (inner: range) =
 
 // ---- The map.
 
-let lines = ResizeArray<string>()
-let mutable blocks, mapped = 0, 0
+/// Per block key (file, line), every machine found there: the column of its `dlr` keyword, and its
+/// map lines when every field is attributed. Nested blocks share a line, and only the outermost is
+/// ever looked up (an inner one compiles as part of it), whatever order the optimizer left them in.
+let byKey = Dictionary<string * int, ResizeArray<int * string list option>>()
 /// The unoptimized members, by compiled name and declaration: the optimized tree has more (the
 /// functions it lambda-lifts become declarations of their own), so the two are not paired by
 /// position.
@@ -260,7 +262,6 @@ let rec members (opt: FSharpImplementationFileDeclaration list) =
                     match blockKey e with
                     | None -> ()
                     | Some(file, line) ->
-                        blocks <- blocks + 1
                         // A value of the optimized member: the source variable (name, ordinal) it is,
                         // and the element when it is one of a split tuple's; None when not attributed.
                         let rec attribute (v: FSharpMemberOrFunctionOrValue) : (string * int * int option) option =
@@ -407,16 +408,21 @@ let rec members (opt: FSharpImplementationFileDeclaration list) =
                                             for x in e.ImmediateSubExpressions do binder x
                                         binder obody
                                         eprintfn "    (searched the optimized member %s)" omfv.CompiledName
-                        if List.forall Option.isSome entries then
-                            mapped <- mapped + 1
-                            lines.Add(sprintf "B\t%s\t%d" file line)
-                            lines.Add "S\tfields"
-                            for e in entries do lines.Add e.Value
-                            for u in unused do lines.Add u
+                        let block =
+                            if List.forall Option.isSome entries then
+                                Some([ sprintf "B\t%s\t%d" file line; "S\tfields" ] @ (entries |> List.map Option.get) @ List.ofSeq unused)
+                            else None
+                        match byKey.TryGetValue((file, line)) with
+                        | true, found -> found.Add((e.Range.StartColumn, block))
+                        | _ -> byKey.[(file, line)] <- ResizeArray [ (e.Range.StartColumn, block) ]
                 | _ -> for x in e.ImmediateSubExpressions do machines x
             machines obody
         | _ -> ()
 for o in optimized.ImplementationFiles do
     members o.Declarations
-File.WriteAllLines(output, Seq.append [ "DLRMAP\t1" ] lines)
-eprintfn "%d blocks, %d mapped" blocks mapped
+// The outermost block of each line: its `dlr` comes first (an inner one is inside its braces;
+// two side by side on one line the run time refuses before reading the map).
+let outermost = [ for KeyValue(_, found) in byKey -> found |> Seq.minBy fst |> snd ]
+let lines = outermost |> List.choose id |> List.concat
+File.WriteAllLines(output, "DLRMAP\t1" :: lines)
+eprintfn "%d blocks, %d mapped" outermost.Length (outermost |> List.filter Option.isSome |> List.length)
