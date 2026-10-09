@@ -134,8 +134,8 @@
     <ProjectReference Include="FSharpLib\Tests.FSharpLib.fsproj" />
     <ProjectReference Include="HiddenLib\Tests.HiddenLib.fsproj" />
   </ItemGroup>
-  <!-- The build companion's capture map (#216, academic): Companion/capturemap.fsx writes it from
-       the Release build's fsc arguments; -p:DlrCaptureMap=<path> embeds it. -->
+  <!-- The build companion's capture map (#216, academic): FSharp.Interop.Dlr.Build writes it from
+       the build's fsc arguments; -p:DlrCaptureMap=<path> embeds it. -->
   <ItemGroup Condition="'$(DlrCaptureMap)' != ''">
     <EmbeddedResource Include="$(DlrCaptureMap)" LogicalName="FSharp.Interop.Dlr.CaptureMap" />
   </ItemGroup>
