@@ -49,17 +49,19 @@ module internal Bodies =
             | Some e -> TNamed(entityAssembly e, entityName e, [])
             | None -> failwithf "no declaring entity: %s" m.LogicalName
         let parameters =
-            // An extension member compiles static, the extended value first.
-            [ if m.IsExtensionMember && m.IsInstanceMember then
-                let e = m.ApparentEnclosingEntity.Value
-                yield TNamed(entityAssembly e, entityName e, [ for p in e.GenericParameters -> TParam p.Name ])
-              for g in m.CurriedParameterGroups do
+            [ for g in m.CurriedParameterGroups do
                 for p in g do
                     yield typeRef p.Type ]
             // A function of unit compiles with no parameter.
             |> function
-                | [ TNamed(_, "Microsoft.FSharp.Core.Unit", []) ] when not m.IsConstructor || true -> []
+                | [ TNamed(_, "Microsoft.FSharp.Core.Unit", []) ] -> []
                 | ps -> ps
+            // An extension member compiles static, the extended value first.
+            |> fun ps ->
+                if m.IsExtensionMember && m.IsInstanceMember then
+                    let e = m.ApparentEnclosingEntity.Value
+                    TNamed(entityAssembly e, entityName e, [ for p in e.GenericParameters -> TParam p.Name ]) :: ps
+                else ps
         { Declaring = declaring
           Name = m.CompiledName
           Instance = m.IsConstructor || (m.IsInstanceMember && not m.IsExtensionMember)
@@ -67,7 +69,8 @@ module internal Bodies =
           GenericArity =
             let enclosing = match m.DeclaringEntity with Some e -> [ for p in e.GenericParameters -> p.Name ] | None -> []
             m.GenericParameters |> Seq.filter (fun p -> not (List.contains p.Name enclosing)) |> Seq.length
-          Parameters = parameters }
+          Parameters = parameters
+          Return = typeRef m.ReturnParameter.Type }
 
     // ---- Members that hold a block: a call to the builder's Run with caller information.
 
@@ -117,7 +120,16 @@ module internal Bodies =
             match x with
             | FSharpExprPatterns.Value w -> (match split.TryGetValue w with | true, (d, _) -> d.Name = name | _ -> false)
             | _ -> false
-        let rec go (e: FSharpExpr) : W =
+        /// A function of unit compiles with no parameter: a `()` argument goes, and an argument
+        /// with an effect runs first, as the quotation sequences it.
+        let rec withoutUnit (m: FSharpMemberOrFunctionOrValue) (r: MemberRef) (xs: FSharpExpr list) (call: FSharpExpr list -> W) : W =
+            let declared = if m.IsExtensionMember && m.IsInstanceMember then List.tail r.Parameters else r.Parameters
+            if not declared.IsEmpty then call xs
+            else
+                let units, rest = xs |> List.partition (fun x -> typeRef x.Type = TNamed("FSharp.Core", "Microsoft.FSharp.Core.Unit", []))
+                let effects = units |> List.filter (function FSharpExprPatterns.Const _ -> false | _ -> true)
+                List.foldBack (fun x w -> WSeq(go x, w)) effects (call rest)
+        and go (e: FSharpExpr) : W =
             match e with
             | FSharpExprPatterns.Value v when split.ContainsKey v -> let d, i = split.[v] in WTupleGet(d.Type, i, WVar d.Id)
             // The body rebuilding the split tuple is the parameter itself.
@@ -129,6 +141,9 @@ module internal Bodies =
             | FSharpExprPatterns.Value v when v.IsModuleValueOrMember ->
                 WStaticValue(TNamed(entityAssembly v.DeclaringEntity.Value, entityName v.DeclaringEntity.Value, []), v.CompiledName)
             | FSharpExprPatterns.ValueSet(v, x) when ids.ContainsKey v -> WVarSet(ids.[v], go x)
+            // A module's mutable: its static property.
+            | FSharpExprPatterns.ValueSet(v, x) when v.IsModuleValueOrMember && v.DeclaringEntity.IsSome ->
+                WStaticSet(TNamed(entityAssembly v.DeclaringEntity.Value, entityName v.DeclaringEntity.Value, []), v.CompiledName, go x)
             | FSharpExprPatterns.Lambda(v, b) -> let d = def v in WLambda(d, go b)
             | FSharpExprPatterns.Let((v, x, _), b) ->
                 let x = go x
@@ -138,12 +153,18 @@ module internal Bodies =
                 let ds = [ for (v, _, _) in bs -> def v ]
                 WLetRec([ for d, (_, x, _) in List.zip ds bs -> d, go x ], go b)
             | FSharpExprPatterns.Application(f, _, xs) -> List.fold (fun f x -> WApp(f, go x)) (go f) xs
-            | FSharpExprPatterns.Const(v, t) -> WConst(v, typeRef t)
+            // A constant the text carries (a primitive, a string, a char, a decimal, null); any other
+            // (a byte array, a nativeint) leaves the member out.
+            | FSharpExprPatterns.Const(v, t) when isNull v || (match System.Type.GetTypeCode(v.GetType()) with System.TypeCode.Object | System.TypeCode.Empty | System.TypeCode.DBNull -> false | _ -> true) ->
+                WConst(v, typeRef t)
+            | FSharpExprPatterns.Const(v, _) ->
+                let kind = "constant " + v.GetType().Name
+                note kind
+                WUnsupported kind
             | FSharpExprPatterns.DefaultValue t -> WDefault(typeRef t)
             | FSharpExprPatterns.NewObject(m, targs, xs) ->
                 let r = memberRef m
-                let xs = if r.Parameters.IsEmpty then xs |> List.filter (fun x -> typeRef x.Type <> TNamed("FSharp.Core", "Microsoft.FSharp.Core.Unit", [])) else xs
-                WNewObject(r, List.map typeRef targs, List.map go xs)
+                withoutUnit m r xs (fun xs -> WNewObject(r, List.map typeRef targs, List.map go xs))
             // A module value: its static property.
             | FSharpExprPatterns.Call(None, m, _, _, []) when not m.IsMember && m.CurriedParameterGroups.Count = 0 && m.GenericParameters.Count = 0 && m.DeclaringEntity.IsSome && m.DeclaringEntity.Value.IsFSharpModule ->
                 WStaticValue(TNamed(entityAssembly m.DeclaringEntity.Value, entityName m.DeclaringEntity.Value, []), m.CompiledName)
@@ -157,10 +178,10 @@ module internal Bodies =
                 WCallW(Option.map go o, r, List.map typeRef targs, List.map typeRef margs, List.map go ws, List.map go xs)
             | FSharpExprPatterns.Call(o, m, targs, margs, xs) ->
                 let r = memberRef m
-                let xs = if r.Parameters.IsEmpty then xs |> List.filter (fun x -> typeRef x.Type <> TNamed("FSharp.Core", "Microsoft.FSharp.Core.Unit", [])) else xs
-                // An extension member's target is its first argument.
-                let o, xs = if m.IsExtensionMember then None, Option.toList o @ xs else o, xs
-                WCall(Option.map go o, r, List.map typeRef targs, List.map typeRef margs, List.map go xs)
+                withoutUnit m r xs (fun xs ->
+                    // An extension member's target is its first argument.
+                    let o, xs = if m.IsExtensionMember then None, Option.toList o @ xs else o, xs
+                    WCall(Option.map go o, r, List.map typeRef targs, List.map typeRef margs, List.map go xs))
             | FSharpExprPatterns.NewRecord(t, xs) -> WNewRecord(typeRef t, List.map go xs)
             | FSharpExprPatterns.NewAnonRecord(t, xs) -> WNewRecord(typeRef t, List.map go xs)
             | FSharpExprPatterns.NewUnionCase(t, c, xs) -> WNewUnion(typeRef t, c.CompiledName, List.map go xs)
@@ -190,8 +211,9 @@ module internal Bodies =
             | FSharpExprPatterns.NewArray(t, xs) -> WNewArray(typeRef t, List.map go xs)
             | FSharpExprPatterns.NewDelegate(t, x) ->
                 // As many lambdas as Invoke takes parameters; a delegate of none has the unit lambda's.
+                let rec strip (t: FSharpType) = if t.IsAbbreviation then strip t.AbbreviatedType else t
                 let arity =
-                    t.TypeDefinition.MembersFunctionsAndValues |> Seq.find (fun m -> m.CompiledName = "Invoke")
+                    (strip t).TypeDefinition.MembersFunctionsAndValues |> Seq.find (fun m -> m.CompiledName = "Invoke")
                     |> fun m -> m.CurriedParameterGroups |> Seq.sumBy (fun g -> g.Count)
                 let rec lambdas n acc x =
                     match x with
@@ -200,7 +222,8 @@ module internal Bodies =
                 let vs, b = lambdas (max 1 arity) [] x
                 let ds = List.map def vs
                 WNewDelegate(typeRef t, ds, go b)
-            | FSharpExprPatterns.Quote x -> WQuote(go x)
+            // `<@@ … @@>` is a raw quotation (type Expr), `<@ … @>` a typed one.
+            | FSharpExprPatterns.Quote x -> WQuote(typeRef e.Type = TNamed("FSharp.Core", "Microsoft.FSharp.Quotations.FSharpExpr", []), go x)
             // A trait call in a witness: the member the constraint resolves to, a plain call.
             | FSharpExprPatterns.TraitCall(sources, name, flags, _, argTypes, xs) ->
                 let xs = List.map go xs
@@ -261,19 +284,34 @@ module internal Bodies =
     let context (m: FSharpMemberOrFunctionOrValue) =
         TNamed(entityAssembly m.DeclaringEntity.Value, entityName m.DeclaringEntity.Value, [])
 
-    /// Per block key (file, line), the lines of its `body` section (without the `S body` header).
+    /// Per block key (file, line), the lines of its `body` section (without the `S body` header):
+    /// `X <payload>` at a member's first block, `Y file line` at its others, and `A n` for a line
+    /// where n members have a block (the run time refuses it, as it does from reflected definitions).
     let run (results: FSharpCheckProjectResults) : IDictionary<string * int, string list> =
         let sections = Dictionary<string * int, string list>()
-        for (m, args, body) in members results.AssemblyContents do
-            let before = unsupportedTotal
-            let w = encode args body
-            // A member with a node the wire form has no case for is left out: its blocks keep
-            // needing the attribute.
-            if unsupportedTotal = before then
-                match runs body |> List.distinct with
-                | [] -> ()
-                | (file, line) as first :: rest ->
-                    sections.[first] <- [ "X\t" + encodeEntry (context m) w ]
-                    for k in rest do
-                        if not (sections.ContainsKey k) then sections.[k] <- [ sprintf "Y\t%s\t%d" file line ]
+        let encoded =
+            [ for (m, args, body) in members results.AssemblyContents ->
+                let keys = runs body |> List.distinct
+                let before = unsupportedTotal
+                // A member with a node the wire form has no case for, or one the encoder fails on, is
+                // left out: its blocks keep needing the attribute. The build never fails for it.
+                let w =
+                    try
+                        let w = encode args body
+                        if unsupportedTotal = before then Some w else None
+                    with e ->
+                        note ("encoder: " + e.GetType().Name)
+                        None
+                m, keys, w ]
+        let owners = Dictionary<string * int, int>()
+        for (_, keys, _) in encoded do
+            for k in keys do owners.[k] <- (match owners.TryGetValue k with | true, n -> n + 1 | _ -> 1)
+        for KeyValue(k, n) in owners do
+            if n > 1 then sections.[k] <- [ sprintf "A\t%d" n ]
+        for (m, keys, w) in encoded do
+            match w, keys |> List.filter (fun k -> owners.[k] = 1) with
+            | Some w, ((file, line) as first :: rest) ->
+                sections.[first] <- [ "X\t" + encodeEntry (context m) w ]
+                for k in rest do sections.[k] <- [ sprintf "Y\t%s\t%d" file line ]
+            | _ -> ()
         sections :> _

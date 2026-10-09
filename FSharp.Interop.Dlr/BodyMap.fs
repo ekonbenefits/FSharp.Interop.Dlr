@@ -33,7 +33,9 @@ type MemberRef =
       Name: string
       Instance: bool
       GenericArity: int
-      Parameters: TypeRef list }
+      Parameters: TypeRef list
+      /// Tells apart overloads that differ only by it (`op_Explicit`).
+      Return: TypeRef }
 
 type VarDef = { Id: int; Name: string; Type: TypeRef; Mutable: bool }
 
@@ -53,6 +55,7 @@ type W =
     | WTraitCall of TypeRef * string * W option * TypeRef list * W list
     | WNewObject of MemberRef * TypeRef list * W list
     | WStaticValue of TypeRef * string
+    | WStaticSet of TypeRef * string * W
     | WNewRecord of TypeRef * W list
     | WNewUnion of TypeRef * string * W list
     | WUnionTest of W * TypeRef * string
@@ -71,7 +74,8 @@ type W =
     | WTypeTest of TypeRef * W
     | WNewArray of TypeRef * W list
     | WNewDelegate of TypeRef * VarDef list * W
-    | WQuote of W
+    /// Raw (`<@@ @@>`) or typed.
+    | WQuote of bool * W
     | WUnsupported of string
 
 exception Unsupported of string
@@ -135,14 +139,15 @@ let rec readType (r: Reader) : TypeRef =
     | t -> raise (Unsupported("type tag " + t))
 
 let writeMember (w: Writer) (m: MemberRef) =
-    writeType w m.Declaring; w.Str m.Name; w.Int(if m.Instance then 1 else 0); w.Int m.GenericArity; w.List(m.Parameters, writeType w)
+    writeType w m.Declaring; w.Str m.Name; w.Int(if m.Instance then 1 else 0); w.Int m.GenericArity; w.List(m.Parameters, writeType w); writeType w m.Return
 
 let readMember (r: Reader) : MemberRef =
     let d = readType r
     let n = r.Str()
     let inst = r.Int() = 1
     let arity = r.Int()
-    { Declaring = d; Name = n; Instance = inst; GenericArity = arity; Parameters = r.List(fun () -> readType r) }
+    let ps = r.List(fun () -> readType r)
+    { Declaring = d; Name = n; Instance = inst; GenericArity = arity; Parameters = ps; Return = readType r }
 
 let writeVar (w: Writer) (d: VarDef) = w.Int d.Id; w.Str d.Name; writeType w d.Type; w.Int(if d.Mutable then 1 else 0)
 let readVar (r: Reader) : VarDef =
@@ -185,6 +190,7 @@ let rec write (w: Writer) (e: W) =
     | WTraitCall(t, n, o, ts, xs) -> w.Token "trait"; ty t; w.Str n; w.Option(o, go); w.List(ts, ty); w.List(xs, go)
     | WNewObject(m, ta, xs) -> w.Token "new"; writeMember w m; w.List(ta, ty); w.List(xs, go)
     | WStaticValue(t, n) -> w.Token "sv"; ty t; w.Str n
+    | WStaticSet(t, n, x) -> w.Token "sv="; ty t; w.Str n; go x
     | WNewRecord(t, xs) -> w.Token "rec{"; ty t; w.List(xs, go)
     | WNewUnion(t, c, xs) -> w.Token "case"; ty t; w.Str c; w.List(xs, go)
     | WUnionTest(x, t, c) -> w.Token "case?"; go x; ty t; w.Str c
@@ -203,7 +209,7 @@ let rec write (w: Writer) (e: W) =
     | WTypeTest(t, x) -> w.Token ":?"; ty t; go x
     | WNewArray(t, xs) -> w.Token "arr"; ty t; w.List(xs, go)
     | WNewDelegate(t, ds, b) -> w.Token "del"; ty t; w.List(ds, writeVar w); go b
-    | WQuote x -> w.Token "quote"; go x
+    | WQuote(raw, x) -> w.Token "quote"; w.Int(if raw then 1 else 0); go x
     | WUnsupported s -> w.Token "unsupported"; w.Str s
 
 let rec read (r: Reader) : W =
@@ -239,6 +245,7 @@ let rec read (r: Reader) : W =
         WTraitCall(t, n, o, ts, r.List go)
     | "new" -> let m = readMember r in let ta = r.List ty in WNewObject(m, ta, r.List go)
     | "sv" -> let t = ty () in WStaticValue(t, r.Str())
+    | "sv=" -> let t = ty () in let n = r.Str() in WStaticSet(t, n, go ())
     | "rec{" -> let t = ty () in WNewRecord(t, r.List go)
     | "case" -> let t = ty () in let c = r.Str() in WNewUnion(t, c, r.List go)
     | "case?" -> let x = go () in let t = ty () in WUnionTest(x, t, r.Str())
@@ -257,7 +264,7 @@ let rec read (r: Reader) : W =
     | ":?" -> let t = ty () in WTypeTest(t, go ())
     | "arr" -> let t = ty () in WNewArray(t, r.List go)
     | "del" -> let t = ty () in let ds = r.List(fun () -> readVar r) in WNewDelegate(t, ds, go ())
-    | "quote" -> WQuote(go ())
+    | "quote" -> let raw = r.Int() = 1 in WQuote(raw, go ())
     | "unsupported" -> WUnsupported(r.Str())
     | t -> raise (Unsupported("node tag " + t))
 
@@ -266,16 +273,11 @@ let all = BindingFlags.Static ||| BindingFlags.Instance ||| BindingFlags.Public 
 /// Generic parameters in scope, by name.
 type Scope = IDictionary<string, Type>
 
-let private assemblies = Dictionary<string, Assembly>()
+let private assemblies = ConcurrentDictionary<string, Assembly>()
 let assemblyNamed (name: string) =
-    match assemblies.TryGetValue name with
-    | true, a -> a
-    | _ ->
-        let a =
-            AppDomain.CurrentDomain.GetAssemblies() |> Array.tryFind (fun a -> a.GetName().Name = name)
-            |> Option.defaultWith (fun () -> Assembly.Load(AssemblyName name))
-        assemblies.[name] <- a
-        a
+    assemblies.GetOrAdd(name, fun name ->
+        AppDomain.CurrentDomain.GetAssemblies() |> Array.tryFind (fun a -> a.GetName().Name = name)
+        |> Option.defaultWith (fun () -> Assembly.Load(AssemblyName name)))
 
 let typeDefinition (asm: string) (name: string) : Type =
     let a = assemblyNamed asm
@@ -323,6 +325,11 @@ let rec matches (r: TypeRef) (t: Type) =
             d.FullName = name && (let a = t.GetGenericArguments() in a.Length = args.Length && List.forall2 matches args (List.ofArray a))
         else (t.FullName = name || t.Name = name) && args.IsEmpty
 
+let returns (r: TypeRef) (c: MethodBase) =
+    match c with
+    | :? MethodInfo as mi -> matches r mi.ReturnType || (r = TNamed("FSharp.Core", "Microsoft.FSharp.Core.Unit", []) && mi.ReturnType = typeof<Void>)
+    | _ -> false
+
 let methodOf (scope: Scope) (m: MemberRef) (typeArgs: TypeRef list) (methodArgs: TypeRef list) : MethodBase =
     let asm, name = match m.Declaring with TNamed(a, n, _) -> a, n | other -> raise (Unsupported(sprintf "declaring %A" other))
     let def = typeDefinition asm name
@@ -341,6 +348,8 @@ let methodOf (scope: Scope) (m: MemberRef) (typeArgs: TypeRef list) (methodArgs:
             | [ c ] -> c
             // A member that hides an inherited one of the same signature (Exception.GetType).
             | fits when (fits |> List.filter (fun c -> c.DeclaringType = def)).Length = 1 -> fits |> List.find (fun c -> c.DeclaringType = def)
+            // Overloads that differ only by their return type (`op_Explicit`).
+            | fits when (fits |> List.filter (returns m.Return)).Length = 1 -> fits |> List.find (returns m.Return)
             | _ -> raise (Unsupported(sprintf "ambiguous %s.%s" name m.Name))
     let onType =
         if typeArgs.IsEmpty then chosen
@@ -454,6 +463,11 @@ let decode (scope: Scope) (w: W) : Expr =
             match t.GetProperty(name, all) with
             | null -> raise (Unsupported(sprintf "module value %s.%s" t.Name name))
             | p -> Expr.PropertyGet p
+        | WStaticSet(t, name, v) ->
+            let t = resolve scope t
+            match t.GetProperty(name, all) with
+            | null -> raise (Unsupported(sprintf "module value %s.%s" t.Name name))
+            | p -> Expr.PropertySet(p, go v)
         | WNewRecord(t, args) -> Expr.NewRecord(resolve scope t, List.map go args)
         | WNewUnion(t, case, args) ->
             let c = FSharpType.GetUnionCases(resolve scope t, true) |> Array.find (fun c -> c.Name = case)
@@ -525,14 +539,16 @@ let decode (scope: Scope) (w: W) : Expr =
                 let b = go b
                 try Expr.NewDelegate(t, vs, b)
                 with :? ArgumentException -> raise (Unsupported(sprintf "delegate %s: %d params, vars %A, body %s" t.Name (invoke.GetParameters().Length) [ for v in vs -> v.Type.Name ] b.Type.Name))
-        | WQuote e -> Expr.QuoteTyped(go e)
+        | WQuote(true, e) -> Expr.QuoteRaw(go e)
+        | WQuote(false, e) -> Expr.QuoteTyped(go e)
         | WUnsupported s -> raise (Unsupported s)
     go w
 
 // ---- The map's `body` section (format 2, read through `CaptureMap.body`): per block, `X <payload>`,
 // the type declaring the member (the binder's accessibility context) and the member's tree, as text
 // with `\`, tab, LF and CR escaped (`\\`, `\t`, `\n`, `\r`) so it stays one line; or `Y file line`,
-// the block in the same file whose section holds its member. The map compresses per source file.
+// the block in the same file whose section holds its member; or `A n`, a line where n members have a
+// block (refused, as from reflected definitions). The map compresses per source file.
 
 let private escape (s: string) =
     let sb = StringBuilder(s.Length)
@@ -571,29 +587,40 @@ let decodeEntry (payload: string) : TypeRef * W =
     let context = readType r
     context, read r
 
+/// What the map says about a block.
+type Lookup =
+    /// The type declaring the block's member, and the member's body.
+    | Found of Type * Expr
+    /// n members have a block on this line: refused, as from reflected definitions.
+    | Shared of int
+    | Missing
+
 /// The member holding the block at `file:line`: the type declaring it and its body as an `Expr`,
 /// generic parameters taken from the block's closure (or state machine) type. `lines` reads a
-/// block's `body` section (`CaptureMap.body`). None when the map has no body for the block or it
-/// does not decode here.
-let find (lines: string -> int -> string list option) (closureType: Type) (file: string) (line: int) : (Type * Expr) option =
-    let payload =
-        match lines file line with
-        | Some [ x ] when x.StartsWith "X\t" -> Some(x.Substring 2)
-        | Some [ y ] when y.StartsWith "Y\t" ->
-            match y.Split '\t' with
-            | [| _; f; l |] ->
-                match lines f (int l) with
-                | Some [ x ] when x.StartsWith "X\t" -> Some(x.Substring 2)
-                | _ -> None
-            | _ -> None
-        | _ -> None
-    match payload with
-    | Some payload ->
-        try
+/// block's `body` section (`CaptureMap.body`). Missing when the map has no body for the block or
+/// it does not decode here, whatever the reason: the block then needs the attribute, as without
+/// a map.
+let find (lines: string -> int -> string list option) (closureType: Type) (file: string) (line: int) : Lookup =
+    try
+        let payload =
+            match lines file line with
+            | Some [ x ] when x.StartsWith "X\t" -> Choice1Of2(x.Substring 2)
+            | Some [ a ] when a.StartsWith "A\t" -> Choice2Of2(int (a.Substring 2))
+            | Some [ y ] when y.StartsWith "Y\t" ->
+                match y.Split '\t' with
+                | [| _; f; l |] ->
+                    match lines f (int l) with
+                    | Some [ x ] when x.StartsWith "X\t" -> Choice1Of2(x.Substring 2)
+                    | _ -> Choice2Of2 0
+                | _ -> Choice2Of2 0
+            | _ -> Choice2Of2 0
+        match payload with
+        | Choice1Of2 payload ->
             let context, body = decodeEntry payload
             let scope = Dictionary<string, Type>()
             if closureType.IsGenericType && not closureType.IsGenericTypeDefinition then
                 Array.iter2 (fun (p: Type) a -> scope.[p.Name] <- a) (closureType.GetGenericTypeDefinition().GetGenericArguments()) (closureType.GetGenericArguments())
-            Some(resolve scope context, decode scope body)
-        with Unsupported _ -> None
-    | None -> None
+            Found(resolve scope context, decode scope body)
+        | Choice2Of2 n when n > 1 -> Shared n
+        | Choice2Of2 _ -> Missing
+    with _ -> Missing

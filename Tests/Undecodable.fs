@@ -31,7 +31,6 @@ module Other =
 
 [<Fact>]
 let ``a reflected definition FSharp.Core cannot decode is named, not blamed on a missing attribute`` () =
-    if Tests.Companion.bodiesMapped then raise (AnyUnit.IgnoreException "the companion's map holds this block's body (Tests/Companion.fs)")
     let other = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> Other.withVoidToo (Widget()) |> ignore)
     other.Message |> should haveSubstring "withVoidToo"
     other.Message |> should not' (haveSubstring "every block in the assembly")
@@ -53,7 +52,6 @@ let private voidLocal (w: obj) : int =
 
 [<Fact>]
 let ``a block in a local function of a member FSharp.Core cannot decode names the member`` () =
-    if Tests.Companion.bodiesMapped then raise (AnyUnit.IgnoreException "the companion's map holds this block's body (Tests/Companion.fs)")
     let ex = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> voidLocal (Widget()) |> ignore)
     ex.Message |> should haveSubstring "voidLocal"
     ex.Message |> should haveSubstring "could not decode"
