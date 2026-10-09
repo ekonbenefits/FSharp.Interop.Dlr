@@ -115,7 +115,8 @@ module internal Translate =
                 | Some entries, None ->
                     sprintf " (map %A, machine %A)" (entries |> List.filter (fun e -> not e.Unused) |> List.map (fun e -> e.Field + "=" + e.Name)) (List.ofSeq fields.Keys)
                 | _ -> ""
-            eprintfn "dlr capture map: %s %s%s" (match captureMap, exact with | None, _ -> "none  " | Some _, Some _ -> "exact " | Some _, None -> "strict") name why
+            // One write per line: blocks translate on many threads at once.
+            Console.Error.WriteLine(sprintf "dlr capture map: %s %s%s" (match captureMap, exact with | None, _ -> "none  " | Some _, Some _ -> "exact " | Some _, None -> "strict") name why)
         let block =
             { BuilderType = builderType
               Context = context
