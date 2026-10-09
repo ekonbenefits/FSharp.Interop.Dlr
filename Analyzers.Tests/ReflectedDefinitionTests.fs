@@ -68,6 +68,27 @@ let private run (source: string) : Message list =
     let ctx = getContext options.Value (prelude + source)
     ReflectedDefinitionAnalyzer.cliAnalyzer ctx |> Async.RunSynchronously
 
+/// The analyzer over an implementation file that has a signature file (`Hidden.fsi`): the SDK's
+/// helper checks one source alone, so this checks the three files as one project.
+let private runWithSignature (signature: string) (implementation: string) : Message list =
+    let dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dlr-analyzer-" + System.Guid.NewGuid().ToString "N")
+    System.IO.Directory.CreateDirectory dir |> ignore
+    try
+        let write name (text: string) =
+            let path = System.IO.Path.Combine(dir, name)
+            System.IO.File.WriteAllText(path, text)
+            path
+        let files = [| write "Prelude.fs" prelude; write "Hidden.fsi" signature; write "Hidden.fs" implementation |]
+        let checker = FSharp.Compiler.CodeAnalysis.FSharpChecker.Create(keepAssemblyContents = true)
+        let projectOptions = { options.Value with SourceFiles = files }
+        let results = checker.ParseAndCheckProject projectOptions |> Async.RunSynchronously
+        let parsed, checkedFile = checker.GetBackgroundCheckResultsForFileInProject(files.[2], projectOptions) |> Async.RunSynchronously
+        let ctx =
+            Utils.createContext results files.[2] (FSharp.Compiler.Text.SourceText.ofString implementation) (parsed, checkedFile)
+                (AnalyzerProjectOptions.BackgroundCompilerOptions projectOptions)
+        ReflectedDefinitionAnalyzer.cliAnalyzer ctx |> Async.RunSynchronously
+    finally System.IO.Directory.Delete(dir, true)
+
 [<Fact>]
 let ``a function without the attribute is reported with a fix on its let`` () =
     let msgs =
@@ -638,3 +659,44 @@ module Impl =
             let x = seed * 100
             return w?Add(f (), x) }
 """ |> should be Empty
+
+
+[<Fact>]
+let ``a reflected definition using a value the signature hides is warned about`` () =
+    let signature = """
+module Hidden
+val target: obj
+val shown: x: int -> int
+val reflectedCaller: n: int -> int
+"""
+    let implementation = """
+module Hidden
+open FSharp.Interop.Dlr
+open System.Runtime.CompilerServices
+let target: obj = box 1
+let shown (x: int) = x + 1
+let wrap (x: int) = x + 1
+let private alsoHidden (x: int) = x + 2
+let constant = 5
+let table = System.Collections.Generic.Dictionary<int, int>()
+module Helpers =
+    let nested (x: int) = x + 4
+module private PrivateHelpers =
+    let privateNested (x: int) = x + 5
+[<MethodImpl(MethodImplOptions.NoInlining)>]
+let pinned (x: int) = x + 3
+module Fake =
+    type MethodImplAttribute(_options: MethodImplOptions) = inherit System.Attribute()
+[<Fake.MethodImpl(MethodImplOptions.NoInlining)>]
+let fakePinned (x: int) = x + 6
+let unreflected (n: int) = wrap n
+[<ReflectedDefinition>]
+let reflectedCaller (n: int) : int =
+    let a = wrap n + alsoHidden n
+    let b = shown n + pinned n + constant + table.Count + Helpers.nested n + PrivateHelpers.privateNested n + fakePinned n
+    dlr { return target?Add(a, b) }
+"""
+    let hidden = runWithSignature signature implementation |> List.filter (fun m -> m.Code = ReflectedDefinitionAnalyzer.HiddenBySignatureCode)
+    hidden |> List.map (fun m -> m.Message.Split('\'').[3]) |> List.sort |> should equal [ "alsoHidden"; "fakePinned"; "nested"; "privateNested"; "wrap" ]
+    hidden |> List.forall (fun m -> m.Severity = Severity.Warning) |> should equal true
+    Assert.messageContains "every dlr { } in the assembly fails" hidden.Head |> should equal true
