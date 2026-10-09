@@ -101,7 +101,8 @@ module Fields =
     let sourceKey (v: FSharpMemberOrFunctionOrValue) = v.LogicalName, v.DeclarationLocation.ToString()
 
     /// A curried parameter of tuple type compiles as one parameter per element (`x_0`, `x_1`), and
-    /// FCS shows them so; the quotation has the one tuple `x`. Such a group: (`x`, its elements).
+    /// FCS shows them so, compiler-generated and sharing the tuple's range; the quotation has the
+    /// one tuple `x`. Such a group: (`x`, its elements).
     let splitParameter (group: FSharpMemberOrFunctionOrValue list) =
         let parts =
             group |> List.mapi (fun i v ->
@@ -109,7 +110,9 @@ module Fields =
                 let at = n.LastIndexOf '_'
                 if at > 0 && n.Substring(at + 1) = string i then Some(n.Substring(0, at)) else None)
         match parts with
-        | Some b :: _ when group.Length > 1 && List.forall ((=) (Some b)) parts -> Some b
+        // Compiler-generated, all of them: a user's own `(x_0, x_1)` is named the same but is not
+        // a split, and the quotation has those two variables, not a tuple `x`.
+        | Some b :: _ when group.Length > 1 && List.forall ((=) (Some b)) parts && group |> List.forall (fun v -> v.IsCompilerGenerated) -> Some b
         | _ -> None
 
     /// Each binding's construct (the `let`, or the application of a lambda applied on the spot):
