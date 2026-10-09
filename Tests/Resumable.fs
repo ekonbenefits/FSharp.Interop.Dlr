@@ -23,6 +23,16 @@ module Small =
     [<ReflectedDefinition>]
     let count (o: obj) : int = dlr { return o?Count }
 
+/// A function-typed block bound with `let` (#217): applied once, fully or partially, the optimizer
+/// inlines the binding into its one use, which is the block applied on the spot, so the closure
+/// path; used twice it stays a value, so a state machine. The block's result type does not matter.
+[<ReflectedDefinition>]
+module LetBound =
+    let once (o: obj) : int = let onceUsed: int -> int -> int = dlr { return o?Add } in onceUsed 1 2
+    let twice (o: obj) : int = let twiceUsed: int -> int -> int = dlr { return o?Add } in twiceUsed 1 2 + twiceUsed 3 4
+    let onceUnit (o: obj) : unit = let onceTouch: unit -> unit = dlr { return o?Touch } in onceTouch ()
+    let partial (o: obj) : int -> int = let partialUsed: int -> int -> int = dlr { return o?Add } in partialUsed 1
+
 /// The struct state machines the compiler built for blocks in this assembly.
 let private machines () =
     Reflection.Assembly.GetExecutingAssembly().GetTypes()
@@ -39,6 +49,21 @@ let ``Debug builds every block on the closure path, Release on state machines`` 
     machines () |> should haveLength 0
 #else
     (machines ()).Length |> should be (greaterThan 0)
+#endif
+
+[<Fact>]
+let ``a function-typed block bound with let and applied once takes the closure path in Release`` () =
+    let w: obj = Widget()
+    LetBound.once w |> should equal 3
+    LetBound.twice w |> should equal 10
+    LetBound.onceUnit w
+    LetBound.partial w 2 |> should equal 3
+#if !DEBUG
+    let named (binding: string) = machines () |> Array.exists (fun t -> t.Name.StartsWith(binding + "@"))
+    named "onceUsed" |> should equal false        // inlined into its one application: on the spot
+    named "onceTouch" |> should equal false
+    named "twiceUsed" |> should equal true
+    named "partialUsed" |> should equal false     // applied once, partially: on the spot too
 #endif
 
 [<Fact>]
