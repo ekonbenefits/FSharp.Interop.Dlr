@@ -22,6 +22,9 @@ module internal CaptureMap =
     [<Literal>]
     let ResourceName = "FSharp.Interop.Dlr.CaptureMap"
 
+    /// `DLR_CAPTURE_MAP_TRACE=1`: report per block whether its captures bound through the map.
+    let trace = Environment.GetEnvironmentVariable "DLR_CAPTURE_MAP_TRACE" = "1"
+
     let private byAssembly = ConcurrentDictionary<Assembly, IReadOnlyDictionary<struct (string * int), CaptureEntry list>>()
 
     let private load (assembly: Assembly) : IReadOnlyDictionary<struct (string * int), CaptureEntry list> =

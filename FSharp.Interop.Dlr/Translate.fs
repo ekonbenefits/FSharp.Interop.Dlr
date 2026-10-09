@@ -107,6 +107,15 @@ module internal Translate =
         let fields = Captures.fields closureType
         let reached, aliases = Captures.reached fields memberBody body
         let exact = captureMap |> Option.bind (exactly closureType fields memberBody)
+        // DLR_CAPTURE_MAP_TRACE=1: whether each block (once, at translation) bound through the map.
+        if CaptureMap.trace then
+            let why =
+                match captureMap, exact with
+                | Some _, None when not closureType.IsValueType -> " (a closure, not a state machine)"
+                | Some entries, None ->
+                    sprintf " (map %A, machine %A)" (entries |> List.filter (fun e -> not e.Unused) |> List.map (fun e -> e.Field + "=" + e.Name)) (List.ofSeq fields.Keys)
+                | _ -> ""
+            eprintfn "dlr capture map: %s %s%s" (match captureMap, exact with | None, _ -> "none  " | Some _, Some _ -> "exact " | Some _, None -> "strict") name why
         let block =
             { BuilderType = builderType
               Context = context
