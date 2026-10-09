@@ -121,10 +121,10 @@ quoted, move the block into the smallest function that can.
 
 Without the attribute the first call raises a `DlrTranslationException` that says so; the
 [analyzer package](FSharp.Interop.Dlr.Analyzers/README.md) reports it at build time instead, with
-a fix, along with the other misuses it can see (`DLR002`–`DLR008`).
+a fix, along with the other misuses it can see (`DLR002`–`DLR008`; `DLR009` notes a redundant nested block).
 
 One block per source line. Blocks in generic functions and members work (one site per
-instantiation); so do nested blocks, blocks inside `task { }` / `async { }`, and F# Interactive.
+instantiation); so do nested blocks (redundant, though: the outer one compiles them), blocks inside `task { }` / `async { }`, and F# Interactive.
 
 ## Syntax
 

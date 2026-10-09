@@ -59,6 +59,11 @@ let ShadowedCode = "DLR007"
 [<Literal>]
 let HiddenBySignatureCode = "DLR008"
 
+/// A `dlr { }` inside another: the outer block compiles the inner one's body as part of its own,
+/// so the inner `dlr { }` adds nothing; its body reads the same as a plain expression.
+[<Literal>]
+let NestedCode = "DLR009"
+
 let private isReflectedDefinition (attributes: seq<FSharpAttribute>) =
     attributes
     |> Seq.exists (fun a ->
@@ -775,6 +780,36 @@ let private analyzeHiddenBySignature (typedTree: FSharpImplementationFileContent
               Range = r
               Fixes = [] })
 
+/// Blocks nested in another block, at any depth: every `Run` call under an outermost one. A block
+/// in a quotation literal is data the outer block keeps as is, not code it compiles.
+let rec private nestedRuns (decls: FSharpImplementationFileDeclaration list) : range list =
+    let rec compiled (e: FSharpExpr) : range list =
+        match e with
+        | FSharpExprPatterns.Quote _ -> []
+        | FSharpExprPatterns.Call(_, mfv, _, _, _) when isDlrRun mfv -> e.Range :: (e.ImmediateSubExpressions |> List.collect compiled)
+        | _ -> e.ImmediateSubExpressions |> List.collect compiled
+    let inside (e: FSharpExpr) = blocksIn e |> List.collect (fun block -> block.ImmediateSubExpressions |> List.collect compiled)
+    decls
+    |> List.collect (fun decl ->
+        match decl with
+        | FSharpImplementationFileDeclaration.Entity(_, subDecls) -> nestedRuns subDecls
+        | FSharpImplementationFileDeclaration.MemberOrFunctionOrValue(_, _, body) -> inside body
+        | FSharpImplementationFileDeclaration.InitAction expr -> inside expr)
+
+let private analyzeNested (typedTree: FSharpImplementationFileContents option) : Message list =
+    match typedTree with
+    | None -> []
+    | Some contents ->
+        nestedRuns contents.Declarations
+        |> List.distinct
+        |> List.map (fun r ->
+            { Type = "dlr { } inside another"
+              Message = "This dlr { } is inside another, which compiles its body as part of its own: the inner dlr { } is redundant. Write its body as a plain expression (its value last, no return)."
+              Code = NestedCode
+              Severity = Severity.Info
+              Range = r
+              Fixes = [] })
+
 let private analyze (tree: ParsedInput) (typedTree: FSharpImplementationFileContents option) : Message list =
     let inline' = analyzeInline typedTree
     // A block DLR004 refuses gets no DLR001 as well: the add-the-attribute fix would not help it.
@@ -786,6 +821,7 @@ let private analyze (tree: ParsedInput) (typedTree: FSharpImplementationFileCont
     @ analyzeUndecodable typedTree
     @ analyzeShadowed typedTree
     @ analyzeHiddenBySignature typedTree
+    @ analyzeNested typedTree
     @ match typedTree with
       | None -> []
       | Some contents ->

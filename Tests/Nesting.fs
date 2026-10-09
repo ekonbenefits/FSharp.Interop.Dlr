@@ -1,5 +1,7 @@
 [<ReflectedDefinition>]
 module Tests.Nesting
+// Nested blocks on purpose (they must keep working): DLR009 calls them redundant.
+// fsharpanalyzer: ignore-file DLR009
 
 open System.Threading.Tasks
 open FSharp.Interop.Dlr
