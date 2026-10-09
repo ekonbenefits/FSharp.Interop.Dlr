@@ -38,6 +38,8 @@ type W =
     | WCall of W option * MemberRef * TypeRef list * TypeRef list * W list
     /// A call with trait witnesses: the method's `$W` twin takes them first.
     | WCallW of W option * MemberRef * TypeRef list * TypeRef list * W list * W list
+    /// A resolved trait call: the source type, the member's name, the target, argument types.
+    | WTraitCall of TypeRef * string * W option * TypeRef list * W list
     | WNewObject of MemberRef * TypeRef list * W list
     | WStaticValue of TypeRef * string
     | WNewRecord of TypeRef * W list
@@ -235,6 +237,16 @@ let decode (scope: Scope) (w: W) : Expr =
             match o with
             | Some o -> Expr.CallWithWitnesses(o, mi, miw, ws, args)
             | None -> Expr.CallWithWitnesses(mi, miw, ws, args)
+        | WTraitCall(t, name, o, argTypes, args) ->
+            let t = resolve scope t
+            let types = [| for a in argTypes -> resolve scope a |]
+            let mi =
+                match t.GetMethod(name, all, null, types, null) with
+                | null -> raise (Unsupported(sprintf "trait %s.%s" t.Name name))
+                | mi -> mi
+            match o with
+            | Some o -> Expr.Call(go o, mi, List.map go args)
+            | None -> Expr.Call(mi, List.map go args)
         | WNewObject(m, targs, args) ->
             match methodOf scope m targs [] with
             | :? ConstructorInfo as c -> Expr.NewObject(c, List.map go args)

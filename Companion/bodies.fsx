@@ -135,8 +135,20 @@ let encode (args: FSharpMemberOrFunctionOrValue list list) (body: FSharpExpr) : 
         next <- next + 1
         { Id = next; Name = name; Type = t; Mutable = false }
     let targetsStack = Stack<(FSharpMemberOrFunctionOrValue list * FSharpExpr) list>()
+    /// A curried parameter of tuple type, which FCS shows split (`u_0`, `u_1`): element → (tuple, index).
+    let split = Dictionary<FSharpMemberOrFunctionOrValue, VarDef * int>()
+    let isSplitOf (name: string) (x: FSharpExpr) =
+        match x with
+        | FSharpExprPatterns.Value w -> (match split.TryGetValue w with | true, (d, _) -> d.Name = name | _ -> false)
+        | _ -> false
     let rec go (e: FSharpExpr) : W =
         match e with
+        | FSharpExprPatterns.Value v when split.ContainsKey v -> let d, i = split.[v] in WTupleGet(d.Type, i, WVar d.Id)
+        // The body rebuilding the split tuple is the parameter itself.
+        | FSharpExprPatterns.Let((v, FSharpExprPatterns.NewTuple(_, (_ :: _ as xs)), _), b) when List.forall (isSplitOf v.LogicalName) xs ->
+            let d, _ = (match xs.Head with FSharpExprPatterns.Value w -> split.[w] | _ -> failwith "unreachable")
+            ids.[v] <- d.Id
+            go b
         | FSharpExprPatterns.Value v when ids.ContainsKey v -> WVar ids.[v]
         | FSharpExprPatterns.Value v when v.IsModuleValueOrMember ->
             WStaticValue(TNamed(entityAssembly v.DeclaringEntity.Value, entityName v.DeclaringEntity.Value, []), v.CompiledName)
@@ -165,6 +177,7 @@ let encode (args: FSharpMemberOrFunctionOrValue list list) (body: FSharpExpr) : 
         | FSharpExprPatterns.AddressOf x -> go x
         | FSharpExprPatterns.CallWithWitnesses(o, m, targs, margs, ws, xs) when not ws.IsEmpty ->
             let r = memberRef m
+            let o, xs = if m.IsExtensionMember then None, Option.toList o @ xs else o, xs
             WCallW(Option.map go o, r, List.map typeRef targs, List.map typeRef margs, List.map go ws, List.map go xs)
         | FSharpExprPatterns.Call(o, m, targs, margs, xs) ->
             let r = memberRef m
@@ -212,6 +225,11 @@ let encode (args: FSharpMemberOrFunctionOrValue list list) (body: FSharpExpr) : 
             let ds = List.map def vs
             WNewDelegate(typeRef t, ds, go b)
         | FSharpExprPatterns.Quote x -> WQuote(go x)
+        // A trait call in a witness: the member the constraint resolves to, a plain call.
+        | FSharpExprPatterns.TraitCall(sources, name, flags, _, argTypes, xs) ->
+            let xs = List.map go xs
+            let o, xs = if flags.IsInstance then Some xs.Head, xs.Tail else None, xs
+            WTraitCall(typeRef sources.Head, name, o, [ for t in argTypes -> typeRef t ], xs)
         | FSharpExprPatterns.DecisionTree(d, targets) ->
             targetsStack.Push targets
             let r = go d
@@ -237,6 +255,15 @@ let encode (args: FSharpMemberOrFunctionOrValue list list) (body: FSharpExpr) : 
         | [] -> go body
         | [ v ] :: rest -> let d = def v in WLambda(d, wrap rest)
         | [] :: rest -> WLambda(fresh "unitVar" (TNamed("FSharp.Core", "Microsoft.FSharp.Core.Unit", [])), wrap rest)
+        | group :: rest when
+            group.Length > 1
+            && group |> List.mapi (fun i (v: FSharpMemberOrFunctionOrValue) -> v.LogicalName.EndsWith("_" + string i)) |> List.forall id
+            && (group |> List.map (fun v -> v.LogicalName.Substring(0, v.LogicalName.LastIndexOf '_')) |> List.distinct |> List.length) = 1 ->
+            let name = group.Head.LogicalName.Substring(0, group.Head.LogicalName.LastIndexOf '_')
+            let t = TTuple(false, [ for v in group -> typeRef v.FullType ])
+            let d = fresh name t
+            group |> List.iteri (fun i v -> split.[v] <- (d, i))
+            WLambda(d, wrap rest)
         | group :: rest ->
             let t = TTuple(false, [ for v in group -> typeRef v.FullType ])
             let tupled = fresh "tupledArg" t
@@ -294,10 +321,10 @@ let reason (s: string) = reasons.[s] <- (match reasons.TryGetValue s with | true
 let samples = Dictionary<string, string>()
 for (m, args, body) in candidates do
     match methodFor m with
-    | None -> noOracle <- noOracle + 1
+    | None -> noOracle <- noOracle + 1; eprintfn "no method: %s.%s" (try entityName m.DeclaringEntity.Value with _ -> "?") m.CompiledName
     | Some mb ->
         match (try Expr.TryGetReflectedDefinition mb with _ -> None) with
-        | None -> noOracle <- noOracle + 1
+        | None -> noOracle <- noOracle + 1; eprintfn "no definition: %O" mb
         | Some expected ->
             try
                 let scope = Dictionary<string, Type>()
