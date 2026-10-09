@@ -6,7 +6,7 @@
 //   dotnet fsi bodies.fsx <fsc args file> <project dir> <built assembly>
 
 #r "nuget: FSharp.Compiler.Service, 43.12.400"
-#load "wire.fsx"
+#load "../FSharp.Interop.Dlr/BodyMap.fs"
 
 open System
 open System.Collections.Generic
@@ -15,7 +15,7 @@ open System.Reflection
 open FSharp.Compiler.CodeAnalysis
 open FSharp.Compiler.Symbols
 open FSharp.Quotations
-open Wire
+open FSharp.Interop.Dlr.BodyMap
 
 let argsFile, projectDir, built = fsi.CommandLineArgs.[1], fsi.CommandLineArgs.[2], fsi.CommandLineArgs.[3]
 let args = File.ReadAllLines argsFile
@@ -330,7 +330,11 @@ for (m, args, body) in candidates do
                 let scope = Dictionary<string, Type>()
                 if mb.IsGenericMethod then for t in mb.GetGenericArguments() do scope.[t.Name] <- t
                 if mb.DeclaringType.IsGenericType then for t in mb.DeclaringType.GetGenericArguments() do scope.[t.Name] <- t
-                let actual = decode scope (encode args body)
+                let w = encode args body
+                let context = TNamed(entityAssembly m.DeclaringEntity.Value, entityName m.DeclaringEntity.Value, [])
+                let context', w' = decodeEntry (encodeEntry context w)
+                if w' <> w || context' <> context then failwith "text round trip"
+                let actual = decode scope w'
                 let aligned = align (Dictionary(HashIdentity.Reference)) expected actual
                 match firstDiff expected aligned with
                 | None -> same <- same + 1
@@ -355,3 +359,54 @@ printfn "members %d: same %d, differ %d, failed %d, no oracle %d" candidates.Len
 for KeyValue(k, n) in reasons |> Seq.sortByDescending (fun kv -> kv.Value) |> Seq.truncate 25 do
     printfn "%5d  %s\n      e.g. %s" n k samples.[k]
 if unsupported.Count > 0 then printfn "unsupported FCS nodes: %A" (List.ofSeq unsupported)
+
+// ---- The map: a `body` section for every block, merged into the capture map when one is given.
+//   dotnet fsi bodies.fsx <fsc args> <project dir> <built assembly> <output map> [capture map]
+
+if fsi.CommandLineArgs.Length > 4 then
+    let output = fsi.CommandLineArgs.[4]
+    let blocks = Dictionary<string, ResizeArray<string>>()
+    let order = ResizeArray<string>()
+    let block (key: string) =
+        match blocks.TryGetValue key with
+        | true, b -> b
+        | _ ->
+            let b = ResizeArray [ "B\t" + key ]
+            blocks.[key] <- b
+            order.Add key
+            b
+    if fsi.CommandLineArgs.Length > 5 then
+        let mutable current = None
+        for line in File.ReadAllLines fsi.CommandLineArgs.[5] |> Array.skip 1 do
+            if line.StartsWith "B\t" then current <- Some(block (line.Substring 2))
+            else current.Value.Add line
+    let mutable written, skipped = 0, 0
+    for (m, args, body) in candidates do
+        let rec runs (e: FSharpExpr) =
+            [ match e with
+              | FSharpExprPatterns.Call(_, r, _, _, xs) when isRun r ->
+                  match List.rev xs with
+                  | FSharpExprPatterns.Const(:? int as line, _) :: FSharpExprPatterns.Const(:? string as file, _) :: _ -> yield file, line
+                  | _ -> ()
+              | _ -> ()
+              for x in e.ImmediateSubExpressions do yield! runs x ]
+        let w = encode args body
+        let rec unsupportedIn (w: W) = match w with WUnsupported _ -> true | _ -> (sprintf "%A" w).Contains "WUnsupported"
+        if unsupportedIn w then skipped <- skipped + 1
+        else
+            let payload = encodeEntry (TNamed(entityAssembly m.DeclaringEntity.Value, entityName m.DeclaringEntity.Value, [])) w
+            // The member once, at its first block; its other blocks refer to that one.
+            match runs body |> List.distinct with
+            | [] -> ()
+            | (file, line) :: rest ->
+                let b = block (sprintf "%s\t%d" file line)
+                b.Add "S\tbody"
+                b.Add("X\t" + payload)
+                written <- written + 1
+                for (f, l) in rest do
+                    let b = block (sprintf "%s\t%d" f l)
+                    b.Add "S\tbody"
+                    b.Add(sprintf "Y\t%s\t%d" file line)
+                    written <- written + 1
+    File.WriteAllLines(output, Seq.append [ "DLRMAP\t1" ] (order |> Seq.collect (fun k -> blocks.[k])))
+    eprintfn "map: %d block bodies written, %d members skipped (unsupported nodes)" written skipped

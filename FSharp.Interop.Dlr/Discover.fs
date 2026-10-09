@@ -134,6 +134,11 @@ module internal Discover =
                         | _ -> m, memberBody, body
                     | _ -> m, memberBody, body
             { Context = m.DeclaringType; MemberBody = memberBody; Body = body }
+        | [] when (BodyMap.find closureType file line |> Option.exists (fun (_, q) -> List.length (runsAt builderType file line q) = 1)) ->
+            // No reflected definition (or one FSharp.Core cannot decode), but the build companion's
+            // map has the member: its body, rebuilt from the compiler's tree, is the same Expr.
+            let context, memberBody = (BodyMap.find closureType file line).Value
+            { Context = context; MemberBody = memberBody; Body = List.head (runsAt builderType file line memberBody) }
         | [] ->
             // The block's own container never has a reflected definition, so decoding one of its
             // methods throws only when the assembly's definitions cannot be read at all: FSharp.Core
