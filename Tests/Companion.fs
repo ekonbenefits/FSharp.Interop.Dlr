@@ -6,10 +6,27 @@ open AnyUnit.Style.Xunit
 open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
 
-/// Whether this assembly carries a map with block bodies (`-p:DlrCaptureMap=` with `body` sections).
+/// Whether this assembly carries a map with block bodies (`-p:DlrCompanion=true`): format 2, a text
+/// header of `F offset length file` lines, then each file's blob, deflated.
 let bodiesMapped =
     use s = typeof<Widget>.Assembly.GetManifestResourceStream "FSharp.Interop.Dlr.CaptureMap"
-    not (isNull s) && (new System.IO.StreamReader(s)).ReadToEnd().Contains "S\tbody"
+    if isNull s then false
+    else
+        use m = new System.IO.MemoryStream()
+        s.CopyTo m
+        let bytes = m.ToArray()
+        let text = System.Text.Encoding.UTF8.GetString bytes
+        match text.IndexOf "\n\n" with
+        | -1 -> false
+        | header ->
+            let start = System.Text.Encoding.UTF8.GetByteCount(text.Substring(0, header + 2))
+            text.Substring(0, header).Split '\n'
+            |> Array.exists (fun line ->
+                match line.Split '\t' with
+                | [| "F"; offset; length; _ |] ->
+                    use z = new System.IO.Compression.DeflateStream(new System.IO.MemoryStream(bytes, start + int offset, int length), System.IO.Compression.CompressionMode.Decompress)
+                    (new System.IO.StreamReader(z)).ReadToEnd().Contains "S\tbody"
+                | _ -> false)
 
 let private needsBodies () =
     if not bodiesMapped then raise (AnyUnit.IgnoreException "no block bodies embedded (Companion/bodies.fsx)")
