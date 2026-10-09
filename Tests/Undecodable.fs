@@ -18,7 +18,6 @@ let private withVoid (w: obj) : int =
 
 [<Fact>]
 let ``a reflected definition FSharp.Core cannot decode is named, not blamed on a missing attribute`` () =
-    if Tests.Companion.bodiesMapped then raise (AnyUnit.IgnoreException "the companion's map holds this block's body (Tests/Companion.fs)")
     let ex = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> withVoid (Widget()) |> ignore)
     ex.Message |> should haveSubstring "withVoid"
     ex.Message |> should haveSubstring "could not be decoded"

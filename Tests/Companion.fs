@@ -1,5 +1,6 @@
 /// Blocks with no [<ReflectedDefinition>] anywhere: the build companion's map holds their members'
-/// bodies (`Companion/bodies.fsx`, academic, a follow-up to #216). Without a map embedded they skip.
+/// bodies (`FSharp.Interop.Dlr.Build/Bodies.fs`, academic, #219 on #216). Without a map embedded
+/// (`-p:DlrCompanion=true`) they skip.
 module Tests.Companion
 
 open AnyUnit.Style.Xunit
@@ -77,3 +78,97 @@ let ``the module also holds a byref member, which a module-wide attribute would 
     let mutable n = 1
     bump &n
     n |> should equal 2
+
+// ---- Shapes the encoder must carry exactly or refuse (the cold review of #219).
+
+type IntToInt = System.Func<int, int>
+
+let private viaAbbreviatedDelegate (w: obj) : int =
+    let f = IntToInt(fun x -> x + 1)
+    // fsharpanalyzer: ignore-line-next DLR001
+    dlr { return w?Count + f.Invoke 1 }
+
+[<Fact>]
+let ``a delegate constructed through a type abbreviation`` () =
+    needsBodies ()
+    viaAbbreviatedDelegate (Widget()) |> should equal 5
+
+// The analyzer reports this at build time (DLR003).
+// fsharpanalyzer: ignore-region-start DLR001
+// fsharpanalyzer: ignore-region-start DLR003
+type private SharedLine(w: obj) =
+    member _.A : int = (dlr { return w?Count }) member _.B : int = (dlr { return w?Count * 2 })
+// fsharpanalyzer: ignore-region-end DLR003
+// fsharpanalyzer: ignore-region-end DLR001
+
+[<Fact>]
+let ``two members' blocks on one line are refused, as from reflected definitions`` () =
+    needsBodies ()
+    let s = SharedLine(Widget())
+    let ex = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> s.A |> ignore)
+    ex.Message |> should haveSubstring "share"
+
+let private byteConstant (w: obj) : int =
+    let b = "abc"B
+    // fsharpanalyzer: ignore-line-next DLR001
+    dlr { return w?Count + b.Length }
+
+let private nativeConstant (w: obj) : int =
+    let n = 5n
+    // fsharpanalyzer: ignore-line-next DLR001
+    dlr { return w?Count + int n }
+
+[<Fact>]
+let ``a constant the map cannot carry leaves the member out: the attribute is needed`` () =
+    needsBodies ()
+    let ex = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> byteConstant (Widget()) |> ignore)
+    ex.Message |> should haveSubstring "[<ReflectedDefinition>]"
+    let ex = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> nativeConstant (Widget()) |> ignore)
+    ex.Message |> should haveSubstring "[<ReflectedDefinition>]"
+
+let private fromDecimal (w: obj) (d: decimal) : int =
+    let n = int d
+    // fsharpanalyzer: ignore-line-next DLR001
+    dlr { return w?Count + n }
+
+[<Fact>]
+let ``a conversion overloaded only by its return type`` () =
+    needsBodies ()
+    fromDecimal (Widget()) 4m |> should equal 7
+
+type Widget with
+    member w.Thrice = w.Count * 3
+
+let private viaExtension (w: Widget) : int =
+    let t = w.Thrice
+    let o = box w
+    // fsharpanalyzer: ignore-line-next DLR001
+    dlr { return o?Count + t }
+
+[<Fact>]
+let ``an F# extension member`` () =
+    needsBodies ()
+    viaExtension (Widget()) |> should equal 12
+
+let private rawQuotation (w: obj) : int =
+    let q: FSharp.Quotations.Expr = <@@ 1 @@>
+    // fsharpanalyzer: ignore-line-next DLR001
+    dlr { return w?Count + (if isNull (box q) then 0 else 1) }
+
+[<Fact>]
+let ``a raw quotation literal`` () =
+    needsBodies ()
+    rawQuotation (Widget()) |> should equal 4
+
+let mutable private sideEffects = 0
+let private bumpSide () = sideEffects <- sideEffects + 1
+
+/// With the attribute, so the oracle compares the map's body with it: a unit argument with an effect.
+[<ReflectedDefinition>]
+let private unitArgumentWithEffect (w: obj) : int =
+    bumpSide (sideEffects <- sideEffects + 10)
+    dlr { return w?Count }
+
+[<Fact>]
+let ``a unit argument with an effect keeps it`` () =
+    unitArgumentWithEffect (Widget()) |> should equal 3

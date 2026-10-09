@@ -117,13 +117,7 @@ module internal Discover =
                 searched.AddRange all
                 search all
             | found -> found
-        let fromMap =
-            lazy
-                BodyMap.find (CaptureMap.body closureType.Assembly) closureType file line
-                |> Option.bind (fun (context, memberBody) ->
-                    match runsAt builderType file line memberBody with
-                    | [ body ] -> Some { Context = context; MemberBody = memberBody; Body = body }
-                    | _ -> None)
+        let fromMap = lazy (BodyMap.find (CaptureMap.body closureType.Assembly) closureType file line)
         match matches with
         | [ m, memberBody, body ] ->
             let m, memberBody, body =
@@ -137,10 +131,15 @@ module internal Discover =
                         | _ -> m, memberBody, body
                     | _ -> m, memberBody, body
             { Context = m.DeclaringType; MemberBody = memberBody; Body = body }
-        | [] when fromMap.Value.IsSome ->
+        | [] when (match fromMap.Value with BodyMap.Found(_, q) -> List.length (runsAt builderType file line q) = 1 | _ -> false) ->
             // No reflected definition (or one FSharp.Core cannot decode), but the build companion's
             // map has the member: its body, rebuilt from the compiler's tree, is the same Expr.
-            fromMap.Value.Value
+            match fromMap.Value with
+            | BodyMap.Found(context, memberBody) -> { Context = context; MemberBody = memberBody; Body = List.head (runsAt builderType file line memberBody) }
+            | _ -> failwith "unreachable"
+        | [] when (match fromMap.Value with BodyMap.Shared _ -> true | _ -> false) ->
+            let n = match fromMap.Value with BodyMap.Shared n -> n | _ -> 0
+            raise (DlrTranslationException(sprintf "%d dlr { } blocks share %s:%d; put each dlr { } on its own line." n file line))
         | [] ->
             // A member with the attribute whose quotation would not decode is the other reason a
             // body is not found — when it is the member the closure belongs to: the compiler
