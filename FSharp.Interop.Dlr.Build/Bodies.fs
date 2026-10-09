@@ -256,6 +256,8 @@ module internal Bodies =
             | [] :: rest -> WLambda(fresh "unitVar" (TNamed("FSharp.Core", "Microsoft.FSharp.Core.Unit", [])), wrap rest)
             | group :: rest when
                 group.Length > 1
+                // A real split's elements are the compiler's; a user's own `x_0, x_1` are not.
+                && group |> List.forall (fun v -> v.IsCompilerGenerated)
                 && group |> List.mapi (fun i (v: FSharpMemberOrFunctionOrValue) -> v.LogicalName.EndsWith("_" + string i)) |> List.forall id
                 && (group |> List.map (fun v -> v.LogicalName.Substring(0, v.LogicalName.LastIndexOf '_')) |> List.distinct |> List.length) = 1 ->
                 let name = group.Head.LogicalName.Substring(0, group.Head.LogicalName.LastIndexOf '_')
