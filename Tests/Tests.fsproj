@@ -120,10 +120,16 @@
     <ProjectReference Include="CSharp.Ivt\Tests.CSharp.Ivt.csproj" />
     <ProjectReference Include="FSharpLib\Tests.FSharpLib.fsproj" />
   </ItemGroup>
-  <!-- The build companion's capture map (#216, academic): FSharp.Interop.Dlr.Build writes it from
-       the build's fsc arguments; -p:DlrCaptureMap=<path> embeds it. -->
+  <!-- The build companion (#216, academic): -p:DlrCompanion=true writes the capture map during
+       the build and embeds it (FSharp.Interop.Dlr.Build.targets); -p:DlrCaptureMap=<path> embeds
+       one written by hand instead. -->
   <ItemGroup Condition="'$(DlrCaptureMap)' != ''">
     <EmbeddedResource Include="$(DlrCaptureMap)" LogicalName="FSharp.Interop.Dlr.CaptureMap" />
   </ItemGroup>
+  <ItemGroup Condition="'$(DlrCompanion)' == 'true'">
+    <ProjectReference Include="../FSharp.Interop.Dlr.Build/FSharp.Interop.Dlr.Build.fsproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <!-- The nested build that takes the fsc arguments runs with DlrCompanionNested: the targets, not the map step. -->
+  <Import Project="../FSharp.Interop.Dlr.Build/FSharp.Interop.Dlr.Build.targets" Condition="'$(DlrCompanion)' == 'true' or '$(DlrCompanionNested)' == 'true'" />
 
 </Project>
