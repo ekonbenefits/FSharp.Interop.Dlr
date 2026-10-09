@@ -129,7 +129,9 @@
   <ItemGroup Condition="'$(DlrCompanion)' == 'true'">
     <ProjectReference Include="../FSharp.Interop.Dlr.Build/FSharp.Interop.Dlr.Build.fsproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
-  <!-- The nested build that takes the fsc arguments runs with DlrCompanionNested: the targets, not the map step. -->
-  <Import Project="../FSharp.Interop.Dlr.Build/FSharp.Interop.Dlr.Build.targets" Condition="'$(DlrCompanion)' == 'true' or '$(DlrCompanionNested)' == 'true'" />
+  <!-- Imported whether the companion is on or not, so that switching it off recompiles (its
+       setting is a compile input); the map step runs only with DlrCompanion=true, and not in the
+       nested build that takes the fsc arguments (DlrCompanionNested). -->
+  <Import Project="../FSharp.Interop.Dlr.Build/FSharp.Interop.Dlr.Build.targets" />
 
 </Project>
