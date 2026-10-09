@@ -26,6 +26,10 @@
     <PropertyGroup>
       <OtherFlags>$(OtherFlags) --resource:$(_DlrCompanionMap),FSharp.Interop.Dlr.CaptureMap</OtherFlags>
     </PropertyGroup>
+    <!-- A new map must recompile, or the assembly keeps the old one's resource. -->
+    <ItemGroup>
+      <CustomAdditionalCompileInputs Include="$(_DlrCompanionMap)" />
+    </ItemGroup>
   </Target>
 
   <!-- In a target: this file is imported before the SDK defines IntermediateOutputPath. -->
