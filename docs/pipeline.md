@@ -78,7 +78,10 @@ the closure path; `Tests/Resumable.fs` fails if an SDK changes that.)
 Every `dlr { }` desugars to `Run(Delay(fun () -> …))` in one expression, which the compiler
 builds the machine for — with one exception it takes silently, no FS3511: a block whose
 function-typed result is applied on the spot, `(dlr { return x?Add } : int -> int -> int) 1 2`
-(partially, or through `|>` / `<|`, counts: the optimizer pushes the application into both
+(partially, or through `|>` / `<|`, counts, and so does a function-typed block bound with `let`
+and applied once, `let f: int -> int -> int = dlr { … } in f 1 2`, which the optimizer inlines
+into that one application: #217, `Tests/Resumable.fs`. Used twice, the binding stays a value and
+the block gets its machine. The cause: the optimizer pushes the application into both
 branches of `Run`'s `if __useResumableCode`, and the compiler's state-machine recognizer then no
 longer sees the `if` at the top, so it emits the `else` branch with no diagnostic).
 That goes to the `else` branch in Release too, with the `Delay` wrapper inlined: the delegate's
