@@ -16,6 +16,7 @@
   <ItemGroup>
     <Compile Include="Check.fs" />
     <Compile Include="Fields.fs" />
+    <Compile Include="..\FSharp.Interop.Dlr\BodyMap.fs" Link="BodyMap.fs" />
     <Compile Include="Bodies.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
