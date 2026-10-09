@@ -529,63 +529,66 @@ let decode (scope: Scope) (w: W) : Expr =
         | WUnsupported s -> raise (Unsupported s)
     go w
 
-// ---- The map's `body` sections: per block (`B file line`), `S body` then `X <base64>`, the payload
-// being the type declaring the member (the binder's accessibility context) and the member's tree;
-// or `Y file line`, the block whose section holds its member.
+// ---- The map's `body` section (format 2, read through `CaptureMap.body`): per block, `X <payload>`,
+// the type declaring the member (the binder's accessibility context) and the member's tree, as text
+// with `\`, tab, LF and CR escaped (`\\`, `\t`, `\n`, `\r`) so it stays one line; or `Y file line`,
+// the block in the same file whose section holds its member. The map compresses per source file.
 
-[<Literal>]
-let ResourceName = "FSharp.Interop.Dlr.CaptureMap"
+let private escape (s: string) =
+    let sb = StringBuilder(s.Length)
+    for c in s do
+        match c with
+        | '\\' -> sb.Append "\\\\" |> ignore
+        | '\t' -> sb.Append "\\t" |> ignore
+        | '\n' -> sb.Append "\\n" |> ignore
+        | '\r' -> sb.Append "\\r" |> ignore
+        | c -> sb.Append c |> ignore
+    sb.ToString()
+
+let private unescape (s: string) =
+    if s.IndexOf '\\' < 0 then s
+    else
+        let sb = StringBuilder(s.Length)
+        let mutable i = 0
+        while i < s.Length do
+            match s.[i] with
+            | '\\' when i + 1 < s.Length ->
+                sb.Append(match s.[i + 1] with 't' -> '\t' | 'n' -> '\n' | 'r' -> '\r' | c -> c) |> ignore
+                i <- i + 2
+            | c ->
+                sb.Append c |> ignore
+                i <- i + 1
+        sb.ToString()
 
 let encodeEntry (context: TypeRef) (body: W) : string =
     let w = Writer()
     writeType w context
     write w body
-    use out = new MemoryStream()
-    (use z = new Compression.DeflateStream(out, Compression.CompressionLevel.Optimal)
-     let bytes = Encoding.UTF8.GetBytes(w.ToString())
-     z.Write(bytes, 0, bytes.Length))
-    Convert.ToBase64String(out.ToArray())
+    escape (w.ToString())
 
 let decodeEntry (payload: string) : TypeRef * W =
-    use z = new Compression.DeflateStream(new MemoryStream(Convert.FromBase64String payload), Compression.CompressionMode.Decompress)
-    use text = new StreamReader(z, Encoding.UTF8)
-    let r = Reader(text.ReadToEnd())
+    let r = Reader(unescape payload)
     let context = readType r
     context, read r
 
-let private byAssembly = ConcurrentDictionary<Assembly, IReadOnlyDictionary<struct (string * int), string>>()
-
-let private load (assembly: Assembly) : IReadOnlyDictionary<struct (string * int), string> =
-    let blocks = Dictionary<struct (string * int), string>()
-    match (try assembly.GetManifestResourceStream ResourceName with _ -> null) with
-    | null -> ()
-    | stream ->
-        use reader = new StreamReader(stream)
-        if reader.ReadLine() = "DLRMAP\t1" then
-            let mutable key = None
-            let mutable section = ""
-            let refs = ResizeArray()
-            let mutable line = reader.ReadLine()
-            while not (isNull line) do
-                match line.Split '\t' with
-                | [| "B"; file; at |] -> key <- Some(struct (file, int at)); section <- ""
-                | [| "S"; name |] -> section <- name
-                | [| "X"; payload |] when section = "body" -> (match key with Some k -> blocks.[k] <- payload | None -> ())
-                | [| "Y"; file; at |] when section = "body" -> (match key with Some k -> refs.Add((k, struct (file, int at))) | None -> ())
-                | _ -> ()
-                line <- reader.ReadLine()
-            for (k, target) in refs do
-                match blocks.TryGetValue target with
-                | true, payload -> blocks.[k] <- payload
-                | _ -> ()
-    blocks :> _
-
-/// The member holding the block at `file:line`, from its assembly's map: the type declaring it and
-/// its body as an `Expr`, generic parameters taken from the block's closure (or state machine) type.
-/// None when the map has no body for the block or it does not decode here.
-let find (closureType: Type) (file: string) (line: int) : (Type * Expr) option =
-    match byAssembly.GetOrAdd(closureType.Assembly, load).TryGetValue(struct (file, line)) with
-    | true, payload ->
+/// The member holding the block at `file:line`: the type declaring it and its body as an `Expr`,
+/// generic parameters taken from the block's closure (or state machine) type. `lines` reads a
+/// block's `body` section (`CaptureMap.body`). None when the map has no body for the block or it
+/// does not decode here.
+let find (lines: string -> int -> string list option) (closureType: Type) (file: string) (line: int) : (Type * Expr) option =
+    let payload =
+        match lines file line with
+        | Some [ x ] when x.StartsWith "X\t" -> Some(x.Substring 2)
+        | Some [ y ] when y.StartsWith "Y\t" ->
+            match y.Split '\t' with
+            | [| _; f; l |] ->
+                match lines f (int l) with
+                | Some [ x ] when x.StartsWith "X\t" -> Some(x.Substring 2)
+                | _ -> None
+            | _ -> None
+        | _ -> None
+    match payload with
+    | Some payload ->
         try
             let context, body = decodeEntry payload
             let scope = Dictionary<string, Type>()
@@ -593,4 +596,4 @@ let find (closureType: Type) (file: string) (line: int) : (Type * Expr) option =
                 Array.iter2 (fun (p: Type) a -> scope.[p.Name] <- a) (closureType.GetGenericTypeDefinition().GetGenericArguments()) (closureType.GetGenericArguments())
             Some(resolve scope context, decode scope body)
         with Unsupported _ -> None
-    | _ -> None
+    | None -> None

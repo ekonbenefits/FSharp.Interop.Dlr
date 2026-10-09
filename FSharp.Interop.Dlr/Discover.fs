@@ -117,6 +117,13 @@ module internal Discover =
                 searched.AddRange all
                 search all
             | found -> found
+        let fromMap =
+            lazy
+                BodyMap.find (CaptureMap.body closureType.Assembly) closureType file line
+                |> Option.bind (fun (context, memberBody) ->
+                    match runsAt builderType file line memberBody with
+                    | [ body ] -> Some { Context = context; MemberBody = memberBody; Body = body }
+                    | _ -> None)
         match matches with
         | [ m, memberBody, body ] ->
             let m, memberBody, body =
@@ -130,11 +137,10 @@ module internal Discover =
                         | _ -> m, memberBody, body
                     | _ -> m, memberBody, body
             { Context = m.DeclaringType; MemberBody = memberBody; Body = body }
-        | [] when (BodyMap.find closureType file line |> Option.exists (fun (_, q) -> List.length (runsAt builderType file line q) = 1)) ->
+        | [] when fromMap.Value.IsSome ->
             // No reflected definition (or one FSharp.Core cannot decode), but the build companion's
             // map has the member: its body, rebuilt from the compiler's tree, is the same Expr.
-            let context, memberBody = (BodyMap.find closureType file line).Value
-            { Context = context; MemberBody = memberBody; Body = List.head (runsAt builderType file line memberBody) }
+            fromMap.Value.Value
         | [] ->
             // A member with the attribute whose quotation would not decode is the other reason a
             // body is not found — when it is the member the closure belongs to: the compiler
