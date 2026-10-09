@@ -13,9 +13,10 @@
 //
 //   dotnet fsi capturemap.fsx <fsc args file, one per line> <project dir> <output map>
 //
-// Map lines (tab-separated): `B file line` starts a block; then `V field name ordinal` or
-// `E field name ordinal element`, and `U name ordinal element` for a split tuple's element nothing
-// in the optimized member keeps (unused). A block any of whose fields is not attributed is left out: it
+// Map format 1 (tab-separated lines): `DLRMAP 1` first; `B file line` starts a block; `S section`
+// starts one of its optional sections, of which this writes `fields` (a later companion may add
+// `body`): `V field name ordinal` or `E field name ordinal element`, and `U name ordinal element`
+// for a split tuple's element nothing in the optimized member keeps (unused). A block any of whose fields is not attributed is left out: it
 // keeps the strict behaviour.
 
 #r "nuget: FSharp.Compiler.Service, 43.12.400"
@@ -409,6 +410,7 @@ let rec members (opt: FSharpImplementationFileDeclaration list) =
                         if List.forall Option.isSome entries then
                             mapped <- mapped + 1
                             lines.Add(sprintf "B\t%s\t%d" file line)
+                            lines.Add "S\tfields"
                             for e in entries do lines.Add e.Value
                             for u in unused do lines.Add u
                 | _ -> for x in e.ImmediateSubExpressions do machines x
@@ -416,5 +418,5 @@ let rec members (opt: FSharpImplementationFileDeclaration list) =
         | _ -> ()
 for o in optimized.ImplementationFiles do
     members o.Declarations
-File.WriteAllLines(output, lines)
+File.WriteAllLines(output, Seq.append [ "DLRMAP\t1" ] lines)
 eprintfn "%d blocks, %d mapped" blocks mapped
