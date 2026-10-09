@@ -50,7 +50,7 @@ FSharp.Interop.Dlr/check-internals.sh  # each idiom fixed more than once has one
   Both paths must stay correct — the suite runs in both. Every `dlr { }` compiles statically in
   Release except one shape the compiler declines silently (no FS3511): a function-typed result
   applied on the spot, `(dlr { … } : unit -> R) ()` — which the optimizer also makes of a
-  function-typed block bound with `let` and applied once (it inlines the binding; #217,
+  function-typed block bound with `let` and applied once, fully or partially (it inlines the binding; #217,
   `Tests/Resumable.fs`) — and which takes the closure path, with a
   null delegate target when nothing is captured (`DlrRun.Closure` compiles from the closure
   class). FS3511 itself arises only from the builder's members called by hand with the `Delay`
