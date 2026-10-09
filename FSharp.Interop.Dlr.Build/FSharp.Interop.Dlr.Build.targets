@@ -1,0 +1,52 @@
+<Project>
+
+  <!--
+    The build companion as a build step (#216, academic). Opt in with DlrCompanion=true: before
+    CoreCompile, the project's own fsc arguments are taken from a nested build that runs Compile
+    without compiling (SkipCompilerExecution; NonExistentFile forces CoreCompile to run and return
+    them); FSharp.Interop.Dlr.Build checks the project with FCS once and writes the capture map; and
+    the map goes to fsc as the FSharp.Interop.Dlr.CaptureMap resource. Any configuration: a field
+    pass finds no state machines in Debug, a body pass needs every configuration's own code. A map
+    that does not match what fsc then emits is refused at run time, never bound wrongly.
+
+    DlrCompanionTool: the companion's dll (in this repository, its build output; the project
+    references it with ReferenceOutputAssembly=false so it is built first).
+  -->
+  <PropertyGroup>
+    <DlrCompanionTool Condition="'$(DlrCompanionTool)' == ''">$(MSBuildThisFileDirectory)bin/$(Configuration)/net10.0/FSharp.Interop.Dlr.Build.dll</DlrCompanionTool>
+  </PropertyGroup>
+
+  <!-- Run in the nested build: Compile with the compiler skipped, returning its arguments. -->
+  <Target Name="DlrCompanionFscArgs" DependsOnTargets="Compile" Returns="@(FscCommandLineArgs)" />
+
+  <!-- Chained by DependsOnTargets, not CallTarget: a called target does not see the properties its
+       caller just set. -->
+  <Target Name="DlrCompanionMap" BeforeTargets="CoreCompile" Condition="'$(DlrCompanion)' == 'true'"
+          DependsOnTargets="_DlrCompanionPaths;_DlrCompanionArgs;_DlrCompanionRun">
+    <PropertyGroup>
+      <OtherFlags>$(OtherFlags) --resource:$(_DlrCompanionMap),FSharp.Interop.Dlr.CaptureMap</OtherFlags>
+    </PropertyGroup>
+  </Target>
+
+  <!-- In a target: this file is imported before the SDK defines IntermediateOutputPath. -->
+  <Target Name="_DlrCompanionPaths">
+    <PropertyGroup>
+      <_DlrCompanionArgs>$(ProjectDir)$(IntermediateOutputPath)dlr.companion.fscargs</_DlrCompanionArgs>
+      <_DlrCompanionMap>$(ProjectDir)$(IntermediateOutputPath)dlr.capturemap</_DlrCompanionMap>
+    </PropertyGroup>
+  </Target>
+
+  <Target Name="_DlrCompanionArgs">
+    <MSBuild Projects="$(MSBuildProjectFullPath)" Targets="DlrCompanionFscArgs"
+             Properties="DlrCompanion=false;DlrCompanionNested=true;SkipCompilerExecution=true;ProvideCommandLineArgs=true;NonExistentFile=__dlr__/__nonexistent__;BuildProjectReferences=false;Configuration=$(Configuration);TargetFramework=$(TargetFramework)">
+      <Output TaskParameter="TargetOutputs" ItemName="_DlrCompanionFscArg" />
+    </MSBuild>
+    <WriteLinesToFile File="$(_DlrCompanionArgs)" Lines="@(_DlrCompanionFscArg)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+  </Target>
+
+  <!-- Incremental: the map is rewritten only when a source, the arguments or the tool changed. -->
+  <Target Name="_DlrCompanionRun" Inputs="@(Compile);$(_DlrCompanionArgs);$(DlrCompanionTool)" Outputs="$(_DlrCompanionMap)">
+    <Exec Command="dotnet &quot;$(DlrCompanionTool)&quot; &quot;$(_DlrCompanionArgs)&quot; &quot;$(MSBuildProjectDirectory)&quot; &quot;$(_DlrCompanionMap)&quot;" />
+  </Target>
+
+</Project>
