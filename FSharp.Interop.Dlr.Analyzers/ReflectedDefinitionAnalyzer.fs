@@ -720,18 +720,22 @@ let private analyzeShadowed (typedTree: FSharpImplementationFileContents option)
               Range = r
               Fixes = [] })
 
-/// Whether a module value is left out of its module's signature file: the module has one (its
-/// signature location is in a `.fsi`), the value's own signature location is its declaration.
+/// Whether a module function is left out of the signature file: an enclosing module has one (its
+/// signature location is in a `.fsi`), the function's own signature location is its declaration.
+/// Only what compiles to a method (a function, a type function) is erased once inlined; a hidden
+/// constant or table is a property the optimizer keeps.
 let private hiddenBySignature (v: FSharpMemberOrFunctionOrValue) =
+    let inSignature (r: FSharp.Compiler.Text.range option) = r |> Option.exists (fun r -> r.FileName.EndsWith ".fsi")
+    let rec signedModule (e: FSharpEntity option) =
+        match e with
+        | Some e when e.IsFSharpModule -> inSignature e.SignatureLocation || signedModule e.DeclaringEntity
+        | _ -> false
     try
         v.IsModuleValueOrMember
         && not v.IsMember
-        && (match v.DeclaringEntity with
-            | Some e when e.IsFSharpModule ->
-                match e.SignatureLocation, v.SignatureLocation with
-                | Some es, Some vs -> es.FileName.EndsWith ".fsi" && not (vs.FileName.EndsWith ".fsi")
-                | _ -> false
-            | _ -> false)
+        && (v.FullType.IsFunctionType || v.GenericParameters.Count > 0)
+        && not (inSignature v.SignatureLocation)
+        && signedModule v.DeclaringEntity
         && not (v.Attributes |> Seq.exists (fun a ->
                     a.AttributeType.DisplayName = "MethodImplAttribute"
                     && a.ConstructorArguments |> Seq.exists (fun (_, arg) ->
