@@ -139,6 +139,8 @@ let methodOf (scope: Scope) (m: MemberRef) (typeArgs: TypeRef list) (methodArgs:
         | many ->
             match many |> List.filter (fun c -> List.forall2 matches m.Parameters [ for p in c.GetParameters() -> p.ParameterType ]) with
             | [ c ] -> c
+            // A member that hides an inherited one of the same signature (Exception.GetType).
+            | fits when (fits |> List.filter (fun c -> c.DeclaringType = def)).Length = 1 -> fits |> List.find (fun c -> c.DeclaringType = def)
             | _ -> raise (Unsupported(sprintf "ambiguous %s.%s" name m.Name))
     let onType =
         if typeArgs.IsEmpty then chosen
@@ -155,6 +157,19 @@ let propertyOf (mi: MethodInfo) =
         let g = p.GetGetMethod true
         let s = p.GetSetMethod true
         (not (isNull g) && g.MethodHandle = mi.MethodHandle) || (not (isNull s) && s.MethodHandle = mi.MethodHandle))
+
+/// A combination node built without FSharp.Core's type check, as its own decoder builds stored
+/// quotations: a delegate of no arguments over `fun () -> …` keeps the unit parameter, which
+/// `Expr.NewDelegate` refuses (and it refuses any `Action` of no arguments).
+let rawNewDelegate (t: Type) (lambda: Expr) : Expr =
+    let core = typeof<Expr>.Assembly
+    let info = core.GetType "Microsoft.FSharp.Quotations.ExprConstInfo"
+    let tree = core.GetType "Microsoft.FSharp.Quotations.Tree"
+    let case (u: Type) name = FSharp.Reflection.FSharpType.GetUnionCases(u, true) |> Array.find (fun c -> c.Name = name)
+    let op = FSharp.Reflection.FSharpValue.MakeUnion(case info "NewDelegateOp", [| box t |], true)
+    let comb = FSharp.Reflection.FSharpValue.MakeUnion(case tree "CombTerm", [| op; box [ lambda ] |], true)
+    let ctor = typeof<Expr>.GetConstructors(BindingFlags.NonPublic ||| BindingFlags.Instance) |> Array.head
+    ctor.Invoke [| comb; box ([]: Expr list) |] :?> Expr
 
 let decode (scope: Scope) (w: W) : Expr =
     let vars = Dictionary<int, Var>()
@@ -286,8 +301,20 @@ let decode (scope: Scope) (w: W) : Expr =
         | WTypeTest(t, e) -> Expr.TypeTest(go e, resolve scope t)
         | WNewArray(t, es) -> Expr.NewArray(resolve scope t, List.map go es)
         | WNewDelegate(t, ds, b) ->
+            let t = resolve scope t
             let vs = List.map def ds
-            Expr.NewDelegate(resolve scope t, vs, go b)
+            let invoke = t.GetMethod("Invoke", all)
+            if invoke.GetParameters().Length = 0 && vs.IsEmpty then
+                // `Action(ignore)`: the quotation holds the body itself, no lambda.
+                rawNewDelegate t (go b)
+            elif invoke.GetParameters().Length = 0 && vs.Length = 1 then
+                // A delegate of no arguments over `fun () -> …`: the quotation keeps the unit
+                // parameter, which Expr.NewDelegate's check refuses; rebuild the node around it.
+                rawNewDelegate t (Expr.Lambda(vs.Head, go b))
+            else
+                let b = go b
+                try Expr.NewDelegate(t, vs, b)
+                with :? ArgumentException as e -> raise (Unsupported(sprintf "delegate %s: %d params, vars %A, body %s" t.Name (invoke.GetParameters().Length) [ for v in vs -> v.Type.Name ] b.Type.Name))
         | WQuote e -> Expr.Quote(go e)
         | WUnsupported s -> raise (Unsupported s)
     let go' = go

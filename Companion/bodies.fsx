@@ -77,7 +77,11 @@ let memberRef (m: FSharpMemberOrFunctionOrValue) : MemberRef =
         | Some e -> TNamed(entityAssembly e, entityName e, [])
         | None -> failwithf "no declaring entity: %s" m.LogicalName
     let parameters =
-        [ for g in m.CurriedParameterGroups do
+        // An extension member compiles static, the extended value first.
+        [ if m.IsExtensionMember && m.IsInstanceMember then
+            let e = m.ApparentEnclosingEntity.Value
+            yield TNamed(entityAssembly e, entityName e, [ for p in e.GenericParameters -> TParam p.Name ])
+          for g in m.CurriedParameterGroups do
             for p in g do
                 yield typeRef p.Type ]
         // A function of unit compiles with no parameter.
@@ -165,6 +169,8 @@ let encode (args: FSharpMemberOrFunctionOrValue list list) (body: FSharpExpr) : 
         | FSharpExprPatterns.Call(o, m, targs, margs, xs) ->
             let r = memberRef m
             let xs = if r.Parameters.IsEmpty then xs |> List.filter (fun x -> typeRef x.Type <> TNamed("FSharp.Core", "Microsoft.FSharp.Core.Unit", [])) else xs
+            // An extension member's target is its first argument.
+            let o, xs = if m.IsExtensionMember then None, Option.toList o @ xs else o, xs
             WCall(Option.map go o, r, List.map typeRef targs, List.map typeRef margs, List.map go xs)
         | FSharpExprPatterns.NewRecord(t, xs) -> WNewRecord(typeRef t, List.map go xs)
         | FSharpExprPatterns.NewAnonRecord(t, xs) -> WNewRecord(typeRef t, List.map go xs)
@@ -194,16 +200,15 @@ let encode (args: FSharpMemberOrFunctionOrValue list list) (body: FSharpExpr) : 
         | FSharpExprPatterns.TypeTest(t, x) -> WTypeTest(typeRef t, go x)
         | FSharpExprPatterns.NewArray(t, xs) -> WNewArray(typeRef t, List.map go xs)
         | FSharpExprPatterns.NewDelegate(t, x) ->
-            let rec lambdas acc x =
-                match x with
-                | FSharpExprPatterns.Lambda(v, b) -> lambdas (v :: acc) b
-                | b -> List.rev acc, b
-            let vs, b = lambdas [] x
-            // As many as Invoke takes: a delegate of no arguments has the unit lambda's.
+            // As many lambdas as Invoke takes parameters; a delegate of none has the unit lambda's.
             let arity =
                 t.TypeDefinition.MembersFunctionsAndValues |> Seq.find (fun m -> m.CompiledName = "Invoke")
-                |> fun m -> m.CurriedParameterGroups |> Seq.sumBy (fun g -> g.Count) |> fun n -> if n = 1 && (Seq.head (Seq.head m.CurriedParameterGroups)).Type.HasTypeDefinition && (Seq.head (Seq.head m.CurriedParameterGroups)).Type.TypeDefinition.CompiledName = "Unit" then 0 else n
-            let vs, b = if arity = 0 then vs, b else vs, b
+                |> fun m -> m.CurriedParameterGroups |> Seq.sumBy (fun g -> g.Count)
+            let rec lambdas n acc x =
+                match x with
+                | FSharpExprPatterns.Lambda(v, b) when n > 0 -> lambdas (n - 1) (v :: acc) b
+                | b -> List.rev acc, b
+            let vs, b = lambdas (max 1 arity) [] x
             let ds = List.map def vs
             WNewDelegate(typeRef t, ds, go b)
         | FSharpExprPatterns.Quote x -> WQuote(go x)
@@ -258,6 +263,8 @@ let rec align (env: Dictionary<Var, Var>) (a: Expr) (b: Expr) : Expr =
         Expr.Lambda(v, align env ba bb)
     | Patterns.VarSet(_, xa), Patterns.VarSet(vb, xb) ->
         Expr.VarSet((match env.TryGetValue vb with | true, v -> v | _ -> vb), align env xa xb)
+    | ExprShape.ShapeCombination(_, [ xa ]), Patterns.NewDelegate(t, _, _) & ExprShape.ShapeCombination(_, [ xb ]) ->
+        rawNewDelegate t (align env xa xb)
     | ExprShape.ShapeCombination(_, xa), ExprShape.ShapeCombination(ob, xb) when xa.Length = xb.Length ->
         ExprShape.RebuildShapeCombination(ob, List.map2 (align env) xa xb)
     | _ -> b
@@ -271,7 +278,10 @@ let rec firstDiff (a: Expr) (b: Expr) : (Expr * Expr) option =
         | ExprShape.ShapeLambda(va, _), ExprShape.ShapeLambda(vb, _) ->
             Some(Expr.Value(sprintf "var %s: %s%s" va.Name va.Type.Name (if va.IsMutable then " mutable" else "")), Expr.Value(sprintf "var %s: %s%s" vb.Name vb.Type.Name (if vb.IsMutable then " mutable" else "")))
         | ExprShape.ShapeCombination(oa, xa), ExprShape.ShapeCombination(_, xb) when xa.Length = xb.Length ->
-            let same = try ExprShape.RebuildShapeCombination(oa, xb) = b with _ -> false
+            let same =
+                match a with
+                | Patterns.NewDelegate(t, _, _) -> (match b with Patterns.NewDelegate(u, _, _) -> t = u | _ -> false)
+                | _ -> try ExprShape.RebuildShapeCombination(oa, xb) = b with _ -> false
             if same then List.zip xa xb |> List.tryPick (fun (x, y) -> firstDiff x y)
             else Some(a, b)
         | _ -> Some(a, b)
@@ -310,9 +320,9 @@ for (m, args, body) in candidates do
             with e ->
                 failed <- failed + 1
                 let msg = match e with Unsupported s -> "unsupported: " + s | e -> e.GetType().Name + ": " + e.Message
-                let key = msg.Split('\n').[0] |> fun s -> if s.Length > 120 then s.Substring(0, 120) else s
+                let key = msg.Split([|"\n"|], StringSplitOptions.None).[0] |> fun s -> if s.Length > 400 then s.Substring(0, 400) else s
                 reason key
-                if not (samples.ContainsKey key) then samples.[key] <- m.CompiledName
+                if not (samples.ContainsKey key) then samples.[key] <- m.CompiledName + (if msg.Contains "delegate Action" || msg.Contains "TraitCall" then "\n      expected " + (sprintf "%A" expected) else "")
 
 printfn "members %d: same %d, differ %d, failed %d, no oracle %d" candidates.Length same differ failed noOracle
 for KeyValue(k, n) in reasons |> Seq.sortByDescending (fun kv -> kv.Value) |> Seq.truncate 25 do
