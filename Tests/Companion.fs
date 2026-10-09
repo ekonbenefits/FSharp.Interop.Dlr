@@ -172,3 +172,22 @@ let private unitArgumentWithEffect (w: obj) : int =
 [<Fact>]
 let ``a unit argument with an effect keeps it`` () =
     unitArgumentWithEffect (Widget()) |> should equal 3
+
+let private userNamedTupled (x_0: obj, x_1: int) : int =
+    // fsharpanalyzer: ignore-line-next DLR001
+    dlr { return x_0?Count + x_1 }
+
+let private userNamedCurried (x_0: obj) (x_1: int) : int =
+    // fsharpanalyzer: ignore-line-next DLR001
+    dlr { return x_0?Count + x_1 }
+
+let private realSplit (x: obj * int) : int =
+    // fsharpanalyzer: ignore-line-next DLR001
+    dlr { return (fst x)?Count + snd x }
+
+[<Fact>]
+let ``parameters named like a split tuple's elements are themselves, and a real split is one tuple`` () =
+    needsBodies ()
+    userNamedTupled (Widget(), 4) |> should equal 7
+    userNamedCurried (Widget()) 4 |> should equal 7
+    realSplit (Widget(), 4) |> should equal 7
