@@ -737,7 +737,7 @@ let private hiddenBySignature (v: FSharpMemberOrFunctionOrValue) =
         && not (inSignature v.SignatureLocation)
         && signedModule v.DeclaringEntity
         && not (v.Attributes |> Seq.exists (fun a ->
-                    a.AttributeType.DisplayName = "MethodImplAttribute"
+                    a.AttributeType.TryFullName = Some "System.Runtime.CompilerServices.MethodImplAttribute"
                     && a.ConstructorArguments |> Seq.exists (fun (_, arg) ->
                         match arg with
                         | :? int as flags -> flags &&& 8 <> 0   // MethodImplOptions.NoInlining

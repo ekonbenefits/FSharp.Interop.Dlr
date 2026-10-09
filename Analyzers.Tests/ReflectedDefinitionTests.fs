@@ -685,14 +685,18 @@ module private PrivateHelpers =
     let privateNested (x: int) = x + 5
 [<MethodImpl(MethodImplOptions.NoInlining)>]
 let pinned (x: int) = x + 3
+module Fake =
+    type MethodImplAttribute(_options: MethodImplOptions) = inherit System.Attribute()
+[<Fake.MethodImpl(MethodImplOptions.NoInlining)>]
+let fakePinned (x: int) = x + 6
 let unreflected (n: int) = wrap n
 [<ReflectedDefinition>]
 let reflectedCaller (n: int) : int =
     let a = wrap n + alsoHidden n
-    let b = shown n + pinned n + constant + table.Count + Helpers.nested n + PrivateHelpers.privateNested n
+    let b = shown n + pinned n + constant + table.Count + Helpers.nested n + PrivateHelpers.privateNested n + fakePinned n
     dlr { return target?Add(a, b) }
 """
     let hidden = runWithSignature signature implementation |> List.filter (fun m -> m.Code = ReflectedDefinitionAnalyzer.HiddenBySignatureCode)
-    hidden |> List.map (fun m -> m.Message.Split('\'').[3]) |> List.sort |> should equal [ "alsoHidden"; "nested"; "privateNested"; "wrap" ]
+    hidden |> List.map (fun m -> m.Message.Split('\'').[3]) |> List.sort |> should equal [ "alsoHidden"; "fakePinned"; "nested"; "privateNested"; "wrap" ]
     hidden |> List.forall (fun m -> m.Severity = Severity.Warning) |> should equal true
     Assert.messageContains "every dlr { } in the assembly fails" hidden.Head |> should equal true
