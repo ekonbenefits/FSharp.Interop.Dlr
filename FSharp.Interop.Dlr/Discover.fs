@@ -130,6 +130,11 @@ module internal Discover =
                         | _ -> m, memberBody, body
                     | _ -> m, memberBody, body
             { Context = m.DeclaringType; MemberBody = memberBody; Body = body }
+        | [] when (BodyMap.find closureType file line |> Option.exists (fun (_, q) -> List.length (runsAt builderType file line q) = 1)) ->
+            // No reflected definition (or one FSharp.Core cannot decode), but the build companion's
+            // map has the member: its body, rebuilt from the compiler's tree, is the same Expr.
+            let context, memberBody = (BodyMap.find closureType file line).Value
+            { Context = context; MemberBody = memberBody; Body = List.head (runsAt builderType file line memberBody) }
         | [] ->
             // A member with the attribute whose quotation would not decode is the other reason a
             // body is not found — when it is the member the closure belongs to: the compiler

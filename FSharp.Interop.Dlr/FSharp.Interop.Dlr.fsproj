@@ -52,6 +52,7 @@
     <Compile Include="SiteCaches.fs" />
     <Compile Include="Binders.fs" />
     <Compile Include="CaptureMap.fs" />
+    <Compile Include="BodyMap.fs" />
     <Compile Include="TranslatePatterns.fs" />
     <Compile Include="SiteHoister.fs" />
     <Compile Include="TranslateBlock.fs" />

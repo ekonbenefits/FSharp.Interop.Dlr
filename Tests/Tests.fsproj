@@ -108,6 +108,7 @@
     <Compile Include="FSharpInBlocks.fs" />
     <Compile Include="Shapes.fs" />
     <Compile Include="RulesEverywhere.fs" />
+    <Compile Include="Companion.fs" />
     <Compile Include="Unreflected.fs" />
     <Compile Include="Resumable.fs" />
     <Compile Include="Identity.fs" />

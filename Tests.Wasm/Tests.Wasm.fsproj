@@ -70,6 +70,7 @@
     <Compile Include="..\Tests\FSharpInBlocks.fs" Link="FSharpInBlocks.fs" />
     <Compile Include="..\Tests\Shapes.fs" Link="Shapes.fs" />
     <Compile Include="..\Tests\RulesEverywhere.fs" Link="RulesEverywhere.fs" />
+    <Compile Include="..\Tests\Companion.fs" Link="Companion.fs" />
     <Compile Include="..\Tests\Unreflected.fs" Link="Unreflected.fs" />
     <Compile Include="..\Tests\Resumable.fs" Link="Resumable.fs" />
     <Compile Include="..\Tests\Identity.fs" Link="Identity.fs" />
