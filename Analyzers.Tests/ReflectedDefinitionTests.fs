@@ -717,6 +717,12 @@ module Impl =
             let f (x: int) : int = dlr { return x + (dlr { return 2 } : int) }
             return a + f 3
         }
+    [<ReflectedDefinition>]
+    let quoted () : string =
+        dlr {
+            let q = <@ (dlr { return 1 } : int) @>   // data, not compiled with the outer block
+            return string q
+        }
 """
         |> List.filter (fun m -> m.Code = ReflectedDefinitionAnalyzer.NestedCode)
     let lines = msgs |> List.map (fun m -> m.Range.StartLine) |> List.sort

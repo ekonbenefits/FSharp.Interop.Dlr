@@ -780,9 +780,15 @@ let private analyzeHiddenBySignature (typedTree: FSharpImplementationFileContent
               Range = r
               Fixes = [] })
 
-/// Blocks nested in another block, at any depth: every `Run` call under an outermost one.
+/// Blocks nested in another block, at any depth: every `Run` call under an outermost one. A block
+/// in a quotation literal is data the outer block keeps as is, not code it compiles.
 let rec private nestedRuns (decls: FSharpImplementationFileDeclaration list) : range list =
-    let inside (e: FSharpExpr) = blocksIn e |> List.collect (fun block -> block.ImmediateSubExpressions |> List.collect runCalls)
+    let rec compiled (e: FSharpExpr) : range list =
+        match e with
+        | FSharpExprPatterns.Quote _ -> []
+        | FSharpExprPatterns.Call(_, mfv, _, _, _) when isDlrRun mfv -> e.Range :: (e.ImmediateSubExpressions |> List.collect compiled)
+        | _ -> e.ImmediateSubExpressions |> List.collect compiled
+    let inside (e: FSharpExpr) = blocksIn e |> List.collect (fun block -> block.ImmediateSubExpressions |> List.collect compiled)
     decls
     |> List.collect (fun decl ->
         match decl with
