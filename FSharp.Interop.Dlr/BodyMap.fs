@@ -309,21 +309,28 @@ let rec resolve (scope: Scope) (t: TypeRef) : Type =
     | TNamed(asm, name, args) -> (typeDefinition asm name).MakeGenericType [| for a in args -> resolve scope a |]
 
 /// Does the wire type describe `t`, a parameter type of a generic definition?
+/// Does the wire type describe `t`, a parameter or return type of a generic definition? Exact:
+/// a member is bound only when its whole signature is the one the compiler resolved.
 let rec matches (r: TypeRef) (t: Type) =
     match r with
+    // A `$W` twin's witness parameter, whose type the wire form does not name.
+    | TParam "?" -> true
+    // A generic parameter by position: `!!i` the method's, `!i` the type's.
+    | TParam n when n.StartsWith "!!" -> t.IsGenericParameter && not (isNull t.DeclaringMethod) && t.GenericParameterPosition = int (n.Substring 2)
+    | TParam n when n.StartsWith "!" -> t.IsGenericParameter && isNull t.DeclaringMethod && t.GenericParameterPosition = int (n.Substring 1)
     | TParam n -> t.IsGenericParameter && t.Name = n
     | TByref e -> t.IsByRef && matches e (t.GetElementType())
     | TArray(rank, e) -> t.IsArray && t.GetArrayRank() = rank && matches e (t.GetElementType())
-    | TTuple(_, ts) ->
-        // Up to seven elements (a longer tuple nests; not matched here).
-        t.IsGenericType && t.GetGenericTypeDefinition().Name.Contains "Tuple`"
-        && (let args = t.GetGenericArguments() in args.Length = ts.Length && List.forall2 matches ts (List.ofArray args))
+    | TTuple(isStruct, ts) ->
+        // FSharpType reads a long tuple's nested rest as more elements.
+        FSharpType.IsTuple t && t.IsValueType = isStruct
+        && (let es = FSharpType.GetTupleElements t in es.Length = ts.Length && List.forall2 matches ts (List.ofArray es))
     | TNamed(_, name, args) ->
         if t.IsGenericParameter || t.IsArray || t.IsByRef then false
         elif t.IsGenericType then
             let d = t.GetGenericTypeDefinition()
             d.FullName = name && (let a = t.GetGenericArguments() in a.Length = args.Length && List.forall2 matches args (List.ofArray a))
-        else (t.FullName = name || t.Name = name) && args.IsEmpty
+        else t.FullName = name && args.IsEmpty
 
 let returns (r: TypeRef) (c: MethodBase) =
     match c with
@@ -339,18 +346,19 @@ let methodOf (scope: Scope) (m: MemberRef) (typeArgs: TypeRef list) (methodArgs:
             let ps = c.GetParameters()
             if c.Name = m.Name && arity = m.GenericArity && ps.Length = m.Parameters.Length && c.IsStatic = not m.Instance then
                 c ]
+    // The whole signature, even for a lone candidate: an assembly that differs at run time from the
+    // one compiled against must not bind another member of the same shape.
+    let fits =
+        candidates |> List.filter (fun c ->
+            List.forall2 matches m.Parameters [ for p in c.GetParameters() -> p.ParameterType ]
+            && (match c with :? MethodInfo -> returns m.Return c | _ -> true))
     let chosen =
-        match candidates with
+        match fits with
         | [ c ] -> c
-        | [] -> raise (Unsupported(sprintf "no member %s.%s/%d (%d params)" name m.Name m.GenericArity m.Parameters.Length))
-        | many ->
-            match many |> List.filter (fun c -> List.forall2 matches m.Parameters [ for p in c.GetParameters() -> p.ParameterType ]) with
-            | [ c ] -> c
-            // A member that hides an inherited one of the same signature (Exception.GetType).
-            | fits when (fits |> List.filter (fun c -> c.DeclaringType = def)).Length = 1 -> fits |> List.find (fun c -> c.DeclaringType = def)
-            // Overloads that differ only by their return type (`op_Explicit`).
-            | fits when (fits |> List.filter (returns m.Return)).Length = 1 -> fits |> List.find (returns m.Return)
-            | _ -> raise (Unsupported(sprintf "ambiguous %s.%s" name m.Name))
+        | [] -> raise (Unsupported(sprintf "no member %s.%s/%d with its signature (%d of the name and shape)" name m.Name m.GenericArity candidates.Length))
+        // A member that hides an inherited one of the same signature (Exception.GetType).
+        | fits when (fits |> List.filter (fun c -> c.DeclaringType = def)).Length = 1 -> fits |> List.find (fun c -> c.DeclaringType = def)
+        | _ -> raise (Unsupported(sprintf "ambiguous %s.%s" name m.Name))
     let onType =
         if typeArgs.IsEmpty then chosen
         else
@@ -528,13 +536,19 @@ let decode (scope: Scope) (w: W) : Expr =
             let t = resolve scope t
             let vs = List.map def ds
             let invoke = t.GetMethod("Invoke", all)
+            // Built without FSharp.Core's check below, so checked here: the body has Invoke's
+            // return type (unit for void).
+            let returnsAs (b: Expr) =
+                let expected = if invoke.ReturnType = typeof<Void> then typeof<unit> else invoke.ReturnType
+                if b.Type <> expected then raise (Unsupported(sprintf "delegate %s: body of type %s" t.Name b.Type.Name))
+                b
             if invoke.GetParameters().Length = 0 && vs.IsEmpty then
                 // `Action(ignore)`: the quotation holds the body itself, no lambda.
-                rawNewDelegate t (go b)
-            elif invoke.GetParameters().Length = 0 && vs.Length = 1 then
+                rawNewDelegate t (returnsAs (go b))
+            elif invoke.GetParameters().Length = 0 && vs.Length = 1 && vs.Head.Type = typeof<unit> then
                 // A delegate of no arguments over `fun () -> …`: the quotation keeps the unit
                 // parameter, which Expr.NewDelegate's check refuses; rebuild the node around it.
-                rawNewDelegate t (Expr.Lambda(vs.Head, go b))
+                rawNewDelegate t (Expr.Lambda(vs.Head, returnsAs (go b)))
             else
                 let b = go b
                 try Expr.NewDelegate(t, vs, b)
