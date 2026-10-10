@@ -225,6 +225,51 @@ jobs:
           path: results/*.json
           if-no-files-found: warn
 
+  # The build companion (#216, for 2.0): Tests built with -p:DlrCompanion=true, which writes
+  # the capture map during the build (FSharp.Interop.Dlr.Build) and embeds it, then the suite with
+  # the map's trace on. Beyond a passing suite: no block's map entry may be rejected for anything
+  # but being a closure (that would be the companion disagreeing with the compiler), and in
+  # Release, where blocks are state machines, some must bind through the map.
+  companion:
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Debug, Release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore tools
+        run: dotnet tool restore
+
+      - name: Build with the companion
+        run: dotnet build Tests/Tests.fsproj --configuration ${{ matrix.configuration }} -f net10.0 -p:DlrCompanion=true
+
+      - name: Test with the map
+        shell: bash
+        env:
+          DLR_CAPTURE_MAP_TRACE: '1'
+          CONFIGURATION: ${{ matrix.configuration }}
+        run: |
+          dotnet "Tests/bin/$CONFIGURATION/net10.0/Tests.dll" 2> trace.txt
+          exact=$(grep -c '^dlr capture map: exact' trace.txt || true)
+          strict=$(grep -c '^dlr capture map: strict' trace.txt || true)
+          rejected=$(grep '^dlr capture map: strict' trace.txt | grep -vc 'a closure, not a state machine' || true)
+          echo "bound exactly: $exact; strict: $strict (closures: $((strict - rejected)), rejected maps: $rejected)"
+          if [ "$rejected" -gt 0 ]; then
+            echo "::error::a capture map entry was rejected"; grep '^dlr capture map: strict' trace.txt | grep -v 'a closure, not a state machine'; exit 1
+          fi
+          if [ "$CONFIGURATION" = Release ] && [ "$exact" -eq 0 ]; then
+            echo "::error::no block bound through the capture map in Release"; exit 1
+          fi
+
   # The library is JIT-only by design (README) - the C# runtime binder,
   # LambdaExpression.Compile and ReflectedDefinition lookup - and Mono's
   # browser-wasm interpreter is the most different runtime it can be

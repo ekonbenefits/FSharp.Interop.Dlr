@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The build companion (#216, for 2.0): checks a project with FCS once and writes the capture
+    map its dlr { } blocks bind through (the fields pass; a body pass is stacked on it). FCS pins
+    FSharp.Core exactly, as for the analyzer; the map is right only for the compiler this FCS
+    matches (a mismatch makes the run time refuse the map, never bind wrongly).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Check.fs" />
+    <Compile Include="Fields.fs" />
+    <Compile Include="Bodies.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" VersionOverride="10.1.400" />
+    <PackageReference Include="FSharp.Compiler.Service" />
+  </ItemGroup>
+
+</Project>

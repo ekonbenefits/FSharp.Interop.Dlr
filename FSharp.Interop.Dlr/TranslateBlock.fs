@@ -42,7 +42,16 @@ module internal TranslateBlock =
           Ambiguous: Set<string>
           /// Aliases (`let x = y` of an immutable `y`, `let x = 1`) the block reaches only through
           /// a recovered definition: substituted, never a field, whatever field shares the name.
-          Substituted: Set<Var> }
+          Substituted: Set<Var>
+          /// The field each variable (or split tuple's element) is, from the build's capture map
+          /// (`CaptureMap`), when it matches the machine exactly; then `Exact`, and no field is
+          /// ever looked up by name.
+          Resolved: Map<Var * int option, Reflection.FieldInfo>
+          /// A split tuple's elements the map says nothing keeps.
+          Unused: Set<Var * int>
+          /// Each tuple type and element the member reads explicitly (`fst`, `snd`, `TupleGet`).
+          ElementReads: Collections.Generic.HashSet<Type * int>
+          Exact: bool }
         /// The name for this block's next compiled part of `kind`, for its stack frame: F#'s
         /// closure style, `dlr__Program_fs@7-for`, then `-for-2`, `-for-3` in order.
         member this.NameFor (kind: string) =
@@ -195,6 +204,13 @@ module internal TranslateBlock =
                 plain && List.forall effectFree args
             | _ -> false
 
+        /// Element `i` of a split tuple `v` that has no field: the definition's, when it gives it
+        /// effect-free (the optimizer substituted it). Not otherwise: nothing says it is unread.
+        let missingElement (memberBody: Expr) (v: Var) (i: int) : Expr option =
+            match letDefinition v memberBody with
+            | Some(NewTuple es) when effectFree es.[i] -> Some es.[i]
+            | _ -> None
+
         /// The field element `i` of a reference tuple the Release optimizer split is held in: `t_0`,
         /// `t_1`, … (`ExpandStructuralBinding`), with `$tupleElem` after each when its definition
         /// branched (`TryRewriteBranchingTupleBinding`); an element nothing reads has none (#203).
@@ -295,8 +311,15 @@ module internal TranslateBlock =
         /// enclosing member's body; its own free variables resolve the same way. A tuple split
         /// into a field per element is rebuilt from those (`elements`).
         let read (block: Block) (resolve: Expr -> Expr) (v: Var) : Expr =
-            if block.Ambiguous.Contains v.Name then raise (ambiguous v)
-            match (if block.Substituted.Contains v then (false, null) else block.Fields.TryGetValue v.Name) with
+            if not block.Exact && block.Ambiguous.Contains v.Name then raise (ambiguous v)
+            let found =
+                if block.Exact then
+                    match block.Resolved.TryFind(v, None) with
+                    | Some f -> (true, f)
+                    | None -> (false, null)
+                elif block.Substituted.Contains v then (false, null)
+                else block.Fields.TryGetValue v.Name
+            match found with
             | true, f when f.FieldType = v.Type -> Expr.FieldGet(block.Self, f)
             | true, f when isRefCell f v.Type ->
                 Expr.PropertyGet(Expr.FieldGet(block.Self, f), f.FieldType.GetProperty("Value"))
@@ -304,7 +327,30 @@ module internal TranslateBlock =
                 raise (DlrTranslationException(
                         sprintf "dlr { } captured '%s' as %s but the body uses it as %s." v.Name f.FieldType.Name v.Type.Name))
             | _ ->
-                match (if block.Substituted.Contains v then None else elements block.Fields block.MemberBody v) with
+                let parts =
+                    if block.Exact then
+                        // A split tuple: its resolved element fields, a missing element its definition's.
+                        if not (FSharpType.IsTuple v.Type) || v.Type.IsValueType then None
+                        else
+                            let fs = FSharpType.GetTupleElements v.Type |> Array.mapi (fun j _ -> block.Resolved.TryFind(v, Some j)) |> List.ofArray
+                            if List.forall Option.isNone fs then None
+                            else
+                                let parts =
+                                    fs |> List.mapi (fun j f ->
+                                        match f with
+                                        | Some f -> Some(Choice1Of2 f)
+                                        | None ->
+                                            match missingElement block.MemberBody v j with
+                                            | Some e -> Some(Choice2Of2 e)
+                                            // Kept nowhere, and read explicitly nowhere in the member: unused.
+                                            | None when block.Unused.Contains((v, j)) && not (block.ElementReads.Contains((v.Type, j))) ->
+                                                Some(Choice2Of2(Expr.DefaultValue (FSharpType.GetTupleElements v.Type).[j]))
+                                            | None -> None)
+                                if List.forall Option.isSome parts then Some(List.choose id parts)
+                                else raise (DlrTranslationException(sprintf "dlr { } reads the tuple '%s' whole, but the optimizer kept only some of its elements." v.Name))
+                    elif block.Substituted.Contains v then None
+                    else elements block.Fields block.MemberBody v
+                match parts with
                 | Some parts -> Expr.NewTuple [ for p in parts -> match p with Choice1Of2 f -> Expr.FieldGet(block.Self, f) | Choice2Of2 e -> resolve e ]
                 | None ->
                 let recovered (def: Expr) =
@@ -325,20 +371,21 @@ module internal TranslateBlock =
         /// `fst v`, `snd v` or element `i` of `v` otherwise, read from its own field when the
         /// optimizer split `v` (`elementField`); None to read `v` itself.
         let element (block: Block) (v: Var) (i: int) : Expr option =
+            if block.Exact then block.Resolved.TryFind(v, Some i) |> Option.map (fun f -> Expr.FieldGet(block.Self, f)) else
             if block.Ambiguous.Contains v.Name then raise (ambiguous v)
             if block.Substituted.Contains v then None
             else elementField block.Fields v i |> Option.map (fun f -> Expr.FieldGet(block.Self, f))
 
         /// Whether a captured variable is a mutable, stored in an FSharpRef cell.
         let isCell (block: Block) (v: Var) =
-            match block.Fields.TryGetValue v.Name with
-            | true, f when not (block.Ambiguous.Contains v.Name) -> isRefCell f v.Type
+            match (if block.Exact then (match block.Resolved.TryFind(v, None) with Some f -> (true, f) | None -> (false, null)) else block.Fields.TryGetValue v.Name) with
+            | true, f when block.Exact || not (block.Ambiguous.Contains v.Name) -> isRefCell f v.Type
             | _ -> false
 
         /// `v <- value` on a captured `let mutable`: a write through its FSharpRef cell.
         let assign (block: Block) (v: Var) (value: Expr) : Expr =
-            if block.Ambiguous.Contains v.Name then raise (ambiguous v)
-            match block.Fields.TryGetValue v.Name with
+            if not block.Exact && block.Ambiguous.Contains v.Name then raise (ambiguous v)
+            match (if block.Exact then (match block.Resolved.TryFind(v, None) with Some f -> (true, f) | None -> (false, null)) else block.Fields.TryGetValue v.Name) with
             | true, f when isRefCell f v.Type ->
                 Expr.PropertySet(Expr.FieldGet(block.Self, f), f.FieldType.GetProperty("Value"), value)
             | _ ->

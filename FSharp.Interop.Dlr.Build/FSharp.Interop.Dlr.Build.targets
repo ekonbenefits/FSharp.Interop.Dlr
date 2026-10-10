@@ -1,0 +1,81 @@
+<Project>
+
+  <!--
+    The build companion as a build step (#216, for 2.0). Opt in with DlrCompanion=true: before
+    CoreCompile, the project's own fsc arguments are taken from a nested build that runs Compile
+    without compiling (SkipCompilerExecution; NonExistentFile forces CoreCompile to run and return
+    them); FSharp.Interop.Dlr.Build checks the project with FCS once and writes the capture map; and
+    the map goes to fsc as the FSharp.Interop.Dlr.CaptureMap resource. Any configuration: a field
+    pass finds no state machines in Debug, a body pass needs every configuration's own code. A map
+    that does not match what fsc then emits is refused at run time, never bound wrongly.
+
+    DlrCompanionTool: the companion's dll (in this repository, its build output; the project
+    references it with ReferenceOutputAssembly=false so it is built first).
+  -->
+  <PropertyGroup>
+    <DlrCompanionTool Condition="'$(DlrCompanionTool)' == ''">$(MSBuildThisFileDirectory)bin/$(Configuration)/net10.0/FSharp.Interop.Dlr.Build.dll</DlrCompanionTool>
+  </PropertyGroup>
+
+  <!-- Whether the companion is on, as a CoreCompile input, imported whether it is on or not: a
+       switch either way recompiles (off, the assembly would keep the last map's resource), and
+       an unchanged setting does not (the file is written only when it differs). Not in the nested
+       build, which runs with the companion off and would flip it every build. -->
+  <Target Name="_DlrCompanionSetting" BeforeTargets="CoreCompile" Condition="'$(DlrCompanionNested)' != 'true'">
+    <PropertyGroup>
+      <_DlrCompanionSetting>$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)', '$(IntermediateOutputPath)', 'dlr.companion.setting'))</_DlrCompanionSetting>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(_DlrCompanionSetting)" Lines="DlrCompanion=$(DlrCompanion)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <ItemGroup>
+      <CustomAdditionalCompileInputs Include="$(_DlrCompanionSetting)" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Run in the nested build: Compile with the compiler skipped, returning its arguments. -->
+  <Target Name="DlrCompanionFscArgs" DependsOnTargets="Compile" Returns="@(FscCommandLineArgs)" />
+
+  <!-- Chained by DependsOnTargets, not CallTarget: a called target does not see the properties its
+       caller just set. Not in an IDE's design-time build, which only wants the compiler's inputs. -->
+  <Target Name="DlrCompanionMap" BeforeTargets="CoreCompile" Condition="'$(DlrCompanion)' == 'true' and '$(DesignTimeBuild)' != 'true'"
+          DependsOnTargets="_DlrCompanionPaths;_DlrCompanionArgs;_DlrCompanionRun">
+    <!-- The map as a resource item, which the Fsc task quotes (a path with spaces), and an input of
+         CoreCompile: a new map must recompile, or the assembly keeps the old one's resource. -->
+    <ItemGroup>
+      <AdditionalEmbeddedResource Include="$(_DlrCompanionMap)" LogicalName="FSharp.Interop.Dlr.CaptureMap" />
+      <CustomAdditionalCompileInputs Include="$(_DlrCompanionMap)" />
+    </ItemGroup>
+  </Target>
+
+  <!-- In a target: this file is imported before the SDK defines IntermediateOutputPath. -->
+  <Target Name="_DlrCompanionPaths">
+    <PropertyGroup>
+      <!-- IntermediateOutputPath may be absolute (artifacts output): NormalizePath keeps it then. -->
+      <_DlrCompanionArgs>$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)', '$(IntermediateOutputPath)', 'dlr.companion.fscargs'))</_DlrCompanionArgs>
+      <_DlrCompanionMap>$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)', '$(IntermediateOutputPath)', 'dlr.capturemap'))</_DlrCompanionMap>
+      <!-- The compiler that builds the project (the SDK's, unless the project points elsewhere):
+           the companion runs its FCS, so the map describes what it emits. Without one (MSBuild that
+           does not set it), the companion's own FCS, and the map refuses whatever it gets wrong. -->
+      <_DlrCompanionFsc>$(DotnetFscCompilerPath.Trim('"'))</_DlrCompanionFsc>
+      <_DlrCompanionFcs Condition="'$(_DlrCompanionFsc)' != ''">$([System.IO.Path]::GetDirectoryName('$(_DlrCompanionFsc)'))/FSharp.Compiler.Service.dll</_DlrCompanionFcs>
+      <_DlrCompanionCompiler Condition="'$(_DlrCompanionFsc)' != ''">--compiler &quot;$(_DlrCompanionFsc)&quot;</_DlrCompanionCompiler>
+      <_DlrCompanionDotnet>$(DOTNET_HOST_PATH)</_DlrCompanionDotnet>
+      <_DlrCompanionDotnet Condition="'$(_DlrCompanionDotnet)' == ''">dotnet</_DlrCompanionDotnet>
+    </PropertyGroup>
+  </Target>
+
+  <Target Name="_DlrCompanionArgs">
+    <MSBuild Projects="$(MSBuildProjectFullPath)" Targets="DlrCompanionFscArgs"
+             Properties="DlrCompanion=false;DlrCompanionNested=true;SkipCompilerExecution=true;ProvideCommandLineArgs=true;NonExistentFile=__dlr__/__nonexistent__;BuildProjectReferences=false;Configuration=$(Configuration);TargetFramework=$(TargetFramework)">
+      <Output TaskParameter="TargetOutputs" ItemName="_DlrCompanionFscArg" />
+    </MSBuild>
+    <WriteLinesToFile File="$(_DlrCompanionArgs)" Lines="@(_DlrCompanionFscArg)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+  </Target>
+
+  <!-- Incremental: the map is rewritten only when a source, the arguments, the tool or the
+       compiler changed (a new SDK). -->
+  <Target Name="_DlrCompanionRun" Inputs="@(Compile);$(_DlrCompanionArgs);$(DlrCompanionTool);$(_DlrCompanionFcs)" Outputs="$(_DlrCompanionMap)">
+    <!-- IgnoreStandardErrorWarningFormat: an FCS message the tool prints must not read as a build
+         error; the tool's own failures turn the map off, they never fail the build. -->
+    <Exec Command="&quot;$(_DlrCompanionDotnet)&quot; &quot;$(DlrCompanionTool)&quot; $(_DlrCompanionCompiler) &quot;$(_DlrCompanionArgs)&quot; &quot;$(MSBuildProjectDirectory)&quot; &quot;$(_DlrCompanionMap)&quot;" IgnoreStandardErrorWarningFormat="true" />
+  </Target>
+
+</Project>
