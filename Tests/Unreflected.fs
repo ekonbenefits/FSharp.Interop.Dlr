@@ -6,6 +6,7 @@ open FSharp.Interop.Dlr
 
 [<Fact>]
 let ``dlr without ReflectedDefinition reports what is missing`` () =
+    if Tests.Companion.bodiesMapped then raise (AnyUnit.IgnoreException "the companion's map holds this block's body (Tests/Companion.fs)")
     let w = box (Widget())
     // fsharpanalyzer: ignore-line-next DLR001
     let ex = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> (dlr { return w?Count } : int) |> ignore)
