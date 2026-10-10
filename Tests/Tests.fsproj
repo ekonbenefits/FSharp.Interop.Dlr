@@ -120,7 +120,7 @@
     <ProjectReference Include="CSharp.Ivt\Tests.CSharp.Ivt.csproj" />
     <ProjectReference Include="FSharpLib\Tests.FSharpLib.fsproj" />
   </ItemGroup>
-  <!-- The build companion (#216, academic): -p:DlrCompanion=true writes the capture map during
+  <!-- The build companion (#216, for 2.0): -p:DlrCompanion=true writes the capture map during
        the build and embeds it (FSharp.Interop.Dlr.Build.targets); -p:DlrCaptureMap=<path> embeds
        one written by hand instead. -->
   <ItemGroup Condition="'$(DlrCaptureMap)' != ''">

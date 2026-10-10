@@ -1,7 +1,7 @@
 <Project>
 
   <!--
-    The build companion as a build step (#216, academic). Opt in with DlrCompanion=true: before
+    The build companion as a build step (#216, for 2.0). Opt in with DlrCompanion=true: before
     CoreCompile, the project's own fsc arguments are taken from a nested build that runs Compile
     without compiling (SkipCompilerExecution; NonExistentFile forces CoreCompile to run and return
     them); FSharp.Interop.Dlr.Build checks the project with FCS once and writes the capture map; and

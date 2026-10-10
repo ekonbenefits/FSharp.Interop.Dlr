@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    The build companion (#216, academic): checks a project with FCS once and writes the capture
+    The build companion (#216, for 2.0): checks a project with FCS once and writes the capture
     map its dlr { } blocks bind through (the fields pass; a body pass is stacked on it). FCS pins
     FSharp.Core exactly, as for the analyzer; the map is right only for the compiler this FCS
     matches (a mismatch makes the run time refuse the map, never bind wrongly).

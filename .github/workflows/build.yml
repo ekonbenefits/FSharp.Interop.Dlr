@@ -225,7 +225,7 @@ jobs:
           path: results/*.json
           if-no-files-found: warn
 
-  # The build companion (#216, academic): Tests built with -p:DlrCompanion=true, which writes
+  # The build companion (#216, for 2.0): Tests built with -p:DlrCompanion=true, which writes
   # the capture map during the build (FSharp.Interop.Dlr.Build) and embeds it, then the suite with
   # the map's trace on. Beyond a passing suite: no block's map entry may be rejected for anything
   # but being a closure (that would be the companion disagreeing with the compiler), and in
