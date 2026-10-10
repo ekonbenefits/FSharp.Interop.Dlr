@@ -110,7 +110,7 @@ for (m, args, body) in candidates do
             with e ->
                 failed <- failed + 1
                 let msg = match e with Unsupported s -> "unsupported: " + s | e -> e.GetType().Name + ": " + e.Message
-                let key = msg.Split([|"\n"|], StringSplitOptions.None).[0] |> fun s -> if s.Length > 400 then s.Substring(0, 400) else s
+                let key = msg.Split([|"\n"|], StringSplitOptions.None).[0] |> fun s -> if s.Length > 1500 then s.Substring(0, 1500) else s
                 reason key
                 if not (samples.ContainsKey key) then samples.[key] <- m.CompiledName + (if msg.Contains "delegate Action" || msg.Contains "TraitCall" then "\n      expected " + (sprintf "%A" expected) else "")
 
@@ -118,3 +118,17 @@ printfn "members %d: same %d, differ %d, failed %d, no oracle %d" candidates.Len
 for KeyValue(k, n) in reasons |> Seq.sortByDescending (fun kv -> kv.Value) |> Seq.truncate 25 do
     printfn "%5d  %s\n      e.g. %s" n k samples.[k]
 if unsupported.Count > 0 then printfn "unsupported FCS nodes: %A" (List.ofSeq unsupported)
+
+// ---- Resolution refuses rather than guesses (#225): a lone candidate of the right name and shape
+// whose signature differs (as when a referenced assembly differs at run time) is not bound.
+let refused (m: MemberRef) =
+    try methodOf (Dictionary()) m [] [] |> ignore; false with Unsupported _ -> true
+let int32 = TNamed("System.Runtime", "System.Int32", [])
+let mathAbs = { Declaring = TNamed("System.Runtime", "System.Math", []); Name = "Abs"; Instance = false; GenericArity = 0; Parameters = [ int32 ]; Return = int32 }
+let exactOk = not (refused mathAbs)
+let wrongParam = refused { mathAbs with Parameters = [ TNamed("System.Runtime", "System.String", []) ] }
+let wrongReturn = refused { mathAbs with Return = TNamed("System.Runtime", "System.Int64", []) }
+// Path.GetTempPath has one overload: right name and shape, wrong return type.
+let lone = refused { Declaring = TNamed("System.Runtime", "System.IO.Path", []); Name = "GetTempPath"; Instance = false; GenericArity = 0; Parameters = []; Return = int32 }
+printfn "signature checks: exact binds %b, wrong parameter refused %b, wrong return refused %b, lone candidate refused %b" exactOk wrongParam wrongReturn lone
+if not (exactOk && wrongParam && wrongReturn && lone) then exit 1

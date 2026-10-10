@@ -14,9 +14,11 @@ module internal Bodies =
 
     // ---- Encoding: FCS → wire. Names only: nothing here touches reflection.
 
-    let rec typeRef (t: FSharpType) : TypeRef =
+    /// A type by name; a generic parameter as `param` says (its name, or its position in a signature).
+    let rec typeRefWith (param: FSharpGenericParameter -> TypeRef) (t: FSharpType) : TypeRef =
+        let typeRef = typeRefWith param
         if t.IsAbbreviation then typeRef t.AbbreviatedType
-        elif t.IsGenericParameter then TParam t.GenericParameter.Name
+        elif t.IsGenericParameter then param t.GenericParameter
         elif t.IsFunctionType then TNamed("FSharp.Core", "Microsoft.FSharp.Core.FSharpFunc`2", [ typeRef t.GenericArguments.[0]; typeRef t.GenericArguments.[1] ])
         elif t.IsStructTupleType then TTuple(true, [ for a in t.GenericArguments -> typeRef a ])
         elif t.IsTupleType then TTuple(false, [ for a in t.GenericArguments -> typeRef a ])
@@ -31,6 +33,8 @@ module internal Bodies =
             else
                 let args = [ for a in t.GenericArguments do if not a.IsMeasureType then typeRef a ]
                 TNamed(entityAssembly e, entityName e, args)
+
+    and typeRef (t: FSharpType) : TypeRef = typeRefWith (fun p -> TParam p.Name) t
 
     and entityAssembly (e: FSharpEntity) = e.Assembly.SimpleName
 
@@ -48,10 +52,21 @@ module internal Bodies =
             match m.DeclaringEntity with
             | Some e -> TNamed(entityAssembly e, entityName e, [])
             | None -> failwithf "no declaring entity: %s" m.LogicalName
+        // FCS lists the enclosing type's parameters first; the compiled method has the rest.
+        let typeParams = match m.DeclaringEntity with Some e when not e.IsFSharpModule -> List.ofSeq e.GenericParameters | _ -> []
+        let methodParams = m.GenericParameters |> Seq.skip (min typeParams.Length m.GenericParameters.Count) |> List.ofSeq
+        // In the signature a generic parameter is its position, as IL has it (`!!i` the method's,
+        // `!i` the type's), found by identity: compiled names need not be the source's, nor distinct.
+        let position (p: FSharpGenericParameter) =
+            match List.tryFindIndex ((=) p) methodParams, List.tryFindIndex ((=) p) typeParams with
+            | Some i, _ -> TParam("!!" + string i)
+            | None, Some i -> TParam("!" + string i)
+            | None, None -> TParam p.Name
+        let signature = typeRefWith position
         let parameters =
             [ for g in m.CurriedParameterGroups do
                 for p in g do
-                    yield typeRef p.Type ]
+                    yield signature p.Type ]
             // A function of unit compiles with no parameter.
             |> function
                 | [ TNamed(_, "Microsoft.FSharp.Core.Unit", []) ] -> []
@@ -60,17 +75,14 @@ module internal Bodies =
             |> fun ps ->
                 if m.IsExtensionMember && m.IsInstanceMember then
                     let e = m.ApparentEnclosingEntity.Value
-                    TNamed(entityAssembly e, entityName e, [ for p in e.GenericParameters -> TParam p.Name ]) :: ps
+                    TNamed(entityAssembly e, entityName e, [ for p in e.GenericParameters -> position p ]) :: ps
                 else ps
         { Declaring = declaring
           Name = m.CompiledName
           Instance = m.IsConstructor || (m.IsInstanceMember && not m.IsExtensionMember)
-          // FCS lists the enclosing type's parameters too.
-          GenericArity =
-            let enclosing = match m.DeclaringEntity with Some e -> [ for p in e.GenericParameters -> p.Name ] | None -> []
-            m.GenericParameters |> Seq.filter (fun p -> not (List.contains p.Name enclosing)) |> Seq.length
+          GenericArity = methodParams.Length
           Parameters = parameters
-          Return = typeRef m.ReturnParameter.Type }
+          Return = signature m.ReturnParameter.Type }
 
     // ---- Members that hold a block: a call to the builder's Run with caller information.
 
