@@ -191,3 +191,15 @@ let ``parameters named like a split tuple's elements are themselves, and a real 
     userNamedTupled (Widget(), 4) |> should equal 7
     userNamedCurried (Widget()) 4 |> should equal 7
     realSplit (Widget(), 4) |> should equal 7
+
+/// With the attribute, so the oracle compares the map's body with it: or-patterns binding a variable,
+/// whose target the quotation copies into each leaf that reaches it.
+[<ReflectedDefinition>]
+let private orPatterns (w: obj) (c: Choice<int, int>) (xs: int list) : int =
+    let a = match c with Choice1Of2 x | Choice2Of2 x -> x
+    let b = match xs with [ x ] | [ _; x ] -> x | _ -> 0
+    dlr { return w?Count + a * 10 + b }
+
+[<Fact>]
+let ``or-patterns before a block`` () =
+    orPatterns (Widget()) (Choice2Of2 4) [ 1; 2 ] |> should equal 45
