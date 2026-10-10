@@ -17,7 +17,7 @@ variable to the wrong field. The compiler, though, knows the answer when it buil
 ## What it computes
 
 `FSharp.Interop.Dlr.Build` type-checks the project with FCS once (`Check.project`, the project's
-own fsc arguments) and runs a pass per map section over that one check.
+own fsc arguments, and the FCS of the compiler that builds it) and runs a pass per map section over that one check.
 
 The `fields` pass (`Fields.run`) reads FCS's optimized tree and, for each block, takes the state
 machine's fields the way code generation makes them: the free locals of the block's
@@ -94,8 +94,12 @@ Release and fails on any rejected entry.
 
 - The recipe mirrors compiler internals: the stamp (read through reflection on FCS) and the
   naming rule. A compiler that changes either makes maps stop matching, which turns the feature
-  off rather than making it wrong. The companion's FCS is pinned to the version matching SDK
-  10.0.400's compiler.
+  off rather than making it wrong.
+- The companion runs the FCS of the compiler that builds the project: the build passes the fsc.dll
+  it compiles with (the SDK's, unless the project points elsewhere), and the companion loads
+  FSharp.Compiler.Service and FSharp.Core from beside it in a load context of its own, so a new
+  SDK's map describes the new compiler. If that fails (no FCS there, an API that moved), it
+  writes an empty map: every block keeps the strict behaviour, and the build goes on.
 - The project is checked twice per build: once by the companion, once by fsc.
 - A block in an `inline` function is expanded into its callers and stays refused (DLR004), so
   SRTP witness fields never reach the map.

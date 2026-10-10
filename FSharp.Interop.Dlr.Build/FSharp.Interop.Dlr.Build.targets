@@ -48,6 +48,10 @@
     <PropertyGroup>
       <_DlrCompanionArgs>$(ProjectDir)$(IntermediateOutputPath)dlr.companion.fscargs</_DlrCompanionArgs>
       <_DlrCompanionMap>$(ProjectDir)$(IntermediateOutputPath)dlr.capturemap</_DlrCompanionMap>
+      <!-- The compiler that builds the project (the SDK's, unless the project points elsewhere):
+           the companion runs its FCS, so the map describes what it emits. -->
+      <_DlrCompanionFsc>$(DotnetFscCompilerPath.Trim('"'))</_DlrCompanionFsc>
+      <_DlrCompanionFcs>$([System.IO.Path]::GetDirectoryName($(_DlrCompanionFsc)))/FSharp.Compiler.Service.dll</_DlrCompanionFcs>
     </PropertyGroup>
   </Target>
 
@@ -59,9 +63,10 @@
     <WriteLinesToFile File="$(_DlrCompanionArgs)" Lines="@(_DlrCompanionFscArg)" Overwrite="true" WriteOnlyWhenDifferent="true" />
   </Target>
 
-  <!-- Incremental: the map is rewritten only when a source, the arguments or the tool changed. -->
-  <Target Name="_DlrCompanionRun" Inputs="@(Compile);$(_DlrCompanionArgs);$(DlrCompanionTool)" Outputs="$(_DlrCompanionMap)">
-    <Exec Command="dotnet &quot;$(DlrCompanionTool)&quot; &quot;$(_DlrCompanionArgs)&quot; &quot;$(MSBuildProjectDirectory)&quot; &quot;$(_DlrCompanionMap)&quot;" />
+  <!-- Incremental: the map is rewritten only when a source, the arguments, the tool or the
+       compiler changed (a new SDK). -->
+  <Target Name="_DlrCompanionRun" Inputs="@(Compile);$(_DlrCompanionArgs);$(DlrCompanionTool);$(_DlrCompanionFcs)" Outputs="$(_DlrCompanionMap)">
+    <Exec Command="dotnet &quot;$(DlrCompanionTool)&quot; --compiler &quot;$(_DlrCompanionFsc)&quot; &quot;$(_DlrCompanionArgs)&quot; &quot;$(MSBuildProjectDirectory)&quot; &quot;$(_DlrCompanionMap)&quot;" />
   </Target>
 
 </Project>
