@@ -14,6 +14,11 @@ open System.Text
 /// compiler keeps nowhere.
 type internal CaptureEntry = { Field: string; Name: string; Ordinal: int; Element: int option; Unused: bool }
 
+/// A block's `fields` section: its entries, and per name they use, how many bindings of that name
+/// the companion counted in the member (the run time refuses the block if the quotation has
+/// another number: the companion and the quotation laid the member out differently).
+type internal CaptureFields = { Entries: CaptureEntry list; Counts: Map<string, int> }
+
 /// The capture map a build companion embeds (`FSharp.Interop.Dlr.CaptureMap`, written by
 /// FSharp.Interop.Dlr.Build): per dlr { } block, which variable each field of its state machine
 /// holds (`fields`, so captures bind exactly instead of by name) and the body of its member
@@ -23,12 +28,14 @@ type internal CaptureEntry = { Field: string; Name: string; Ordinal: int; Elemen
 /// Format 2, one resource: an uncompressed header of tab-separated lines, `DLRMAP 2`, then
 /// `F offset length file` per source file, then an empty line; after it, each file's blob,
 /// raw-deflated, at its offset from the header's end. A blob holds that file's blocks as lines:
-/// `B file line` starts a block; `S section` one of its optional sections; `fields` holds
-/// `V field name ordinal`, `E field name ordinal element` and `U name ordinal element` (a split
-/// tuple's element nothing keeps); `body` lines are BodyMap's. A file's blob is inflated the first
-/// time one of its blocks is looked up. A map of another version, or a malformed one, is ignored
-/// whole, and a block without a section has none: every such block keeps the strict behaviour,
-/// or for a body, needs the attribute.
+/// `B file line` starts a block (blobs are per file, so its file is the blob's); `S section` one of
+/// its optional sections; `fields` holds `V field name ordinal`, `E field name ordinal element`,
+/// `U name ordinal element` (a split tuple's element nothing keeps) and `N name count`; `body`
+/// lines are BodyMap's. A file's blob is inflated the first time one of its blocks is looked up.
+///
+/// Anything malformed is never an exception: a bad header or `F` line, a blob that does not
+/// inflate, and the map is ignored whole; a bad line inside a block's `fields`, and that block has
+/// no fields. Such a block keeps the strict behaviour, or for a body, needs the attribute.
 module internal CaptureMap =
 
     [<Literal>]
@@ -41,8 +48,8 @@ module internal CaptureMap =
     [<Literal>]
     let Version = "2"
 
-    /// A block's sections: its fields when it has a `fields` section, and its `body` lines.
-    type private Block = { Fields: CaptureEntry list option; Body: string list option }
+    /// A block's sections: its fields when it has a well-formed `fields` section, and its `body` lines.
+    type private Block = { Fields: CaptureFields option; Body: string list option }
 
     /// An assembly's map: per source file, its blob (offset, length) and, once a block of it was
     /// looked up, its blocks.
@@ -54,8 +61,14 @@ module internal CaptureMap =
 
     let private byAssembly = ConcurrentDictionary<Assembly, Resource option>()
 
-    /// The header: the version line, the `F` lines, the empty line. None when it is not format 2.
-    let private load (assembly: Assembly) : Resource option =
+    let private natural (text: string) =
+        match Int32.TryParse(text, Globalization.NumberStyles.None, Globalization.CultureInfo.InvariantCulture) with
+        | true, n -> Some n
+        | _ -> None
+
+    /// The header: the version line, the `F` lines, the empty line. None when it is not format 2,
+    /// or any of it is malformed.
+    let private read (assembly: Assembly) : Resource option =
         match (try assembly.GetManifestResourceStream ResourceName with _ -> null) with
         | null -> None
         | stream ->
@@ -72,15 +85,37 @@ module internal CaptureMap =
                 if lines.[0] <> "DLRMAP\t" + Version then None
                 else
                     let files = Dictionary<string, struct (int * int)>()
-                    let mutable ok = true
-                    for l in Seq.skip 1 lines do
-                        match l.Split '\t' with
-                        | [| "F"; offset; length; file |] ->
-                            let o, n = int offset, int length
-                            if o < 0 || n < 0 || start + o + n > bytes.Length then ok <- false
-                            else files.[file] <- struct (o, n)
-                        | _ -> ok <- false
-                    if ok then Some { Bytes = bytes; Start = start; Files = files; Parsed = ConcurrentDictionary() } else None
+                    let available = int64 bytes.Length - int64 start
+                    let wellFormed =
+                        Seq.skip 1 lines |> Seq.forall (fun l ->
+                            match l.Split '\t' with
+                            | [| "F"; offset; length; file |] ->
+                                match natural offset, natural length with
+                                | Some o, Some n when int64 o + int64 n <= available && not (files.ContainsKey file) ->
+                                    files.[file] <- struct (o, n)
+                                    true
+                                | _ -> false
+                            | _ -> false)
+                    if wellFormed then Some { Bytes = bytes; Start = start; Files = files; Parsed = ConcurrentDictionary() } else None
+
+    let private load (assembly: Assembly) : Resource option = try read assembly with _ -> None
+
+    /// A `fields` line, or None when it is malformed.
+    let private fieldLine (parts: string[]) : Choice<CaptureEntry, string * int> option =
+        match parts with
+        | [| "V"; field; name; ordinal |] ->
+            natural ordinal |> Option.map (fun n -> Choice1Of2 { Field = field; Name = name; Ordinal = n; Element = None; Unused = false })
+        | [| "E"; field; name; ordinal; element |] ->
+            match natural ordinal, natural element with
+            | Some n, Some i -> Some(Choice1Of2 { Field = field; Name = name; Ordinal = n; Element = Some i; Unused = false })
+            | _ -> None
+        // A split tuple's element nothing in the optimized member keeps.
+        | [| "U"; name; ordinal; element |] ->
+            match natural ordinal, natural element with
+            | Some n, Some i -> Some(Choice1Of2 { Field = ""; Name = name; Ordinal = n; Element = Some i; Unused = true })
+            | _ -> None
+        | [| "N"; name; count |] -> natural count |> Option.map (fun c -> Choice2Of2(name, c))
+        | _ -> None
 
     /// A file's blocks, by line, from its inflated blob.
     let private parse (map: Resource) (file: string) : IReadOnlyDictionary<int, Block> =
@@ -92,34 +127,35 @@ module internal CaptureMap =
             use reader = new StreamReader(inflate, Encoding.UTF8)
             let mutable key = None
             let mutable section = ""
-            let mutable fields = None
+            // A block's fields: None while there is no section, or once a line of it is malformed.
+            let mutable fields: (CaptureEntry list * Map<string, int>) option = None
+            let mutable broken = false
             let mutable body = None
             let flush () =
                 match key with
-                | Some k -> blocks.[k] <- { Fields = fields |> Option.map List.rev; Body = body |> Option.map List.rev }
+                | Some k ->
+                    let fields = if broken then None else fields |> Option.map (fun (es, counts) -> { Entries = List.rev es; Counts = counts })
+                    blocks.[k] <- { Fields = fields; Body = body |> Option.map List.rev }
                 | None -> ()
             let mutable line = reader.ReadLine()
             while not (isNull line) do
                 match section, line.Split '\t' with
                 | _, [| "B"; _; at |] ->
                     flush ()
-                    key <- Some(int at)
+                    key <- natural at
                     section <- ""
                     fields <- None
+                    broken <- false
                     body <- None
                 | _, [| "S"; name |] ->
                     section <- name
-                    if name = "fields" then fields <- Some []
+                    if name = "fields" then fields <- Some([], Map.empty)
                     elif name = "body" then body <- Some []
                 | "fields", parts ->
-                    let entry =
-                        match parts with
-                        | [| "V"; field; name; ordinal |] -> Some { Field = field; Name = name; Ordinal = int ordinal; Element = None; Unused = false }
-                        | [| "E"; field; name; ordinal; element |] -> Some { Field = field; Name = name; Ordinal = int ordinal; Element = Some(int element); Unused = false }
-                        // A split tuple's element nothing in the optimized member keeps.
-                        | [| "U"; name; ordinal; element |] -> Some { Field = ""; Name = name; Ordinal = int ordinal; Element = Some(int element); Unused = true }
-                        | _ -> None
-                    entry |> Option.iter (fun e -> fields <- fields |> Option.map (fun es -> e :: es))
+                    match fieldLine parts, fields with
+                    | Some(Choice1Of2 e), Some(es, counts) -> fields <- Some(e :: es, counts)
+                    | Some(Choice2Of2(name, c)), Some(es, counts) -> fields <- Some(es, Map.add name c counts)
+                    | _ -> broken <- true
                 // A body line is BodyMap's, kept as written (its payload escaping included).
                 | "body", _ -> body <- body |> Option.map (fun ls -> line :: ls)
                 | _ -> ()
@@ -131,13 +167,15 @@ module internal CaptureMap =
     let private block (assembly: Assembly) (file: string) (line: int) : Block option =
         match byAssembly.GetOrAdd(assembly, load) with
         | Some map when map.Files.ContainsKey file ->
-            match map.Parsed.GetOrAdd(file, parse map).TryGetValue line with
+            // A blob that does not inflate is no map for that file.
+            let blocks = map.Parsed.GetOrAdd(file, fun f -> try parse map f with _ -> (Dictionary<int, Block>() :> IReadOnlyDictionary<_, _>))
+            match blocks.TryGetValue line with
             | true, b -> Some b
             | _ -> None
         | _ -> None
 
-    /// The block's field entries, when its assembly's map has a `fields` section for its file and line.
-    let find (assembly: Assembly) (file: string) (line: int) : CaptureEntry list option =
+    /// The block's fields, when its assembly's map has a well-formed `fields` section for its file and line.
+    let find (assembly: Assembly) (file: string) (line: int) : CaptureFields option =
         block assembly file line |> Option.bind (fun b -> b.Fields)
 
     /// The block's `body` lines as the companion wrote them (BodyMap decodes them), when its

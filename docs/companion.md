@@ -27,7 +27,9 @@ machine's fields the way code generation makes them: the free locals of the bloc
 values stored as methods (lambda-lifted `f@12`), ordered by the compiler's stamp (read by
 reflection) and named by the compiler's own unique-naming rule (`x`, `x0`, …). It then attributes
 each field to a source variable, identified as the run time can find it again in the quotation:
-its name and its order among the member's bindings of that name. Each rule gives an exact answer
+its name and its order among the member's bindings of that name, counted as the quotation lays
+the member out: a `match` case that two paths reach (an or-pattern binding `x`) is bound at each
+path, so it counts twice, as F# puts it in the quotation. Each rule gives an exact answer
 or none:
 
 - a variable of the source is itself;
@@ -55,7 +57,8 @@ line), then each file's lines raw-deflated. Compressed per file, because the nam
 across members repeat within a file; the run time inflates a file's blob the first time one of
 its blocks is looked up. A file's lines are its blocks: `B file line`, then optional sections,
 `S fields` (`V field name ordinal`, `E field name ordinal element`, `U name ordinal element` for
-a split tuple's element nothing keeps) and `S body`. Blocks are keyed by `Run`'s caller
+a split tuple's element nothing keeps, and `N name count`: for each name the entries use, how
+many bindings of it the companion counted in the member) and `S body`. Blocks are keyed by `Run`'s caller
 information, the same file and line the run time has; under a path map (deterministic builds)
 FCS applies the same mapping, so the keys still match.
 
@@ -69,28 +72,43 @@ configuration (a Debug build has no state machines, so no fields, but bodies):
   return its arguments; project references are not rebuilt);
 - the companion writes the map under obj, incrementally (only when a source, the arguments or the
   tool changed);
-- the map goes to fsc as a resource, so nothing is rewritten after compiling;
+- the map goes to fsc as a resource item (quoted, so a path with spaces works), so nothing is
+  rewritten after compiling; an IDE's design-time build skips the step;
 - the map and the companion setting are compile inputs, so a new map, or switching the companion
   off, recompiles.
 
 ## At run time
 
 `CaptureMap.find` gives a block's fields, `CaptureMap.body` its body lines. The run time binds
-through the fields only when they match the machine exactly: every entry a variable of the member,
-its field one of the machine's, of a type that fits, and no field left out. Otherwise the block
-keeps the strict behaviour. A map of another version is ignored whole. So a stale map, a map from
-a different compiler, or a companion bug can make a block refuse, never bind a variable to the
-wrong field. `DLR_CAPTURE_MAP_TRACE=1` reports per block whether it bound through the map, and why
-not.
+through the fields only when all of these hold, and otherwise keeps the strict behaviour:
+
+- every entry names a variable of the member, its field is one of the machine's, of a type that
+  fits, and no field is left out;
+- for each name the entries use, the map's binding count (`N`) is the quotation's: the companion
+  and the quotation laid the member out alike, so `(name, order)` means the same variable to both;
+- every variable the map gives a field is upstream of the block: one of its free variables, or a
+  variable of their definitions in the member, transitively.
+
+A map of another version, or a malformed one, is no map, never an exception. The checks matter
+because the run time cannot tell two same-named variables of the same type apart by themselves:
+a companion layout that disagreed with the quotation would bind the wrong one. That happened
+before the count was checked (a `match` case two paths reach, before two same-named variables),
+and the count now refuses it: with the companion's old layout the trace reads `'x' bound 3 times in
+the map, 4 in the quotation`. So a stale map, a map from a different compiler, or a companion bug
+makes a block refuse whenever it changes a name's count or points outside the block's upstream;
+the safety otherwise rests on the companion mirroring the quotation's layout, which the CI job
+and the regression tests in `Tests/Cache.fs` exercise. `DLR_CAPTURE_MAP_TRACE=1` reports per
+block whether it bound through the map, and why not.
 
 ## Results
 
-On this repository's `Tests` (Release, macOS): 2,207 lines with a block, 2,205 mapped; the two
-left are the shapes the strict mode pins for refusal. With the map embedded the suite passes and
-2,154 blocks bind exactly through it; the other blocks the trace reports are closures, which have
-no state machine (a function-typed block applied on the spot, including a `let`-bound one applied
-once). No map entry is ever rejected. The CI job `companion` builds `Tests` this way in Debug and
-Release and fails on any rejected entry.
+On this repository's `Tests` (Release, macOS): with the map embedded the suite passes and 2,158
+blocks bind exactly through it; the other blocks the trace reports are closures, which have no
+state machine (a function-typed block applied on the spot, including a `let`-bound one applied
+once), and the two shapes the strict mode pins for refusal have no entry. No map entry is
+rejected. The CI job `companion` builds `Tests` this way in Debug and Release and fails on any
+rejected entry; "0 rejected" shows the companion and the quotation agree on the suite's shapes,
+not that they agree on every shape, which is what the run-time checks are for.
 
 ## Limits
 
@@ -103,5 +121,8 @@ Release and fails on any rejected entry.
   SDK's map describes the new compiler. If that fails (no FCS there, an API that moved), it
   writes an empty map: every block keeps the strict behaviour, and the build goes on.
 - The project is checked twice per build: once by the companion, once by fsc.
+- Two same-named variables of the same type, or two same-typed elements of one tuple, are told
+  apart only by the companion's layout: the run-time checks catch a layout that changes a count or
+  leaves the block's upstream, not one that swaps two such variables and keeps both.
 - A block in an `inline` function is expanded into its callers and stays refused (DLR004), so
   SRTP witness fields never reach the map.
