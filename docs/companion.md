@@ -1,9 +1,11 @@
 # The build companion
 
-An opt-in build step, academic rather than a product: everything here works without it, and a
-`dlr { }` block that sticks to the shapes in [restrictions](restrictions.md) never needs it. It
-answers one question exactly that the run time otherwise answers by inference or refuses: which
-source variable each field of a block's state machine holds.
+An opt-in build step, for 2.0 (1.0 is attribute-only; the companion is developed on the `v2`
+branch). Everything works without it, and a `dlr { }` block that sticks to the shapes in
+[restrictions](restrictions.md) never needs it. It answers one question exactly that the run time
+otherwise answers by inference or refuses: which source variable each field of a block's state
+machine holds. Its `body` section, from the same build step, lets a block do without
+`[<ReflectedDefinition>]`.
 
 ## The problem it answers
 
