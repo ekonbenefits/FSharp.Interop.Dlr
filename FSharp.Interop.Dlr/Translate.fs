@@ -67,16 +67,26 @@ module internal Translate =
                 go b
             | ShapeCombination(_, es) -> for x in es do go x
         go memberBody
-        byIdentity
+        byIdentity, counts
 
     /// The fields a capture map gives this block's variables, when it matches the machine exactly:
     /// every entry a variable of the member, its field one of the machine's of a type that fits,
     /// and the machine no field the map leaves out. Otherwise None, and the block keeps the strict
-    /// binding by name.
-    let private exactly (closureType: Type) (fields: Collections.Generic.IDictionary<string, Reflection.FieldInfo>) (memberBody: Expr) (entries: CaptureEntry list) =
-        if not closureType.IsValueType then None
+    /// binding by name. Two checks hold the companion to the quotation, since a variable is found
+    /// by its name and its order among the member's bindings of that name, and a same-named
+    /// variable of the same type would fit just as well: per name the entries use, the map's count
+    /// of bindings must be the quotation's (the two laid the member out alike), and every variable
+    /// the map gives a field must be upstream of the block (`upstream`).
+    let private exactly (closureType: Type) (fields: Collections.Generic.IDictionary<string, Reflection.FieldInfo>) (memberBody: Expr) (upstream: Collections.Generic.HashSet<Var>) (map: CaptureFields) : Result<Map<Var * int option, Reflection.FieldInfo> * Set<Var * int>, string> =
+        if not closureType.IsValueType then Error "a closure, not a state machine"
         else
-        let ids = identities memberBody
+        let ids, idCounts = identities memberBody
+        let layout =
+            map.Entries |> List.map (fun e -> e.Name) |> List.distinct |> List.tryPick (fun name ->
+                match map.Counts.TryFind name, idCounts.TryGetValue name with
+                | Some c, (true, n) when c = n -> None
+                | Some c, (found, n) -> Some(sprintf "'%s' bound %d times in the map, %d in the quotation" name c (if found then n else 0))
+                | None, _ -> Some(sprintf "no count of '%s' in the map" name))
         let fits (f: Reflection.FieldInfo) (v: Var) (element: int option) =
             match element with
             | None ->
@@ -84,36 +94,58 @@ module internal Translate =
                 || (f.FieldType.IsGenericType && f.FieldType.GetGenericTypeDefinition() = typedefof<Ref<_>> && f.FieldType.GetGenericArguments().[0] = v.Type)
             | Some i ->
                 FSharp.Reflection.FSharpType.IsTuple v.Type && not v.Type.IsValueType
-                && i < (FSharp.Reflection.FSharpType.GetTupleElements v.Type).Length
+                && i >= 0 && i < (FSharp.Reflection.FSharpType.GetTupleElements v.Type).Length
                 && f.FieldType = (FSharp.Reflection.FSharpType.GetTupleElements v.Type).[i]
         let unused =
-            entries |> List.filter (fun e -> e.Unused) |> List.choose (fun e ->
+            map.Entries |> List.filter (fun e -> e.Unused) |> List.choose (fun e ->
                 match ids.TryGetValue(struct (e.Name, e.Ordinal)), e.Element with
                 | (true, v), Some i -> Some(v, i)
                 | _ -> None)
-        let entries = entries |> List.filter (fun e -> not e.Unused)
+        let entries = map.Entries |> List.filter (fun e -> not e.Unused)
         let resolved =
             entries |> List.map (fun e ->
                 match ids.TryGetValue(struct (e.Name, e.Ordinal)), fields.TryGetValue e.Field with
-                | (true, v), (true, f) when fits f v e.Element -> Some((v, e.Element), f)
-                | _ -> None)
+                | (true, v), (true, f) when not (fits f v e.Element) -> Error(sprintf "'%s' (%s %d) does not fit field %s" e.Name e.Name e.Ordinal e.Field)
+                | (true, v), (true, _) when not (upstream.Contains v) -> Error(sprintf "'%s' (%s %d) is not a variable the block reaches" e.Name e.Name e.Ordinal)
+                | (true, v), (true, f) -> Ok((v, e.Element), f)
+                | (false, _), _ -> Error(sprintf "no variable %s %d in the member" e.Name e.Ordinal)
+                | _, (false, _) -> Error(sprintf "no field %s in the machine" e.Field))
         let mapped = entries |> List.map (fun e -> e.Field) |> Set.ofList
-        if List.forall Option.isSome resolved && mapped = Set.ofSeq fields.Keys && mapped.Count = entries.Length then
-            Some(resolved |> List.choose id |> Map.ofList, Set.ofList unused)
-        else None
+        match layout, resolved |> List.tryPick (function Error m -> Some m | Ok _ -> None) with
+        | Some m, _ | None, Some m -> Error m
+        | None, None when mapped <> Set.ofSeq fields.Keys || mapped.Count <> entries.Length -> Error "the map's fields are not the machine's"
+        | None, None -> Ok(resolved |> List.choose (function Ok r -> Some r | Error _ -> None) |> Map.ofList, Set.ofList unused)
 
-    let translate (name: string) (builderType: Type) (context: Type) (memberBody: Expr) (closureType: Type) (resultType: Type) (body: Expr) (captureMap: CaptureEntry list option) : Compiled =
+    /// The variables a block's value can come from: its free variables and, transitively, every
+    /// variable of their definitions in the member, free or bound there (a field may hold any of
+    /// them: the optimizer captures what a definition reads, or binds, when it inlines or splits
+    /// it). A variable outside it no field can hold.
+    let private upstream (memberBody: Expr) (body: Expr) : Collections.Generic.HashSet<Var> =
+        let seen = Collections.Generic.HashSet<Var>()
+        let rec vars (e: Expr) : Var list =
+            match e with
+            | ShapeVar v -> [ v ]
+            | ShapeLambda(v, b) -> v :: vars b
+            | ShapeCombination(_, es) -> List.collect vars es
+        let rec go (v: Var) =
+            if seen.Add v then
+                match letDefinition v memberBody |> Option.orElse (parameterArgument v memberBody) with
+                | Some d -> for w in vars d do go w
+                | None -> ()
+        for v in body.GetFreeVars() do go v
+        seen
+
+    let translate (name: string) (builderType: Type) (context: Type) (memberBody: Expr) (closureType: Type) (resultType: Type) (body: Expr) (captureMap: CaptureFields option) : Compiled =
         let closure = if closureType.IsValueType then Var("sm", closureType) else Var("closure", typeof<obj>)
         let fields = Captures.fields closureType
         let reached, aliases = Captures.reached fields memberBody body
-        let exact = captureMap |> Option.bind (exactly closureType fields memberBody)
+        let checkedMap = captureMap |> Option.map (fun map -> exactly closureType fields memberBody (upstream memberBody body) map)
+        let exact = match checkedMap with Some(Ok r) -> Some r | _ -> None
         // DLR_CAPTURE_MAP_TRACE=1: whether each block (once, at translation) bound through the map.
         if CaptureMap.trace then
             let why =
-                match captureMap, exact with
-                | Some _, None when not closureType.IsValueType -> " (a closure, not a state machine)"
-                | Some entries, None ->
-                    sprintf " (map %A, machine %A)" (entries |> List.filter (fun e -> not e.Unused) |> List.map (fun e -> e.Field + "=" + e.Name)) (List.ofSeq fields.Keys)
+                match checkedMap with
+                | Some(Error reason) -> sprintf " (%s)" reason
                 | _ -> ""
             // One write per line: blocks translate on many threads at once.
             Console.Error.WriteLine(sprintf "dlr capture map: %s %s%s" (match captureMap, exact with | None, _ -> "none  " | Some _, Some _ -> "exact " | Some _, None -> "strict") name why)

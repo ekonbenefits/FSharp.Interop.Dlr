@@ -134,6 +134,8 @@ module Fields =
         // The body may rebuild a split parameter's tuple (`let x = (x_0, x_1)`): that is the parameter
         // itself, not a binding of its own.
         let rebuilt = HashSet<string * string>()
+        // The decision trees being walked, innermost first: a leaf's targets.
+        let trees = Stack<(FSharpMemberOrFunctionOrValue list * FSharpExpr) list>()
         let rec go (e: FSharpExpr) =
             match e with
             | FSharpExprPatterns.Let((v, (FSharpExprPatterns.NewTuple(_, es) as d), _), b)
@@ -150,22 +152,32 @@ module Fields =
             | FSharpExprPatterns.Application(FSharpExprPatterns.Lambda(v, b), _, [ arg ]) -> bindRanges.[sourceKey v] <- e.Range; order.Add((v, Some arg)); go b; go arg
             | FSharpExprPatterns.Lambda(v, b) -> order.Add((v, None)); go b
             | FSharpExprPatterns.TryWith(b, v1, f, v2, h, _, _) -> go b; order.Add((v1, None)); go f; order.Add((v2, None)); go h
-            | FSharpExprPatterns.DecisionTree(d, targets) -> go d; for (vs, t) in targets do (for v in vs do order.Add((v, None))); go t
+            // As the quotation has a match (QuotationTranslator.ConvDecisionTree): a target is
+            // inlined at every leaf that reaches it, its variables bound and its body there each
+            // time, so a target two leaves reach (an or-pattern binding `x`) binds `x` twice.
+            | FSharpExprPatterns.DecisionTree(d, targets) -> trees.Push targets; go d; trees.Pop() |> ignore
+            | FSharpExprPatterns.DecisionTreeSuccess(i, es) when trees.Count > 0 && i < trees.Peek().Length ->
+                let vs, t = trees.Peek().[i]
+                for x in es do go x
+                (for v in vs do order.Add((v, None))); go t
             | _ -> for x in e.ImmediateSubExpressions do go x
         go body
         let counts = Dictionary<string, int>()
         let ordinals = Dictionary<string * string, int>()
+        // A target two leaves reach is bound twice: both count, the first stands for the value.
+        let seen = HashSet<string * string>()
         let entries =
-            [ for (v, d) in order ->
+            [ for (v, d) in order do
                 let name = match splitElements.TryGetValue(sourceKey v) with | true, (b, _) -> b | _ -> v.LogicalName
                 if rebuilt.Contains(sourceKey v) then
                     // The split parameter of that name, bound last.
-                    sourceKey v, (v, counts.[name] - 1, d)
+                    yield sourceKey v, (v, counts.[name] - 1, d)
                 else
                 let n = match counts.TryGetValue name with | true, n -> n | _ -> 0
                 counts.[name] <- n + 1
-                ordinals.[(name, v.DeclarationLocation.ToString())] <- n
-                sourceKey v, (v, n, d) ]
+                if seen.Add(sourceKey v) then
+                    ordinals.[(name, v.DeclarationLocation.ToString())] <- n
+                    yield sourceKey v, (v, n, d) ]
         // The other elements of a split parameter share its ordinal.
         let extra =
             [ for group in args do
@@ -174,7 +186,7 @@ module Fields =
                     let n = ordinals.[(name, group.Head.DeclarationLocation.ToString())]
                     for v in group.Tail -> sourceKey v, (v, n, None)
                 | None -> () ]
-        dict (entries @ extra)
+        dict (entries @ extra), (counts :> IReadOnlyDictionary<string, int>)
 
     /// The source range a variable's value comes from: its definition, through element projections
     /// of tuple literals (a pattern binds `x` as an element of its input's literal) and union cases'
@@ -248,7 +260,7 @@ module Fields =
                         | _ -> ()
                         for x in e.ImmediateSubExpressions do lambdas x
                     lambdas obody
-                    let bySource = bindings uargs ubody
+                    let bySource, nameCounts = bindings uargs ubody
                     let rec machines (e: FSharpExpr) =
                         match e with
                         | FSharpExprPatterns.Call(_, mfv, _, _, _) when mfv.CompiledName = "__stateMachine" ->
@@ -402,9 +414,20 @@ module Fields =
                                                     for x in e.ImmediateSubExpressions do binder x
                                                 binder obody
                                                 eprintfn "    (searched the optimized member %s)" omfv.CompiledName
+                                // Per name the entries use, how many bindings of it the member has as the
+                                // quotation lays them out: the run time counts the quotation's and refuses
+                                // the block on any difference, so a layout this pass got wrong is a refusal.
+                                let counted =
+                                    [ for a in attributed do
+                                        match snd a with
+                                        | Some(name, _, _) -> yield name
+                                        | None -> ()
+                                      for u in unused -> (u.Split '\t').[1] ]
+                                    |> List.distinct
+                                    |> List.map (fun name -> sprintf "N\t%s\t%d" name (match nameCounts.TryGetValue name with | true, n -> n | _ -> 0))
                                 let block =
                                     if List.forall Option.isSome entries then
-                                        Some([ sprintf "B\t%s\t%d" file line; "S\tfields" ] @ (entries |> List.map Option.get) @ List.ofSeq unused)
+                                        Some([ sprintf "B\t%s\t%d" file line; "S\tfields" ] @ (entries |> List.map Option.get) @ List.ofSeq unused @ counted)
                                     else None
                                 match byKey.TryGetValue((file, line)) with
                                 | true, found -> found.Add((e.Range.StartColumn, block))
