@@ -80,6 +80,21 @@ let ``generic enclosing function: a constrained type parameter the block does no
     constrainedBeside<string, int> w "s" |> should equal "string"
     disposableUnused w (new IO.MemoryStream()) |> should equal 3
 
+/// A generic type's parameter is carried only where the closure uses it, so a member of a
+/// constrained generic type is the same case through the declaring type (#222).
+type StructHolder<'T when 'T : struct>() =
+    static member Count(w: obj) : int = dlr { return w?Count }
+    member _.Instance(w: obj) : int = dlr { return w?Count }
+    member _.Pick(w: obj, x: 'U) : string = dlr { return w?Pick(x) }
+
+[<Fact>]
+let ``generic enclosing type: a constrained type parameter the block does not use`` () =
+    let w = Widget()
+    StructHolder<int>.Count w |> should equal 3
+    StructHolder<DateTime>().Instance w |> should equal 3
+    StructHolder<int>().Pick(w, 1) |> should equal "int"
+    StructHolder<int>().Pick(w, "s") |> should equal "string"
+
 [<Fact>]
 let ``values the optimizer inlines instead of capturing still resolve`` () =
     // In Release, F# inlines constant locals and local functions into the closure instead of

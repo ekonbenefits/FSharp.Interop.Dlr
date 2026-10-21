@@ -75,10 +75,10 @@ module internal Discover =
           Body: Expr }
 
     /// For a block inside a generic member, the closure class carries the member's type parameters
-    /// under the same names, instantiated. Rebuild the member with those arguments so its reflected
-    /// definition comes back with concrete types. A parameter the closure does not carry is unused
-    /// by the block, so any instantiation will do: `obj`, or, where a constraint rejects `obj`
-    /// (#222), the parameter itself, left open.
+    /// (and its type's) that it uses, under the same names, instantiated. Rebuild the member with
+    /// those arguments so its reflected definition comes back with concrete types. A parameter the
+    /// closure does not carry is unused by the block, so any instantiation will do: `obj`, or,
+    /// where a constraint rejects `obj` (#222), the parameter itself, left open.
     let private instantiate (closureType: Type) (m: MethodBase) : MethodBase =
         if not (m.IsGenericMethodDefinition || m.DeclaringType.IsGenericTypeDefinition) then m
         else
