@@ -4,6 +4,9 @@ module Tests.Mutables
 open AnyUnit.Style.Xunit
 open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
+#if DLR_CLOSURES
+open FSharp.Interop.Dlr.Closures
+#endif
 open Microsoft.CSharp.RuntimeBinder
 
 [<Fact>]

@@ -85,7 +85,7 @@ let private memberIsReflected (mfv: FSharpMemberOrFunctionOrValue) =
 let private isDlrRun (mfv: FSharpMemberOrFunctionOrValue) =
     mfv.DisplayName = "Run"
     && (match mfv.DeclaringEntity with
-        | Some e -> (try e.FullName = "FSharp.Interop.Dlr.DlrBuilder" with _ -> false)
+        | Some e -> (try e.FullName = "FSharp.Interop.Dlr.DlrBuilder" || e.FullName = "FSharp.Interop.Dlr.DlrClosureBuilder" with _ -> false)
         | None -> false)
 
 /// Ranges of every `dlr.Run(...)` call in an expression.

@@ -1,4 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <!-- -p:DlrClosures=true runs the suite through FSharp.Interop.Dlr.Closures (no resumable code). -->
+  <PropertyGroup Condition="'$(DlrClosures)' == 'true'">
+    <DefineConstants>$(DefineConstants);DLR_CLOSURES</DefineConstants>
+  </PropertyGroup>
   <PropertyGroup>
     <!-- net48 exercises the library's netstandard2.0 build (and Microsoft.CSharp from a package)
          on the runtime that actually consumes it. On by default where it can run (Windows);

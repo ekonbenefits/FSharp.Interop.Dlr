@@ -10,6 +10,9 @@
     Main with the script's arguments, copy the results file out of Emscripten's in-memory
     filesystem. Recipe from AnyUnit's WhoTestsTheTesters/Tests/Style/FsUnitTests.Wasm.Mtp.
   -->
+  <PropertyGroup Condition="'$(DlrClosures)' == 'true'">
+    <DefineConstants>$(DefineConstants);DLR_CLOSURES</DefineConstants>
+  </PropertyGroup>
   <PropertyGroup>
     <TargetFramework>net10.0-browser</TargetFramework>
     <RuntimeIdentifier>browser-wasm</RuntimeIdentifier>

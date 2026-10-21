@@ -224,3 +224,10 @@ type DlrRun =
         else
         let closure = Delayed<'T>.Of target
         Sites<'T>.Get(builder, closure, file, line).Invoke closure
+
+    /// <summary>The closure builder's path: the block's Delay closure is the function itself.</summary>
+#if NET
+    [<RequiresUnreferencedCode(Unsupported.JitOnly); RequiresDynamicCode(Unsupported.JitOnly)>]
+#endif
+    static member Function<'T>(builder: obj, delayed: unit -> 'T, file: string, line: int) : 'T =
+        Sites<'T>.Get(builder, delayed, file, line).Invoke delayed

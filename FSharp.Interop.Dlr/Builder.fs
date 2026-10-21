@@ -76,3 +76,31 @@ type DlrBuilder() =
 [<AutoOpen>]
 module Builder =
     let dlr = DlrBuilder()
+
+[<Sealed>]
+type DlrClosureBuilder() =
+    member _.Delay(delayed: unit -> 'T) : unit -> 'T = delayed
+    // The body is never executed: Run compiles it from the quotation. The members only type it.
+    [<ExcludeFromCodeCoverage>]
+    member _.Return(value: 'T) : 'T = value
+    [<ExcludeFromCodeCoverage>]
+    member _.Zero() : unit = ()
+    [<ExcludeFromCodeCoverage>]
+    member _.Combine((): unit, rest: unit -> 'T) : 'T = rest ()
+    [<ExcludeFromCodeCoverage>]
+    member _.For(items: seq<'X>, body: 'X -> unit) : unit = for x in items do body x
+    [<ExcludeFromCodeCoverage>]
+    member _.While(guard: unit -> bool, body: unit -> unit) : unit = while guard () do body ()
+    [<ExcludeFromCodeCoverage>]
+    member _.TryWith(body: unit -> 'T, handler: exn -> 'T) : 'T = try body () with e -> handler e
+    [<ExcludeFromCodeCoverage>]
+    member _.TryFinally(body: unit -> 'T, compensation: unit -> unit) : 'T = try body () finally compensation ()
+    [<ExcludeFromCodeCoverage>]
+    member _.Using(resource: 'R, body: 'R -> 'T) : 'T when 'R :> IDisposable = using resource body
+    member this.Run(delayed: unit -> 'T,
+                    [<CallerFilePath; Optional; DefaultParameterValue("")>] file: string,
+                    [<CallerLineNumber; Optional; DefaultParameterValue(0)>] line: int) : 'T =
+        DlrRun.Function(this, delayed, file, line)
+
+module Closures =
+    let dlr = DlrClosureBuilder()

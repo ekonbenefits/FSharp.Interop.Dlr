@@ -6,6 +6,9 @@ open System
 open AnyUnit.Style.Xunit
 open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
+#if DLR_CLOSURES
+open FSharp.Interop.Dlr.Closures
+#endif
 
 /// A block bound as a module-level value. dotnet/fsharp#18672 reports such a value taking the
 /// non-resumable path without FS3511; for this builder Release still builds its state machine.

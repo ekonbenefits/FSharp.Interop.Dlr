@@ -4,6 +4,9 @@ module Tests.Body
 open AnyUnit.Style.Xunit
 open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
+#if DLR_CLOSURES
+open FSharp.Interop.Dlr.Closures
+#endif
 
 [<Fact>]
 let ``let and if in the body`` () =

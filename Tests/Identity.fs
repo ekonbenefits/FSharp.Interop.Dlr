@@ -7,6 +7,9 @@ open System
 open AnyUnit.Style.Xunit
 open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
+#if DLR_CLOSURES
+open FSharp.Interop.Dlr.Closures
+#endif
 
 let private library = typeof<DlrRun>.Assembly
 

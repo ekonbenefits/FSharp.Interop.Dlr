@@ -2,6 +2,9 @@
 module Tests.FSharpLib.Blocks
 
 open FSharp.Interop.Dlr
+#if DLR_CLOSURES
+open FSharp.Interop.Dlr.Closures
+#endif
 
 /// A small function holding a block: the kind the Release optimizer may inline into its callers.
 [<ReflectedDefinition>]

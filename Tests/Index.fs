@@ -5,6 +5,9 @@ open System.Collections.Generic
 open AnyUnit.Style.Xunit
 open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
+#if DLR_CLOSURES
+open FSharp.Interop.Dlr.Closures
+#endif
 
 [<Fact>]
 let ``get index on a dictionary`` () =

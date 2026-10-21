@@ -4,6 +4,9 @@ module Tests.Loops
 open AnyUnit.Style.Xunit
 open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
+#if DLR_CLOSURES
+open FSharp.Interop.Dlr.Closures
+#endif
 
 [<Fact>]
 let ``for over a list calls the site per item`` () =

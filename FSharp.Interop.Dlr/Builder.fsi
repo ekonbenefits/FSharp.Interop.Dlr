@@ -42,3 +42,30 @@ type DlrBuilder =
 module Builder =
     /// <summary>The <c>dlr { }</c> computation expression. Put <c>[&lt;ReflectedDefinition&gt;]</c> on the function or member that contains the block (an enclosing type or module also works, but only when everything in it can be quoted).</summary>
     val dlr: DlrBuilder
+
+/// <summary>
+/// The same <c>dlr { }</c> without resumable code: every block takes the closure path, in
+/// Release too, so no compiler support for state machines is needed. Opened after
+/// <c>FSharp.Interop.Dlr</c>, <c>FSharp.Interop.Dlr.Closures</c> shadows <c>dlr</c> with it.
+/// </summary>
+[<Sealed>]
+type DlrClosureBuilder =
+    new: unit -> DlrClosureBuilder
+    member Delay: delayed: (unit -> 'T) -> (unit -> 'T)
+    member Return: value: 'T -> 'T
+    member Zero: unit -> unit
+    member Combine: unit * rest: (unit -> 'T) -> 'T
+    member For: items: seq<'X> * body: ('X -> unit) -> unit
+    member While: guard: (unit -> bool) * body: (unit -> unit) -> unit
+    member TryWith: body: (unit -> 'T) * handler: (exn -> 'T) -> 'T
+    member TryFinally: body: (unit -> 'T) * compensation: (unit -> unit) -> 'T
+    member Using: resource: 'R * body: ('R -> 'T) -> 'T when 'R :> System.IDisposable
+    member Run:
+        delayed: (unit -> 'T) *
+        [<CallerFilePath; Optional; DefaultParameterValue("")>] file: string *
+        [<CallerLineNumber; Optional; DefaultParameterValue(0)>] line: int ->
+            'T
+
+/// <summary>Opened after <c>FSharp.Interop.Dlr</c>: <c>dlr { }</c> without resumable code.</summary>
+module Closures =
+    val dlr: DlrClosureBuilder
