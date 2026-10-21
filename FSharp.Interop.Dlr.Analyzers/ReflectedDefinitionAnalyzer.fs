@@ -88,13 +88,27 @@ let private isDlrRun (mfv: FSharpMemberOrFunctionOrValue) =
         | Some e -> (try e.FullName = "FSharp.Interop.Dlr.DlrBuilder" with _ -> false)
         | None -> false)
 
+/// Pre-order over `e`, left to right: `visit` gives a node's findings and whether to go into its
+/// subexpressions. Every walk of an expression goes through this, with an explicit stack rather
+/// than a frame per level: a list literal is one `Cons` per element, nested, and recursing over a
+/// long one overflows a small thread stack (a Windows thread-pool thread's, #212).
+let private walk (visit: FSharpExpr -> 'T list * bool) (e: FSharpExpr) : 'T list =
+    let found = ResizeArray<'T>()
+    let pending = System.Collections.Generic.Stack<FSharpExpr>()
+    pending.Push e
+    while pending.Count > 0 do
+        let e = pending.Pop()
+        let here, into = visit e
+        found.AddRange here
+        if into then for x in List.rev e.ImmediateSubExpressions do pending.Push x
+    List.ofSeq found
+
 /// Ranges of every `dlr.Run(...)` call in an expression.
-let rec private runCalls (e: FSharpExpr) : range list =
-    let here =
+let private runCalls (e: FSharpExpr) : range list =
+    e |> walk (fun e ->
         match e with
-        | FSharpExprPatterns.Call(_, mfv, _, _, _) when isDlrRun mfv -> [ e.Range ]
-        | _ -> []
-    here @ (e.ImmediateSubExpressions |> List.collect runCalls)
+        | FSharpExprPatterns.Call(_, mfv, _, _, _) when isDlrRun mfv -> [ e.Range ], true
+        | _ -> [], true)
 
 let private entityFullName (mfv: FSharpMemberOrFunctionOrValue) =
     match mfv.DeclaringEntity with
@@ -118,11 +132,12 @@ let private markerName (mfv: FSharpMemberOrFunctionOrValue) =
 /// Marker uses that are not inside a `dlr.Run(...)` subtree: range and name. Structural
 /// rather than by range, since the synthesized `Run` call's range does not span the block body.
 /// The outermost marker of a nested use (`Dlr.item (x |> Dlr.get "A") 0`) is reported once.
-let rec private markersOutsideRun (e: FSharpExpr) : (range * string) list =
-    match e with
-    | FSharpExprPatterns.Call(_, mfv, _, _, _) when isDlrRun mfv -> []
-    | FSharpExprPatterns.Call(_, mfv, _, _, _) when isMarker mfv -> [ e.Range, markerName mfv ]
-    | _ -> e.ImmediateSubExpressions |> List.collect markersOutsideRun
+let private markersOutsideRun (e: FSharpExpr) : (range * string) list =
+    e |> walk (fun e ->
+        match e with
+        | FSharpExprPatterns.Call(_, mfv, _, _, _) when isDlrRun mfv -> [], false
+        | FSharpExprPatterns.Call(_, mfv, _, _, _) when isMarker mfv -> [ e.Range, markerName mfv ], false
+        | _ -> [], true)
 
 /// A block with no reflected definition around it, and the declaration-level binding it sits in.
 type private Finding =
@@ -137,12 +152,11 @@ let private isInline (mfv: FSharpMemberOrFunctionOrValue) =
 /// Every `dlr.Run(...)` in a local `let inline` function inside `e`, with the binding. (A local
 /// applied exactly once happens to resolve at run time through the once-called-function path;
 /// applied twice it fails in Release. `inline` on it buys nothing either way.)
-let rec private inLocalInline (e: FSharpExpr) : (range * FSharpMemberOrFunctionOrValue) list =
-    let here =
+let private inLocalInline (e: FSharpExpr) : (range * FSharpMemberOrFunctionOrValue) list =
+    e |> walk (fun e ->
         match e with
-        | FSharpExprPatterns.Let((mfv, def, _), _) when isInline mfv -> runCalls def |> List.map (fun r -> r, mfv)
-        | _ -> []
-    here @ (e.ImmediateSubExpressions |> List.collect inLocalInline)
+        | FSharpExprPatterns.Let((mfv, def, _), _) when isInline mfv -> (runCalls def |> List.map (fun r -> r, mfv)), true
+        | _ -> [], true)
 
 /// Every `dlr.Run(...)` in an `inline` function or member, declaration-level or local, with the binding.
 let rec private inInline (decls: FSharpImplementationFileDeclaration list) : (range * FSharpMemberOrFunctionOrValue) list =
@@ -246,7 +260,7 @@ let private callArgumentExprs (e: FSharpExpr) : (FSharpExpr list * bool) option 
 
 /// Every expression in `e`, with the `let`-bound definitions in scope (F# lowers a call's tuple
 /// of arguments to a `let` when the function is a value, e.g. through a pipe).
-let rec private allExprs (e: FSharpExpr) : FSharpExpr list = e :: (e.ImmediateSubExpressions |> List.collect allExprs)
+let private allExprs (e: FSharpExpr) : FSharpExpr list = e |> walk (fun e -> [ e ], true)
 
 let private letDefinitions (e: FSharpExpr) =
     allExprs e
@@ -479,10 +493,11 @@ let private misplacedMarkers (block: FSharpExpr) : (range * string) list =
     outOfPlace @ namedNotLiteral @ staticsOutOfPlace @ callNotFunction @ refNotMutable @ byRefShape @ outInNew @ perList
 
 /// The outermost `dlr.Run(...)` subtrees of `e`.
-let rec private blocksIn (e: FSharpExpr) : FSharpExpr list =
-    match e with
-    | FSharpExprPatterns.Call(_, mfv, _, _, _) when isDlrRun mfv -> [ e ]
-    | _ -> e.ImmediateSubExpressions |> List.collect blocksIn
+let private blocksIn (e: FSharpExpr) : FSharpExpr list =
+    e |> walk (fun e ->
+        match e with
+        | FSharpExprPatterns.Call(_, mfv, _, _, _) when isDlrRun mfv -> [ e ], false
+        | _ -> [], true)
 
 /// Misplaced argument markers in every block of the file (outside a block any marker is DLR002
 /// already).
@@ -550,10 +565,7 @@ let private analyzeOutside (typedTree: FSharpImplementationFileContents option) 
 
 /// The outermost `dlr.Run(...)` calls in an expression: a block nested in another is compiled as
 /// part of it and has no site of its own, so it does not count.
-let rec private outermostRuns (e: FSharpExpr) : range list =
-    match e with
-    | FSharpExprPatterns.Call(_, mfv, _, _, _) when isDlrRun mfv -> [ e.Range ]
-    | _ -> e.ImmediateSubExpressions |> List.collect outermostRuns
+let private outermostRuns (e: FSharpExpr) : range list = blocksIn e |> List.map (fun b -> b.Range)
 
 /// Every outermost `dlr.Run(...)` call in the file, from all declarations.
 let rec private allRuns (decls: FSharpImplementationFileDeclaration list) : range list =
@@ -594,12 +606,11 @@ let rec private mentionsVoid (t: FSharpType) =
 
 /// The expressions in `e` that put `System.Void` in a type argument: `typeof<System.Void>`
 /// (a call with that type argument) or a value of a type built over it.
-let rec private voidUses (e: FSharpExpr) : range list =
-    let own =
+let private voidUses (e: FSharpExpr) : range list =
+    e |> walk (fun e ->
         match e with
-        | FSharpExprPatterns.Call(_, _, _, typeArgs, _) when typeArgs |> List.exists mentionsVoid -> [ e.Range ]
-        | _ -> if mentionsVoid e.Type then [ e.Range ] else []
-    own @ (e.ImmediateSubExpressions |> List.collect voidUses)
+        | FSharpExprPatterns.Call(_, _, _, typeArgs, _) when typeArgs |> List.exists mentionsVoid -> [ e.Range ], true
+        | _ -> (if mentionsVoid e.Type then [ e.Range ] else []), true)
 
 /// Declaration-level members that hold a block and whose body mentions `System.Void` as a type
 /// argument: the block(s) and the member, with the first offending use.
@@ -638,7 +649,7 @@ let private localKey (v: FSharpMemberOrFunctionOrValue) =
 let private freeLocals (e: FSharpExpr) : FSharpMemberOrFunctionOrValue list =
     let read = System.Collections.Generic.Dictionary<string * int * int, FSharpMemberOrFunctionOrValue>()
     let bound = System.Collections.Generic.HashSet<string * int * int>()
-    let rec go (e: FSharpExpr) =
+    let go (e: FSharpExpr) =
         match e with
         | FSharpExprPatterns.Value v
         | FSharpExprPatterns.ValueSet(v, _) when not v.IsModuleValueOrMember -> read.[localKey v] <- v
@@ -650,23 +661,23 @@ let private freeLocals (e: FSharpExpr) : FSharpMemberOrFunctionOrValue list =
         | FSharpExprPatterns.TryWith(_, v1, _, v2, _, _, _) -> bound.Add(localKey v1) |> ignore; bound.Add(localKey v2) |> ignore
         | FSharpExprPatterns.DecisionTree(_, targets) -> for (vs, _) in targets do for v in vs do bound.Add(localKey v) |> ignore
         | _ -> ()
-        for x in e.ImmediateSubExpressions do go x
-    go e
+        ([]: unit list), true
+    walk go e |> ignore
     [ for KeyValue(k, v) in read do if not (bound.Contains k) then v ]
 
 /// The definitions of the member's local `let`s and `let rec`s, by `localKey`, each with its
 /// `let rec` group (empty for a `let`).
 let private localDefinitions (body: FSharpExpr) =
     let defs = System.Collections.Generic.Dictionary<string * int * int, FSharpExpr * Set<string * int * int>>()
-    let rec go (e: FSharpExpr) =
+    let go (e: FSharpExpr) =
         match e with
         | FSharpExprPatterns.Let((v, def, _), _) -> defs.[localKey v] <- (def, Set.empty)
         | FSharpExprPatterns.LetRec(bindings, _) ->
             let group = bindings |> List.map (fun (v, _, _) -> localKey v) |> Set.ofList
             for (v, def, _) in bindings do defs.[localKey v] <- (def, group)
         | _ -> ()
-        for x in e.ImmediateSubExpressions do go x
-    go body
+        ([]: unit list), true
+    walk go body |> ignore
     defs
 
 /// For each block in a member: a name two values it reaches share, and the local function or
@@ -757,12 +768,10 @@ let rec private hiddenInReflected (reflected: bool) (decls: FSharpImplementation
         match decl with
         | FSharpImplementationFileDeclaration.Entity(entity, sub) -> hiddenInReflected (reflected || isReflectedDefinition entity.Attributes) sub
         | FSharpImplementationFileDeclaration.MemberOrFunctionOrValue(mfv, _, body) when reflected || memberIsReflected mfv ->
-            let rec uses (e: FSharpExpr) =
-                [ match e with
-                  | FSharpExprPatterns.Call(_, v, _, _, _) | FSharpExprPatterns.Value v when hiddenBySignature v -> yield e.Range, mfv, v
-                  | _ -> ()
-                  for x in e.ImmediateSubExpressions do yield! uses x ]
-            uses body
+            body |> walk (fun e ->
+                match e with
+                | FSharpExprPatterns.Call(_, v, _, _, _) | FSharpExprPatterns.Value v when hiddenBySignature v -> [ e.Range, mfv, v ], true
+                | _ -> [], true)
         | _ -> [])
 
 let private analyzeHiddenBySignature (typedTree: FSharpImplementationFileContents option) : Message list =
@@ -783,11 +792,12 @@ let private analyzeHiddenBySignature (typedTree: FSharpImplementationFileContent
 /// Blocks nested in another block, at any depth: every `Run` call under an outermost one. A block
 /// in a quotation literal is data the outer block keeps as is, not code it compiles.
 let rec private nestedRuns (decls: FSharpImplementationFileDeclaration list) : range list =
-    let rec compiled (e: FSharpExpr) : range list =
-        match e with
-        | FSharpExprPatterns.Quote _ -> []
-        | FSharpExprPatterns.Call(_, mfv, _, _, _) when isDlrRun mfv -> e.Range :: (e.ImmediateSubExpressions |> List.collect compiled)
-        | _ -> e.ImmediateSubExpressions |> List.collect compiled
+    let compiled (e: FSharpExpr) : range list =
+        e |> walk (fun e ->
+            match e with
+            | FSharpExprPatterns.Quote _ -> [], false
+            | FSharpExprPatterns.Call(_, mfv, _, _, _) when isDlrRun mfv -> [ e.Range ], true
+            | _ -> [], true)
     let inside (e: FSharpExpr) = blocksIn e |> List.collect (fun block -> block.ImmediateSubExpressions |> List.collect compiled)
     decls
     |> List.collect (fun decl ->
