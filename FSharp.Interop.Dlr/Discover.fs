@@ -75,9 +75,10 @@ module internal Discover =
           Body: Expr }
 
     /// For a block inside a generic member, the closure class carries the member's type parameters
-    /// under the same names, instantiated. Rebuild the member with those arguments so its reflected
-    /// definition comes back with concrete types. A parameter the closure does not carry is unused
-    /// by the block, so any instantiation will do.
+    /// (and its type's) that it uses, under the same names, instantiated. Rebuild the member with
+    /// those arguments so its reflected definition comes back with concrete types. A parameter the
+    /// closure does not carry is unused by the block, so any instantiation will do: `obj`, or,
+    /// where a constraint rejects `obj` (#222), the parameter itself, left open.
     let private instantiate (closureType: Type) (m: MethodBase) : MethodBase =
         if not (m.IsGenericMethodDefinition || m.DeclaringType.IsGenericTypeDefinition) then m
         else
@@ -87,16 +88,19 @@ module internal Discover =
                     |> Array.map (fun (p, a) -> p.Name, a)
                     |> dict
                 else dict []
-            let resolve (p: Type) = match concrete.TryGetValue p.Name with | true, t -> t | _ -> typeof<obj>
-            let onType =
-                if m.DeclaringType.IsGenericTypeDefinition then
-                    let constructed = m.DeclaringType.MakeGenericType(m.DeclaringType.GetGenericArguments() |> Array.map resolve)
-                    MethodBase.GetMethodFromHandle(m.MethodHandle, constructed.TypeHandle)
-                else m
-            match onType with
-            | :? MethodInfo as mi when mi.IsGenericMethodDefinition ->
-                mi.MakeGenericMethod(mi.GetGenericArguments() |> Array.map resolve) :> MethodBase
-            | other -> other
+            let build (unused: Type -> Type) =
+                let resolve (p: Type) = match concrete.TryGetValue p.Name with | true, t -> t | _ -> unused p
+                let onType =
+                    if m.DeclaringType.IsGenericTypeDefinition then
+                        let constructed = m.DeclaringType.MakeGenericType(m.DeclaringType.GetGenericArguments() |> Array.map resolve)
+                        MethodBase.GetMethodFromHandle(m.MethodHandle, constructed.TypeHandle)
+                    else m
+                match onType with
+                | :? MethodInfo as mi when mi.IsGenericMethodDefinition ->
+                    mi.MakeGenericMethod(mi.GetGenericArguments() |> Array.map resolve) :> MethodBase
+                | other -> other
+            try build (fun _ -> typeof<obj>)
+            with :? ArgumentException -> build id
 
     /// The block whose Delay closure has type `closureType`, at `file:line`.
     let findBody (builderType: Type) (closureType: Type) (file: string) (line: int) : Found =

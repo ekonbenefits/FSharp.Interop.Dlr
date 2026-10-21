@@ -56,6 +56,45 @@ let ``generic enclosing function: each instantiation is its own site with concre
     genericPick w "t" |> should equal "string"
     DlrCache.count () |> should equal (before + 3)
 
+let private needsStruct<'T when 'T : struct> () = Unchecked.defaultof<'T>
+let private needsDisposable<'T when 'T :> IDisposable> (x: 'T) = x
+let constrainedUnused<'T when 'T : struct> (w: obj) : int =
+    let k = needsStruct<'T> ()
+    ignore k
+    dlr { return w?Count }
+let constrainedBeside<'T, 'U when 'U : struct> (w: obj) (x: 'T) : string =
+    let k = needsStruct<'U> ()
+    ignore k
+    dlr { return w?Pick(x) }
+let disposableUnused<'T when 'T :> IDisposable> (w: obj) (d: 'T) : int =
+    ignore (needsDisposable d)
+    dlr { return w?Count }
+
+/// A type parameter the block's container does not carry, with a constraint `obj` cannot meet,
+/// still compiles; one it does carry keeps its concrete type (#222).
+[<Fact>]
+let ``generic enclosing function: a constrained type parameter the block does not use`` () =
+    let w = Widget()
+    constrainedUnused<int> w |> should equal 3
+    constrainedBeside<int, DateTime> w 1 |> should equal "int"
+    constrainedBeside<string, int> w "s" |> should equal "string"
+    disposableUnused w (new IO.MemoryStream()) |> should equal 3
+
+/// A generic type's parameter is carried only where the closure uses it, so a member of a
+/// constrained generic type is the same case through the declaring type (#222).
+type StructHolder<'T when 'T : struct>() =
+    static member Count(w: obj) : int = dlr { return w?Count }
+    member _.Instance(w: obj) : int = dlr { return w?Count }
+    member _.Pick(w: obj, x: 'U) : string = dlr { return w?Pick(x) }
+
+[<Fact>]
+let ``generic enclosing type: a constrained type parameter the block does not use`` () =
+    let w = Widget()
+    StructHolder<int>.Count w |> should equal 3
+    StructHolder<DateTime>().Instance w |> should equal 3
+    StructHolder<int>().Pick(w, 1) |> should equal "int"
+    StructHolder<int>().Pick(w, "s") |> should equal "string"
+
 [<Fact>]
 let ``values the optimizer inlines instead of capturing still resolve`` () =
     // In Release, F# inlines constant locals and local functions into the closure instead of
