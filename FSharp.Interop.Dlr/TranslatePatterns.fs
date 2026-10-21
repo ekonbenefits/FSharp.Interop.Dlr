@@ -73,6 +73,32 @@ module internal TranslatePatterns =
     let rethrow = opMethod <@ fun (e: exn) -> (DlrRuntime.rethrow e : obj) @>
     let reraiseMethod = typeof<unit>.Assembly.GetType("Microsoft.FSharp.Core.Operators").GetMethod("Reraise")
     let using = opMethod <@ fun (r: IDisposable) (body: Func<IDisposable, obj>) -> DlrRuntime.using r body @>
+
+    /// FSharp.Core's typed ranges (`RangeInt32`, …, `RangeChar`) by element type.
+    let private typedRanges =
+        typeof<unit>.Assembly.GetType("Microsoft.FSharp.Core.Operators+OperatorIntrinsics").GetMethods()
+        |> Array.filter (fun m -> m.Name.StartsWith "Range" && not m.IsGenericMethodDefinition)
+        |> Array.map (fun m -> m.ReturnType.GetGenericArguments().[0], m)
+        |> dict
+
+    /// A range on a primitive, `a .. b` or `a .. step .. b`, as the typed range the compiler inlines
+    /// it to. Compiled from a quotation, the generic `op_Range`/`op_RangeStep` runs FSharp.Core's
+    /// non-inlined form instead, whose every step is a dynamic addition and comparison, a few
+    /// hundred bytes per element (#240).
+    let (|PrimitiveRange|_|) (e: Expr) =
+        match e with
+        | Call(None, mi, args) when mi.IsGenericMethod && mi.DeclaringType.FullName = "Microsoft.FSharp.Core.Operators" ->
+            let t = mi.GetGenericArguments().[0]
+            let one () =
+                if t = typeof<nativeint> then box 1n
+                elif t = typeof<unativeint> then box 1un
+                else Convert.ChangeType(1, t)
+            match mi.Name, args, typedRanges.TryGetValue t with
+            | "op_Range", [ low; high ], (true, m) when m.GetParameters().Length = 2 -> Some(m, [ low; high ])   // RangeChar: no step
+            | "op_Range", [ low; high ], (true, m) -> Some(m, [ low; Expr.Value(one (), t); high ])
+            | "op_RangeStep", [ low; step; high ], (true, m) when step.Type = t && m.GetParameters().Length = 3 -> Some(m, [ low; step; high ])
+            | _ -> None
+        | _ -> None
     let opItem = opMethod <@ fun (i: obj) (t: obj) -> (Dlr.item i t) : obj @>
     let opSetItem = opMethod <@ fun (i: obj) (v: obj) (t: obj) -> Dlr.setItem i v t @>
 

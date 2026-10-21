@@ -390,6 +390,9 @@ module internal TranslateBlock =
             | "Zero", [] -> Expr.Value(())
             | "Combine", [ first; Call(_, d, [ Lambda(_, rest) ]) ] when d.Name = "Delay" ->
                 Expr.Sequential(rewrite first, rewrite rest)
+            // `for i in a .. b` over `int`: a counted loop, as F# compiles it outside a builder (#240).
+            | "For", [ PrimitiveRange(_, [ low; Value(step, _); high ]); Lambda(x, body) ] when x.Type = typeof<int> && step = box 1 ->
+                Expr.Call(forRange, [ rewrite low; rewrite high; func [ x ] body ])
             | "For", [ items; Lambda(x, body) ] ->
                 let items = rewrite items
                 Expr.Call(forEach.MakeGenericMethod(x.Type), [ items; func [ x ] body ])
