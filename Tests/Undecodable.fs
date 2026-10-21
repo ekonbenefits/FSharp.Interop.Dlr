@@ -20,4 +20,5 @@ let private withVoid (w: obj) : int =
 let ``a reflected definition FSharp.Core cannot decode is named, not blamed on a missing attribute`` () =
     let ex = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> withVoid (Widget()) |> ignore)
     ex.Message |> should haveSubstring "withVoid"
-    ex.Message |> should haveSubstring "could not be decoded"
+    ex.Message |> should haveSubstring "could not decode"
+    ex.Message |> should not' (haveSubstring "fails the same way")     // its own member only: the rest of this assembly decodes

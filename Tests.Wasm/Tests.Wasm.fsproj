@@ -71,6 +71,7 @@
     <Compile Include="..\Tests\Shapes.fs" Link="Shapes.fs" />
     <Compile Include="..\Tests\RulesEverywhere.fs" Link="RulesEverywhere.fs" />
     <Compile Include="..\Tests\Unreflected.fs" Link="Unreflected.fs" />
+    <Compile Include="..\Tests\Hidden.fs" Link="Hidden.fs" />
     <Compile Include="..\Tests\Resumable.fs" Link="Resumable.fs" />
     <Compile Include="..\Tests\Identity.fs" Link="Identity.fs" />
     <!-- Undecodable.fs is left out: Mono asserts (reflection.c) on its typeof<System.Void> quotation. -->
@@ -81,6 +82,7 @@
     <ProjectReference Include="..\Tests\CSharp\Tests.CSharp.csproj" />
     <ProjectReference Include="..\Tests\CSharp.Ivt\Tests.CSharp.Ivt.csproj" />
     <ProjectReference Include="..\Tests\FSharpLib\Tests.FSharpLib.fsproj" />
+    <ProjectReference Include="..\Tests\HiddenLib\Tests.HiddenLib.fsproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -54,6 +54,12 @@ Not C# restrictions, but the same family:
 - **A block cannot live in an `inline` function or member.** In Release the function is expanded
   into every caller, taking the block's values with it and leaving its body behind. A Debug build
   calls it as a method, so it only appears to work. The analyzer reports it (`DLR004`).
+- **A reflected definition cannot call a function its signature file hides.** In Release the
+  optimizer may inline such a function and erase it, while the stored quotation still names it.
+  FSharp.Core decodes an assembly's reflected definitions together, so then none of them decode,
+  and every block in the assembly fails, wherever it is. The error names the function; list it in
+  the `.fsi` or mark it `[<MethodImpl(MethodImplOptions.NoInlining)>]`. The analyzer reports the
+  call (`DLR008`).
 - **Three markers take one shape only.** Any other use is a translation error, which the
   analyzer reports at build time.
   - `Dlr.named` takes the record literal itself: the names are read from the quotation, so a
@@ -154,6 +160,7 @@ Both are cached per site.
   - the one-shape markers' translation errors: `Tests/Invoke.fs`, `Tests/StaticOverloads.fs`
     and `Tests/Call.fs`;
   - a block in an `inline` function: the analyzer's tests;
+  - a function a signature file hides: `Tests/Hidden.fs`, over `Tests/HiddenLib`;
   - NativeAOT: the assembly's own `IsAotCompatible=false`, not a test.
 - The places it goes beyond: `Tests/FunctionMembers.fs`, `Tests/Delegates.fs`,
   `Tests/Operators.fs`, `Tests/ComputedNames.fs`, `Tests/TypeArgs.fs`, `Tests/ArgsFromData.fs`.

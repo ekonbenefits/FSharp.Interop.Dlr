@@ -138,20 +138,33 @@ module internal Discover =
             // A member with the attribute whose quotation would not decode is the other reason a
             // body is not found — when it is the member the closure belongs to: the compiler
             // names a block's closure `<member>@<line>`.
-            let undecoded =
-                match failuresIn searched |> List.tryFind (fun (m, _) -> closureType.Name.StartsWith(m.Name + "@")) with
-                | Some(m, e) -> sprintf " The block is in %s.%s, whose reflected definition could not be decoded (%s): its body has something a quotation cannot hold." m.DeclaringType.Name m.Name e.Message
-                | None -> ""
-            // A trimmed publish keeps the stored definitions but not what FSharp.Core matches them
-            // by, so the block is not found although the attribute is there: say so where the
-            // assembly holds reflected definitions at all.
-            let trimmed =
-                if holder.Assembly.GetManifestResourceNames() |> Array.exists (fun n -> n.StartsWith "ReflectedDefinitions") then
-                    " If the attribute is there and the app is published trimmed (PublishTrimmed), trimming is the cause: it is not supported."
-                else ""
-            raise (DlrTranslationException(
-                    sprintf "dlr { } at %s:%d needs [<ReflectedDefinition>] on the function or member that contains it, so its body can be compiled (closure %s in %s). Put the attribute on that one binding, not the whole module, unless everything in the module can be quoted.%s%s"
-                        file line closureType.Name holder.FullName undecoded trimmed))
+            let failures = failuresIn searched
+            match failures |> List.tryFind (fun (m, _) -> closureType.Name.StartsWith(m.Name + "@")) with
+            | Some(m, e) ->
+                // FSharp.Core decodes an assembly's reflected definitions together, so one it cannot
+                // bind fails every member with the same error (#213), where a body it refuses
+                // (`typeof<System.Void>`) fails only its own. Told apart by the members failing
+                // alike in more than one type, not by FSharp.Core's (localized) message.
+                let alike = failures |> List.filter (fun (_, other) -> other.Message = e.Message) |> List.map (fun (m, _) -> m.DeclaringType) |> List.distinct
+                let cause =
+                    if alike.Length > 1 then
+                        sprintf " Every reflected definition in %s fails the same way: FSharp.Core decodes an assembly's reflected definitions together, so one it cannot bind fails them all, wherever the block is. The usual cause is a function a signature file (.fsi) leaves out, called from a reflected definition: the Release optimizer inlines and erases it, and the stored quotation still names it. Add that function (the one FSharp.Core names) to the signature, or mark it [<MethodImpl(MethodImplOptions.NoInlining)>]; the analyzer reports it at build time (DLR008)."
+                            (holder.Assembly.GetName().Name)
+                    else " Its body has something a quotation cannot hold."
+                raise (DlrTranslationException(
+                        sprintf "dlr { } at %s:%d is in %s.%s, whose reflected definition FSharp.Core could not decode (%s), so the block's body cannot be found (closure %s in %s).%s"
+                            file line m.DeclaringType.Name m.Name e.Message closureType.Name holder.FullName cause))
+            | None ->
+                // A trimmed publish keeps the stored definitions but not what FSharp.Core matches them
+                // by, so the block is not found although the attribute is there: say so where the
+                // assembly holds reflected definitions at all.
+                let trimmed =
+                    if holder.Assembly.GetManifestResourceNames() |> Array.exists (fun n -> n.StartsWith "ReflectedDefinitions") then
+                        " If the attribute is there and the app is published trimmed (PublishTrimmed), trimming is the cause: it is not supported."
+                    else ""
+                raise (DlrTranslationException(
+                        sprintf "dlr { } at %s:%d needs [<ReflectedDefinition>] on the function or member that contains it, so its body can be compiled (closure %s in %s). Put the attribute on that one binding, not the whole module, unless everything in the module can be quoted.%s"
+                            file line closureType.Name holder.FullName trimmed))
         | many ->
             raise (DlrTranslationException(
                     sprintf "%d dlr { } blocks share %s:%d; put each dlr { } on its own line." many.Length file line))

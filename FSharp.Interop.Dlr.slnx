@@ -8,5 +8,6 @@
   <Project Path="Tests/CSharp.Ivt/Tests.CSharp.Ivt.csproj" />
   <Project Path="Tests/CSharp/Tests.CSharp.csproj" />
   <Project Path="Tests/FSharpLib/Tests.FSharpLib.fsproj" />
+  <Project Path="Tests/HiddenLib/Tests.HiddenLib.fsproj" />
   <Project Path="Tests/Tests.fsproj" />
 </Solution>
