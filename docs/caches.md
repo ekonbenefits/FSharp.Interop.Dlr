@@ -6,6 +6,7 @@ Where every piece of state lives, what keys it, and how long it lasts. Part of
 | Cache | Key | Value | Lifetime | Where |
 | --- | --- | --- | --- | --- |
 | `DlrCache` | the block's container type | `Compiled`: the block's delegate | process; `clear()` drops it | `Cache.fs` |
+| `DlrCache.refused` | the block's container type | the `DlrTranslationException` that refused it | process; `clear()` drops it | `Cache.fs` |
 | `Machines<'SM,'T>` | the machine type: one static slot each | the delegate, typed, generation-stamped | process; `clear()` invalidates it | `Cache.fs` |
 | `Sites<'T>` | the closure type, per result type | the delegate, typed, generation-stamped | process; `clear()` invalidates it | `Cache.fs` |
 | `Delayed<'T>` | the `Delay` wrapper's type, per result type | a compiled reader of its `delayed` field | process | `Cache.fs` |
@@ -25,6 +26,10 @@ Where every piece of state lives, what keys it, and how long it lasts. Part of
   closure's class, or, for a capture-free block left with a static delegate, the class that
   delegate's method lives in. One entry per block (per instantiation of a generic member). The
   value is `Compiled { Delegate: DlrReader<'SM,'T> or Func<obj,'T> }`.
+- **`DlrCache.refused`** keeps a block the translator refused, by the same key: a refusal is
+  deterministic, so a later call rethrows without translating again (for a missing attribute,
+  without scanning the assembly again; #214). Each call raises its own exception, with the one
+  refusal as its inner. `count()` does not include it.
 - **`Machines<'SM,'T>`** is the hot path: a static field read (no `static let`, so no
   initialization check) and a generation compare — no lookup, no cast. `clear()` bumps the
   generation, so no entry from before it is served however it got installed, and a listener
@@ -84,7 +89,7 @@ flowchart TD
     RC -. "converts arguments" .-> CV
 ```
 
-`clear()` drops the compiled delegates and invalidates the typed entries; the next call at each
+`clear()` drops the compiled delegates and the refusals and invalidates the typed entries; the next call at each
 site recompiles. It does not touch the reflected-definition cache (decoding is per type, and the
 definitions have not changed) or the conversion factories, `Binders.factories` and the delegate-literal factories (per type, and still correct).
 Everything inside a delegate — its sites, their rule caches, a `SiteCache` for a
