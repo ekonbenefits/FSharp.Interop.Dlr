@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- -p:DlrClosures=true runs the suite through FSharp.Interop.Dlr.Closures (no resumable code). -->
-  <PropertyGroup Condition="'$(DlrClosures)' == 'true'">
-    <DefineConstants>$(DefineConstants);DLR_CLOSURES</DefineConstants>
+  <!-- -p:DlrAllocating=true runs the suite through FSharp.Interop.Dlr.Allocating (no resumable code). -->
+  <PropertyGroup Condition="'$(DlrAllocating)' == 'true'">
+    <DefineConstants>$(DefineConstants);DLR_ALLOCATING</DefineConstants>
   </PropertyGroup>
   <PropertyGroup>
     <!-- net48 exercises the library's netstandard2.0 build (and Microsoft.CSharp from a package)

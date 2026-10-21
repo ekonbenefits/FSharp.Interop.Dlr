@@ -78,7 +78,7 @@ module Builder =
     let dlr = DlrBuilder()
 
 [<Sealed>]
-type DlrClosureBuilder() =
+type DlrAllocatingBuilder() =
     member _.Delay(delayed: unit -> 'T) : unit -> 'T = delayed
     // The body is never executed: Run compiles it from the quotation. The members only type it.
     [<ExcludeFromCodeCoverage>]
@@ -102,5 +102,5 @@ type DlrClosureBuilder() =
                     [<CallerLineNumber; Optional; DefaultParameterValue(0)>] line: int) : 'T =
         DlrRun.Function(this, delayed, file, line)
 
-module Closures =
-    let dlr = DlrClosureBuilder()
+module Allocating =
+    let dlr = DlrAllocatingBuilder()

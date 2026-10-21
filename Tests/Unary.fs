@@ -4,8 +4,8 @@ module Tests.Unary
 open AnyUnit.Style.Xunit
 open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
-#if DLR_CLOSURES
-open FSharp.Interop.Dlr.Closures
+#if DLR_ALLOCATING
+open FSharp.Interop.Dlr.Allocating
 #endif
 open Microsoft.CSharp.RuntimeBinder
 

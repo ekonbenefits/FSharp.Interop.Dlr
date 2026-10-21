@@ -2,8 +2,8 @@
 module Tests.FSharpLib.Blocks
 
 open FSharp.Interop.Dlr
-#if DLR_CLOSURES
-open FSharp.Interop.Dlr.Closures
+#if DLR_ALLOCATING
+open FSharp.Interop.Dlr.Allocating
 #endif
 
 /// A small function holding a block: the kind the Release optimizer may inline into its callers.

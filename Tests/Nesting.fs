@@ -5,8 +5,8 @@ module Tests.Nesting
 
 open System.Threading.Tasks
 open FSharp.Interop.Dlr
-#if DLR_CLOSURES
-open FSharp.Interop.Dlr.Closures
+#if DLR_ALLOCATING
+open FSharp.Interop.Dlr.Allocating
 #endif
 open AnyUnit                        // TestCapabilities and RequiresCapability, since 1.3.0
 open AnyUnit.Style.Xunit

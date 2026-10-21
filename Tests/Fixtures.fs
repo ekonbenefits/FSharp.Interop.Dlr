@@ -6,8 +6,8 @@ open System.Dynamic
 open System.Threading.Tasks
 open System.Runtime.InteropServices
 open FSharp.Interop.Dlr
-#if DLR_CLOSURES
-open FSharp.Interop.Dlr.Closures
+#if DLR_ALLOCATING
+open FSharp.Interop.Dlr.Allocating
 #endif
 
 /// Plain CLR target with overloads, so binder flags are observable.

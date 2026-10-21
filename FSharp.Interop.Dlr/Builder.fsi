@@ -44,13 +44,14 @@ module Builder =
     val dlr: DlrBuilder
 
 /// <summary>
-/// The same <c>dlr { }</c> without resumable code: every block takes the closure path, in
-/// Release too, so no compiler support for state machines is needed. Opened after
-/// <c>FSharp.Interop.Dlr</c>, <c>FSharp.Interop.Dlr.Closures</c> shadows <c>dlr</c> with it.
+/// The same <c>dlr { }</c> without resumable code: a block is a closure, allocated per call,
+/// instead of a struct state machine, in Release too, so no compiler support for state machines
+/// is needed. Opened after <c>FSharp.Interop.Dlr</c>, <c>FSharp.Interop.Dlr.Allocating</c>
+/// shadows <c>dlr</c> with it.
 /// </summary>
 [<Sealed>]
-type DlrClosureBuilder =
-    new: unit -> DlrClosureBuilder
+type DlrAllocatingBuilder =
+    new: unit -> DlrAllocatingBuilder
     member Delay: delayed: (unit -> 'T) -> (unit -> 'T)
     member Return: value: 'T -> 'T
     member Zero: unit -> unit
@@ -67,5 +68,5 @@ type DlrClosureBuilder =
             'T
 
 /// <summary>Opened after <c>FSharp.Interop.Dlr</c>: <c>dlr { }</c> without resumable code.</summary>
-module Closures =
-    val dlr: DlrClosureBuilder
+module Allocating =
+    val dlr: DlrAllocatingBuilder
