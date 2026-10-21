@@ -76,14 +76,16 @@ let ``a bound call allocates nothing but, for a value result, its box`` () : uni
     bytes delegateProperty |> should equal 0L
     bytes methodAsDelegate |> should lessThanOrEqualTo 104L
     bytes invokeDelegate |> should lessThanOrEqualTo box'
-    // The builder's `for` over an int range is a counted loop: the body's delegate (64 B on
-    // .NET 10), nothing per element; a range as a value is F#'s typed one: its list (32 B a cell)
-    // and enumerator. Through the generic `op_Range` either was ~320 B an element (#240).
+    // The builder's `for` over an int range with step 1 is a counted loop: the body's delegate
+    // (64 B on .NET 10), nothing per element. A range as a value is F#'s typed one: what plain F#
+    // allocates for it, plus the range's enumerator and seq (80 B, less where the JIT's PGO and
+    // escape analysis drop one). Through the generic `op_Range` either was ~320 B an element (#240).
     let n = 100
     let rangeLoop () = dlr { for i in 1 .. n do ignore (i + 1) }
     let rangeValue () = (dlr { return [ 1 .. n ] } : int list) |> ignore
+    let plainValue () = [ 1 .. n ] |> ignore
     bytes rangeLoop |> should lessThanOrEqualTo 64L
-    bytes rangeValue |> should lessThanOrEqualTo (int64 n * 32L + 56L)
+    bytes rangeValue |> should lessThanOrEqualTo (bytes plainValue + 80L)
 #endif
 
 [<Fact>]

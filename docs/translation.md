@@ -99,8 +99,8 @@ lambda, in a delegate literal, or used as a value (`let n = try … with _ -> 0`
 `TryWith`/`TryFinally`/`WhileLoop`/`ForIntegerRangeLoop` node goes to the same helpers (#158,
 #162), and so does a `use` there.
 
-The builder's `for` over an `int` range is that counted loop too, `DlrRuntime.forRange`, with no
-enumerator. Any other range on a primitive, `a .. b` or `a .. step .. b`, becomes the typed
+The builder's `for` over an `int` range with step 1 is that counted loop too, `DlrRuntime.forRange`,
+with no enumerator. Any other range on a primitive, `a .. b` or `a .. step .. b`, becomes the typed
 `OperatorIntrinsics.Range*` the compiler would inline it to (`PrimitiveRange`). Compiled from
 the quotation, the generic `op_Range` runs FSharp.Core's non-inlined form, which does every step
 dynamically, a few hundred bytes per element (#240).
