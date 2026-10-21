@@ -47,7 +47,7 @@
     <PackageReference Include="coverlet.MTP" />
     <!-- Dogfood: FSharp.Analyzers.Build runs the repo's own analyzer over this project after it
          compiles (the fsharp-analyzers tool comes from .config/dotnet-tools.json). Unreflected.fs
-         carries the one intentional DLR001 behind an ignore-line comment. -->
+         carries the intentional DLR001s behind ignore-line comments. -->
     <PackageReference Include="FSharp.Analyzers.Build" PrivateAssets="all" />
   </ItemGroup>
 
