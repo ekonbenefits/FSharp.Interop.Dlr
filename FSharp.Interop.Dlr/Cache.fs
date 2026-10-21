@@ -16,8 +16,14 @@ module DlrCache =
 
     /// Blocks the translator refused, by the same key: a refusal is deterministic for a compiled
     /// block, so retrying it per call (the whole translation, and for a missing attribute an
-    /// assembly scan) cannot succeed (#214). Not counted in `count`.
+    /// assembly scan) cannot succeed (#214). Not counted in `count`. Only the translator's own
+    /// refusals, which carry no inner exception: a failure it wraps (compiling the tree ran out of
+    /// stack or memory, an assembly not yet resolvable) may not recur, so it is retried.
     let private refused = ConcurrentDictionary<Type, DlrTranslationException>()
+
+    /// A later call at a refused block raises its own exception (one instance thrown from several
+    /// threads would share its stack trace), with the refusal and its stack as the inner.
+    let private refusedAgain (e: DlrTranslationException) = raise (DlrTranslationException(e.Message, e))
 
     /// The clear generation: `clear()` bumps it, and the typed caches serve an entry only if it
     /// was compiled under the current one, however it got installed. Clearing their slots is
@@ -40,14 +46,11 @@ module DlrCache =
         lock onClear (fun () -> for f in onClear do f ())
 
     let internal getOrCompile (builderType: unit -> Type) (blockType: Type) (file: string) (line: int) (resultType: Type) =
-        // Each call raises its own exception (one instance thrown from several threads would
-        // share its stack trace), carrying the one refusal and its stack as the inner.
-        let rethrow (e: DlrTranslationException) = raise (DlrTranslationException(e.Message, e))
         match cache.TryGetValue blockType with
         | true, compiled -> compiled
         | _ ->
         match refused.TryGetValue blockType with
-        | true, e -> rethrow e
+        | true, e -> refusedAgain e
         | _ ->
         try
             cache.GetOrAdd(blockType, fun t ->
@@ -65,7 +68,9 @@ module DlrCache =
                     if String.IsNullOrEmpty file then "dlr__" + identifier t.Name
                     else sprintf "dlr__%s@%d" (identifier (file.Substring(file.LastIndexOfAny [| '/'; '\\' |] + 1))) line
                 Translate.translate name builderType found.Context found.MemberBody t resultType found.Body)
-        with :? DlrTranslationException as e -> rethrow (refused.GetOrAdd(blockType, e))
+        with :? DlrTranslationException as e when isNull e.InnerException ->
+            refused.TryAdd(blockType, e) |> ignore
+            reraise ()
 
 /// One compiled-machine cache entry, immutable, so a reference to it is atomic to read and to
 /// swap, stamped with the clear generation it was compiled under.

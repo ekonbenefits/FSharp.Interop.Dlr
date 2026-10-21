@@ -378,6 +378,22 @@ let ``a name an unrelated lambda also uses is still read from its field`` () =
     nameOfAnUnrelatedLambda w |> should equal 2
     mutableNameOfAnUnrelatedLambda w |> should equal 6
 
+/// A failure the translator wraps (here the tree hook throwing, as compiling the tree might run
+/// out of stack or memory) is not a refusal: it is not kept, and the next call compiles (#214).
+[<Fact>]
+let ``a failure compiling a block is retried, not kept as a refusal`` () =
+    let w = box (Widget())
+    let sink = typeof<DlrRun>.Assembly.GetType("FSharp.Interop.Dlr.Translate+TreeHook").GetProperty("Sink", Reflection.BindingFlags.NonPublic ||| Reflection.BindingFlags.Public ||| Reflection.BindingFlags.Static)
+    let read () : int = dlr { return w?Count }
+    DlrCache.clear ()
+    try
+        sink.SetValue(null, Action<Type, Linq.Expressions.LambdaExpression>(fun _ _ -> raise (InsufficientExecutionStackException())))
+        let ex = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> read () |> ignore)
+        ex.InnerException |> should be instanceOfType<InsufficientExecutionStackException>
+    finally
+        sink.SetValue(null, null)
+    read () |> should equal 3
+
 [<Fact>]
 let ``clear then a call recompiles`` () =
     let w = box (Widget())

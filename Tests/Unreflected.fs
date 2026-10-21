@@ -14,22 +14,27 @@ let ``dlr without ReflectedDefinition reports what is missing`` () =
     ex.Message |> should not' (haveSubstring "could not be decoded")     // Undecodable.withVoid is elsewhere in this assembly
 
 /// A refused block is refused once: later calls rethrow without translating again, which for a
-/// missing attribute means without scanning the assembly again (#214). Each call raises its own
-/// exception, with the one refusal as its inner; `clear` forgets it like any entry.
+/// missing attribute means without scanning the assembly again (#214). The first call raises the
+/// refusal itself; each later call raises its own exception, with that refusal as its inner.
+/// `clear` forgets it like any entry.
 [<Fact>]
 let ``a refused block is not translated again on every call`` () =
     let w = box (Widget())
     // fsharpanalyzer: ignore-line-next DLR001
     let call () = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> (dlr { return w?Count } : int) |> ignore)
+    DlrCache.clear ()
     let first = call ()
     let before = DlrCache.count ()
     let second = call ()
-    obj.ReferenceEquals(first, second) |> should equal false
-    first.InnerException |> should be instanceOfType<DlrTranslationException>
-    obj.ReferenceEquals(first.InnerException, second.InnerException) |> should equal true
+    let third = call ()
+    first.InnerException |> should equal null
+    obj.ReferenceEquals(second.InnerException, first) |> should equal true
+    obj.ReferenceEquals(third.InnerException, first) |> should equal true
+    obj.ReferenceEquals(second, third) |> should equal false
     second.Message |> should equal first.Message
     DlrCache.count () |> should equal before
     DlrCache.clear ()
     let afterClear = call ()
-    obj.ReferenceEquals(afterClear.InnerException, first.InnerException) |> should equal false
+    afterClear.InnerException |> should equal null
+    obj.ReferenceEquals(afterClear, first) |> should equal false
     afterClear.Message |> should equal first.Message
