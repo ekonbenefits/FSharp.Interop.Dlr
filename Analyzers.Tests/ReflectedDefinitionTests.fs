@@ -749,9 +749,11 @@ let private runOnSmallStack (source: string) : Message list =
 
 [<Fact>]
 let ``a long list literal does not overflow the analyzer's stack`` () =
-    // The shape #211 generated, at its size: tuples holding a lambda, in a module-level value,
-    // which FCS's own checking handles on an ordinary thread; the analyzer used to overflow on it.
-    let itemsAt (indent: int) = String.concat "\n" [ for i in 1 .. 1506 -> sprintf "%s\"c%d\", (fun (o: obj) -> string o + \"%d\"), \"%d\", false" (String.replicate indent " ") i i i ]
+    // The shape #211 generated (tuples holding a lambda) in a module-level value, a reflected
+    // member and a block. Its 1,506 entries, or a `+` in each lambda (a member constraint to
+    // solve), overflow FCS's own checking first on Windows' pool threads, where the source is
+    // checked; 1,000 still overflows the recursive walks the analyzer had.
+    let itemsAt (indent: int) = String.concat "\n" [ for i in 1 .. 1000 -> sprintf "%s\"c%d\", (fun (o: obj) -> o.ToString()), \"%d\", false" (String.replicate indent " ") i i ]
     let inModule, inBlock = itemsAt 10, itemsAt 18
     let msgs =
         runOnSmallStack (sprintf """
