@@ -729,3 +729,54 @@ module Impl =
     lines |> List.map (fun l -> l - lines.Head) |> should equal [ 0; 1; 1 ]   // the let a block, f's and the one in it
     msgs |> List.forall (fun m -> m.Severity = Severity.Info) |> should equal true
     msgs.Head.Message |> should haveSubstring "redundant"
+
+/// The analyzer on a thread with a small stack (about a Windows thread-pool thread's), so a walk
+/// that takes one frame per nesting level overflows here on any OS. An overflow kills the process
+/// rather than failing the test: green means the walks did not recurse per element.
+/// The source is type-checked first, as usual: only the analyzer runs on the small stack.
+let private runOnSmallStack (source: string) : Message list =
+    let ctx = getContext options.Value (prelude + source)
+    let mutable result = []
+    let mutable error: exn = null
+    // StartImmediate, not RunSynchronously: from a thread outside the pool that would run the
+    // analyzer on a pool thread, with an ordinary stack.
+    let analyze () = try result <- (Async.StartImmediateAsTask(ReflectedDefinitionAnalyzer.cliAnalyzer ctx)).Result with e -> error <- e
+    let thread = System.Threading.Thread(analyze, 256 * 1024)
+    thread.Start()
+    thread.Join()
+    if not (isNull error) then raise error
+    result
+
+[<Fact>]
+let ``a long list literal does not overflow the analyzer's stack`` () =
+    // The shape #211 generated, at its size: tuples holding a lambda, in a module-level value,
+    // which FCS's own checking handles on an ordinary thread; the analyzer used to overflow on it.
+    let itemsAt (indent: int) = String.concat "\n" [ for i in 1 .. 1506 -> sprintf "%s\"c%d\", (fun (o: obj) -> string o + \"%d\"), \"%d\", false" (String.replicate indent " ") i i i ]
+    let inModule, inBlock = itemsAt 10, itemsAt 18
+    let msgs =
+        runOnSmallStack (sprintf """
+module Impl =
+    let w = box 1
+    let private pinned : (string * (obj -> string) * string * bool) list =
+        [
+%s
+        ]
+    [<ReflectedDefinition>]
+    let reflectedPinned () : (string * (obj -> string) * string * bool) list =
+        [
+%s
+        ]
+    [<ReflectedDefinition>]
+    let withBlock () : int = dlr { return pinned.Length }
+    [<ReflectedDefinition>]
+    let inBlock () : int =
+        dlr {
+            let xs : (string * (obj -> string) * string * bool) list =
+                [
+%s
+                ]
+            return xs.Length
+        }
+    let unreflected () : int = dlr { return 1 }
+""" inModule inModule inBlock)
+    msgs |> List.map (fun m -> m.Code) |> should equal [ ReflectedDefinitionAnalyzer.Code ]
