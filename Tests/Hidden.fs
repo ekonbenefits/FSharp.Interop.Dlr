@@ -14,13 +14,15 @@ open Tests.HiddenLib
 let ``a function the signature hides is kept in Debug, so the assembly's blocks run`` () =
     Hidden.reflectedCaller (Widget()) 3 |> should equal 4
     Elsewhere.independent (Widget()) 3 |> should equal 6
+    Hidden.nestedLocal (Widget()) 3 |> should equal 3
 #else
 [<Fact>]
 let ``a function the signature hides fails every block in its assembly, and the error says why`` () =
-    for call in [ (fun () -> Hidden.reflectedCaller (Widget()) 3); (fun () -> Elsewhere.independent (Widget()) 3) ] do
+    // The last is a block in a local function, whose closure is named after the local, not the member.
+    for call in [ (fun () -> Hidden.reflectedCaller (Widget()) 3); (fun () -> Elsewhere.independent (Widget()) 3); (fun () -> Hidden.nestedLocal (Widget()) 3) ] do
         let ex = AnyUnit.Run.Assert.Current.Throws<FSharp.Interop.Dlr.DlrTranslationException>(fun () -> call () |> ignore)
-        ex.Message |> should haveSubstring "could not decode"
-        ex.Message |> should haveSubstring "Every reflected definition in Tests.HiddenLib fails the same way"
+        ex.Message |> should haveSubstring "could not decode any of Tests.HiddenLib's reflected definitions"
+        ex.Message |> should haveSubstring "every block in the assembly fails"
         ex.Message |> should haveSubstring "signature file"
         ex.Message |> should haveSubstring "DLR008"
         ex.Message |> should not' (haveSubstring "needs [<ReflectedDefinition>]")

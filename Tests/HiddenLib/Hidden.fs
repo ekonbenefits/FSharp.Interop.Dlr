@@ -9,3 +9,9 @@ let wrap (x: int) = x + 1
 let reflectedCaller (target: obj) (n: int) : int =
     let s = wrap n
     dlr { return target?Add(s, 0) }
+
+/// A block in a local function: its closure is named after `inner`, not this member.
+[<ReflectedDefinition>]
+let nestedLocal (target: obj) (n: int) : int =
+    let inner (k: int) : int = dlr { return target?Add(k, 0) }
+    inner n + inner 0

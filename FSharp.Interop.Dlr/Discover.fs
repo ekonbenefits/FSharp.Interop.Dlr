@@ -135,26 +135,29 @@ module internal Discover =
                     | _ -> m, memberBody, body
             { Context = m.DeclaringType; MemberBody = memberBody; Body = body }
         | [] ->
+            // The block's own container never has a reflected definition, so decoding one of its
+            // methods throws only when the assembly's definitions cannot be read at all: FSharp.Core
+            // reads them together, and one it cannot bind (a function a signature hides, erased by
+            // Release inlining, #213) fails every method of every type. A body it refuses
+            // (`typeof<System.Void>`) fails only its own member. Told apart by this, not by
+            // FSharp.Core's (localized) message, which for Void names no member.
+            let assemblyWide =
+                closureType.GetMethods all
+                |> Seq.tryPick (fun m -> match tryReflected m with Choice2Of2 e -> Some e | _ -> None)
             // A member with the attribute whose quotation would not decode is the other reason a
             // body is not found — when it is the member the closure belongs to: the compiler
             // names a block's closure `<member>@<line>`.
-            let failures = failuresIn searched
-            match failures |> List.tryFind (fun (m, _) -> closureType.Name.StartsWith(m.Name + "@")) with
-            | Some(m, e) ->
-                // FSharp.Core decodes an assembly's reflected definitions together, so one it cannot
-                // bind fails every member with the same error (#213), where a body it refuses
-                // (`typeof<System.Void>`) fails only its own. Told apart by the members failing
-                // alike in more than one type, not by FSharp.Core's (localized) message.
-                let alike = failures |> List.filter (fun (_, other) -> other.Message = e.Message) |> List.map (fun (m, _) -> m.DeclaringType) |> List.distinct
-                let cause =
-                    if alike.Length > 1 then
-                        sprintf " Every reflected definition in %s fails the same way: FSharp.Core decodes an assembly's reflected definitions together, so one it cannot bind fails them all, wherever the block is. The usual cause is a function a signature file (.fsi) leaves out, called from a reflected definition: the Release optimizer inlines and erases it, and the stored quotation still names it. Add that function (the one FSharp.Core names) to the signature, or mark it [<MethodImpl(MethodImplOptions.NoInlining)>]; the analyzer reports it at build time (DLR008)."
-                            (holder.Assembly.GetName().Name)
-                    else " Its body has something a quotation cannot hold."
+            let own = failuresIn searched |> List.tryFind (fun (m, _) -> closureType.Name.StartsWith(m.Name + "@"))
+            match assemblyWide, own with
+            | Some e, _ ->
                 raise (DlrTranslationException(
-                        sprintf "dlr { } at %s:%d is in %s.%s, whose reflected definition FSharp.Core could not decode (%s), so the block's body cannot be found (closure %s in %s).%s"
-                            file line m.DeclaringType.Name m.Name e.Message closureType.Name holder.FullName cause))
-            | None ->
+                        sprintf "dlr { } at %s:%d cannot find its body: FSharp.Core could not decode any of %s's reflected definitions (%s), so every block in the assembly fails, wherever it is (closure %s in %s). FSharp.Core reads an assembly's reflected definitions together, and one it cannot bind fails them all. The usual cause is a function a signature file (.fsi) leaves out, called from a reflected definition: the Release optimizer inlines and erases it, and the stored quotation still names it. Add that function (the one FSharp.Core names) to the signature, or mark it [<MethodImpl(MethodImplOptions.NoInlining)>]; the analyzer reports it at build time (DLR008)."
+                            file line (holder.Assembly.GetName().Name) e.Message closureType.Name holder.FullName))
+            | None, Some(m, e) ->
+                raise (DlrTranslationException(
+                        sprintf "dlr { } at %s:%d is in %s.%s, whose reflected definition FSharp.Core could not decode (%s), so the block's body cannot be found (closure %s in %s). Its body has something a quotation cannot hold."
+                            file line m.DeclaringType.Name m.Name e.Message closureType.Name holder.FullName))
+            | None, None ->
                 // A trimmed publish keeps the stored definitions but not what FSharp.Core matches them
                 // by, so the block is not found although the attribute is there: say so where the
                 // assembly holds reflected definitions at all.
