@@ -730,36 +730,33 @@ module Impl =
     msgs |> List.forall (fun m -> m.Severity = Severity.Info) |> should equal true
     msgs.Head.Message |> should haveSubstring "redundant"
 
-/// `f` on a new thread with a stack of `size` bytes; its exception, if any, rethrown here.
-let private onThread (size: int) (f: unit -> 'T) : 'T =
-    let mutable result = Unchecked.defaultof<'T>
+/// The analyzer on a thread with a small stack, 64 KB, so a walk that takes one frame per nesting
+/// level overflows here on any OS. An overflow kills the process rather than failing the test:
+/// green means the walks did not recurse per element. The source is type-checked first, as usual,
+/// wherever the SDK's helper puts it: FCS hands the checking to the thread pool, whose stack the
+/// test cannot choose (and is small on Windows).
+let private runOnSmallStack (source: string) : Message list =
+    let ctx = getContext options.Value (prelude + source)
+    let mutable result = []
     let mutable error: exn = null
-    let thread = System.Threading.Thread((fun () -> try result <- f () with e -> error <- e), size)
+    // StartImmediate, not RunSynchronously: from a thread outside the pool that would run the
+    // analyzer on a pool thread, with an ordinary stack.
+    let analyze () = try result <- (Async.StartImmediateAsTask(ReflectedDefinitionAnalyzer.cliAnalyzer ctx)).Result with e -> error <- e
+    let thread = System.Threading.Thread(analyze, 64 * 1024)
     thread.Start()
     thread.Join()
     if not (isNull error) then raise error
     result
 
-/// The analyzer on a thread with a small stack (about a Windows thread-pool thread's), so a walk
-/// that takes one frame per nesting level overflows here on any OS. An overflow kills the process
-/// rather than failing the test: green means the walks did not recurse per element.
-/// The source is type-checked first on a large stack: FCS's own checking recurses per element too
-/// (its quotation translation of a reflected list), and on the test's thread, a pool thread on
-/// Windows, it overflowed before the analyzer ran. Only the analyzer runs on the small stack.
-let private runOnSmallStack (source: string) : Message list =
-    let ctx = onThread (64 * 1024 * 1024) (fun () -> getContext options.Value (prelude + source))
-    // StartImmediate, not RunSynchronously: from a thread outside the pool that would run the
-    // analyzer on a pool thread, with an ordinary stack.
-    onThread (256 * 1024) (fun () -> (Async.StartImmediateAsTask(ReflectedDefinitionAnalyzer.cliAnalyzer ctx)).Result)
-
 [<Fact>]
 let ``a long list literal does not overflow the analyzer's stack`` () =
     // The shape #211 generated (tuples holding a lambda) in a module-level value, a reflected
-    // member and a block. Its 1,506 entries, or a `+` in each lambda (a member constraint to
-    // solve), overflow FCS's own checking first on Windows' pool threads, where the source is
-    // checked; 1,000 still overflows the recursive walks the analyzer had.
-    let itemsAt (indent: int) = String.concat "\n" [ for i in 1 .. 1000 -> sprintf "%s\"c%d\", (fun (o: obj) -> o.ToString()), \"%d\", false" (String.replicate indent " ") i i ]
-    let inModule, inBlock = itemsAt 10, itemsAt 18
+    // member and a block. FCS's own checking recurses per element too, on the thread pool: its
+    // quotation translation of a reflected list of 1,000 overflowed a Windows pool thread some
+    // runs (#244), so the reflected lists are 300, which still overflow the recursive walks the
+    // analyzer had on the 64 KB thread (as the 1,000-entry module value does on its own).
+    let itemsAt (n: int) (indent: int) = String.concat "\n" [ for i in 1 .. n -> sprintf "%s\"c%d\", (fun (o: obj) -> o.ToString()), \"%d\", false" (String.replicate indent " ") i i ]
+    let inModule, inReflected, inBlock = itemsAt 1000 10, itemsAt 300 10, itemsAt 300 18
     let msgs =
         runOnSmallStack (sprintf """
 module Impl =
@@ -785,5 +782,5 @@ module Impl =
             return xs.Length
         }
     let unreflected () : int = dlr { return 1 }
-""" inModule inModule inBlock)
+""" inModule inReflected inBlock)
     msgs |> List.map (fun m -> m.Code) |> should equal [ ReflectedDefinitionAnalyzer.Code ]
