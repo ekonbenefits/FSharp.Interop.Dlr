@@ -730,22 +730,27 @@ module Impl =
     msgs |> List.forall (fun m -> m.Severity = Severity.Info) |> should equal true
     msgs.Head.Message |> should haveSubstring "redundant"
 
-/// The analyzer on a thread with a small stack (about a Windows thread-pool thread's), so a walk
-/// that takes one frame per nesting level overflows here on any OS. An overflow kills the process
-/// rather than failing the test: green means the walks did not recurse per element.
-/// The source is type-checked first, as usual: only the analyzer runs on the small stack.
-let private runOnSmallStack (source: string) : Message list =
-    let ctx = getContext options.Value (prelude + source)
-    let mutable result = []
+/// `f` on a new thread with a stack of `size` bytes; its exception, if any, rethrown here.
+let private onThread (size: int) (f: unit -> 'T) : 'T =
+    let mutable result = Unchecked.defaultof<'T>
     let mutable error: exn = null
-    // StartImmediate, not RunSynchronously: from a thread outside the pool that would run the
-    // analyzer on a pool thread, with an ordinary stack.
-    let analyze () = try result <- (Async.StartImmediateAsTask(ReflectedDefinitionAnalyzer.cliAnalyzer ctx)).Result with e -> error <- e
-    let thread = System.Threading.Thread(analyze, 256 * 1024)
+    let thread = System.Threading.Thread((fun () -> try result <- f () with e -> error <- e), size)
     thread.Start()
     thread.Join()
     if not (isNull error) then raise error
     result
+
+/// The analyzer on a thread with a small stack (about a Windows thread-pool thread's), so a walk
+/// that takes one frame per nesting level overflows here on any OS. An overflow kills the process
+/// rather than failing the test: green means the walks did not recurse per element.
+/// The source is type-checked first on a large stack: FCS's own checking recurses per element too
+/// (its quotation translation of a reflected list), and on the test's thread, a pool thread on
+/// Windows, it overflowed before the analyzer ran. Only the analyzer runs on the small stack.
+let private runOnSmallStack (source: string) : Message list =
+    let ctx = onThread (64 * 1024 * 1024) (fun () -> getContext options.Value (prelude + source))
+    // StartImmediate, not RunSynchronously: from a thread outside the pool that would run the
+    // analyzer on a pool thread, with an ordinary stack.
+    onThread (256 * 1024) (fun () -> (Async.StartImmediateAsTask(ReflectedDefinitionAnalyzer.cliAnalyzer ctx)).Result)
 
 [<Fact>]
 let ``a long list literal does not overflow the analyzer's stack`` () =
