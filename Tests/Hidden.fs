@@ -23,6 +23,7 @@ let ``a function the signature hides fails every block in its assembly, and the 
         let ex = AnyUnit.Run.Assert.Current.Throws<FSharp.Interop.Dlr.DlrTranslationException>(fun () -> call () |> ignore)
         ex.Message |> should haveSubstring "could not decode any of Tests.HiddenLib's reflected definitions"
         ex.Message |> should haveSubstring "every block in the assembly fails"
+        ex.Message |> should haveSubstring "wrap"     // FSharp.Core's error names the hidden function: the culprit
         ex.Message |> should haveSubstring "signature file"
         ex.Message |> should haveSubstring "DLR008"
         ex.Message |> should not' (haveSubstring "needs [<ReflectedDefinition>]")
