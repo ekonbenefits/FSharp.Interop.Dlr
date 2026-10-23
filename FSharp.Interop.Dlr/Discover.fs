@@ -158,16 +158,44 @@ module internal Discover =
                         sprintf "dlr { } at %s:%d is in %s.%s, whose reflected definition FSharp.Core could not decode (%s), so the block's body cannot be found (closure %s in %s). Its body has something a quotation cannot hold."
                             file line m.DeclaringType.Name m.Name e.Message closureType.Name holder.FullName))
             | None, None ->
-                // A trimmed publish keeps the stored definitions but not what FSharp.Core matches them
-                // by, so the block is not found although the attribute is there: say so where the
-                // assembly holds reflected definitions at all.
-                let trimmed =
-                    if holder.Assembly.GetManifestResourceNames() |> Array.exists (fun n -> n.StartsWith "ReflectedDefinitions") then
-                        " If the attribute is there and the app is published trimmed (PublishTrimmed), trimming is the cause: it is not supported."
-                    else ""
+                // A block in a local function has a closure named after the local, not the member
+                // (Debug; Release names the machine after the member), so the member is unknown
+                // here (#245). Members that failed to decode in the closure's type and the types
+                // nested in it (a class in the module) are then the likely place. A type declared in
+                // a namespace has its closures in the file's <StartupCode$…> class, which nothing
+                // ties to the types the file declares: there, the assembly's. The attribute may still
+                // be missing, so they are a hint after the missing-attribute message, not a
+                // replacement for it.
+                let candidates =
+                    if not (isNull holder.Namespace) && holder.Namespace.StartsWith "<StartupCode$" then failuresIn searched
+                    else failuresIn [ holder ]
+                    // `searched` holds the closure's type twice when the assembly-wide fallback ran,
+                    // and a nested type comes once more through its parent.
+                    |> List.distinctBy fst
+                let hint =
+                    match candidates with
+                    | [] ->
+                        // A trimmed publish keeps the stored definitions but not what FSharp.Core
+                        // matches them by, so the block is not found although the attribute is
+                        // there: say so where the assembly holds reflected definitions at all.
+                        if holder.Assembly.GetManifestResourceNames() |> Array.exists (fun n -> n.StartsWith "ReflectedDefinitions") then
+                            " If the attribute is there and the app is published trimmed (PublishTrimmed), trimming is the cause: it is not supported."
+                        else ""
+                    | [ m, e ] ->
+                        sprintf " If the block is in %s.%s (in a local function there, say), the attribute is there, but FSharp.Core could not decode that member's reflected definition (%s): its body has something a quotation cannot hold."
+                            m.DeclaringType.Name m.Name e.Message
+                    | several ->
+                        // One error per distinct message, with the members it was raised for.
+                        let named =
+                            several
+                            |> List.groupBy (fun (_, e) -> e.Message)
+                            |> List.map (fun (message, ms) -> sprintf "%s (%s)" (ms |> List.map (fun (m, _) -> m.DeclaringType.Name + "." + m.Name) |> String.concat ", ") message)
+                            |> String.concat "; "
+                        sprintf " If the block is in one of %s (in a local function there, say), the attribute is there, but FSharp.Core could not decode that member's reflected definition: its body has something a quotation cannot hold."
+                            named
                 raise (DlrTranslationException(
                         sprintf "dlr { } at %s:%d needs [<ReflectedDefinition>] on the function or member that contains it, so its body can be compiled (closure %s in %s). Put the attribute on that one binding, not the whole module, unless everything in the module can be quoted.%s"
-                            file line closureType.Name holder.FullName trimmed))
+                            file line closureType.Name holder.FullName hint))
         | many ->
             raise (DlrTranslationException(
                     sprintf "%d dlr { } blocks share %s:%d; put each dlr { } on its own line." many.Length file line))
