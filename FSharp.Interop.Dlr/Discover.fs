@@ -160,14 +160,17 @@ module internal Discover =
             | None, None ->
                 // A block in a local function has a closure named after the local, not the member
                 // (Debug; Release names the machine after the member), so the member is unknown
-                // here (#245). Members of the closure's type that failed to decode are then the
-                // likely place, those declared in it first; the attribute may still be missing, so
-                // they are a hint after the missing-attribute message, not a replacement for it.
+                // here (#245). Members that failed to decode in the closure's type and the types
+                // nested in it (a class in the module) are then the likely place. A type declared in
+                // a namespace has its closures in the file's <StartupCode$…> class, which nothing
+                // ties to the types the file declares: there, the assembly's. The attribute may still
+                // be missing, so they are a hint after the missing-attribute message, not a
+                // replacement for it.
                 let candidates =
-                    // `searched` holds the closure's type twice when the assembly-wide fallback ran.
-                    match failuresIn searched |> List.filter (fun (m, _) -> m.DeclaringType = holder) with
-                    | [] -> failuresIn [ holder ]
-                    | direct -> direct
+                    if not (isNull holder.Namespace) && holder.Namespace.StartsWith "<StartupCode$" then failuresIn searched
+                    else failuresIn [ holder ]
+                    // `searched` holds the closure's type twice when the assembly-wide fallback ran,
+                    // and a nested type comes once more through its parent.
                     |> List.distinctBy fst
                 let hint =
                     match candidates with

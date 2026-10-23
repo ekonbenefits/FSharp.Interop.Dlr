@@ -54,3 +54,19 @@ let ``a block in a local function of a member FSharp.Core cannot decode names th
     ex.Message |> should haveSubstring "could not decode"
     ex.Message |> should not' (haveSubstring "trimmed")
     ex.Message.Split([| "Undecodable.voidLocal" |], System.StringSplitOptions.None).Length - 1 |> should equal 1   // named once
+
+/// The same in a class's member: the class is nested in this module, and the closure too.
+type VoidClass() =
+    [<ReflectedDefinition>]
+    member _.Count(w: obj) : int =
+        let t = typeof<System.Void>
+        ignore t
+        // fsharpanalyzer: ignore-line-next DLR006
+        let inner () : int = dlr { return w?Count }
+        inner ()
+
+[<Fact>]
+let ``a block in a local function of a class member FSharp.Core cannot decode names the member`` () =
+    let ex = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> VoidClass().Count(Widget()) |> ignore)
+    ex.Message |> should haveSubstring "VoidClass.Count"
+    ex.Message |> should haveSubstring "could not decode"

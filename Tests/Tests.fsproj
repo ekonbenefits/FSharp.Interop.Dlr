@@ -116,6 +116,7 @@
     <Compile Include="Hidden.fs" />
     <Compile Include="Identity.fs" />
     <Compile Include="Undecodable.fs" />   <!-- not in Tests.Wasm: Mono asserts on the Void quotation -->
+    <Compile Include="UndecodableTypes.fs" />   <!-- not in Tests.Wasm either -->
   </ItemGroup>
 
   <ItemGroup>
