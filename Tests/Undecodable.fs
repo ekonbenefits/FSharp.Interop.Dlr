@@ -16,8 +16,22 @@ let private withVoid (w: obj) : int =
     // fsharpanalyzer: ignore-line-next DLR006
     dlr { return w?Count }
 
+/// A second one, in another type: FSharp.Core's message names no member, so the two fail alike,
+/// and still only their own members do (the rest of this assembly decodes).
+module Other =
+    [<ReflectedDefinition>]
+    let withVoidToo (w: obj) : int =
+        let t = typeof<System.Void>
+        ignore t
+        // fsharpanalyzer: ignore-line-next DLR006
+        dlr { return w?Count }
+
 [<Fact>]
 let ``a reflected definition FSharp.Core cannot decode is named, not blamed on a missing attribute`` () =
+    let other = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> Other.withVoidToo (Widget()) |> ignore)
+    other.Message |> should haveSubstring "withVoidToo"
+    other.Message |> should not' (haveSubstring "every block in the assembly")
     let ex = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> withVoid (Widget()) |> ignore)
     ex.Message |> should haveSubstring "withVoid"
-    ex.Message |> should haveSubstring "could not be decoded"
+    ex.Message |> should haveSubstring "could not decode"
+    ex.Message |> should not' (haveSubstring "every block in the assembly")     // its own member only: the rest of this assembly decodes
