@@ -730,10 +730,11 @@ module Impl =
     msgs |> List.forall (fun m -> m.Severity = Severity.Info) |> should equal true
     msgs.Head.Message |> should haveSubstring "redundant"
 
-/// The analyzer on a thread with a small stack (about a Windows thread-pool thread's), so a walk
-/// that takes one frame per nesting level overflows here on any OS. An overflow kills the process
-/// rather than failing the test: green means the walks did not recurse per element.
-/// The source is type-checked first, as usual: only the analyzer runs on the small stack.
+/// The analyzer on a thread with a small stack, 256 KB (about a Windows thread-pool thread's), so a walk that takes one frame per nesting
+/// level overflows here on any OS. An overflow kills the process rather than failing the test:
+/// green means the walks did not recurse per element. The source is type-checked first, as usual,
+/// wherever the SDK's helper puts it: FCS hands the checking to the thread pool, whose stack the
+/// test cannot choose (and is small on Windows).
 let private runOnSmallStack (source: string) : Message list =
     let ctx = getContext options.Value (prelude + source)
     let mutable result = []
@@ -750,11 +751,13 @@ let private runOnSmallStack (source: string) : Message list =
 [<Fact>]
 let ``a long list literal does not overflow the analyzer's stack`` () =
     // The shape #211 generated (tuples holding a lambda) in a module-level value, a reflected
-    // member and a block. Its 1,506 entries, or a `+` in each lambda (a member constraint to
-    // solve), overflow FCS's own checking first on Windows' pool threads, where the source is
-    // checked; 1,000 still overflows the recursive walks the analyzer had.
-    let itemsAt (indent: int) = String.concat "\n" [ for i in 1 .. 1000 -> sprintf "%s\"c%d\", (fun (o: obj) -> o.ToString()), \"%d\", false" (String.replicate indent " ") i i ]
-    let inModule, inBlock = itemsAt 10, itemsAt 18
+    // member and a block. FCS's own checking recurses per element when it quotes a reflected
+    // list, on the thread pool: 1,000 overflowed a Windows pool thread some runs (#244). So the
+    // reflected member's list is 300 and the block's function is not reflected (nothing to
+    // quote; the analyzer walks the block all the same, and reports DLR001 on it); the
+    // 1,000-entry lists overflow the recursive walks the analyzer had.
+    let itemsAt (n: int) (indent: int) = String.concat "\n" [ for i in 1 .. n -> sprintf "%s\"c%d\", (fun (o: obj) -> o.ToString()), \"%d\", false" (String.replicate indent " ") i i ]
+    let inModule, inReflected, inBlock = itemsAt 1000 10, itemsAt 300 10, itemsAt 1000 18
     let msgs =
         runOnSmallStack (sprintf """
 module Impl =
@@ -770,7 +773,6 @@ module Impl =
         ]
     [<ReflectedDefinition>]
     let withBlock () : int = dlr { return pinned.Length }
-    [<ReflectedDefinition>]
     let inBlock () : int =
         dlr {
             let xs : (string * (obj -> string) * string * bool) list =
@@ -780,5 +782,5 @@ module Impl =
             return xs.Length
         }
     let unreflected () : int = dlr { return 1 }
-""" inModule inModule inBlock)
-    msgs |> List.map (fun m -> m.Code) |> should equal [ ReflectedDefinitionAnalyzer.Code ]
+""" inModule inReflected inBlock)
+    msgs |> List.map (fun m -> m.Code) |> should equal [ ReflectedDefinitionAnalyzer.Code; ReflectedDefinitionAnalyzer.Code ]   // inBlock, unreflected
