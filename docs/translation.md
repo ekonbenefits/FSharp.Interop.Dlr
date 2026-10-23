@@ -99,6 +99,12 @@ lambda, in a delegate literal, or used as a value (`let n = try … with _ -> 0`
 `TryWith`/`TryFinally`/`WhileLoop`/`ForIntegerRangeLoop` node goes to the same helpers (#158,
 #162), and so does a `use` there.
 
+The builder's `for` over an `int` range with step 1 is that counted loop too, `DlrRuntime.forRange`,
+with no enumerator. Any other range on a primitive, `a .. b` or `a .. step .. b`, becomes the typed
+`OperatorIntrinsics.Range*` the compiler would inline it to (`PrimitiveRange`). Compiled from
+the quotation, the generic `op_Range` runs FSharp.Core's non-inlined form, which does every step
+dynamically, a few hundred bytes per element (#240).
+
 A raw `try`'s handler runs as a delegate, outside any catch block. So the `reraise ()` F# puts
 where no case matches throws the caught exception again through `DlrRuntime.rethrow`, its stack
 trace kept (`Plumbing.rethrowing`). The builder's handlers have no `reraise ()`: the compiler's

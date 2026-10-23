@@ -165,6 +165,7 @@ module internal Translate =
             | ForIntegerRangeLoop(i, low, high, body) ->
                 let func = Plumbing.func block rewriteIn bound
                 Expr.Call(forRange, [ rewrite low; rewrite high; func [ i ] body ])
+            | PrimitiveRange(typed, args) -> Expr.Call(typed, List.map rewrite args)
             // An element of a struct tuple: the converter's TupleGet looks for a reference tuple's
             // property and rejects a ValueTuple's index (#162), so it is the field itself
             // (`Item1`…`Item7`, then `Rest`), as the byref holder reads it.

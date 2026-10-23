@@ -75,6 +75,79 @@ let ``collections: comprehensions, seq expressions, List.map with a lambda, for 
     overSeq |> should equal 7
 
 [<Fact>]
+let ``ranges on every primitive, in the builder's for and as values, are F#'s`` () =
+    let o = box (Widget())   // Count = 3
+    // The builder's `for` over an int range is a counted loop (#240); every other range is F#'s typed one.
+    let up: int =
+        dlr {
+            let mutable s = 0
+            for i in 1 .. o?Count do s <- s + i
+            return s
+        }
+    up |> should equal 6
+    let empty: int =
+        dlr {
+            let mutable s = 0
+            for i in o?Count .. 1 do s <- s + i
+            return s
+        }
+    empty |> should equal 0
+    let stepped: int list =
+        dlr {
+            let mutable s = []
+            for i in 1 .. 2 .. o?Count + 4 do s <- i :: s
+            return s
+        }
+    stepped |> should equal [ 7; 5; 3; 1 ]
+    let down: int list =
+        dlr {
+            let mutable s = []
+            for i in o?Count + 4 .. -3 .. 0 do s <- i :: s
+            return s
+        }
+    down |> should equal [ 1; 4; 7 ]
+    let longs: int64 list =
+        dlr {
+            let mutable s = []
+            for i in 1L .. (o?Count : int64) do s <- i :: s
+            return s
+        }
+    longs |> should equal [ 3L; 2L; 1L ]
+    let chars: string =
+        dlr {
+            let mutable s = ""
+            for c in 'a' .. 'c' do s <- s + string c
+            return s + string (o?Count : int)
+        }
+    chars |> should equal "abc3"
+    (dlr { return [ 1 .. (o?Count : int) ] } : int list) |> should equal [ 1; 2; 3 ]
+    (dlr { return [ 0uy .. 100uy .. 255uy ] @ [ 250uy .. byte (o?Count : int) ] } : byte list) |> should equal [ 0uy; 100uy; 200uy ]
+    (dlr { return Seq.toList (seq { 1s .. int16 (o?Count : int) }) } : int16 list) |> should equal [ 1s; 2s; 3s ]
+    (dlr { return ([ 1u .. uint32 (o?Count : int) ] |> List.map int) @ ([ 1UL .. 1UL ] |> List.map int) } : int list) |> should equal [ 1; 2; 3; 1 ]
+    (dlr { return [ -1y .. 1y ] |> List.map int } : int list) |> should equal [ -1; 0; 1 ]
+    (dlr { return [ 1us .. 2us ] |> List.map int } : int list) |> should equal [ 1; 2 ]
+    (dlr { return [ nativeint 1 .. nativeint (o?Count : int) ] @ [ nativeint 3 .. nativeint 2 .. nativeint 5 ] |> List.map int } : int list) |> should equal [ 1; 2; 3; 3; 5 ]
+    (dlr { return [ unativeint 1 .. unativeint 2 ] |> List.map int } : int list) |> should equal [ 1; 2 ]
+    (dlr { return [ 0.5 .. (o?Count : float) ] } : float list) |> should equal [ 0.5; 1.5; 2.5 ]
+    (dlr { return [ 1.0f .. 0.5f .. 2.0f ] } : float32 list) |> should equal [ 1.0f; 1.5f; 2.0f ]
+    (dlr { return [ 1m .. (o?Count : decimal) ] } : decimal list) |> should equal [ 1m; 2m; 3m ]   // no typed range: the generic one
+
+[<Fact>]
+let ``a range's bounds are evaluated once, low first`` () =
+    let o = box (Widget())
+    let log = Collections.Generic.List<string>()
+    let bound (name: string) (v: int) = log.Add name; v
+    let n: int =
+        dlr {
+            let mutable n = 0
+            for _ in bound "low" 1 .. bound "high" (o?Count : int) do n <- n + 1
+            return n
+        }
+    n |> should equal 3
+    (dlr { return [ bound "low" 1 .. bound "step" 1 .. bound "high" 2 ] } : int list) |> should equal [ 1; 2 ]
+    List.ofSeq log |> should equal [ "low"; "high"; "low"; "step"; "high" ]
+
+[<Fact>]
 let ``failwith and raise propagate as themselves`` () =
     let o = box (Widget())
     (fun () -> (dlr { return (if (o?Count : int) > 2 then failwith "too many" else "ok") } : string) |> ignore)
