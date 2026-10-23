@@ -35,3 +35,22 @@ let ``a reflected definition FSharp.Core cannot decode is named, not blamed on a
     ex.Message |> should haveSubstring "withVoid"
     ex.Message |> should haveSubstring "could not decode"
     ex.Message |> should not' (haveSubstring "every block in the assembly")     // its own member only: the rest of this assembly decodes
+
+/// A block in a local function of such a member: in Debug its closure is named after the local
+/// (`inner@…`), not the member, so the member is named as the likely place rather than the error
+/// resting on a missing attribute alone (#245). In Release the machine is named after the member.
+[<ReflectedDefinition>]
+let private voidLocal (w: obj) : int =
+    let t = typeof<System.Void>
+    ignore t
+    // fsharpanalyzer: ignore-line-next DLR006
+    let inner () : int = dlr { return w?Count }
+    inner ()
+
+[<Fact>]
+let ``a block in a local function of a member FSharp.Core cannot decode names the member`` () =
+    let ex = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> voidLocal (Widget()) |> ignore)
+    ex.Message |> should haveSubstring "voidLocal"
+    ex.Message |> should haveSubstring "could not decode"
+    ex.Message |> should not' (haveSubstring "trimmed")
+    ex.Message.Split([| "Undecodable.voidLocal" |], System.StringSplitOptions.None).Length - 1 |> should equal 1   // named once
