@@ -14,9 +14,21 @@ type VoidInNamespace() =
         let inner () : int = dlr { return w?Count }
         inner ()
 
+/// A member with no attribute, named like VoidInNamespace's undecodable one: its block's closure
+/// matches that member by name (`Count@…`), but it is not in it (#248).
+type SameNamed() =
+    // fsharpanalyzer: ignore-line-next DLR001
+    member _.Count(w: obj) : int = dlr { return w?Count }
+
 module Tests =
     open AnyUnit.Style.Xunit
     open AnyUnit.Style.FsUnit
+
+    [<Fact>]
+    let ``a same-named member of another type is not stated as the block's`` () =
+        let ex = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> SameNamed().Count(Tests.Widget()) |> ignore)
+        ex.Message |> should haveSubstring "needs [<ReflectedDefinition>]"
+        ex.Message |> should not' (haveSubstring "is in VoidInNamespace.Count")
 
     [<Fact>]
     let ``a block in a local function of a namespace type's member FSharp.Core cannot decode names the member`` () =
