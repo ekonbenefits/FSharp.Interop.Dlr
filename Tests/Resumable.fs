@@ -36,6 +36,26 @@ module LetBound =
     let onceUnit (o: obj) : unit = let onceTouch: unit -> unit = dlr { return o?Touch } in onceTouch ()
     let partial (o: obj) : int -> int = let partialUsed: int -> int -> int = dlr { return o?Add } in partialUsed 1
 
+/// Tests.ClosureBuilder is a copy of DlrBuilder without the state-machine branch (#251): its
+/// members must stay DlrBuilder's, or the closure-path suite drifts into testing a builder no user
+/// has. Each public member by name, generic arity, parameter and return types, and the parameter
+/// attributes that change how a block compiles (caller info, Optional, InlineIfLambda). The bodies
+/// are not compared; the closure-path run itself exercises them.
+[<Fact>]
+let ``the closure test builder has DlrBuilder's members`` () =
+    let members (t: Type) =
+        t.GetMethods(Reflection.BindingFlags.Public ||| Reflection.BindingFlags.Instance ||| Reflection.BindingFlags.DeclaredOnly)
+        |> Array.map (fun m ->
+            let parameters =
+                m.GetParameters()
+                |> Array.map (fun p ->
+                    let attributes = p.CustomAttributes |> Seq.map (fun a -> a.AttributeType.Name) |> Seq.sort |> String.concat ","
+                    sprintf "%O[%s]" p.ParameterType attributes)
+                |> String.concat "; "
+            sprintf "%s`%d(%s) : %O" m.Name (if m.IsGenericMethod then m.GetGenericArguments().Length else 0) parameters m.ReturnType)
+        |> Array.sort
+    members typeof<Tests.ClosureBuilder.DlrClosureBuilder> |> should equal (members typeof<DlrBuilder>)
+
 /// The struct state machines the compiler built for blocks in this assembly.
 let private machines () =
     Reflection.Assembly.GetExecutingAssembly().GetTypes()

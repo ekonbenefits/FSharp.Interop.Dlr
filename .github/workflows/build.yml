@@ -333,6 +333,21 @@ jobs:
               --results-directory coverage/$c
           done
 
+      # The closure path through Tests.ClosureBuilder (#251, #180): once Debug builds state machines
+      # (the 11.0 compiler) nothing else here runs DlrRun.Closure and Delayed<'T>, and their lines
+      # would drop out of the report. Debug reads the Delay closure's field; Release, with it
+      # inlined away, takes the identity branch. Rebuilt in place after the runs above.
+      - name: Test with coverage (closure path)
+        shell: bash
+        run: |
+          for c in Debug Release; do
+            dotnet build Tests/Tests.fsproj --configuration $c -p:DlrClosures=true
+            dotnet Tests/bin/$c/net10.0/Tests.dll \
+              --coverlet --coverlet-output-format cobertura \
+              --coverlet-include '[FSharp.Interop.Dlr]*' \
+              --results-directory coverage/$c-closures
+          done
+
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: coverage-net48-*
