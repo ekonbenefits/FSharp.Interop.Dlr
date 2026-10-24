@@ -26,6 +26,15 @@
          all need dynamic code and untrimmed metadata (see README). -->
     <IsAotCompatible>false</IsAotCompatible>
     <IsTrimmable>false</IsTrimmable>
+    <!-- Binary compatibility, checked by `dotnet pack` (package validation): DlrBuilder's Run and
+         Delay are inline, so every public member their bodies call (DlrRun, DlrData, DlrReader,
+         DlrLocation) is compiled into consumers' assemblies, and changing one makes an
+         already-built consumer throw MissingMethodException. Compared against the last published
+         package (and the TFMs against each other); an intentional break goes in
+         CompatibilitySuppressions.xml (-p:GenerateCompatibilitySuppressionFile=true writes it).
+         Move the baseline to each release once it is on nuget.org. -->
+    <EnablePackageValidation>true</EnablePackageValidation>
+    <PackageValidationBaselineVersion>1.0.0-rc.2</PackageValidationBaselineVersion>
   </PropertyGroup>
 
   <ItemGroup>

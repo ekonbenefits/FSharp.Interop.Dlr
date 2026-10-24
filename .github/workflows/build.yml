@@ -455,6 +455,11 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      # Packing the library also validates it (EnablePackageValidation in its fsproj): against the
+      # last published package, and its TFMs against each other. "API breaking changes found" with
+      # CP000x lines is a removed or changed public member, which already-built consumers would hit
+      # as MissingMethodException: Run and Delay are inline, and Debug consumers call Delay as a
+      # method. Keep the old member, or record an intentional break in CompatibilitySuppressions.xml.
       - name: Pack
         run: |
           dotnet pack FSharp.Interop.Dlr --configuration Release --output packages
