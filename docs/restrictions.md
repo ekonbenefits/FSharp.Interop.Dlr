@@ -80,6 +80,12 @@ Not C# restrictions, but the same family:
   `<ILLinkWarningLevel>5</ILLinkWarningLevel>`: the SDK sets the level from an analysis setting
   only C# and VB projects get. Interpreted (non-AOT) browser-wasm works,
   and CI runs it, just not at JIT speed.
+- **A deep block's first call needs stack.** It is translated on the calling thread, and
+  FSharp.Core's quotation-to-LINQ converter takes a large frame per nesting level, so a deep block
+  (a 17-parameter lambda summing its arguments is enough) can overflow a small thread stack: an
+  IIS worker's 256 KB, .NET 8's 512 KB default on macOS, a thread created with a small
+  stack size. A stack overflow ends the process rather than raising an exception. Default
+  stacks on .NET 9 and later, and on Linux, have room for ordinary blocks. Open as #254.
 
 ## Five places it goes beyond C#
 

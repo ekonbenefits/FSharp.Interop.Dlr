@@ -185,7 +185,7 @@ type internal CodeHit(code: Delegate, closureType: Type) =
     member _.ClosureType = closureType
 
 /// The fallback path's cache, for blocks the compiler did not turn into a state machine (Debug
-/// builds): per result type, the compiled `Func<obj, 'T>` by Delay-closure type, already typed,
+/// builds on the 10.0 compiler, the applied-function shape): per result type, the compiled `Func<obj, 'T>` by Delay-closure type, already typed,
 /// so a call is one `GetType()`, one compare or lookup and one invoke.
 type internal Sites<'T> [<ExcludeFromCodeCoverage>] private () =
     static let sites = ConcurrentDictionary<Type, SiteHit<'T>>()

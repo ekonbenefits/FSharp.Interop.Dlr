@@ -8,7 +8,7 @@
 [![Branch coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fekonbenefits%2FFSharp.Interop.Dlr%2Fbadges%2Fbranch.json)](https://ekonbenefits.github.io/FSharp.Interop.Dlr/coverage/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](License.txt)
 
-Experimental: not on NuGet yet, and the spelling of the API may still change.
+Pre-1.0: release candidates are on NuGet, and the spelling of the API may still change before 1.0.
 
 **C#'s `dynamic`, for F#.** Inside a `dlr { }` block, `x?Name`, `x?Name(a, b)` and `x?Name <- v`
 compile to what C# emits for `d.Name`, `d.Name(a, b)` and `d.Name = v` on a `dynamic`: one
@@ -53,9 +53,10 @@ let depth (root: obj) : int =
 Both run in `Tests/Readme.fs`; every form is in [docs/syntax.md](docs/syntax.md).
 
 Targets `netstandard2.0` and `net10.0`; depends on FSharp.Core ≥ 10.1.201 — its expression
-converter is the first that handles a block's statements. Build with .NET SDK 10 or later: the SDK 8 and 9
-compilers (both end of support in November 2026) are not supported. The app itself may run on anything `netstandard2.0` covers, .NET Framework
-included.
+converter is the first that handles a block's statements. Blocks compile with the .NET SDK 8, 9, 10
+and 11 compilers, and CI builds and runs the tests with each (8 and 9 end support in November 2026);
+building this repository itself needs SDK 10 or later. The app itself may run on anything
+`netstandard2.0` covers, .NET Framework included.
 
 The suite also runs against real dynamic targets — Newtonsoft `JObject`, IronPython, Python.NET,
 Dapper rows over SQLite, ClearScript V8, PowerShell `PSObject`s, COM `IDispatch` on Windows
@@ -172,6 +173,6 @@ and the full [docs/benchmarks.md](docs/benchmarks.md) (every suite, allocations,
 <!-- benchmarks:start -->
 | ns per call | static | C# `dynamic` | **`dlr { }`** | reflection (cached) | FSharp.Interop.Dynamic |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| method call `w.Add(i, 1)` | 1.2 | 7.8 | **11.6** | 35.7 | 7,681 |
-| property get `w.Count` | 0 | 7.2 | **10.8** | 12.7 | 3,980 |
+| method call `w.Add(i, 1)` | 1.2 | 7.7 | **11.4** | 36 | 7,529 |
+| property get `w.Count` | 0 | 7.1 | **10.8** | 12.7 | 3,964 |
 <!-- benchmarks:end -->

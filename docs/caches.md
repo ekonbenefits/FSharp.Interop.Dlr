@@ -36,7 +36,7 @@ Where every piece of state lives, what keys it, and how long it lasts. Part of
   initialization check) and a generation compare — no lookup, no cast. `clear()` bumps the
   generation, so no entry from before it is served however it got installed, and a listener
   registered on the first compile nulls the slot.
-- **`Sites<'T>`** (fallback path) also keeps the last block compiled, an immutable entry swapped
+- **`Sites<'T>`** (the closure path: Debug on the 10.0 compiler, the applied-function shape, `Tests.ClosureBuilder`) also keeps the last block compiled, an immutable entry swapped
   atomically: a block called repeatedly pays a reference compare, not a lookup; blocks called
   in turn pay a lookup each and never write. For a capture-free block's static delegate it keeps
   the last delegate seen with its class (`lastCode`, a `CodeHit` pair), so `Delegate.Method` is

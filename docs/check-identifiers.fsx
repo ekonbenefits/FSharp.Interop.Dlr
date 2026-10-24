@@ -21,7 +21,7 @@ let files (patterns: string list) =
 
 // Every word in the sources.
 let ours =
-    files [ "*.fs"; "*.fsi"; "*.fsx"; "*.cs"; "*.fsproj"; "*.csproj"; "*.props"; "*.yml"; "*.sh"; "*.mjs"; "*.json" ]
+    files [ "*.fs"; "*.fsi"; "*.fsx"; "*.cs"; "*.fsproj"; "*.csproj"; "*.props"; "*.targets"; "*.yml"; "*.sh"; "*.mjs"; "*.json" ]
     |> List.filter (fun f -> Path.GetFullPath f <> Path.GetFullPath __SOURCE_FILE__ && Path.GetFileName f <> "check-identifiers.fsx")   // its own examples are not sources
     |> List.collect (fun f -> [ for m in Regex.Matches(File.ReadAllText f, @"[A-Za-z_][\w']*") -> m.Value ])
     |> set

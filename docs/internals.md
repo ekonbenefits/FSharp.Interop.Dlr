@@ -37,6 +37,6 @@ The library's files, in compile order: `Operators.fsi`/`Operators.fs` (the marke
 (generated), `Runtime.fs`, `Reflection.fs` (accessibility, conversions, tuples, delegate members,
 the signature rule, IL emits), `Functions.fs` (function shapes and the function ↔ delegate
 conversions), `Seam.fs` (the reflection fallback and the binders), `SiteCaches.fs`, `Binders.fs`
-(site emission), `TranslatePatterns.fs` (markers, patterns, `normalize`), `SiteHoister.fs`,
+(site emission), `TranslatePatterns.fs` (markers, patterns, `normalize`; and `DlrData`, `DlrLocation`, `DlrReader`, public because compiled blocks use them: binary API), `SiteHoister.fs`,
 `TranslateBlock.fs` (`Block`, `Captures`, `Plumbing`), `TranslateMembers.fs` (the marker
 operations), `Translate.fs` (`translate`), `Discover.fs`, `Cache.fs`, `Builder.fsi`/`Builder.fs`.

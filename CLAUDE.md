@@ -11,6 +11,8 @@ dotnet build Tests/Tests.fsproj -c Debug -f net10.0 --no-incremental   # runs th
 dotnet test -c Debug
 dotnet test -c Release            # Release inlining has broken things Debug passed
 dotnet test -c Release -p:FSharpCore=latest   # the suite on the newest FSharp.Core (default: the floor)
+dotnet build Tests/Tests.fsproj -c Release -f net10.0 -p:DlrClosures=true && dotnet Tests/bin/Release/net10.0/Tests.dll   # every block on the closure path (Tests.ClosureBuilder)
+dotnet pack FSharp.Interop.Dlr -c Release -o /tmp/dlr-pkgs   # package validation: binary compatibility with the last release
 dotnet build Tests.Wasm -c Release && (cd Tests.Wasm/bin/Release/net10.0-browser/wwwroot && bun runtests.mjs)
 dotnet fsi docs/check-identifiers.fsx   # every identifier and path the docs name still exists
 FSharp.Interop.Dlr/check-internals.sh  # each idiom fixed more than once has one home (#163)
@@ -21,6 +23,9 @@ FSharp.Interop.Dlr/check-internals.sh  # each idiom fixed more than once has one
   it once shipped that way). `--no-incremental` forces it; `error DLR001`/`DLR002` fails the build.
 - Analyzer tests (`Analyzers.Tests`) run as part of `dotnet test`; run their dll directly to see
   them alone. CI treats warnings as errors.
+- The closure-path line rebuilds `Tests` in place, so rebuild normally before the other lines
+  (Debug too when the closure path changed). The pack line validates only when the package is
+  rebuilt: an unchanged build skips it as up to date, so clean first to re-check a suppression edit.
 - CI (`build.yml`) runs on every PR and every push to master (which publishes a prerelease,
   refreshes the badges on the `badges` branch, and deploys the test and coverage HTML reports to
   GitHub Pages, https://ekonbenefits.github.io/FSharp.Interop.Dlr/, which the badges link to); the repo is public, so Actions minutes are free. net48 is its own job
@@ -29,7 +34,14 @@ FSharp.Interop.Dlr/check-internals.sh  # each idiom fixed more than once has one
   .NET Framework-only paths are covered nowhere else).
   `dotnet11` builds and runs the suite on the .NET 11 preview SDK (compiler, runtime, analyzer
   host) as a non-blocking early warning (#67): a red `dotnet11` job is a heads-up to look at, not
-  a merge blocker; fold it into `test` when 11 ships.
+  a merge blocker (`report` runs regardless); fold it into `test` when 11 ships.
+  `compilers` builds the `Tests` project alone with the 8.0 and 9.0 SDKs for their own
+  frameworks (they cannot target net10.0 or read the `.slnx`), normally and through the closure
+  builder, as a check that the builder's shape compiles across compiler generations (#253); it does
+  not gate publishing. A red 8.0 leg may be #254 (a deep block's conversion on a small default
+  thread stack), not the compiler. `test` and `coverage` also run the suite through the closure
+  builder, so the closure path stays tested and in the coverage report whatever Debug builds.
+  `pack` validates the package (below).
   `zizmor` audits the workflows (a finding fails it): actions are pinned by SHA with a
   `# vX.Y.Z` comment, which Dependabot bumps weekly; the token is `contents: read` unless a
   job that writes widens its own `permissions:`; checkouts set `persist-credentials: false`. Run `zizmor .github/` locally before pushing a
@@ -46,8 +58,11 @@ FSharp.Interop.Dlr/check-internals.sh  # each idiom fixed more than once has one
 - The builder is resumable code (`inline` members, `ResumableCode<'D, 'T>` types; `Run` is
   `__stateMachine` in `task`'s shape): in Release each block is a struct state machine and its
   type keys `Machines<'SM, 'T>`; in Debug on the 10.0 compiler `__useResumableCode` is false
-  (11.0 builds machines in Debug too, #235) and `DlrRun.Closure` unwraps the Delay closure (field `delayed` of the delegate's target) into the closure path.
-  Both paths must stay correct — the suite runs in both. Every `dlr { }` compiles statically in
+  and `DlrRun.Closure` unwraps the Delay closure (field `delayed` of the delegate's target) into
+  the closure path, while the 8.0, 9.0 and 11.0 compilers build machines in Debug too
+  (`DEBUG_MACHINES`, defined in `Directory.Build.targets`; #235, #253). Both paths must stay
+  correct, so the closure path is tested on purpose, not by which compiler builds Debug: see
+  `Tests.ClosureBuilder` below. Every `dlr { }` compiles statically in
   Release except one shape the compiler declines silently (no FS3511): a function-typed result
   applied on the spot, `(dlr { … } : unit -> R) ()` — which the optimizer also makes of a
   function-typed block bound with `let` and applied once, fully or partially (it inlines the binding; #217,
@@ -107,11 +122,26 @@ FSharp.Interop.Dlr/check-internals.sh  # each idiom fixed more than once has one
   named in a quotation: FSharp.Core's checks call `Assembly.ReflectionOnly` on it, unimplemented
   on Mono wasm — `Binders.WideSite` (a placeholder the LINQ `SiteHoister` rewrites) and the
   packed `Func<obj[], obj>` of `lambdaOver` in `TranslateMembers.fs` exist for that.
-- .NET SDK 10 and later: 8 and 9 were dropped (#126; end of support November 2026); no
-  `compilers` CI job. Caller info is on `Delay`, never `Run`: on `Run` it made the 8/9 compilers
-  warn FS3511 on every block in Debug (#126) and makes 11.0's fail FS2014 on an inline call in
-  one (#235, dotnet/fsharp#20836). The block's file and line come from a probe on a miss
-  (`DlrLocation`).
+- The repo builds with .NET SDK 10 or later (net10.0 targets, the `.slnx`); the 8.0 and 9.0
+  compilers build the tests in the `compilers` job (they end support November 2026). Caller info
+  is on `Delay`, never `Run`: on `Run` it made the 8/9 compilers warn FS3511 on every block in
+  Debug (#126) and makes 11.0's fail FS2014 on an inline call in one (#235, dotnet/fsharp#20836).
+  The block's file and line come from a probe on a miss (`DlrLocation`).
+- `Tests.ClosureBuilder` (`Tests/ClosureBuilder.fs`) is `DlrBuilder` without its
+  `if __useResumableCode` branch: `Run` always calls `DlrRun.Closure`, so `-p:DlrClosures=true`
+  runs the suite on the closure path in Debug and Release. Every test file opens it after
+  `FSharp.Interop.Dlr` under `#if DLR_CLOSURES` (copy the three lines into a new test file;
+  `generate-shapes.fsx` writes them into `Shapes.fs`); the analyzer is off for that build (it
+  knows blocks by `DlrBuilder`). Its members are pinned equal to `DlrBuilder`'s
+  (`Tests/Resumable.fs`), so a change to the builder's signatures goes into both.
+- Binary API: `DlrBuilder.Run` and `Delay` are `inline`, so the public members their bodies call
+  (`DlrRun`, `DlrData`, `DlrReader`, `DlrLocation`) are compiled into consumers, and a Debug
+  consumer calls `Delay` itself; changing one is `MissingMethodException` in an already-built
+  consumer. `dotnet pack` validates against the last nuget.org release
+  (`PackageValidationBaselineVersion` in `FSharp.Interop.Dlr.fsproj`); an intentional break goes in
+  `FSharp.Interop.Dlr/CompatibilitySuppressions.xml` (written by
+  `-p:GenerateCompatibilitySuppressionFile=true`) and the release notes. On each release that
+  reaches nuget.org, move the baseline to it and clear that file.
 - FSharp.Core floor 10.1.201 (older converters reject `Sequential`/`PropertySet`, so unit blocks,
   mutables and `let rec` fail there; the test projects run at the floor); netstandard2.0 has no `Architecture.Wasm` or Reflection.Emit inbox
   (`System.Reflection.Emit.Lightweight` is referenced for it).
