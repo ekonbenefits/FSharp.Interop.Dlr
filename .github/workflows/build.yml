@@ -183,19 +183,18 @@ jobs:
   # SDK too (the pinned fsharp-analyzers tool rolls forward). Non-blocking: a preview regression
   # is a red job to look at, not a failed PR or a missed publish, so it is in `report` only. When
   # 11 ships, fold it into the test job as its own leg and drop continue-on-error (#67).
-  # The suite built by an older compiler (#235, #250): the 9.0 compiler builds every block's
-  # state machine in Debug too (DEBUG_MACHINES), so three compiler generations build the same
-  # builder shape. Those SDKs cannot target net10.0 or read the .slnx, so the Tests project alone,
-  # for its own framework (PowerShell's package is net10-only and is left out). Once normally and
-  # once through Tests.ClosureBuilder. Not the analyzer: its net8.0 build was dropped in #126.
-  # Not SDK 8: the library's netstandard2.0 build fails on the .NET 8 runtime (a stack overflow in
-  # FSharp.Core's LeafExpressionConverter, wrong results for a struct mutated in a block), with
-  # the 9.0 compiler too; .NET 8 and 9 both leave support in November 2026.
+  # The suite built by older compilers (#235, #250): the 8.0 and 9.0 compilers build every
+  # block's state machine in Debug too (DEBUG_MACHINES), so compiler generations that differ on
+  # that build the same builder shape. Those SDKs cannot target net10.0 or read the .slnx, so the
+  # Tests project alone, for its own framework (PowerShell's package is net10-only and is left
+  # out). Once normally and once through Tests.ClosureBuilder. Not the analyzer: its net8.0 build
+  # was dropped in #126. On .NET 8, a deep block's conversion needs more than a small default
+  # thread stack (#254; macOS's is 512 KB); a red 8.0 leg there is that, not the compiler.
   compilers:
     strategy:
       fail-fast: false
       matrix:
-        sdk: ['9.0']
+        sdk: ['8.0', '9.0']
         configuration: [Debug, Release]
     runs-on: ubuntu-latest
     steps:
