@@ -52,10 +52,10 @@ module internal Discover =
               | _ -> ()
               yield! failuresIn (t.GetNestedTypes all) ]
 
-    /// Every `builder.Run(builder.Delay(fun () -> body), file, line)` in `e` at this file and line.
+    /// Every `builder.Run(builder.Delay((fun () -> body), file, line))` in `e` at this file and line.
     let rec private runsAt (builderType: Type) (file: string) (line: int) (e: Expr) : Expr list =
         match e with
-        | Call(Some receiver, mi, [ Call(_, delay, [ Lambda(_, body) ]); Value(f, _); Value(l, _) ])
+        | Call(Some receiver, mi, [ Call(_, delay, [ Lambda(_, body); Value(f, _); Value(l, _) ]) ])
             when receiver.Type = builderType && mi.Name = "Run" && delay.Name = "Delay"
                  && unbox<int> l = line && unbox<string> f = file ->
             // Blocks nested inside this one compile with it (see Translate), so do not list them.

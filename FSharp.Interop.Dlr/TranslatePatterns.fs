@@ -17,6 +17,40 @@ type DlrData<'T> =
     [<DefaultValue(false)>]
     val mutable Result: 'T
 
+/// <summary>Where a block is: its outermost <c>Delay</c>, run while this thread is probing, records
+/// its caller's file and line here and returns without running the body. Thread-static rather
+/// than in <c>DlrData</c>: a field there would grow every state machine, and the boxed copy of it
+/// a compiled loop or <c>try</c> makes per call.</summary>
+/// <remarks>Not part of the supported API: public only because compiled blocks call it, and it may change in any release.</remarks>
+[<Sealed; AbstractClass; System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>]
+type DlrLocation =
+    [<ThreadStatic; DefaultValue>]
+    static val mutable private probing: bool
+    [<ThreadStatic; DefaultValue>]
+    static val mutable private file: string
+    [<ThreadStatic; DefaultValue>]
+    static val mutable private line: int
+
+    /// Whether this thread is probing for a block's location.
+    static member Probing = DlrLocation.probing
+
+    /// The probed block's answer.
+    static member Answer(file: string, line: int) =
+        DlrLocation.file <- file
+        DlrLocation.line <- line
+
+    /// Runs `run` (the block's code) as a probe and returns what its Delay answered.
+    static member internal Probe(run: unit -> unit) : struct (string * int) =
+        DlrLocation.probing <- true
+        DlrLocation.file <- null
+        DlrLocation.line <- -1
+        try
+            run ()
+            struct (DlrLocation.file, DlrLocation.line)
+        finally
+            DlrLocation.probing <- false
+            DlrLocation.file <- null
+
 /// <summary>The compiled block over its state machine, by reference: no copy of the struct at the call,
 /// none of the delegate-with-a-struct-argument cost a <c>Func&lt;'SM, 'T&gt;</c> has (measured 4x slower).
 /// Public, and not for direct use: an F# <c>internal</c> delegate's <c>Invoke</c> is internal too, and

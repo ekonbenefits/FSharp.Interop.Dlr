@@ -449,11 +449,15 @@ let ``captured variables named like the state machine's own fields still resolve
     // translator must not resolve a variable to. `Data`: the closure gets a second field of that
     // name (of the local's type). `ResumptionPoint`: the optimizer inlines the literal, so there is
     // no field and the variable resolves from the enclosing member, not to the machine's counter
-    // (which would read 0). An `int` of that name the optimizer keeps is a compiler error in
-    // Release, as in task { }; a `let mutable` is an FSharpRef field and clashes with nothing.
+    // (which would read 0). An `int` of that name the machine keeps is a compiler error (FS2014),
+    // as in task { }: in Release when the optimizer keeps it, and in Debug on the 11.0 compiler,
+    // which builds the machine there too — so that case is not compiled for it. A `let mutable`
+    // is an FSharpRef field and clashes with nothing.
     let Data = box (Widget())
+#if !(DEBUG && COMPILER_11)
     let ResumptionPoint = 2
     (dlr { return Data?Add(ResumptionPoint, 1) } : int) |> should equal 3
+#endif
     let mutable ResumptionPoint = 5
     dlr { ResumptionPoint <- Data?Add(ResumptionPoint, 1) }
     ResumptionPoint |> should equal 6

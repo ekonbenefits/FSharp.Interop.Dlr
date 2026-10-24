@@ -23,8 +23,18 @@ open Microsoft.FSharp.Core.CompilerServices.StateMachineHelpers
 [<Sealed>]
 type DlrBuilder() =
     /// <summary>Returns the body unevaluated, wrapped as resumable code; in the fallback path <c>Run</c> reads the closure back out of it.</summary>
-    member inline _.Delay([<InlineIfLambda>] delayed: unit -> ResumableCode<'D, 'T>) : ResumableCode<'D, 'T> =
-        ResumableCode<'D, 'T>(fun sm -> (delayed ()).Invoke(&sm))
+    /// The caller's file and line are here rather than on <c>Run</c>: a caller-info argument on
+    /// <c>Run</c> makes the 11.0 rc.2 compiler keep both of its branches in Debug, and an inline
+    /// call in the body then fails to build (FS2014, dotnet/fsharp#20836). A block's outermost
+    /// Delay is on the line the block starts on, and answers a probe (<c>DlrLocation</c>) with them.
+    member inline _.Delay([<InlineIfLambda>] delayed: unit -> ResumableCode<'D, 'T>,
+                          [<CallerFilePath; Optional; DefaultParameterValue("")>] file: string,
+                          [<CallerLineNumber; Optional; DefaultParameterValue(0)>] line: int) : ResumableCode<'D, 'T> =
+        ResumableCode<'D, 'T>(fun sm ->
+            if DlrLocation.Probing then
+                DlrLocation.Answer(file, line)
+                true
+            else (delayed ()).Invoke(&sm))
 
     // Return through Using are inlined at every call site in Debug and Release alike, so their
     // compiled methods are never called and are excluded from coverage. (Delay and Run are
@@ -60,18 +70,17 @@ type DlrBuilder() =
     member inline _.Using(resource: 'R, [<InlineIfLambda>] body: 'R -> ResumableCode<'D, 'T>) : ResumableCode<'D, 'T> when 'R :> IDisposable =
         ResumableCode.Using(resource, body)
 
-    member inline this.Run(code: ResumableCode<DlrData<'T>, 'T>,
-                           [<CallerFilePath; Optional; DefaultParameterValue("")>] file: string,
-                           [<CallerLineNumber; Optional; DefaultParameterValue(0)>] line: int) : 'T =
+    member inline this.Run(code: ResumableCode<DlrData<'T>, 'T>) : 'T =
         if __useResumableCode then
             // The compiler builds a struct per block: the captured variables are its fields, its
-            // type is a JIT constant in Machine, and MoveNext (the body as written) is never called.
+            // type is a JIT constant in Machine, and MoveNext (the body as written) is never
+            // called, except as the probe for the block's file and line when it is first compiled.
             __stateMachine<DlrData<'T>, 'T>
                 (MoveNextMethodImpl<DlrData<'T>>(fun sm -> __resumeAt sm.ResumptionPoint; code.Invoke(&sm) |> ignore))
                 (SetStateMachineMethodImpl<DlrData<'T>>(fun _ _ -> ()))
-                (AfterCode<DlrData<'T>, 'T>(fun sm -> DlrRun.Machine(this, &sm, file, line)))
+                (AfterCode<DlrData<'T>, 'T>(fun sm -> DlrRun.Machine(this, &sm)))
         else
-            DlrRun.Closure(this, code, file, line)
+            DlrRun.Closure(this, code)
 
 [<AutoOpen>]
 module Builder =

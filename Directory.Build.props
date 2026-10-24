@@ -30,6 +30,13 @@
     <FSharpCoreResolved Condition="'$(FSharpCore)' != '' and '$(FSharpCore)' != 'latest'">$(FSharpCore)</FSharpCoreResolved>
   </PropertyGroup>
 
+  <!-- The 11.0 compiler builds a block's state machine in Debug too (10.0.400 does not;
+       dotnet/fsharp#20469), so a capture the machine cannot hold fails there at compile time, as
+       in task { } (Tests/Cache.fs). -->
+  <PropertyGroup Condition="'$(NETCoreSdkVersion)' != '' and $([MSBuild]::VersionGreaterThanOrEquals('$(NETCoreSdkVersion)', '11.0'))">
+    <DefineConstants>$(DefineConstants);COMPILER_11</DefineConstants>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="MinVer" PrivateAssets="All" />
   </ItemGroup>
