@@ -6,6 +6,9 @@ open System
 open AnyUnit.Style.Xunit
 open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
+#if DLR_CLOSURES
+open Tests.ClosureBuilder
+#endif
 
 /// A block bound as a module-level value. dotnet/fsharp#18672 reports such a value taking the
 /// non-resumable path without FS3511; for this builder Release still builds its state machine.
@@ -45,12 +48,16 @@ let ``Debug builds every block on the closure path on the 10.0 compiler, Release
     // SDK 10.0.400 builds no state machine in Debug. dotnet/fsharp#20469 keeps resumable code
     // static in Debug "whenever possible", and the 11.0 compiler does that for blocks, as the SDK
     // 8/9 ones do (DEBUG_MACHINES): there Debug builds state machines too, and the closure path is
-    // covered only by the shapes that take it in every build (#180). If a 10.0
+    // covered by the shapes that take it in every build and by Tests.ClosureBuilder (#180). If a 10.0
     // SDK gets #20469, this fails there.
+#if DLR_CLOSURES
+    machines () |> should haveLength 0      // Tests.ClosureBuilder: every block on the closure path, in every build
+#else
 #if DEBUG && !DEBUG_MACHINES
     machines () |> should haveLength 0
 #else
     (machines ()).Length |> should be (greaterThan 0)
+#endif
 #endif
 
 [<Fact>]
@@ -60,7 +67,7 @@ let ``a function-typed block bound with let and applied once takes the closure p
     LetBound.twice w |> should equal 10
     LetBound.onceUnit w
     LetBound.partial w 2 |> should equal 3
-#if !DEBUG
+#if !DEBUG && !DLR_CLOSURES
     let named (binding: string) = machines () |> Array.exists (fun t -> t.Name.StartsWith(binding + "@"))
     named "onceUsed" |> should equal false        // inlined into its one application: on the spot
     named "onceTouch" |> should equal false
