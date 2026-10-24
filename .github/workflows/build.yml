@@ -183,6 +183,69 @@ jobs:
   # SDK too (the pinned fsharp-analyzers tool rolls forward). Non-blocking: a preview regression
   # is a red job to look at, not a failed PR or a missed publish, so it is in `report` only. When
   # 11 ships, fold it into the test job as its own leg and drop continue-on-error (#67).
+  # The suite built by an older compiler (#235, #250): the 9.0 compiler builds every block's
+  # state machine in Debug too (DEBUG_MACHINES), so three compiler generations build the same
+  # builder shape. Those SDKs cannot target net10.0 or read the .slnx, so the Tests project alone,
+  # for its own framework (PowerShell's package is net10-only and is left out). Once normally and
+  # once through Tests.ClosureBuilder. Not the analyzer: its net8.0 build was dropped in #126.
+  # Not SDK 8: the library's netstandard2.0 build fails on the .NET 8 runtime (a stack overflow in
+  # FSharp.Core's LeafExpressionConverter, wrong results for a struct mutated in a block), with
+  # the 9.0 compiler too; .NET 8 and 9 both leave support in November 2026.
+  compilers:
+    strategy:
+      fail-fast: false
+      matrix:
+        sdk: ['9.0']
+        configuration: [Debug, Release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '${{ matrix.sdk }}.x'
+
+      - name: Pin the SDK
+        shell: bash
+        env:
+          SDK: ${{ matrix.sdk }}
+        run: |
+          printf '{ "sdk": { "version": "%s.100", "rollForward": "latestFeature" }, "test": { "runner": "Microsoft.Testing.Platform" } }' "$SDK" > global.json
+          dotnet --version
+
+      - name: Test
+        shell: bash
+        env:
+          SDK: ${{ matrix.sdk }}
+          CONFIGURATION: ${{ matrix.configuration }}
+        run: |
+          mkdir -p results
+          dotnet build Tests/Tests.fsproj --configuration "$CONFIGURATION" -p:TargetFrameworks="net$SDK" -p:RunAnalyzers=false
+          dotnet "Tests/bin/$CONFIGURATION/net$SDK/Tests.dll" \
+            --report-anyunit-json "results/Tests-sdk$SDK-$CONFIGURATION.json" \
+            --platform-suffix "sdk$SDK-$CONFIGURATION"
+
+      - name: Test (closure path)
+        shell: bash
+        env:
+          SDK: ${{ matrix.sdk }}
+          CONFIGURATION: ${{ matrix.configuration }}
+        run: |
+          dotnet build Tests/Tests.fsproj --configuration "$CONFIGURATION" -p:TargetFrameworks="net$SDK" -p:DlrClosures=true
+          dotnet "Tests/bin/$CONFIGURATION/net$SDK/Tests.dll" \
+            --report-anyunit-json "results/Tests-sdk$SDK-closures-$CONFIGURATION.json" \
+            --platform-suffix "sdk$SDK-$CONFIGURATION-closures"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: anyunit-results-sdk${{ matrix.sdk }}-${{ matrix.configuration }}
+          path: results/*.json
+
   dotnet11:
     continue-on-error: true
     strategy:
@@ -552,7 +615,7 @@ jobs:
   # on the run's Summary page. if: always() so the report exists
   # precisely when a leg failed and someone wants to look.
   report:
-    needs: [test, net48, dotnet11, wasm-mtp]
+    needs: [test, net48, compilers, dotnet11, wasm-mtp]
     if: always()
     runs-on: ubuntu-latest
     steps:
