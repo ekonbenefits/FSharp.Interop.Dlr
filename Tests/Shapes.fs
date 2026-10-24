@@ -9,6 +9,9 @@ open System
 open AnyUnit.Style.Xunit
 open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
+#if DLR_CLOSURES
+open Tests.ClosureBuilder
+#endif
 
 // The inputs every cell reads: a member (Count = 3), the same through a computed name, and an out.
 let private w = Widget()

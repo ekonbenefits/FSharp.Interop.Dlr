@@ -4,6 +4,9 @@ module Tests.Set
 open AnyUnit.Style.Xunit
 open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
+#if DLR_CLOSURES
+open Tests.ClosureBuilder
+#endif
 
 [<Fact>]
 let ``set member on a CLR object`` () =

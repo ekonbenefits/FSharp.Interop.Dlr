@@ -6,6 +6,9 @@ open System
 open AnyUnit.Style.Xunit
 open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
+#if DLR_CLOSURES
+open Tests.ClosureBuilder
+#endif
 open Microsoft.CSharp.RuntimeBinder
 
 // Dlr.namedOf: named arguments whose names are run-time values (keyword arguments from data).

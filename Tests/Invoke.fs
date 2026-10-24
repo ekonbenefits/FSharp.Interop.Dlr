@@ -5,6 +5,9 @@ open System
 open AnyUnit.Style.Xunit
 open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
+#if DLR_CLOSURES
+open Tests.ClosureBuilder
+#endif
 open Microsoft.CSharp.RuntimeBinder
 
 // The target is an `obj` from somewhere: a parameter, a plugin, a parsed document. The tests

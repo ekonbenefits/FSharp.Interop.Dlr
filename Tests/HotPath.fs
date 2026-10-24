@@ -9,6 +9,9 @@ open System.Threading.Tasks
 open AnyUnit.Style.Xunit
 open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
+#if DLR_CLOSURES
+open Tests.ClosureBuilder
+#endif
 
 let private allocatedBy (n: int) (run: unit -> unit) =
     run ()                                               // bind, compile, convert: not counted
@@ -21,6 +24,9 @@ let private allocatedBy (n: int) (run: unit -> unit) =
 let ``a bound call allocates nothing but, for a value result, its box`` () : unit =
 #if DEBUG
     raise (AnyUnit.IgnoreException "allocation counts are for the Release build (Debug runs the closure fallback, which allocates the Delay closure per call)")
+#else
+#if DLR_CLOSURES
+    raise (AnyUnit.IgnoreException "allocation counts are for state machines (Tests.ClosureBuilder runs the closure fallback, which allocates the Delay closure per call)")
 #else
     if string System.Runtime.InteropServices.RuntimeInformation.OSArchitecture = "Wasm" then
         raise (AnyUnit.IgnoreException "allocation counts are for the JIT runtimes")
@@ -86,6 +92,7 @@ let ``a bound call allocates nothing but, for a value result, its box`` () : uni
     let plainValue () = [ 1 .. n ] |> ignore
     bytes rangeLoop |> should lessThanOrEqualTo 64L
     bytes rangeValue |> should lessThanOrEqualTo (bytes plainValue + 80L)
+#endif
 #endif
 
 [<Fact>]
