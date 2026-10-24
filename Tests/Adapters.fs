@@ -10,6 +10,9 @@ open FSharp.Reflection
 open AnyUnit.Style.Xunit
 open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
+#if DLR_CLOSURES
+open Tests.ClosureBuilder
+#endif
 
 /// Static bodies for the delegates, one per arity: a Func summing, an Action recording.
 type Bodies private () =

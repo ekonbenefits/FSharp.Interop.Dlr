@@ -1,4 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+  <!-- -p:DlrClosures=true: every block through Tests.ClosureBuilder, as in Tests.fsproj (#180). -->
+  <PropertyGroup Condition="'$(DlrClosures)' == 'true'">
+    <DefineConstants>$(DefineConstants);DLR_CLOSURES</DefineConstants>
+  </PropertyGroup>
 
   <!--
     The Tests sources as a browser-wasm build run through MTP under bun (or node) - no browser,
@@ -33,6 +37,7 @@
 
   <ItemGroup>
     <Compile Include="..\Tests\AssemblyInfo.fs" Link="AssemblyInfo.fs" />
+    <Compile Include="..\Tests\ClosureBuilder.fs" Link="ClosureBuilder.fs" />
     <Compile Include="..\Tests\Fixtures.fs" Link="Fixtures.fs" />
     <Compile Include="..\Tests\Readme.fs" Link="Readme.fs" />
     <Compile Include="..\Tests\Members.fs" Link="Members.fs" />

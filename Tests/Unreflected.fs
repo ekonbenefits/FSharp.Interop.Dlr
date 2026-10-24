@@ -3,6 +3,9 @@ module Tests.Unreflected
 open AnyUnit.Style.Xunit
 open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
+#if DLR_CLOSURES
+open Tests.ClosureBuilder
+#endif
 
 [<Fact>]
 let ``dlr without ReflectedDefinition reports what is missing`` () =

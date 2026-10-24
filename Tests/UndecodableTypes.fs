@@ -4,6 +4,9 @@
 namespace Tests.UndecodableTypes
 
 open FSharp.Interop.Dlr
+#if DLR_CLOSURES
+open Tests.ClosureBuilder
+#endif
 
 type VoidInNamespace() =
     [<ReflectedDefinition>]

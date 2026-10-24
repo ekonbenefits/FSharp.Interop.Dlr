@@ -1,4 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <!-- -p:DlrClosures=true runs the suite through Tests.ClosureBuilder: every block on the closure
+       path (DlrRun.Closure), in Debug and Release (#180). The analyzer knows blocks by DlrBuilder,
+       so it would read every marker in them as outside a block (DLR002): off for that build. -->
+  <PropertyGroup Condition="'$(DlrClosures)' == 'true'">
+    <DefineConstants>$(DefineConstants);DLR_CLOSURES</DefineConstants>
+    <RunAnalyzers>false</RunAnalyzers>
+  </PropertyGroup>
   <PropertyGroup>
     <!-- net48 exercises the library's netstandard2.0 build (and Microsoft.CSharp from a package)
          on the runtime that actually consumes it. On by default where it can run (Windows);
@@ -61,13 +68,14 @@
 
   <PropertyGroup>
     <FSharpAnalyzersOtherFlags>--analyzers-path "$(MSBuildThisFileDirectory)../FSharp.Interop.Dlr.Analyzers/bin/$(Configuration)/net10.0" --code-root "$(MSBuildThisFileDirectory).."</FSharpAnalyzersOtherFlags>
-    <RunAnalyzers Condition="'$(TargetFramework)' == 'net10.0'">true</RunAnalyzers>
+    <RunAnalyzers Condition="'$(TargetFramework)' == 'net10.0' and '$(DlrClosures)' != 'true'">true</RunAnalyzers>
     <!-- An analyzer error is a build error, not a warning. -->
     <FSharpAnalyzersContinueOnError>false</FSharpAnalyzersContinueOnError>
   </PropertyGroup>
 
   <ItemGroup>
     <Compile Include="AssemblyInfo.fs" />
+    <Compile Include="ClosureBuilder.fs" />
     <Compile Include="Fixtures.fs" />
     <Compile Include="Readme.fs" />
     <Compile Include="Members.fs" />
