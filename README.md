@@ -53,10 +53,11 @@ let depth (root: obj) : int =
 Both run in `Tests/Readme.fs`; every form is in [docs/syntax.md](docs/syntax.md).
 
 Targets `netstandard2.0` and `net10.0`; depends on FSharp.Core ≥ 10.1.201 — its expression
-converter is the first that handles a block's statements. Blocks compile with the .NET SDK 8, 9, 10
-and 11 compilers, and CI builds and runs the tests with each (8 and 9 end support in November 2026);
-building this repository itself needs SDK 10 or later. The app itself may run on anything
-`netstandard2.0` covers, .NET Framework included.
+converter is the first that handles a block's statements. Build with .NET SDK 10 or later. CI also
+builds and runs the tests with the SDK 8 and 9 compilers, not to support them (both end support in
+November 2026) but to check that the library relies only on compiler behaviour that has held
+across versions. The app itself may run on anything `netstandard2.0` covers, .NET Framework
+included.
 
 The suite also runs against real dynamic targets — Newtonsoft `JObject`, IronPython, Python.NET,
 Dapper rows over SQLite, ClearScript V8, PowerShell `PSObject`s, COM `IDispatch` on Windows

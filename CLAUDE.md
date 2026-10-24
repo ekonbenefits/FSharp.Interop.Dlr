@@ -37,7 +37,8 @@ FSharp.Interop.Dlr/check-internals.sh  # each idiom fixed more than once has one
   a merge blocker (`report` runs regardless); fold it into `test` when 11 ships.
   `compilers` builds the `Tests` project alone with the 8.0 and 9.0 SDKs for their own
   frameworks (they cannot target net10.0 or read the `.slnx`), normally and through the closure
-  builder, as a check that the builder's shape compiles across compiler generations (#253); it does
+  builder (#253). Not support for 8/9: a canary that the library relies only on compiler behaviour
+  that has held across versions (resumable code, quotations, closure layout); it does
   not gate publishing. A red 8.0 leg may be #254 (a deep block's conversion on a small default
   thread stack), not the compiler. `test` and `coverage` also run the suite through the closure
   builder, so the closure path stays tested and in the coverage report whatever Debug builds.
@@ -122,8 +123,9 @@ FSharp.Interop.Dlr/check-internals.sh  # each idiom fixed more than once has one
   named in a quotation: FSharp.Core's checks call `Assembly.ReflectionOnly` on it, unimplemented
   on Mono wasm — `Binders.WideSite` (a placeholder the LINQ `SiteHoister` rewrites) and the
   packed `Func<obj[], obj>` of `lambdaOver` in `TranslateMembers.fs` exist for that.
-- The repo builds with .NET SDK 10 or later (net10.0 targets, the `.slnx`); the 8.0 and 9.0
-  compilers build the tests in the `compilers` job (they end support November 2026). Caller info
+- .NET SDK 10 or later (net10.0 targets, the `.slnx`); SDK 8 and 9 are not supported (end of
+  support November 2026). Their compilers build the tests in the `compilers` job only as a canary
+  for behaviour that has been stable across compiler versions. Caller info
   is on `Delay`, never `Run`: on `Run` it made the 8/9 compilers warn FS3511 on every block in
   Debug (#126) and makes 11.0's fail FS2014 on an inline call in one (#235, dotnet/fsharp#20836).
   The block's file and line come from a probe on a miss (`DlrLocation`).
