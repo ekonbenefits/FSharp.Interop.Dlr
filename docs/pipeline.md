@@ -88,7 +88,7 @@ two `GetType()` calls with a reference compare each, and a compiled field read. 
 runs in Debug and in Release. (On the 10.0 compiler Debug builds no state machine at all, so
 every Debug block takes the closure path; on 11.0 every Debug block builds one, and the closure
 path is left to the shapes that take it in every build. `Tests/Resumable.fs` pins both, by
-`COMPILER_11`, and fails if a 10.0 SDK changes it.)
+`DEBUG_MACHINES`, and fails if a 10.0 SDK changes it.)
 
 Every `dlr { }` desugars to `Run(Delay(fun () -> …))` in one expression, which the compiler
 builds the machine for — with one exception it takes silently, no FS3511: a block whose
@@ -117,7 +117,7 @@ sequenceDiagram
     participant C as CallSite (DLR)
 
     U->>R: the state machine struct, on the stack
-    R->>M: DlrRun.Machine(builder, sm by reference, file, line)
+    R->>M: DlrRun.Machine(builder, sm by reference)
     M->>M: static slot read, generation compare
     M-->>R: DlrReader<'SM, 'T>
     R->>D: Invoke(sm by reference)
@@ -156,7 +156,8 @@ sequenceDiagram
     participant B as Binders
     participant L as LeafExpressionConverter + SiteHoister
 
-    S->>DC: getOrCompile(builder type, typeof<'SM>, file, line, typeof<'T>)
+    S->>DC: getOrCompile(builder type, typeof<'SM>, locate, typeof<'T>)
+    DC->>DC: locate (): probe the machine's outermost Delay for file, line
     DC->>Di: findBody(builderType, machineType, file, line)
     Di->>Di: reflected definitions of the machine's declaring type<br/>(decoded once per type, assembly-wide fallback)
     Di-->>DC: Found (Context, MemberBody, Body)

@@ -1,0 +1,9 @@
+<Project>
+  <!-- Compilers that build a block's state machine in Debug too: 11.0 (dotnet/fsharp#20469) and
+       the SDK 8/9 ones; 10.0.400 does not. A capture the machine cannot hold fails there at
+       compile time, as in task { } (Tests/Cache.fs), and Tests/Resumable.fs pins which path Debug
+       takes. Here, not in Directory.Build.props: NETCoreSdkVersion is not set yet there. -->
+  <PropertyGroup Condition="$([MSBuild]::VersionLessThan('$(NETCoreSdkVersion)', '10.0')) or $([MSBuild]::VersionGreaterThanOrEquals('$(NETCoreSdkVersion)', '11.0'))">
+    <DefineConstants>$(DefineConstants);DEBUG_MACHINES</DefineConstants>
+  </PropertyGroup>
+</Project>

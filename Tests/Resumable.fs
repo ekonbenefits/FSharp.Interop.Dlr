@@ -41,12 +41,13 @@ let private machines () =
         && t.GetInterfaces() |> Array.exists (fun i -> i.Name.StartsWith "IResumableStateMachine" && i.GetGenericArguments().[0].Name.StartsWith "DlrData"))
 
 [<Fact>]
-let ``Debug builds every block on the closure path before the 11.0 compiler, Release on state machines`` () =
+let ``Debug builds every block on the closure path on the 10.0 compiler, Release on state machines`` () =
     // SDK 10.0.400 builds no state machine in Debug. dotnet/fsharp#20469 keeps resumable code
-    // static in Debug "whenever possible", and the 11.0 compiler does that for blocks: there Debug
-    // builds state machines too, and the closure path is covered only by the shapes that take it
-    // in every build (#180). If a 10.0 SDK gets #20469, this fails there.
-#if DEBUG && !COMPILER_11
+    // static in Debug "whenever possible", and the 11.0 compiler does that for blocks, as the SDK
+    // 8/9 ones do (DEBUG_MACHINES): there Debug builds state machines too, and the closure path is
+    // covered only by the shapes that take it in every build (#180). If a 10.0
+    // SDK gets #20469, this fails there.
+#if DEBUG && !DEBUG_MACHINES
     machines () |> should haveLength 0
 #else
     (machines ()).Length |> should be (greaterThan 0)
