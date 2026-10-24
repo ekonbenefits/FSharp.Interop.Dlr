@@ -35,7 +35,7 @@ flowchart TD
 
 Blue is every call; orange is the first call at a site (and again after `DlrCache.clear()`).
 
-- **`dlr { … }`**: F# desugars it to `dlr.Run(dlr.Delay(fun () -> …), file, line)`.
+- **`dlr { … }`**: F# desugars it to `dlr.Run(dlr.Delay((fun () -> …), file, line))`.
 - **`Run`**: inline resumable code. The compiler builds a struct state machine `'SM` per block;
   its captured variables are the fields, and `typeof<'SM>` is the key.
 - **`Machines<'SM,'T>`**: one static slot per machine type; a hit is a field read and a
@@ -56,14 +56,27 @@ Blue is every call; orange is the first call at a site (and again after `DlrCach
 `MoveNext` that would run the body and an `AfterCode` that is our entry): the compiler turns
 each block into a **struct** whose fields are the captured variables — the machine `task`
 would suspend on, used here as the block's container — and hands `AfterCode` a `byref` to it.
-`MoveNext` is never called; the struct's type is the call site's identity (a JIT constant in
+`MoveNext` is never called except once on a miss, as the probe below; the struct's type is the call site's identity (a JIT constant in
 `DlrRun.Machine<'SM, 'T>`, keying the [`Machines<'SM,'T>` slot](caches.md)) and its fields are
 the captured values. The compiled reader takes the machine by reference and reads the captured
 variables off its fields ([translation](translation.md)). No closure is allocated and no
 `GetType()` runs.
 
-**Fallback.** Where the compiler does not build the machine — Debug builds (`__useResumableCode`
-is false without optimization) — `Run`'s `else` branch receives the `ResumableCode`
+**Locating the block.** The caller's file and line are `Delay`'s arguments, not `Run`'s: a
+caller-info argument on `Run` makes the 11.0 compiler keep both branches of `if
+__useResumableCode` in Debug, and an inline call in the body is then emitted twice under one name
+(FS2014, dotnet/fsharp#20836, #235). So `Run` has no file and line to pass. On a miss, `Locate`
+(`Cache.fs`) runs the block's code once with `DlrLocation`'s thread-static flag set — `MoveNext`
+on a boxed copy of the machine, or the fallback's `ResumableCode` on a fresh one — and the
+outermost `Delay` writes its file and line there and returns without running the body. A hit
+never probes. Thread-static, not fields in `DlrData`: those would grow every machine, and with it
+the boxed copy a compiled loop or `try` makes per call; and two threads may probe at once. The
+probe runs no user code, so it cannot nest. Code that does not start with the builder's `Delay`
+(its members called by hand) answers nothing, and `Locate` raises `DlrTranslationException`.
+
+**Fallback.** Where the compiler does not build the machine — Debug builds on the 10.0 compiler
+(`__useResumableCode` is false without optimization; the 11.0 compiler builds the machine in
+Debug too, dotnet/fsharp#20469) — `Run`'s `else` branch receives the `ResumableCode`
 delegate. `DlrRun.Closure` reads the block's `Delay` closure back out of that delegate's
 target (the builder's own `Delay` lambda captures it in a field named `delayed`, read by a
 reader compiled once per result type — `Delayed<'T>` — not by reflection per call; when the
@@ -72,8 +85,10 @@ the closure's type is the key, its fields the captured values, and [`Sites<'T>`]
 typed cache (last-hit compare, then a dictionary). Same contract, same `Discover` and `Translate`; the cost
 is three allocations (the Delay closure, the builder's wrapper and the `ResumableCode` delegate),
 two `GetType()` calls with a reference compare each, and a compiled field read. Both paths are exercised: the suite
-runs in Debug and in Release. (Debug builds no state machine at all, so every Debug block takes
-the closure path; `Tests/Resumable.fs` fails if an SDK changes that.)
+runs in Debug and in Release. (On the 10.0 compiler Debug builds no state machine at all, so
+every Debug block takes the closure path; on 11.0 every Debug block builds one, and the closure
+path is left to the shapes that take it in every build. `Tests/Resumable.fs` pins both, by
+`COMPILER_11`, and fails if a 10.0 SDK changes it.)
 
 Every `dlr { }` desugars to `Run(Delay(fun () -> …))` in one expression, which the compiler
 builds the machine for — with one exception it takes silently, no FS3511: a block whose
@@ -157,7 +172,7 @@ sequenceDiagram
 ```
 
 The reflected definition is unaffected by the resumable-code machinery: the quotation is taken
-before inlining, so `Discover` still sees `Run(Delay(fun () -> …), file, line)`.
+before inlining, so `Discover` still sees `Run(Delay((fun () -> …), file, line))`.
 
 Microseconds to low milliseconds, once per site: decoding the reflected definition (per type,
 [cached](caches.md)), building the [binders](binders.md) and [sites](call-sites.md), `Compile()`

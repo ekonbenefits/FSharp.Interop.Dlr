@@ -53,9 +53,8 @@ let depth (root: obj) : int =
 Both run in `Tests/Readme.fs`; every form is in [docs/syntax.md](docs/syntax.md).
 
 Targets `netstandard2.0` and `net10.0`; depends on FSharp.Core ≥ 10.1.201 — its expression
-converter is the first that handles a block's statements. Build with .NET SDK 10: the SDK 8 and 9
-compilers (both end of support in November 2026) are not supported — in Debug they warn FS3511
-on every block. The app itself may run on anything `netstandard2.0` covers, .NET Framework
+converter is the first that handles a block's statements. Build with .NET SDK 10 or later: the SDK 8 and 9
+compilers (both end of support in November 2026) are not supported. The app itself may run on anything `netstandard2.0` covers, .NET Framework
 included.
 
 The suite also runs against real dynamic targets — Newtonsoft `JObject`, IronPython, Python.NET,
@@ -157,8 +156,8 @@ markers, ordinary F#: `let`, `let rec`, `let mutable`, `use`, `if`, `match`, `fo
 ## How it works
 
 In Release the compiler turns each block into a struct state machine whose fields are its captured
-variables (in Debug, where it builds none, the block's closure plays that part: a little slower,
-the same results). On the first call the block's body is read from the enclosing
+variables (in Debug on SDK 10, where it builds none, the block's closure plays that part: a
+little slower, the same results). On the first call the block's body is read from the enclosing
 `[<ReflectedDefinition>]`, translated into an expression tree with one C# call site per operation,
 and compiled to a delegate over that struct; every later call is a field read and an invoke.
 

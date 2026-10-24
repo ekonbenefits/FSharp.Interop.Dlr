@@ -17,7 +17,7 @@ open Microsoft.FSharp.Core.CompilerServices.StateMachineHelpers
 /// the block's quotation comes from the <c>[&lt;ReflectedDefinition&gt;]</c> on the function or
 /// member containing it (or on an enclosing type or module), and it is compiled once into a
 /// delegate whose DLR call sites are constants and whose input is that struct. Where the
-/// compiler cannot build the state machine (Debug builds), the block's Delay closure plays
+/// compiler cannot build the state machine (Debug builds on the 10.0 compiler), the block's Delay closure plays
 /// the same role.
 /// </summary>
 [<Sealed>]

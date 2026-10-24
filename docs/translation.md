@@ -69,7 +69,8 @@ Captured variables become reads of the container's fields by name. A `let mutabl
 `Captures.fields` skips the machine's own `Data` and `ResumptionPoint`, declared first:
 - a captured `Data` has a second field of that name after them;
 - an inlined `ResumptionPoint` has none and must not find the machine's, and an `int` one the
-  optimizer keeps is a compiler error, as in `task { }`.
+  machine keeps is a compiler error (FS2014), as in `task { }`: in Release when the optimizer
+  keeps it, and in Debug on the 11.0 compiler, which builds the machine there too.
 
 When the Release optimizer inlined a value instead of capturing it, its definition is taken from
 the enclosing member's reflected body: a `let` (a `let rec`'s whole group), the single application
