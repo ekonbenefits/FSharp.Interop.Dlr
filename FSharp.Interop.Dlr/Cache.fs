@@ -1,5 +1,9 @@
 namespace FSharp.Interop.Dlr
 
+// 3513: "resumable code invocation" at `code.Invoke(&sm)` in Locate.Code, the fallback path's
+// probe: it runs the block's outermost Delay, which answers without running the body.
+#nowarn "3513"
+
 open System
 open System.Diagnostics.CodeAnalysis
 open System.Collections.Concurrent
@@ -45,7 +49,7 @@ module DlrCache =
         Interlocked.Increment &generation |> ignore
         lock onClear (fun () -> for f in onClear do f ())
 
-    let internal getOrCompile (builderType: unit -> Type) (blockType: Type) (file: string) (line: int) (resultType: Type) =
+    let internal getOrCompile (builderType: unit -> Type) (blockType: Type) (locate: unit -> struct (string * int)) (resultType: Type) =
         match cache.TryGetValue blockType with
         | true, compiled -> compiled
         | _ ->
@@ -55,6 +59,7 @@ module DlrCache =
         try
             cache.GetOrAdd(blockType, fun t ->
                 let builderType = builderType ()
+                let struct (file, line) = locate ()
                 let found = Discover.findBody builderType t file line
                 // The compiled block's name, which a stack trace prints for its frame: the block has
                 // no line numbers of its own, so this says which block it is. F#'s closure-name shape,
@@ -71,6 +76,25 @@ module DlrCache =
         with :? DlrTranslationException as e when isNull e.InnerException ->
             refused.TryAdd(blockType, e) |> ignore
             reraise ()
+
+/// A block's file and line, which locate its body in the reflected definition: its outermost
+/// Delay answers a probe with its caller info (see `DlrLocation`). Run on a miss only.
+type internal Locate private () =
+    static member private Checked(struct (file: string, line: int)) =
+        if line < 0 then
+            raise (DlrTranslationException "dlr { } could not be located: its code did not start with the builder's Delay (the builder's members called by hand?); write the block as dlr { … }.")
+        struct (file, line)
+
+    /// From a copy of the state machine: its MoveNext is the block's code.
+    static member Machine<'SM>(sm: 'SM) : struct (string * int) =
+        let copy = box sm :?> System.Runtime.CompilerServices.IAsyncStateMachine
+        Locate.Checked(DlrLocation.Probe(fun () -> copy.MoveNext()))
+
+    /// From the resumable code the fallback path is handed.
+    static member Code<'T>(code: ResumableCode<DlrData<'T>, 'T>) : struct (string * int) =
+        Locate.Checked(DlrLocation.Probe(fun () ->
+            let mutable sm = ResumableStateMachine<DlrData<'T>>()
+            code.Invoke(&sm) |> ignore))
 
 /// One compiled-machine cache entry, immutable, so a reference to it is atomic to read and to
 /// swap, stamped with the clear generation it was compiled under.
@@ -90,14 +114,14 @@ type internal Machines<'SM, 'T> [<ExcludeFromCodeCoverage>] private () =
     [<DefaultValue>]
     static val mutable private registered : bool
 
-    static member Get(builder: obj, file: string, line: int) : DlrReader<'SM, 'T> =
+    static member Get(builder: obj, sm: inref<'SM>) : DlrReader<'SM, 'T> =
         let hit = Machines<'SM, 'T>.hit
         if not (isNull hit) && hit.Generation = DlrCache.generation then hit.Reader
-        else Machines<'SM, 'T>.Miss(builder, file, line)
+        else Machines<'SM, 'T>.Miss(builder, sm)
 
-    static member private Miss(builder: obj, file: string, line: int) : DlrReader<'SM, 'T> =
+    static member private Miss(builder: obj, sm: 'SM) : DlrReader<'SM, 'T> =
         let generation = Volatile.Read &DlrCache.generation
-        let compiled = DlrCache.getOrCompile (fun () -> builder.GetType()) typeof<'SM> file line typeof<'T>
+        let compiled = DlrCache.getOrCompile (fun () -> builder.GetType()) typeof<'SM> (fun () -> Locate.Machine<'SM> sm) typeof<'T>
         let entry = MachineHit<'SM, 'T>(compiled.Delegate :?> DlrReader<'SM, 'T>, generation)
         lock DlrCache.onClear (fun () ->
             if not Machines<'SM, 'T>.registered then
@@ -171,8 +195,8 @@ type internal Sites<'T> [<ExcludeFromCodeCoverage>] private () =
     static let mutable last : SiteHit<'T> = null
     static do lock DlrCache.onClear (fun () -> DlrCache.onClear.Add(fun () -> sites.Clear(); last <- null))
 
-    static member Get(builder: obj, closure: obj, file: string, line: int) : Func<obj, 'T> =
-        Sites<'T>.Get(builder, closure.GetType(), file, line)
+    static member Get(builder: obj, closure: obj, code: ResumableCode<DlrData<'T>, 'T>) : Func<obj, 'T> =
+        Sites<'T>.Get(builder, closure.GetType(), code)
 
     /// The closure class of a static resumable-code delegate (no target): the class its method
     /// lives in. `Delegate.Method` resolves a MethodInfo per call (~130 ns on a delegate the
@@ -190,7 +214,7 @@ type internal Sites<'T> [<ExcludeFromCodeCoverage>] private () =
 
     /// By closure type: `closureType` is the block's Delay closure class, or for a capture-free
     /// block left with a static delegate (see `DlrRun.Closure`) the class its `Invoke` lives in.
-    static member Get(builder: obj, closureType: Type, file: string, line: int) : Func<obj, 'T> =
+    static member Get(builder: obj, closureType: Type, code: ResumableCode<DlrData<'T>, 'T>) : Func<obj, 'T> =
         let generation = Volatile.Read &DlrCache.generation
         let hit = last
         if not (isNull hit) && obj.ReferenceEquals(hit.ClosureType, closureType) && hit.Generation = generation then hit.Func
@@ -198,7 +222,7 @@ type internal Sites<'T> [<ExcludeFromCodeCoverage>] private () =
             match sites.TryGetValue closureType with
             | true, entry when entry.Generation = generation -> entry.Func
             | _ ->
-                let compiled = DlrCache.getOrCompile (fun () -> builder.GetType()) closureType file line typeof<'T>
+                let compiled = DlrCache.getOrCompile (fun () -> builder.GetType()) closureType (fun () -> Locate.Code code) typeof<'T>
                 let entry = SiteHit<'T>(closureType, compiled.Delegate :?> Func<obj, 'T>, generation)
                 sites.[closureType] <- entry
                 last <- entry
@@ -221,14 +245,14 @@ type DlrRun =
 #if NET
     [<RequiresUnreferencedCode(Unsupported.JitOnly); RequiresDynamicCode(Unsupported.JitOnly)>]
 #endif
-    static member Machine<'SM, 'T>(builder: obj, sm: byref<'SM>, file: string, line: int) : 'T =
-        Machines<'SM, 'T>.Get(builder, file, line).Invoke(&sm)
+    static member Machine<'SM, 'T>(builder: obj, sm: byref<'SM>) : 'T =
+        Machines<'SM, 'T>.Get(builder, &sm).Invoke(&sm)
 
     /// <summary>The fallback path (no statically compiled state machine, e.g. Debug): the block's Delay closure is read back out of the resumable-code delegate.</summary>
 #if NET
     [<RequiresUnreferencedCode(Unsupported.JitOnly); RequiresDynamicCode(Unsupported.JitOnly)>]
 #endif
-    static member Closure<'T>(builder: obj, code: ResumableCode<DlrData<'T>, 'T>, file: string, line: int) : 'T =
+    static member Closure<'T>(builder: obj, code: ResumableCode<DlrData<'T>, 'T>) : 'T =
         let target = code.Target
         if isNull target then
             // An optimized build took the non-resumable path without a warning — a block whose
@@ -238,8 +262,9 @@ type DlrRun =
             // class and pass no closure.
             let closureType = Sites<'T>.ClosureTypeOf code
             if isNull closureType || closureType.Assembly = typeof<DlrRun>.Assembly then
+                let struct (file, line) = Locate.Code code
                 raise (DlrTranslationException(sprintf "dlr { } at %s:%d has no state machine and no closure to compile from (the builder's members called by hand?); write the block as dlr { … }." file line))
-            Sites<'T>.Get(builder, closureType, file, line).Invoke null
+            Sites<'T>.Get(builder, closureType, code).Invoke null
         else
         let closure = Delayed<'T>.Of target
-        Sites<'T>.Get(builder, closure, file, line).Invoke closure
+        Sites<'T>.Get(builder, closure, code).Invoke closure

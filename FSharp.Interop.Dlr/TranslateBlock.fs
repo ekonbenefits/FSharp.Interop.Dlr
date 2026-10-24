@@ -388,7 +388,7 @@ module internal TranslateBlock =
             match mi.Name, args with
             | "Return", [ value ] -> rewrite value
             | "Zero", [] -> Expr.Value(())
-            | "Combine", [ first; Call(_, d, [ Lambda(_, rest) ]) ] when d.Name = "Delay" ->
+            | "Combine", [ first; Call(_, d, [ Lambda(_, rest); _; _ ]) ] when d.Name = "Delay" ->
                 Expr.Sequential(rewrite first, rewrite rest)
             // `for i in a .. b` over `int`: a counted loop, as F# compiles it outside a builder (#240).
             | "For", [ PrimitiveRange(_, [ low; Value(step, _); high ]); Lambda(x, body) ] when x.Type = typeof<int> && step = box 1 ->
@@ -396,15 +396,15 @@ module internal TranslateBlock =
             | "For", [ items; Lambda(x, body) ] ->
                 let items = rewrite items
                 Expr.Call(forEach.MakeGenericMethod(x.Type), [ items; func [ x ] body ])
-            | "While", [ Lambda(_, guard); Call(_, d, [ Lambda(_, body) ]) ] when d.Name = "Delay" ->
+            | "While", [ Lambda(_, guard); Call(_, d, [ Lambda(_, body); _; _ ]) ] when d.Name = "Delay" ->
                 Expr.Call(whileLoop, [ func [] guard; func [] body ])
-            | "TryWith", [ Call(_, d, [ Lambda(_, body) ]); Lambda(ex, handler) ] when d.Name = "Delay" ->
+            | "TryWith", [ Call(_, d, [ Lambda(_, body); _; _ ]); Lambda(ex, handler) ] when d.Name = "Delay" ->
                 Expr.Call(tryWith.MakeGenericMethod(codeType e.Type), [ func [] body; func [ ex ] handler ])
-            | "TryFinally", [ Call(_, d, [ Lambda(_, body) ]); Lambda(_, compensation) ] when d.Name = "Delay" ->
+            | "TryFinally", [ Call(_, d, [ Lambda(_, body); _; _ ]); Lambda(_, compensation) ] when d.Name = "Delay" ->
                 Expr.Call(tryFinally.MakeGenericMethod(codeType e.Type), [ func [] body; func [] compensation ])
             | "Using", [ resource; Lambda(r, body) ] ->
                 Expr.Call(using.MakeGenericMethod(r.Type, codeType e.Type), [ rewrite resource; func [ r ] body ])
             // A nested dlr { } is compiled as part of this one: at run time its closure would be
             // made by our compiled code, not the F# compiler, so it has no reflected body of its own.
-            | "Run", [ Call(_, d, [ Lambda(_, inner) ]); _; _ ] when d.Name = "Delay" -> rewrite inner
+            | "Run", [ Call(_, d, [ Lambda(_, inner); _; _ ]) ] when d.Name = "Delay" -> rewrite inner
             | name, _ -> unsupported (sprintf "the '%s' construct" name) e

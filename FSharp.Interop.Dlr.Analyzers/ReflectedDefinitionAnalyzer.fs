@@ -15,7 +15,8 @@ let Code = "DLR001"
 let OutsideCode = "DLR002"
 
 /// Two or more `dlr { }` blocks starting on one source line: a block's body is found by the file
-/// and line of its `Run` call, so the first call raises DlrTranslationException.
+/// and line it starts on (its outermost `Delay`'s caller info), so the first call raises
+/// DlrTranslationException.
 [<Literal>]
 let SharedLineCode = "DLR003"
 
@@ -589,7 +590,7 @@ let private analyzeSharedLines (typedTree: FSharpImplementationFileContents opti
                 ranges
                 |> List.map (fun r ->
                     { Type = "dlr { } blocks on one line"
-                      Message = sprintf "%d dlr { } blocks start on line %d. A block is found by the line of its Run call, so the first call raises DlrTranslationException; put each dlr { } on its own line." ranges.Length line
+                      Message = sprintf "%d dlr { } blocks start on line %d. A block is found by the line it starts on, so the first call raises DlrTranslationException; put each dlr { } on its own line." ranges.Length line
                       Code = SharedLineCode
                       Severity = Severity.Error
                       Range = r

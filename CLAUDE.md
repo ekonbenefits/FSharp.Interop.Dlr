@@ -45,8 +45,8 @@ FSharp.Interop.Dlr/check-internals.sh  # each idiom fixed more than once has one
 
 - The builder is resumable code (`inline` members, `ResumableCode<'D, 'T>` types; `Run` is
   `__stateMachine` in `task`'s shape): in Release each block is a struct state machine and its
-  type keys `Machines<'SM, 'T>`; in Debug `__useResumableCode` is false and `DlrRun.Closure`
-  unwraps the Delay closure (field `delayed` of the delegate's target) into the closure path.
+  type keys `Machines<'SM, 'T>`; in Debug on the 10.0 compiler `__useResumableCode` is false
+  (11.0 builds machines in Debug too, #235) and `DlrRun.Closure` unwraps the Delay closure (field `delayed` of the delegate's target) into the closure path.
   Both paths must stay correct — the suite runs in both. Every `dlr { }` compiles statically in
   Release except one shape the compiler declines silently (no FS3511): a function-typed result
   applied on the spot, `(dlr { … } : unit -> R) ()` — which the optimizer also makes of a
@@ -107,8 +107,11 @@ FSharp.Interop.Dlr/check-internals.sh  # each idiom fixed more than once has one
   named in a quotation: FSharp.Core's checks call `Assembly.ReflectionOnly` on it, unimplemented
   on Mono wasm — `Binders.WideSite` (a placeholder the LINQ `SiteHoister` rewrites) and the
   packed `Func<obj[], obj>` of `lambdaOver` in `TranslateMembers.fs` exist for that.
-- .NET SDK 10 only: 8 and 9 were dropped (#126; end of support November 2026, and their compilers
-  warn FS3511 on every block in Debug — caller info on `Run`); no `compilers` CI job.
+- .NET SDK 10 and later: 8 and 9 were dropped (#126; end of support November 2026); no
+  `compilers` CI job. Caller info is on `Delay`, never `Run`: on `Run` it made the 8/9 compilers
+  warn FS3511 on every block in Debug (#126) and makes 11.0's fail FS2014 on an inline call in
+  one (#235, dotnet/fsharp#20836). The block's file and line come from a probe on a miss
+  (`DlrLocation`).
 - FSharp.Core floor 10.1.201 (older converters reject `Sequential`/`PropertySet`, so unit blocks,
   mutables and `let rec` fail there; the test projects run at the floor); netstandard2.0 has no `Architecture.Wasm` or Reflection.Emit inbox
   (`System.Reflection.Emit.Lightweight` is referenced for it).
