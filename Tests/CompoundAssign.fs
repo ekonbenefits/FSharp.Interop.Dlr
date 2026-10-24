@@ -5,6 +5,9 @@ open System
 open AnyUnit.Style.Xunit
 open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
+#if DLR_CLOSURES
+open Tests.ClosureBuilder
+#endif
 
 [<Fact>]
 let ``addAssign and subtractAssign on a CLR event add and remove a handler`` () =

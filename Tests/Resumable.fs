@@ -6,6 +6,9 @@ open System
 open AnyUnit.Style.Xunit
 open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
+#if DLR_CLOSURES
+open Tests.ClosureBuilder
+#endif
 
 /// A block bound as a module-level value. dotnet/fsharp#18672 reports such a value taking the
 /// non-resumable path without FS3511; for this builder Release still builds its state machine.
@@ -33,6 +36,26 @@ module LetBound =
     let onceUnit (o: obj) : unit = let onceTouch: unit -> unit = dlr { return o?Touch } in onceTouch ()
     let partial (o: obj) : int -> int = let partialUsed: int -> int -> int = dlr { return o?Add } in partialUsed 1
 
+/// Tests.ClosureBuilder is a copy of DlrBuilder without the state-machine branch (#251): its
+/// members must stay DlrBuilder's, or the closure-path suite drifts into testing a builder no user
+/// has. Each public member by name, generic arity, parameter and return types, and the parameter
+/// attributes that change how a block compiles (caller info, Optional, InlineIfLambda). The bodies
+/// are not compared; the closure-path run itself exercises them.
+[<Fact>]
+let ``the closure test builder has DlrBuilder's members`` () =
+    let members (t: Type) =
+        t.GetMethods(Reflection.BindingFlags.Public ||| Reflection.BindingFlags.Instance ||| Reflection.BindingFlags.DeclaredOnly)
+        |> Array.map (fun m ->
+            let parameters =
+                m.GetParameters()
+                |> Array.map (fun p ->
+                    let attributes = p.CustomAttributes |> Seq.map (fun a -> a.AttributeType.Name) |> Seq.sort |> String.concat ","
+                    sprintf "%O[%s]" p.ParameterType attributes)
+                |> String.concat "; "
+            sprintf "%s`%d(%s) : %O" m.Name (if m.IsGenericMethod then m.GetGenericArguments().Length else 0) parameters m.ReturnType)
+        |> Array.sort
+    members typeof<Tests.ClosureBuilder.DlrClosureBuilder> |> should equal (members typeof<DlrBuilder>)
+
 /// The struct state machines the compiler built for blocks in this assembly.
 let private machines () =
     Reflection.Assembly.GetExecutingAssembly().GetTypes()
@@ -41,14 +64,20 @@ let private machines () =
         && t.GetInterfaces() |> Array.exists (fun i -> i.Name.StartsWith "IResumableStateMachine" && i.GetGenericArguments().[0].Name.StartsWith "DlrData"))
 
 [<Fact>]
-let ``Debug builds every block on the closure path, Release on state machines`` () =
+let ``Debug builds every block on the closure path on the 10.0 compiler, Release on state machines`` () =
     // SDK 10.0.400 builds no state machine in Debug. dotnet/fsharp#20469 keeps resumable code
-    // static in Debug "whenever possible"; if a later SDK does that for blocks, this fails, and the
-    // closure path is then covered only by the shapes that take it in every build (#180).
-#if DEBUG
+    // static in Debug "whenever possible", and the 11.0 compiler does that for blocks, as the SDK
+    // 8/9 ones do (DEBUG_MACHINES): there Debug builds state machines too, and the closure path is
+    // covered by the shapes that take it in every build and by Tests.ClosureBuilder (#180). If a 10.0
+    // SDK gets #20469, this fails there.
+#if DLR_CLOSURES
+    machines () |> should haveLength 0      // Tests.ClosureBuilder: every block on the closure path, in every build
+#else
+#if DEBUG && !DEBUG_MACHINES
     machines () |> should haveLength 0
 #else
     (machines ()).Length |> should be (greaterThan 0)
+#endif
 #endif
 
 [<Fact>]
@@ -58,7 +87,7 @@ let ``a function-typed block bound with let and applied once takes the closure p
     LetBound.twice w |> should equal 10
     LetBound.onceUnit w
     LetBound.partial w 2 |> should equal 3
-#if !DEBUG
+#if !DEBUG && !DLR_CLOSURES
     let named (binding: string) = machines () |> Array.exists (fun t -> t.Name.StartsWith(binding + "@"))
     named "onceUsed" |> should equal false        // inlined into its one application: on the spot
     named "onceTouch" |> should equal false

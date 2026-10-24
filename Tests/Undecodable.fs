@@ -6,6 +6,9 @@ module Tests.Undecodable
 open AnyUnit.Style.Xunit
 open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
+#if DLR_CLOSURES
+open Tests.ClosureBuilder
+#endif
 
 // The attribute is there, but FSharp.Core refuses to decode a quotation holding `typeof<System.Void>`.
 // The analyzer reports it at build time (DLR006); this pins the run-time error behind it.

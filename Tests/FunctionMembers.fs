@@ -6,6 +6,9 @@ open System
 open AnyUnit.Style.Xunit
 open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
+#if DLR_CLOSURES
+open Tests.ClosureBuilder
+#endif
 open Microsoft.CSharp.RuntimeBinder
 
 type Handlers = { OnValue: int -> int; OnPair: int -> int -> int }

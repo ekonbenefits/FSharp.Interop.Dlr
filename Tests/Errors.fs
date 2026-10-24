@@ -5,6 +5,9 @@ open System
 open AnyUnit.Style.Xunit
 open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
+#if DLR_CLOSURES
+open Tests.ClosureBuilder
+#endif
 
 [<Fact>]
 let ``a stack trace names the block by its file and line`` () =
@@ -151,3 +154,18 @@ let ``two blocks on one line are detected`` () =
         // fsharpanalyzer: ignore-line-next DLR003
         let a: int = dlr { return w?Count } in let b: string = dlr { return w?Name } in (a, b)
     (fun () -> go () |> ignore) |> should throw typeof<DlrTranslationException>
+
+[<Fact>]
+let ``the builder's members called by hand, with no Delay, cannot be located`` () =
+    // The block's file and line come from its outermost Delay, answering a probe (#235); code that
+    // does not start with one answers nothing. Nobody writes this; it must still fail clearly.
+    let go () : int = dlr.Run(dlr.Return 1)
+    let e = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> go () |> ignore)
+#if DEBUG && !DEBUG_MACHINES && !DLR_CLOSURES
+    // The closure path reads the Delay closure before it would probe: that is not one. (Not with
+    // Tests.ClosureBuilder: the code is its own Return's, not the library's Delay wrapper, so it
+    // goes on to the probe.)
+    e.Message |> should haveSubstring "has no 'delayed' field"
+#else
+    e.Message |> should haveSubstring "could not be located"
+#endif

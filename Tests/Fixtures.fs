@@ -6,6 +6,9 @@ open System.Dynamic
 open System.Threading.Tasks
 open System.Runtime.InteropServices
 open FSharp.Interop.Dlr
+#if DLR_CLOSURES
+open Tests.ClosureBuilder
+#endif
 
 /// Plain CLR target with overloads, so binder flags are observable.
 [<ReflectedDefinition>]

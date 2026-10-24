@@ -5,6 +5,9 @@ module Tests.Readme
 open AnyUnit.Style.Xunit
 open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
+#if DLR_CLOSURES
+open Tests.ClosureBuilder
+#endif
 open Newtonsoft.Json.Linq
 
 /// The pricing plugin the host loaded: any object with these members.

@@ -40,7 +40,7 @@ type Report(data: obj) =
 
 ### One block per line
 
-A block is found by the file and line of its `Run` call, so two blocks cannot start on one source
+A block is found by the file and line it starts on, so two blocks cannot start on one source
 line: the first call raises a `DlrTranslationException`. Put each block on its own line.
 
 ### Not in an `inline` function

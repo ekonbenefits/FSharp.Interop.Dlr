@@ -1,4 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <!-- -p:DlrClosures=true runs the suite through Tests.ClosureBuilder: every block on the closure
+       path (DlrRun.Closure), in Debug and Release (#180). The analyzer knows blocks by DlrBuilder,
+       so it would read every marker in them as outside a block (DLR002): off for that build. -->
+  <PropertyGroup Condition="'$(DlrClosures)' == 'true'">
+    <DefineConstants>$(DefineConstants);DLR_CLOSURES</DefineConstants>
+    <RunAnalyzers>false</RunAnalyzers>
+  </PropertyGroup>
   <PropertyGroup>
     <!-- net48 exercises the library's netstandard2.0 build (and Microsoft.CSharp from a package)
          on the runtime that actually consumes it. On by default where it can run (Windows);
@@ -31,10 +38,10 @@
     <!-- NLua: a dynamic API without a DLR face, adapted in the test; native Lua per platform, the test skips itself without it. -->
     <PackageReference Include="NLua" Condition="'$(TargetFramework)' != 'net48'" />
     <!-- PowerShell's engine alone (no cmdlet modules): a PSObject is a meta-object. net10.0 only. -->
-    <PackageReference Include="System.Management.Automation" Condition="'$(TargetFramework)' != 'net48'" />
+    <PackageReference Include="System.Management.Automation" Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))" />
     <!-- Its System.Security.Cryptography.Pkcs (10.0.5 as of 7.6.7) has advisories
          GHSA-2fmv-rv2c-59x7 and GHSA-846f-f764-76mx; pinned to the patched release until it moves. -->
-    <PackageReference Include="System.Security.Cryptography.Pkcs" Condition="'$(TargetFramework)' != 'net48'" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))" />
     <PackageReference Include="Dapper" Condition="'$(TargetFramework)' != 'net48'" />
     <PackageReference Include="Microsoft.Data.Sqlite" Condition="'$(TargetFramework)' != 'net48'" />
     <!-- ClearScript V8: JS objects as dynamic. Native V8 per platform; the test skips itself if
@@ -61,13 +68,14 @@
 
   <PropertyGroup>
     <FSharpAnalyzersOtherFlags>--analyzers-path "$(MSBuildThisFileDirectory)../FSharp.Interop.Dlr.Analyzers/bin/$(Configuration)/net10.0" --code-root "$(MSBuildThisFileDirectory).."</FSharpAnalyzersOtherFlags>
-    <RunAnalyzers Condition="'$(TargetFramework)' == 'net10.0'">true</RunAnalyzers>
+    <RunAnalyzers Condition="'$(TargetFramework)' == 'net10.0' and '$(DlrClosures)' != 'true'">true</RunAnalyzers>
     <!-- An analyzer error is a build error, not a warning. -->
     <FSharpAnalyzersContinueOnError>false</FSharpAnalyzersContinueOnError>
   </PropertyGroup>
 
   <ItemGroup>
     <Compile Include="AssemblyInfo.fs" />
+    <Compile Include="ClosureBuilder.fs" />
     <Compile Include="Fixtures.fs" />
     <Compile Include="Readme.fs" />
     <Compile Include="Members.fs" />
@@ -103,7 +111,7 @@
     <Compile Include="PythonNet.fs" Condition="'$(TargetFramework)' != 'net48'" />
     <Compile Include="IronPython.fs" Condition="'$(TargetFramework)' != 'net48'" />
     <Compile Include="NLua.fs" Condition="'$(TargetFramework)' != 'net48'" />
-    <Compile Include="PowerShell.fs" Condition="'$(TargetFramework)' != 'net48'" />
+    <Compile Include="PowerShell.fs" Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))" />
     <Compile Include="DapperRows.fs" Condition="'$(TargetFramework)' != 'net48'" />
     <Compile Include="Com.fs" />
     <Compile Include="HotPath.fs" />
