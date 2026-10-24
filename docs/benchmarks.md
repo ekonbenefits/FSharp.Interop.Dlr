@@ -19,24 +19,24 @@ Apple M1 Pro, 1 CPU, 10 logical and 10 physical cores
 
 | | static | C# `dynamic` | `dlr { }` | reflection (cached) | FSharp.Interop.Dynamic |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| property get `w.Count` | 0 ns | 7.1 ns / 24 B | 10.8 ns / 24 B | 12.7 ns / 24 B | 3,964 ns / 1552 B |
-| method call `w.Add(i, 1)` | 1.2 ns | 7.7 ns / 24 B | 11.4 ns / 24 B | 36 ns / 112 B | 7,529 ns / 3809 B |
-| a six-argument call `w.Sum6(1, …, 6)` | 1.1 ns | 8.6 ns / 24 B | 12.1 ns / 24 B | 84 ns / 240 B | 7,892 ns / 4177 B |
-| property set `w.Name <- v` | 0 ns | 3.6 ns | 6.6 ns | 13.8 ns | 68.1 ns / 168 B |
-| 100 method calls in one loop — the whole loop, so ÷100 per call | 132.8 ns | 784.5 ns / 2400 B | 1,605 ns / 2672 B | 3,668 ns / 11200 B | 762,407 ns / 380852 B |
+| property get `w.Count` | 0 ns | 7.2 ns / 24 B | 10.8 ns / 24 B | 12.7 ns / 24 B | 3,980 ns / 1552 B |
+| method call `w.Add(i, 1)` | 1.2 ns | 7.8 ns / 24 B | 11.6 ns / 24 B | 35.7 ns / 112 B | 7,681 ns / 3809 B |
+| a six-argument call `w.Sum6(1, …, 6)` | 1.1 ns | 8.6 ns / 24 B | 12 ns / 24 B | 85.9 ns / 240 B | 7,947 ns / 4177 B |
+| property set `w.Name <- v` | 0 ns | 3.6 ns | 6.6 ns | 13.9 ns | 70 ns / 168 B |
+| 100 method calls in one loop — the whole loop, so ÷100 per call | 131.9 ns | 793 ns / 2400 B | 1,586 ns / 2672 B | 3,590 ns / 11200 B | 758,902 ns / 380877 B |
 
 ### Other operations
 
 | | C# `dynamic` | `dlr { }` | FSharp.Interop.Dynamic |
 | --- | ---: | ---: | ---: |
-| `a + b` on boxed ints | 7.9 ns / 24 B | 11.7 ns / 24 B | 7 ns / 24 B |
-| indexer `d["a"]` on a dictionary | 12.8 ns / 24 B | 17.7 ns / 24 B | 4,201 ns / 1992 B |
-| invoke a `Func<int, int>` held as `obj`, `f(20)` | 7.8 ns / 24 B | 12 ns / 24 B | 7,350 ns / 3440 B |
-| implicit conversion of a boxed int to int64 (FSharp.Interop.Dynamic: `Dyn.implicitConvert`[^3]) | 3.1 ns | 5.9 ns | 336.9 ns / 432 B |
-| static method chosen by an argument's runtime type | 7 ns / 24 B | 11.8 ns / 24 B | 7,189 ns / 3488 B |
-| named arguments `d.Add(b: 1, a: i)` | 7.5 ns / 24 B | 11.8 ns / 24 B | 7,609 ns / 3881 B |
-| an `out` argument, `d.TryGetValue(k, out v)` with the result used (dlr: `Dlr.out`, a tuple) | 14.1 ns / 24 B | 24.4 ns / 48 B | —[^9] |
-| the same into a struct tuple (dlr: `let struct (found, v) = …`) | 14.1 ns / 24 B | 19.9 ns / 24 B | —[^9] |
+| `a + b` on boxed ints | 8 ns / 24 B | 11.5 ns / 24 B | 7.1 ns / 24 B |
+| indexer `d["a"]` on a dictionary | 13.2 ns / 24 B | 17.6 ns / 24 B | 4,135 ns / 1992 B |
+| invoke a `Func<int, int>` held as `obj`, `f(20)` | 7.8 ns / 24 B | 11.9 ns / 24 B | 7,218 ns / 3440 B |
+| implicit conversion of a boxed int to int64 (FSharp.Interop.Dynamic: `Dyn.implicitConvert`[^3]) | 3.2 ns | 5.7 ns | 343.2 ns / 432 B |
+| static method chosen by an argument's runtime type | 7 ns / 24 B | 11.2 ns / 24 B | 7,186 ns / 3488 B |
+| named arguments `d.Add(b: 1, a: i)` | 7.5 ns / 24 B | 11.8 ns / 24 B | 7,636 ns / 3881 B |
+| an `out` argument, `d.TryGetValue(k, out v)` with the result used (dlr: `Dlr.out`, a tuple) | 14.1 ns / 24 B | 23.9 ns / 48 B | —[^9] |
+| the same into a struct tuple (dlr: `let struct (found, v) = …`) | 14.1 ns / 24 B | 20.4 ns / 24 B | —[^9] |
 
 ### Where the forms differ
 
@@ -49,21 +49,21 @@ Each column does what its language offers here, so the cells are not always like
 
 | | C# `dynamic` | `dlr { }` | FSharp.Interop.Dynamic |
 | --- | ---: | ---: | ---: |
-| a lambda for a `Func` parameter (C#: a `Func` literal; dlr: an F# lambda in the block) | 9.2 ns / 24 B | 300.2 ns / 200 B | —[^1] |
-| F# function member `w?Fn(1, 2)` (FSharp.Interop.Dynamic: `w?Fn 1 2`) | —[^4] | 18.1 ns / 48 B | 18,311 ns / 6553 B |
-| F# optional parameter omitted `w?Bump(1)` | —[^5] | 11 ns / 24 B | —[^5] |
-| record `==` (structural only for `dlr`) | 14.5 ns / 72 B | 29.8 ns / 72 B | 358.7 ns / 504 B |
-| constructor through the binder, `Dlr.new'<Widget>()` | —[^6] | 9.5 ns / 32 B | —[^6] |
-| member name from a variable, alternating between two | —[^7] | 55.1 ns / 44 B | 2,271 ns / 772 B |
-| keyword arguments from data (`Dlr.namedOf kwargs`; `Dyn.namedArg` pairs) | —[^7] | 35.7 ns / 64 B | 7,614 ns / 3865 B |
-| positional arguments from data, `Dlr.argsOf args` | —[^7] | 34 ns / 64 B | —[^8] |
-| keyword arguments from data, two name lists alternating | —[^7] | 43.3 ns / 64 B | 7,677 ns / 3897 B |
-| a method read as a curried function, `let add: int -> int -> int = dlr { return w?Add }`, then applied | —[^7] | 46.5 ns / 152 B | —[^10] |
-| the same read as a tupled function, `int * int -> int` | —[^7] | 49.3 ns / 176 B | 7,541 ns / 3809 B |
-| the same read as a delegate type, `Func<int, int, int>` (a block passed where a `Func` is expected), then invoked | —[^11] | 35.5 ns / 128 B | —[^11] |
-| past five arguments, a tupled function of six (`w?Sum6`; compiled once per site, one step over the tuple) | —[^7] | 62.5 ns / 232 B | 8,048 ns / 4177 B |
-| past five arguments, a curried function of six (compiled once per site, a step per argument) | —[^7] | 143.1 ns / 392 B | —[^10] |
-| a value read as an F# function, `Dlr.call f : int -> int -> int`, then applied (FSharp.Interop.Dynamic: `!?f 1 2`) | —[^7] | 34.4 ns / 88 B | 18,061 ns / 6321 B |
+| a lambda for a `Func` parameter (C#: a `Func` literal; dlr: an F# lambda in the block) | 9.4 ns / 24 B | 298.8 ns / 200 B | —[^1] |
+| F# function member `w?Fn(1, 2)` (FSharp.Interop.Dynamic: `w?Fn 1 2`) | —[^4] | 18.4 ns / 48 B | 18,395 ns / 6553 B |
+| F# optional parameter omitted `w?Bump(1)` | —[^5] | 11.1 ns / 24 B | —[^5] |
+| record `==` (structural only for `dlr`) | 14.8 ns / 72 B | 29.8 ns / 72 B | 359.6 ns / 504 B |
+| constructor through the binder, `Dlr.new'<Widget>()` | —[^6] | 9.4 ns / 32 B | —[^6] |
+| member name from a variable, alternating between two | —[^7] | 54.5 ns / 44 B | 2,183 ns / 772 B |
+| keyword arguments from data (`Dlr.namedOf kwargs`; `Dyn.namedArg` pairs) | —[^7] | 35.8 ns / 64 B | 7,554 ns / 3865 B |
+| positional arguments from data, `Dlr.argsOf args` | —[^7] | 34.1 ns / 64 B | —[^8] |
+| keyword arguments from data, two name lists alternating | —[^7] | 43.4 ns / 64 B | 7,661 ns / 3897 B |
+| a method read as a curried function, `let add: int -> int -> int = dlr { return w?Add }`, then applied | —[^7] | 46.6 ns / 152 B | —[^10] |
+| the same read as a tupled function, `int * int -> int` | —[^7] | 49.2 ns / 176 B | 7,582 ns / 3809 B |
+| the same read as a delegate type, `Func<int, int, int>` (a block passed where a `Func` is expected), then invoked | —[^11] | 34.7 ns / 128 B | —[^11] |
+| past five arguments, a tupled function of six (`w?Sum6`; compiled once per site, one step over the tuple) | —[^7] | 62.3 ns / 232 B | 8,026 ns / 4177 B |
+| past five arguments, a curried function of six (compiled once per site, a step per argument) | —[^7] | 142.9 ns / 392 B | —[^10] |
+| a value read as an F# function, `Dlr.call f : int -> int -> int`, then applied (FSharp.Interop.Dynamic: `!?f 1 2`) | —[^7] | 35.1 ns / 88 B | 18,342 ns / 6321 B |
 
 ## Real targets
 
@@ -71,9 +71,9 @@ Each column does what its language offers here, so the cells are not always like
 
 | | typed API | C# `dynamic` | `dlr { }` | FSharp.Interop.Dynamic |
 | --- | ---: | ---: | ---: | ---: |
-| `JObject` `j.count` (FSharp.Interop.Dynamic: read as `obj`, then `Dyn.implicitConvert`[^3]) | 12.3 ns | 44.4 ns / 24 B | 47.5 ns / 24 B | 2,614 ns / 1216 B |
-| `JObject` `j.owner.name` | —[^2] | 49.3 ns | 52.3 ns | 4,867 ns / 1928 B |
-| `ExpandoObject` `e.count` | —[^2] | 5.4 ns | 9.8 ns | 3,960 ns / 1528 B |
+| `JObject` `j.count` (FSharp.Interop.Dynamic: read as `obj`, then `Dyn.implicitConvert`[^3]) | 12.4 ns | 44 ns / 24 B | 47.7 ns / 24 B | 2,651 ns / 1216 B |
+| `JObject` `j.owner.name` | —[^2] | 46.6 ns | 51.4 ns | 4,776 ns / 1928 B |
+| `ExpandoObject` `e.count` | —[^2] | 5.4 ns | 9.6 ns | 3,974 ns / 1528 B |
 
 Allocation per call is the box for a value-typed result — the same box C# `dynamic` pays — and
 nothing for the block itself (a struct state machine) — see `Tests/HotPath.fs`. `Benchmarks/README.md` explains the suites.

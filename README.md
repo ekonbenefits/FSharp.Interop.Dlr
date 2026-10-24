@@ -174,6 +174,6 @@ and the full [docs/benchmarks.md](docs/benchmarks.md) (every suite, allocations,
 <!-- benchmarks:start -->
 | ns per call | static | C# `dynamic` | **`dlr { }`** | reflection (cached) | FSharp.Interop.Dynamic |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| method call `w.Add(i, 1)` | 1.2 | 7.7 | **11.4** | 36 | 7,529 |
-| property get `w.Count` | 0 | 7.1 | **10.8** | 12.7 | 3,964 |
+| method call `w.Add(i, 1)` | 1.2 | 7.8 | **11.6** | 35.7 | 7,681 |
+| property get `w.Count` | 0 | 7.2 | **10.8** | 12.7 | 3,980 |
 <!-- benchmarks:end -->
