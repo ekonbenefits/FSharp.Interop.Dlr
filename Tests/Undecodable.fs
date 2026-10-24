@@ -70,3 +70,15 @@ let ``a block in a local function of a class member FSharp.Core cannot decode na
     let ex = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> VoidClass().Count(Widget()) |> ignore)
     ex.Message |> should haveSubstring "VoidClass.Count"
     ex.Message |> should haveSubstring "could not decode"
+
+/// A sibling class in this module with a same-named member and no attribute: both classes' closures
+/// are nested in the module, so the module does not tell them apart (#248).
+type SiblingOfVoidClass() =
+    // fsharpanalyzer: ignore-line-next DLR001
+    member _.Count(w: obj) : int = dlr { return w?Count }
+
+[<Fact>]
+let ``a same-named member of a sibling class is not stated as the block's`` () =
+    let ex = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> SiblingOfVoidClass().Count(Widget()) |> ignore)
+    ex.Message |> should haveSubstring "needs [<ReflectedDefinition>]"
+    ex.Message |> should not' (haveSubstring "is in VoidClass.Count")

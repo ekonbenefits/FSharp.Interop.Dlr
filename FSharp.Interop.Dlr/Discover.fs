@@ -147,11 +147,11 @@ module internal Discover =
             // A member with the attribute whose quotation would not decode is the other reason a
             // body is not found — when it is the member the closure belongs to: the compiler
             // names a block's closure `<member>@<line>`. A name alone also matches a same-named
-            // member of another type (#248), so this is stated only for a member whose type holds
-            // the closure: its own, or for a class in a module the module, where the class's
-            // closures go. Any other match is left to the hint below, whose wording allows for it.
-            let holds (m: MethodBase) = m.DeclaringType = holder || (not (isNull m.DeclaringType.DeclaringType) && m.DeclaringType.DeclaringType = holder)
-            let own = failuresIn searched |> List.tryFind (fun (m, _) -> closureType.Name.StartsWith(m.Name + "@") && holds m)
+            // member of another type (#248), so this is stated only for a member declared in the
+            // type holding the closure. A class's closures are nested in its module, which its
+            // sibling classes share, so a class member is left to the hint below, whose wording
+            // allows for a wrong guess, like any other match.
+            let own = failuresIn searched |> List.tryFind (fun (m, _) -> closureType.Name.StartsWith(m.Name + "@") && m.DeclaringType = holder)
             match assemblyWide, own with
             | Some e, _ ->
                 raise (DlrTranslationException(
