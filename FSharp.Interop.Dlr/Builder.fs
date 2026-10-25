@@ -23,10 +23,11 @@ open Microsoft.FSharp.Core.CompilerServices.StateMachineHelpers
 [<Sealed>]
 type DlrBuilder() =
     /// <summary>Returns the body unevaluated, wrapped as resumable code; in the fallback path <c>Run</c> reads the closure back out of it.</summary>
-    /// The caller's file and line are here rather than on <c>Run</c>: a caller-info argument on
-    /// <c>Run</c> makes the 11.0 rc.2 compiler keep both of its branches in Debug, and an inline
-    /// call in the body then fails to build (FS2014, dotnet/fsharp#20836). A block's outermost
-    /// Delay is on the line the block starts on, and answers a probe (<c>DlrLocation</c>) with them.
+    /// The caller's file and line are here rather than on <c>Run</c>: compilers have treated
+    /// caller-info arguments on <c>Delay</c> the same across versions, while on <c>Run</c>, the
+    /// member holding the <c>if __useResumableCode</c> branches, they have broken Debug builds more
+    /// than once (#126, #235). A block's outermost Delay is on the line the block starts on, and
+    /// answers a probe (<c>DlrLocation</c>) with them.
     member inline _.Delay([<InlineIfLambda>] delayed: unit -> ResumableCode<'D, 'T>,
                           [<CallerFilePath; Optional; DefaultParameterValue("")>] file: string,
                           [<CallerLineNumber; Optional; DefaultParameterValue(0)>] line: int) : ResumableCode<'D, 'T> =

@@ -126,9 +126,9 @@ FSharp.Interop.Dlr/check-internals.sh  # each idiom fixed more than once has one
 - .NET SDK 10 or later (net10.0 targets, the `.slnx`); SDK 8 and 9 are not supported (end of
   support November 2026). Their compilers build the tests in the `compilers` job only as a canary
   for behaviour that has been stable across compiler versions. Caller info
-  is on `Delay`, never `Run`: on `Run` it made the 8/9 compilers warn FS3511 on every block in
-  Debug (#126) and makes 11.0's fail FS2014 on an inline call in one (#235, dotnet/fsharp#20836).
-  The block's file and line come from a probe on a miss (`DlrLocation`).
+  is on `Delay`, never `Run`: compilers have handled it the same on `Delay` across versions, while
+  on `Run` (which holds the `if __useResumableCode` branches) it has broken Debug builds more than
+  once (#126, #235). The block's file and line come from a probe on a miss (`DlrLocation`).
 - `Tests.ClosureBuilder` (`Tests/ClosureBuilder.fs`) is `DlrBuilder` without its
   `if __useResumableCode` branch: `Run` always calls `DlrRun.Closure`, so `-p:DlrClosures=true`
   runs the suite on the closure path in Debug and Release. Every test file opens it after

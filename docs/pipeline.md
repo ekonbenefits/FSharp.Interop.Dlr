@@ -64,10 +64,11 @@ the captured values. The compiled reader takes the machine by reference and read
 variables off its fields ([translation](translation.md)). No closure is allocated and no
 `GetType()` runs.
 
-**Locating the block.** The caller's file and line are `Delay`'s arguments, not `Run`'s: a
-caller-info argument on `Run` makes the 11.0 compiler keep both branches of `if
-__useResumableCode` in Debug, and an inline call in the body is then emitted twice under one name
-(FS2014, dotnet/fsharp#20836, #235). So `Run` has no file and line to pass. On a miss, `Locate`
+**Locating the block.** The caller's file and line are `Delay`'s arguments, not `Run`'s.
+Compilers have handled caller-info arguments on `Delay` the same way across versions; on `Run`,
+the member holding the `if __useResumableCode` branches, they have broken Debug builds more than
+once, a warning on every block from one compiler generation (#126) and a build failure from
+another (#235). So `Run` has no file and line to pass. On a miss, `Locate`
 (`Cache.fs`) runs the block's code once with `DlrLocation`'s thread-static flag set — `MoveNext`
 on a boxed copy of the machine, or the fallback's `ResumableCode` on a fresh one — and the
 outermost `Delay` writes its file and line there and returns without running the body. A hit
