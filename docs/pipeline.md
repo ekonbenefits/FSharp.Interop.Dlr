@@ -12,6 +12,7 @@ flowchart TD
     sites["<b>Machines&lt;'SM,'T&gt;</b><br/>(Cache.fs)"]
     invoke["<b>reader.Invoke(&amp;sm)</b>"]
     cache["<b>DlrCache</b><br/>(Cache.fs)"]
+    locate["<b>Locate</b><br/>(Cache.fs)"]
     discover["<b>Discover</b><br/>(Discover.fs)"]
     translate["<b>Translate</b><br/>(Translate*.fs)"]
     binders["<b>Binders</b><br/>(Binders.fs, Seam.fs, …)"]
@@ -22,7 +23,7 @@ flowchart TD
     src --> run --> sites
     sites -- hit --> invoke
     sites -- miss --> cache
-    cache -- miss --> discover --> translate
+    cache -- miss --> locate --> discover --> translate
     translate <--> binders
     translate --> conv --> hoist --> compile -- adds --> cache
     cache -- hit --> sites
@@ -30,7 +31,7 @@ flowchart TD
     classDef entry fill:#e8f1ff,stroke:#4a78c2
     classDef compileOnce fill:#fff4e0,stroke:#c98a1b
     class src,run,sites,invoke entry
-    class cache,discover,translate,binders,conv,hoist,compile compileOnce
+    class cache,locate,discover,translate,binders,conv,hoist,compile compileOnce
 ```
 
 Blue is every call; orange is the first call at a site (and again after `DlrCache.clear()`).
@@ -42,6 +43,7 @@ Blue is every call; orange is the first call at a site (and again after `DlrCach
   generation compare.
 - **`reader.Invoke(&sm)`**: field reads, and one `CallSite` per operation.
 - **`DlrCache`**: machine type → `Compiled`.
+- **`Locate`**: the block's file and line, from a probe of its outermost `Delay` (below).
 - **`Discover`**: the block's body, from the enclosing member's `[<ReflectedDefinition>]`, by
   file and line.
 - **`Translate.translate`**: `normalize`, then Plumbing / Members / Captures, giving a quotation
@@ -91,7 +93,7 @@ the state-machine branch, so every block takes the closure path in both. (On the
 Debug builds no state machine at all; on the 8.0, 9.0 and 11.0 compilers every Debug block builds
 one. `Tests/Resumable.fs` pins which, by `DEBUG_MACHINES`, and fails if a 10.0 SDK changes it.)
 
-Every `dlr { }` desugars to `Run(Delay(fun () -> …))` in one expression, which the compiler
+Every `dlr { }` desugars to `Run(Delay((fun () -> …), file, line))` in one expression, which the compiler
 builds the machine for — with one exception it takes silently, no FS3511: a block whose
 function-typed result is applied on the spot, `(dlr { return x?Add } : int -> int -> int) 1 2`
 (partially, or through `|>` / `<|`, counts, and so does a function-typed block bound with `let`
