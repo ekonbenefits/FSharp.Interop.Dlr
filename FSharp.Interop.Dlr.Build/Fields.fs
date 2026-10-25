@@ -134,17 +134,26 @@ module Fields =
     let splitElements = Dictionary<string * string, string * int>()
 
     let bindings (args: FSharpMemberOrFunctionOrValue list list) (body: FSharpExpr) =
-        let order = ResizeArray<FSharpMemberOrFunctionOrValue * FSharpExpr option>()
+        // Each binding in the quotation's order: the value, its definition, and a name the quotation
+        // gives it when not its own (a tupled group's `tupledArg`, which has no value in FCS's tree).
+        let order = ResizeArray<FSharpMemberOrFunctionOrValue * FSharpExpr option * string option>()
+        let add (v: FSharpMemberOrFunctionOrValue, d: FSharpExpr option) = order.Add((v, d, None))
         for group in args do
             match splitParameter group with
             | Some name ->
                 // Bound once, as the quotation's tuple parameter: its first element stands for it.
-                order.Add((group.Head, None))
+                add ((group.Head, None))
                 group |> List.iteri (fun i v -> splitElements.[sourceKey v] <- (name, i))
-            | None -> for v in group do order.Add((v, None))
+            | None ->
+                // A tupled group (`(a, b)`) is one `tupledArg` in the quotation, its elements bound
+                // from it: it counts first.
+                if group.Length > 1 then order.Add((group.Head, None, Some "tupledArg"))
+                for v in group do add ((v, None))
         // The body may rebuild a split parameter's tuple (`let x = (x_0, x_1)`): that is the parameter
         // itself, not a binding of its own.
         let rebuilt = HashSet<string * string>()
+        // Compiler-named lambda parameters the quotation names after a pattern's variable.
+        let renamed = Dictionary<string * string, string>()
         // The decision trees being walked, innermost first: a leaf's targets.
         let trees = Stack<(FSharpMemberOrFunctionOrValue list * FSharpExpr) list>()
         let rec go (e: FSharpExpr) =
@@ -155,17 +164,24 @@ module Fields =
                         | FSharpExprPatterns.Value w -> (match splitElements.TryGetValue(sourceKey w) with | true, (n, _) -> n = v.LogicalName | _ -> false)
                         | _ -> false) ->
                 rebuilt.Add(sourceKey v) |> ignore
-                order.Add((v, Some d)); go b
-            | FSharpExprPatterns.Let((v, d, _), b) -> go d; bindRanges.[sourceKey v] <- e.Range; order.Add((v, Some d)); go b
+                add ((v, Some d)); go b
+            | FSharpExprPatterns.Let((v, d, _), b) -> go d; bindRanges.[sourceKey v] <- e.Range; add ((v, Some d)); go b
             // As the quotation has a `let rec` (FSharp.Core's LetRecursive: the variables, then
             // `body :: definitions`): the body before the definitions, or a name bound in both
             // gets its two orders swapped with its count kept (#259's review).
-            | FSharpExprPatterns.LetRec(bs, b) -> (for (v, d, _) in bs do order.Add((v, Some d))); go b; (for (_, d, _) in bs do go d)
+            | FSharpExprPatterns.LetRec(bs, b) -> (for (v, d, _) in bs do add ((v, Some d))); go b; (for (_, d, _) in bs do go d)
             // A lambda applied on the spot: its parameter's value is the argument. As a quotation
             // has it: the parameter, its body, then the argument.
-            | FSharpExprPatterns.Application(FSharpExprPatterns.Lambda(v, b), _, [ arg ]) -> bindRanges.[sourceKey v] <- e.Range; order.Add((v, Some arg)); go b; go arg
-            | FSharpExprPatterns.Lambda(v, b) -> order.Add((v, None)); go b
-            | FSharpExprPatterns.TryWith(b, v1, f, v2, h, _, _) -> go b; order.Add((v1, None)); go f; order.Add((v2, None)); go h
+            | FSharpExprPatterns.Application(FSharpExprPatterns.Lambda(v, b), _, [ arg ]) -> bindRanges.[sourceKey v] <- e.Range; add ((v, Some arg)); go b; go arg
+            // A compiler-named lambda parameter bound at once to a pattern's variable (`for i in`,
+            // `fun (a, b) ->`, `use r`, a handler's `e`: `fun _arg1 -> let i = _arg1 in …`): the
+            // quotation names the parameter after that variable, so it counts as one more `i`.
+            | FSharpExprPatterns.Lambda(v, (FSharpExprPatterns.Let((w, FSharpExprPatterns.Value u, _), _) as b))
+                when v.IsCompilerGenerated && v.LogicalName.StartsWith "_arg" && stamp u = stamp v && not (w.LogicalName.StartsWith "_") ->
+                renamed.[sourceKey v] <- w.LogicalName
+                add ((v, None)); go b
+            | FSharpExprPatterns.Lambda(v, b) -> add ((v, None)); go b
+            | FSharpExprPatterns.TryWith(b, v1, f, v2, h, _, _) -> go b; add ((v1, None)); go f; add ((v2, None)); go h
             // As the quotation has a match (QuotationTranslator.ConvDecisionTree): a target is
             // inlined at every leaf that reaches it, its variables bound and its body there each
             // time, so a target two leaves reach (an or-pattern binding `x`) binds `x` twice.
@@ -173,22 +189,37 @@ module Fields =
             | FSharpExprPatterns.DecisionTreeSuccess(i, es) when trees.Count > 0 && i < trees.Peek().Length ->
                 let vs, t = trees.Peek().[i]
                 for x in es do go x
-                (for v in vs do order.Add((v, None))); go t
+                (for v in vs do add ((v, None))); go t
             | _ -> for x in e.ImmediateSubExpressions do go x
         go body
         let counts = Dictionary<string, int>()
         let ordinals = Dictionary<string * string, int>()
         // A target two leaves reach is bound twice: both count, the first stands for the value.
         let seen = HashSet<string * string>()
+        // The counted bindings in order, as (name, value): what the layout oracle compares with
+        // the quotation's (Companion/oracle.fsx).
+        let layout = ResizeArray<string * FSharpMemberOrFunctionOrValue>()
         let entries =
-            [ for (v, d) in order do
-                let name = match splitElements.TryGetValue(sourceKey v) with | true, (b, _) -> b | _ -> v.LogicalName
+            [ for (v, d, named) in order do
+              match named with
+              | Some name ->
+                  // Counted only: no source value of that name to attribute.
+                  let n = match counts.TryGetValue name with | true, n -> n | _ -> 0
+                  counts.[name] <- n + 1
+                  layout.Add((name, v))
+              | None ->
+                let name =
+                    match splitElements.TryGetValue(sourceKey v), renamed.TryGetValue(sourceKey v) with
+                    | (true, (b, _)), _ -> b
+                    | _, (true, r) -> r
+                    | _ -> v.LogicalName
                 if rebuilt.Contains(sourceKey v) then
                     // The split parameter of that name, bound last.
                     yield sourceKey v, (v, counts.[name] - 1, d)
                 else
                 let n = match counts.TryGetValue name with | true, n -> n | _ -> 0
                 counts.[name] <- n + 1
+                layout.Add((name, v))
                 if seen.Add(sourceKey v) then
                     ordinals.[(name, v.DeclarationLocation.ToString())] <- n
                     yield sourceKey v, (v, n, d) ]
@@ -200,7 +231,7 @@ module Fields =
                     let n = ordinals.[(name, group.Head.DeclarationLocation.ToString())]
                     for v in group.Tail -> sourceKey v, (v, n, None)
                 | None -> () ]
-        dict (entries @ extra), (counts :> IReadOnlyDictionary<string, int>)
+        dict (entries @ extra), (counts :> IReadOnlyDictionary<string, int>), List.ofSeq layout
 
     /// The source range a variable's value comes from: its definition, through element projections
     /// of tuple literals (a pattern binds `x` as an element of its input's literal) and union cases'
@@ -274,7 +305,7 @@ module Fields =
                         | _ -> ()
                         for x in e.ImmediateSubExpressions do lambdas x
                     lambdas obody
-                    let bySource, nameCounts = bindings uargs ubody
+                    let bySource, nameCounts, _ = bindings uargs ubody
                     let rec machines (e: FSharpExpr) =
                         match e with
                         | FSharpExprPatterns.Call(_, mfv, _, _, _) when mfv.CompiledName = "__stateMachine" ->
