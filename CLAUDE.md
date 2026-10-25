@@ -147,10 +147,17 @@ FSharp.Interop.Dlr/check-internals.sh  # each idiom fixed more than once has one
 - FSharp.Core floor 10.1.201 (older converters reject `Sequential`/`PropertySet`, so unit blocks,
   mutables and `let rec` fail there; the test projects run at the floor); netstandard2.0 has no `Architecture.Wasm` or Reflection.Emit inbox
   (`System.Reflection.Emit.Lightweight` is referenced for it).
-- Benchmarks: only on a quiet machine (load average under 4; a busy one skews every cell).
+- Benchmarks: only on a quiet machine (load average under 4 before starting; a busy one skews
+  every cell), and with no other work during the run: other sessions on this machine hold their
+  builds and test runs until it ends (ask them). The 1-minute load rises on its own at the start,
+  while BenchmarkDotNet builds its projects; that is not interference. A busy run cannot hide a
+  regression, but it can inflate cells that later runs compare against, so before committing
+  regenerated numbers, compare the reference columns (static, C# `dynamic`, reflection, whose
+  code did not change) cell by cell with the committed file: moves beyond noise (a few percent)
+  mean the run was skewed. If the numbers match the committed ones, there is nothing to commit.
   `Benchmarks/bench.sh docs` regenerates `docs/benchmarks.md`, then `bench.sh compare` flags the
   `dlr { }` cells over 25% slower or allocating more than the committed file (and prints the
-  other columns' drift). Allocations on the hot paths are pinned exactly in `Tests/HotPath.fs`,
+  other columns' median drift, which can hide single inflated cells). Allocations on the hot paths are pinned exactly in `Tests/HotPath.fs`,
   which the gate runs; timings cannot be, so they are compared, not asserted. So in the docs a
   byte count may be written out where `Tests/HotPath.fs` pins it, but a timing is relative ("a few
   nanoseconds more", "several times") and points at its `docs/benchmarks.md` row: nothing checks a
