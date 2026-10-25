@@ -81,13 +81,23 @@ module Fields =
         let names, _ = ((Set.empty, []), vs) ||> List.fold (fun (taken, acc) v -> let n = chooseUnique v.LogicalName taken in taken.Add n, n :: acc) |> fun (t, acc) -> List.rev acc, t
         List.zip names vs
 
-    /// The block's file and line: the caller information Run hands DlrRun.Machine.
-    let blockKey (machine: FSharpExpr) =
+    /// The block's file and line: the caller information of its outermost Delay (#235). Inlined,
+    /// a Delay is `if DlrLocation.Probing then DlrLocation.Answer(file, line) else …`, and the first
+    /// Answer in pre-order is the outermost one's (an inner Delay is in an else branch): the block's
+    /// own line, as the run time's probe finds it. The machine's MoveNext invokes the block's code
+    /// through let-bound resumable code, so a value bound to some is read through its definition, as
+    /// the lowering inlines it (`fieldsOf`).
+    let blockKey (definitions: IDictionary<int64, FSharpExpr>) (machine: FSharpExpr) =
+        let seen = HashSet<int64>()
         let rec find (e: FSharpExpr) =
             match e with
-            | FSharpExprPatterns.Call(_, mfv, _, _, args) when mfv.CompiledName = "Machine" && (try mfv.DeclaringEntity.Value.CompiledName = "DlrRun" with _ -> false) ->
-                match List.rev args with
-                | FSharpExprPatterns.Const(:? int as line, _) :: FSharpExprPatterns.Const(:? string as file, _) :: _ -> Some(file, line)
+            | FSharpExprPatterns.Call(_, mfv, _, _, args) when mfv.CompiledName = "Answer" && (try mfv.DeclaringEntity.Value.CompiledName = "DlrLocation" with _ -> false) ->
+                match args with
+                | [ FSharpExprPatterns.Const(:? string as file, _); FSharpExprPatterns.Const(:? int as line, _) ] -> Some(file, line)
+                | _ -> None
+            | FSharpExprPatterns.Value v when isResumable v && seen.Add(stamp v) ->
+                match definitions.TryGetValue(stamp v) with
+                | true, d -> find d
                 | _ -> None
             | _ -> e.ImmediateSubExpressions |> List.tryPick find
         find machine
@@ -265,7 +275,7 @@ module Fields =
                         match e with
                         | FSharpExprPatterns.Call(_, mfv, _, _, _) when mfv.CompiledName = "__stateMachine" ->
                             // Only a dlr { } block's machine carries its file and line (a task { }'s does not).
-                            match blockKey e with
+                            match blockKey definitions e with
                             | None -> ()
                             | Some(file, line) ->
                                 // A value of the optimized member: the source variable (name, ordinal) it is,

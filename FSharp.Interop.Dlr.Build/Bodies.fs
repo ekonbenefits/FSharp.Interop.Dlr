@@ -284,11 +284,12 @@ module internal Bodies =
                 WLambda(tupled, List.foldBack (fun (i, d) b -> WLet(d, WTupleGet(t, i, WVar tupled.Id), b)) (List.indexed ds) (wrap rest))
         wrap args
 
-    /// The block keys in a member: each Run's caller information (file, line).
+    /// The block keys in a member: each Run's caller information (file, line), which is on the Delay
+    /// that is Run's argument (#235: `Run(Delay(fun () -> …, file, line))`).
     let rec runs (e: FSharpExpr) : (string * int) list =
         [ match e with
-          | FSharpExprPatterns.Call(_, r, _, _, xs) when isRun r ->
-              match List.rev xs with
+          | FSharpExprPatterns.Call(_, r, _, _, [ FSharpExprPatterns.Call(_, d, _, _, ds) ]) when isRun r && d.CompiledName = "Delay" ->
+              match List.rev ds with
               | FSharpExprPatterns.Const(:? int as line, _) :: FSharpExprPatterns.Const(:? string as file, _) :: _ -> yield file, line
               | _ -> ()
           | _ -> ()
