@@ -85,7 +85,7 @@ Not C# restrictions, but the same family:
   (a 17-parameter lambda summing its arguments is enough) can overflow a small thread stack: an
   IIS worker's 256 KB, .NET 8's 512 KB default on macOS, a thread created with a small
   stack size. A stack overflow ends the process rather than raising an exception. Default
-  stacks on .NET 9 and later, and on Linux, have room for ordinary blocks. Open as #254.
+  stacks on .NET 9 and later, and on Linux, have room for ordinary blocks. Open as [#254](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/254).
 
 ## Five places it goes beyond C#
 

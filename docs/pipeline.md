@@ -67,8 +67,8 @@ variables off its fields ([translation](translation.md)). No closure is allocate
 **Locating the block.** The caller's file and line are `Delay`'s arguments, not `Run`'s.
 Compilers have handled caller-info arguments on `Delay` the same way across versions; on `Run`,
 the member holding the `if __useResumableCode` branches, they have broken Debug builds more than
-once, a warning on every block from one compiler generation (#126) and a build failure from
-another (#235). So `Run` has no file and line to pass. On a miss, `Locate`
+once, a warning on every block from one compiler generation ([#126](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/126)) and a build failure from
+another ([#235](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/235)). So `Run` has no file and line to pass. On a miss, `Locate`
 (`Cache.fs`) runs the block's code once with `DlrLocation`'s thread-static flag set — `MoveNext`
 on a boxed copy of the machine, or the fallback's `ResumableCode` on a fresh one — and the
 outermost `Delay` writes its file and line there and returns without running the body. A hit
@@ -95,7 +95,7 @@ that application). The optimizer moves the application into both branches of `Ru
 takes the fallback with its `Delay` wrapper inlined: the delegate's target is the closure itself,
 or null when the block captures nothing, and then `DlrRun.Closure` compiles from the closure's
 class (`code.Method.DeclaringType`). Bound with `let` and applied twice, it gets its machine.
-`Tests/Resumable.fs` pins these shapes (#217).
+`Tests/Resumable.fs` pins these shapes ([#217](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/217)).
 
 ## One call on the hot path
 
@@ -174,7 +174,7 @@ first bind per site (the rule) is paid on the first invoke like any C# `dynamic`
 That work runs on the thread making the first call, and FSharp.Core's quotation-to-LINQ
 converter takes a large stack frame per nesting level of the block's expression: a deep block on
 a small thread stack (an IIS worker's 256 KB, .NET 8's 512 KB default on macOS) can overflow it,
-which ends the process rather than raising an exception (#254).
+which ends the process rather than raising an exception ([#254](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/254)).
 
 ## Measured
 

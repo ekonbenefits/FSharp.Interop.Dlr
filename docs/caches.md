@@ -28,7 +28,7 @@ Where every piece of state lives, what keys it, and how long it lasts. Part of
   value is `Compiled { Delegate: DlrReader<'SM,'T> or Func<obj,'T> }`.
 - **`DlrCache.refused`** keeps a block the translator refused, by the same key: a refusal is
   deterministic, so a later call rethrows without translating again (for a missing attribute,
-  without scanning the assembly again; #214). The first call raises the refusal; each later one
+  without scanning the assembly again; [#214](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/214)). The first call raises the refusal; each later one
   raises its own exception, with that refusal as its inner. Only the translator's own refusals
   are kept: a failure it wraps (the tree's compile running out of stack, say) is retried.
   `count()` does not include them.
