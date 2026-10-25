@@ -125,6 +125,37 @@ let private pipedBackIntoLocal (o: obj) : int =
     let g (x: obj) : int = dlr { return x?Count }
     g <| o
 
+/// A block in a match arm whose or-pattern binds a variable: the quotation holds the arm's body once
+/// per alternative, so the block is found twice on its line; the copies are one block (#263).
+let private orPatternBound (o: obj) (c: Choice<int, int>) : int =
+    match c with
+    | Choice1Of2 x | Choice2Of2 x -> dlr { return o?Echo(x) }
+let private orPatternThree (o: obj) (c: Choice<int, int, int>) : int =
+    match c with
+    | Choice1Of3 x | Choice2Of3 x | Choice3Of3 x -> dlr { return o?Add(x, 1) }
+let private orPatternUnbound (o: obj) (c: Choice<int, string>) : int =
+    match c with
+    | Choice1Of2 _ | Choice2Of2 _ -> dlr { return o?Count }
+
+[<Fact>]
+let ``a block in an or-pattern's arm is one block, not one per alternative`` () =
+    let w = box (Widget())
+    orPatternBound w (Choice1Of2 4) |> should equal 4
+    orPatternBound w (Choice2Of2 5) |> should equal 5
+    orPatternThree w (Choice3Of3 6) |> should equal 7
+    orPatternUnbound w (Choice2Of2 "s") |> should equal 3
+
+/// Two different blocks on one line are still refused: only copies of one block are collapsed.
+let private twoBlocksOneLine (o: obj) : int * int =
+    // fsharpanalyzer: ignore-line-next DLR003
+    (dlr { return o?Count } : int), (dlr { return o?Add(1, 2) } : int)
+
+[<Fact>]
+let ``two different blocks on one line are still refused`` () =
+    // The analyzer reports this at build time (DLR003); this pins the run-time error behind it.
+    let e = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> twoBlocksOneLine (Widget()) |> ignore)
+    e.Message |> should haveSubstring "2 dlr { } blocks share"
+
 [<Fact>]
 let ``a value piped into a lambda or local function holding a block resolves`` () =
     let w = Widget()

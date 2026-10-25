@@ -102,6 +102,21 @@ module internal Discover =
             try build (fun _ -> typeof<obj>)
             with :? ArgumentException -> build id
 
+    /// Whether two block bodies are copies of one block: the same up to their free variables, each
+    /// paired with the other's of the same name and type. The quotation holds a match arm whose
+    /// or-pattern binds a variable once per alternative, each copy over that alternative's own `Var`
+    /// for it (#263). A block reads its captures by name, so either copy compiles the same way.
+    let private copies (a: Expr) (b: Expr) =
+        let free (e: Expr) = e.GetFreeVars() |> List.ofSeq
+        let fa, fb = free a, free b
+        let unique (vs: Var list) = (vs |> List.distinctBy (fun v -> v.Name)).Length = vs.Length
+        fa.Length = fb.Length && unique fa
+        && (let pairs =
+                fb |> List.map (fun v -> v, fa |> List.tryFind (fun u -> u.Name = v.Name && u.Type = v.Type && u.IsMutable = v.IsMutable))
+            pairs |> List.forall (fun (_, u) -> u.IsSome)
+            && (let map = dict [ for v, u in pairs -> v, u.Value ]
+                a = b.Substitute(fun v -> match map.TryGetValue v with | true, u -> Some(Expr.Var u) | _ -> None)))
+
     /// The block whose Delay closure has type `closureType`, at `file:line`.
     let findBody (builderType: Type) (closureType: Type) (file: string) (line: int) : Found =
         let holder = if isNull closureType.DeclaringType then closureType else closureType.DeclaringType
@@ -121,6 +136,11 @@ module internal Discover =
                 searched.AddRange all
                 search all
             | found -> found
+        // Copies of one block in one member (an or-pattern's arm) are that block, not several.
+        let matches =
+            match matches with
+            | (m, _, body) as first :: rest when not rest.IsEmpty && rest |> List.forall (fun (m', _, body') -> m' = m && copies body body') -> [ first ]
+            | _ -> matches
         match matches with
         | [ m, memberBody, body ] ->
             let m, memberBody, body =

@@ -41,7 +41,9 @@ type Report(data: obj) =
 ### One block per line
 
 A block is found by the file and line it starts on, so two blocks cannot start on one source
-line: the first call raises a `DlrTranslationException`. Put each block on its own line.
+line: the first call raises a `DlrTranslationException`. Put each block on its own line. A block
+in a match arm with an or-pattern (`| A x | B x -> dlr { … }`) is one block, although the
+quotation holds the arm once per alternative.
 
 ### Not in an `inline` function
 
