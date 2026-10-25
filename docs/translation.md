@@ -74,8 +74,8 @@ Captured variables become reads of the container's fields by name. A `let mutabl
 
 When the Release optimizer inlined a value instead of capturing it, its definition is taken from
 the enclosing member's reflected body: a `let` (a `let rec`'s whole group), the single application
-of a once-called local function, or a lambda applied on the spot, directly or through a pipe
-(`x |> (fun p -> …)`, `(fun p -> …) <| x`). A block in an `inline` function is beyond recovery in
+of a once-called local function, or a lambda applied on the spot, either directly or through a
+pipe (`x |> f`, `f <| x`). A block in an `inline` function is beyond recovery in
 Release (it is expanded into each caller), and the analyzer's `DLR004` refuses it.
 
 A recovered definition runs in the block, so only an effect-free one is recovered (literals,

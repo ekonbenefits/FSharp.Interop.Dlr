@@ -117,12 +117,21 @@ let ``values the optimizer inlines instead of capturing still resolve`` () =
 /// the optimizer beta-reduces it, so `p` is the piped value and is never captured (#252).
 let private pipedInto (o: obj) : int = o |> (fun x -> dlr { return x?Count })
 let private pipedBack (o: obj) : int = (fun x -> dlr { return x?Count }) <| o
+/// The same into a once-called local function, `x |> g`: its single application supplies `x`.
+let private pipedIntoLocal (o: obj) : int =
+    let g (x: obj) : int = dlr { return x?Count }
+    o |> g
+let private pipedBackIntoLocal (o: obj) : int =
+    let g (x: obj) : int = dlr { return x?Count }
+    g <| o
 
 [<Fact>]
-let ``a value piped into a lambda holding a block resolves`` () =
+let ``a value piped into a lambda or local function holding a block resolves`` () =
     let w = Widget()
     pipedInto w |> should equal 3
     pipedBack w |> should equal 3
+    pipedIntoLocal w |> should equal 3
+    pipedBackIntoLocal w |> should equal 3
     let o = box w
     (41 |> fun (k: int) -> (dlr { return o?Add(k, 1) } : int)) |> should equal 42
 

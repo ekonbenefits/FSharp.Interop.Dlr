@@ -415,10 +415,13 @@ module internal TranslatePatterns =
             | Lambda(p, body) -> let ps, inner = lambdaParams body in p :: ps, inner
             | _ -> [], e
         let rec applications (f: Var) (e: Expr) : Expr list list =
-            // Full application chains f a1 a2 … of `f`, innermost first.
+            // Full application chains f a1 a2 … of `f`, innermost first; a pipe is one more
+            // application, `a |> f` or `f <| a` (#252).
             let rec chain (e: Expr) (acc: Expr list) =
                 match e with
                 | Application(inner, arg) -> chain inner (arg :: acc)
+                | Op pipeRight [ arg; inner ] -> chain inner (arg :: acc)
+                | Op pipeLeft [ inner; arg ] -> chain inner (arg :: acc)
                 | Var f' when f' = f -> Some acc
                 | _ -> None
             match chain e [] with
