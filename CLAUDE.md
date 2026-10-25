@@ -141,9 +141,10 @@ FSharp.Interop.Dlr/check-internals.sh  # each idiom fixed more than once has one
   consumer calls `Delay` itself; changing one is `MissingMethodException` in an already-built
   consumer. `dotnet pack` validates against the last nuget.org release
   (`PackageValidationBaselineVersion` in `FSharp.Interop.Dlr.fsproj`); an intentional break goes in
-  `FSharp.Interop.Dlr/CompatibilitySuppressions.xml` (written by
-  `-p:GenerateCompatibilitySuppressionFile=true`) and the release notes. On each release that
-  reaches nuget.org, move the baseline to it and clear that file.
+  `CompatibilitySuppressions.xml` beside the fsproj (written by
+  `-p:GenerateCompatibilitySuppressionFile=true`; absent while nothing is suppressed) and the
+  release notes. On each release that reaches nuget.org, move the baseline to it and delete that
+  file.
 - FSharp.Core floor 10.1.201 (older converters reject `Sequential`/`PropertySet`, so unit blocks,
   mutables and `let rec` fail there; the test projects run at the floor); netstandard2.0 has no `Architecture.Wasm` or Reflection.Emit inbox
   (`System.Reflection.Emit.Lightweight` is referenced for it).

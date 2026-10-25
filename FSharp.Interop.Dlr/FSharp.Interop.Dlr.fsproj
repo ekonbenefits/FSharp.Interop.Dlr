@@ -34,7 +34,7 @@
          CompatibilitySuppressions.xml (-p:GenerateCompatibilitySuppressionFile=true writes it).
          Move the baseline to each release once it is on nuget.org. -->
     <EnablePackageValidation>true</EnablePackageValidation>
-    <PackageValidationBaselineVersion>1.0.0-rc.2</PackageValidationBaselineVersion>
+    <PackageValidationBaselineVersion>1.0.0-rc.3</PackageValidationBaselineVersion>
   </PropertyGroup>
 
   <ItemGroup>
