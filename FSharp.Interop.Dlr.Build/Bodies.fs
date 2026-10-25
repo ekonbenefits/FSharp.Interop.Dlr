@@ -30,6 +30,9 @@ module internal Bodies =
             if e.IsArrayType then TArray(e.ArrayRank, typeRef t.GenericArguments.[0])
             elif e.IsByRef then TByref(typeRef t.GenericArguments.[0])
             elif e.IsFSharpAbbreviation then typeRef (e.AbbreviatedType.Instantiate(Seq.zip e.GenericParameters t.GenericArguments |> List.ofSeq))
+            // A unit of measure on a primitive (`float<m>`: FSharp.Core's measure-annotated
+            // abbreviation `float<'Measure>`): erased, as the reflected definition has it (`Double`).
+            elif e.Attributes |> Seq.exists (fun a -> a.AttributeType.CompiledName = "MeasureAnnotatedAbbreviationAttribute") then typeRef t.ErasedType
             else
                 let args = [ for a in t.GenericArguments do if not a.IsMeasureType then typeRef a ]
                 TNamed(entityAssembly e, entityName e, args)

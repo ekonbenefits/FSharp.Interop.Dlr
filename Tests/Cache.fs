@@ -332,6 +332,25 @@ let private columnsBeforeSharedName (o: obj) (a: int) (b: int) (p: int) (q: int)
     let r: int = dlr { return o?Add(add 2, x + q) }
     r + k + x
 
+/// A `let rec` binding `x` in its definition, before an `x` the block captures: the quotation
+/// lays a `let rec` out body first (`Lambda(f, body :: definitions)`), so a capture map that
+/// counted the definition first would swap the two `x`s with every count kept (#259's review:
+/// 21 instead of 26, the mutation lost). Right or refused.
+let private letRecBeforeMutable (o: obj) (p: int) : int =
+    let rec f (n: int) : int = (let x = n * 2 in if n > 100 then f (n - 1) else x)
+    let mutable x = 1
+    x <- x + 5
+    // The analyzer reports it at build time (DLR007).
+    // fsharpanalyzer: ignore-line-next DLR007
+    dlr { return o?Add(f p, x) }
+
+let private letRecBeforeImmutable (o: obj) (p: int) (q: int) : int =
+    let rec f (n: int) : int = (let x = n * 2 in if n > 100 then f (n - 1) else x)
+    let x = q + 1
+    // The analyzer reports it at build time (DLR007).
+    // fsharpanalyzer: ignore-line-next DLR007
+    dlr { return o?Add(f p, x) }
+
 [<Fact>]
 let ``a match case two paths reach shifts no later variable`` () =
     let w = box (Widget())
@@ -343,6 +362,8 @@ let ``a match case two paths reach shifts no later variable`` () =
     check 1316 (fun () -> orPatternBeforeSharedName w (Choice2Of2 1000) 10 100)
     check 322 (fun () -> listOrPatternBeforeSharedName w [ 1; 7 ] 10 100)
     check 320 (fun () -> columnsBeforeSharedName w 5 1 10 100)
+    check 26 (fun () -> letRecBeforeMutable w 10)
+    check 121 (fun () -> letRecBeforeImmutable w 10 100)
 
 /// A shadowed name inside a local function the Release optimizer inlines: the machine captures
 /// only the later `x`, and the earlier one, reached through `f`'s recovered definition, read that

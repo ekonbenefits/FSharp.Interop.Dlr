@@ -91,7 +91,8 @@ module internal Translate =
             match element with
             | None ->
                 f.FieldType = v.Type
-                || (f.FieldType.IsGenericType && f.FieldType.GetGenericTypeDefinition() = typedefof<Ref<_>> && f.FieldType.GetGenericArguments().[0] = v.Type)
+                // A captured mutable is a ref cell, and only a mutable is.
+                || (v.IsMutable && f.FieldType.IsGenericType && f.FieldType.GetGenericTypeDefinition() = typedefof<Ref<_>> && f.FieldType.GetGenericArguments().[0] = v.Type)
             | Some i ->
                 FSharp.Reflection.FSharpType.IsTuple v.Type && not v.Type.IsValueType
                 && i >= 0 && i < (FSharp.Reflection.FSharpType.GetTupleElements v.Type).Length

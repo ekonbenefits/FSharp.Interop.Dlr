@@ -76,6 +76,16 @@ type private CompilerContext(compilerDir: string, toolDir: string) =
         elif File.Exists(at toolDir) then this.LoadFromAssemblyPath(at toolDir)
         else null
 
+/// Runs the companion; any failure writes an empty map instead and exits 0, so every block keeps
+/// the strict behaviour and the build goes on.
+let private off (output: string) (work: unit -> int) : int =
+    try work ()
+    with e ->
+        let e = match e with :? System.Reflection.TargetInvocationException as t when not (isNull t.InnerException) -> t.InnerException | e -> e
+        eprintfn "dlr companion: the capture map is off for this build (%s: %s); every block keeps the strict behaviour" (e.GetType().Name) e.Message
+        (try Run.write output [] with _ -> ())
+        0
+
 /// `--compiler <fsc.dll>`: run against that compiler's FCS. Any failure there (an FCS whose API
 /// moved, say) writes an empty map instead, so every block keeps the strict behaviour and the
 /// build goes on: the companion can turn itself off, never bind a capture wrongly.
@@ -85,19 +95,15 @@ let main argv =
     | [| "--compiler"; fsc; argsFile; projectDir; output |] ->
         let compilerDir = Path.GetDirectoryName(Path.GetFullPath(fsc.Trim('"')))
         let self = System.Reflection.Assembly.GetExecutingAssembly()
-        try
+        off output (fun () ->
             if not (File.Exists(Path.Combine(compilerDir, "FSharp.Compiler.Service.dll"))) then
                 failwithf "no FSharp.Compiler.Service.dll beside %s" fsc
             let context = CompilerContext(compilerDir, Path.GetDirectoryName self.Location)
             let loaded = context.LoadFromAssemblyPath self.Location
             let run = loaded.GetType("FSharp.Interop.Dlr.Build.Program+Run").GetMethod("run")
-            run.Invoke(null, [| box argsFile; box projectDir; box output |]) :?> int
-        with e ->
-            let e = match e with :? System.Reflection.TargetInvocationException as t when not (isNull t.InnerException) -> t.InnerException | e -> e
-            eprintfn "dlr companion: the capture map is off for this build (%s: %s); every block keeps the strict behaviour" (e.GetType().Name) e.Message
-            Run.write output []
-            0
-    | [| argsFile; projectDir; output |] -> Run.run argsFile projectDir output
+            run.Invoke(null, [| box argsFile; box projectDir; box output |]) :?> int)
+    // No compiler to load (the build gives none): this tool's own FCS, with the same fallback.
+    | [| argsFile; projectDir; output |] -> off output (fun () -> Run.run argsFile projectDir output)
     | _ ->
         eprintfn "usage: FSharp.Interop.Dlr.Build [--compiler <fsc.dll>] <fsc args file> <project dir> <output map>"
         2

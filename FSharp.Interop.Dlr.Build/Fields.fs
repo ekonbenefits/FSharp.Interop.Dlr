@@ -1,6 +1,6 @@
 namespace FSharp.Interop.Dlr.Build
 
-// The capture map's field pass (#259; was Companion/capturemap.fsx).
+// The capture map's field pass (#259).
 
 open System
 open System.Collections.Generic
@@ -23,7 +23,7 @@ open FSharp.Compiler.Text
 /// (`x_0`, a split tuple's element) by its tuple's identity and the element, the tuple being the
 /// source variable whose value holds the temporary's source range.
 ///
-/// The section's lines (map format 1, see Program.fs): `V field name ordinal` or
+/// The section's lines (map format 2, see Program.fs): `V field name ordinal` or
 /// `E field name ordinal element`, and `U name ordinal element` for a split tuple's element nothing
 /// in the optimized member keeps (unused). A block any of whose fields is not attributed has no
 /// section: it keeps the strict behaviour.
@@ -126,7 +126,8 @@ module Fields =
         | _ -> None
 
     /// Each binding's construct (the `let`, or the application of a lambda applied on the spot):
-    /// a temporary the optimizer makes of the whole binding has its range.
+    /// a temporary the optimizer makes of the whole binding has its range. Module-level state, as
+    /// `splitElements`: the tool runs one pass per process.
     let bindRanges = Dictionary<string * string, range>()
 
     /// Split parameters' elements: (name, declaration) → (tuple parameter's name, element).
@@ -156,7 +157,10 @@ module Fields =
                 rebuilt.Add(sourceKey v) |> ignore
                 order.Add((v, Some d)); go b
             | FSharpExprPatterns.Let((v, d, _), b) -> go d; bindRanges.[sourceKey v] <- e.Range; order.Add((v, Some d)); go b
-            | FSharpExprPatterns.LetRec(bs, b) -> (for (v, d, _) in bs do order.Add((v, Some d))); (for (_, d, _) in bs do go d); go b
+            // As the quotation has a `let rec` (FSharp.Core's LetRecursive: the variables, then
+            // `body :: definitions`): the body before the definitions, or a name bound in both
+            // gets its two orders swapped with its count kept (#259's review).
+            | FSharpExprPatterns.LetRec(bs, b) -> (for (v, d, _) in bs do order.Add((v, Some d))); go b; (for (_, d, _) in bs do go d)
             // A lambda applied on the spot: its parameter's value is the argument. As a quotation
             // has it: the parameter, its body, then the argument.
             | FSharpExprPatterns.Application(FSharpExprPatterns.Lambda(v, b), _, [ arg ]) -> bindRanges.[sourceKey v] <- e.Range; order.Add((v, Some arg)); go b; go arg

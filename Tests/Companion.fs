@@ -33,7 +33,7 @@ let bodiesMapped =
                 | _ -> false)
 
 let private needsBodies () =
-    if not bodiesMapped then raise (AnyUnit.IgnoreException "no block bodies embedded (Companion/bodies.fsx)")
+    if not bodiesMapped then raise (AnyUnit.IgnoreException "no block bodies embedded (-p:DlrCompanion=true)")
 
 /// Beside the blocks, what a module-wide attribute could not take: a byref parameter.
 let bump (x: byref<int>) = x <- x + 1
@@ -83,6 +83,35 @@ let ``the module also holds a byref member, which a module-wide attribute would 
     n |> should equal 2
 
 // ---- Shapes the encoder must carry exactly or refuse (the cold review of #219).
+
+/// A unit of measure in the member's signature: erased to its underlying type, as in the reflected
+/// definition (`float<m>` is `System.Double`), not named as FSharp.Core's annotated abbreviation.
+[<Measure>] type m
+
+let private scaled (w: obj) (d: float<m>) : int =
+    // fsharpanalyzer: ignore-line-next DLR001
+    dlr { return w?Add(int (float d), 1) }
+
+[<Fact>]
+let ``a member with a unit of measure in its signature`` () =
+    needsBodies ()
+    let w: obj = Widget()
+    let result = scaled w 2.0<m>
+    result |> should equal 3
+
+/// Two blocks of one member on one line: refused as the reflected path refuses them, by the line,
+/// not as a missing attribute.
+let private twoOnOneLine (w: obj) : int * string =
+    // fsharpanalyzer: ignore-region-start DLR001
+    // fsharpanalyzer: ignore-line-next DLR003
+    let a: int = dlr { return w?Count } in let b: string = dlr { return w?Name } in (a, b)
+    // fsharpanalyzer: ignore-region-end DLR001
+
+[<Fact>]
+let ``two blocks of a member on one line are refused by the line`` () =
+    needsBodies ()
+    let ex = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> twoOnOneLine (Widget()) |> ignore)
+    ex.Message |> should haveSubstring "blocks share"
 
 type IntToInt = System.Func<int, int>
 

@@ -29,7 +29,8 @@ reflection) and named by the compiler's own unique-naming rule (`x`, `x0`, …).
 each field to a source variable, identified as the run time can find it again in the quotation:
 its name and its order among the member's bindings of that name, counted as the quotation lays
 the member out: a `match` case that two paths reach (an or-pattern binding `x`) is bound at each
-path, so it counts twice, as F# puts it in the quotation. Each rule gives an exact answer
+path, so it counts twice, and a `let rec` is its variables, then its body, then its definitions,
+as F# puts them in the quotation. Each rule gives an exact answer
 or none:
 
 - a variable of the source is itself;
@@ -46,8 +47,10 @@ or none:
 Nested blocks share a file and line, and only the outermost is ever looked up (an inner one
 compiles as part of it), so per line the map keeps the block whose `dlr` comes first.
 
-The `body` pass (`Bodies.run`, stacked on this work) records each block's member body from the
-unoptimized tree, so a block needs no `[<ReflectedDefinition>]`.
+The `body` pass (`Bodies.run`) records each block's member body from the unoptimized tree, so a
+block needs no `[<ReflectedDefinition>]`: `Discover` falls back to it when no reflected definition
+has the block. `Companion/oracle.fsx` checks it, decoding each body and comparing it with the
+member's reflected definition.
 
 ## The map
 
@@ -58,8 +61,8 @@ across members repeat within a file; the run time inflates a file's blob the fir
 its blocks is looked up. A file's lines are its blocks: `B file line`, then optional sections,
 `S fields` (`V field name ordinal`, `E field name ordinal element`, `U name ordinal element` for
 a split tuple's element nothing keeps, and `N name count`: for each name the entries use, how
-many bindings of it the companion counted in the member) and `S body`. Blocks are keyed by `Run`'s caller
-information, the same file and line the run time has; under a path map (deterministic builds)
+many bindings of it the companion counted in the member) and `S body`. Blocks are keyed by the outermost
+`Delay`'s caller information, the same file and line the run time's probe finds; under a path map (deterministic builds)
 FCS applies the same mapping, so the keys still match.
 
 ## The build step
@@ -102,8 +105,8 @@ block whether it bound through the map, and why not.
 
 ## Results
 
-On this repository's `Tests` (Release, macOS): with the map embedded the suite passes and 2,158
-blocks bind exactly through it; the other blocks the trace reports are closures, which have no
+On this repository's `Tests` (Release, macOS): with the map embedded the suite passes and about
+2,200 blocks bind exactly through it (the count varies a little with which blocks a run reaches); the other blocks the trace reports are closures, which have no
 state machine (a function-typed block applied on the spot, including a `let`-bound one applied
 once), and the two shapes the strict mode pins for refusal have no entry. No map entry is
 rejected. The CI job `companion` builds `Tests` this way in Debug and Release and fails on any

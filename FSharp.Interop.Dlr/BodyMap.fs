@@ -1,8 +1,8 @@
 /// Block bodies from the build companion's map (`body` sections of `FSharp.Interop.Dlr.CaptureMap`):
 /// the member holding a dlr { } block, from the compiler's unoptimized tree, in a wire form that names
 /// types and members; decoded by reflection into the `Expr` its [<ReflectedDefinition>] would be, so
-/// a block needs no attribute when the map has it. `Companion/bodies.fsx` writes it (and #loads this
-/// file for the writer).
+/// a block needs no attribute when the map has it. FSharp.Interop.Dlr.Build's body pass writes it (it
+/// links this file for the writer).
 #if INTERACTIVE
 module FSharp.Interop.Dlr.BodyMap
 #else

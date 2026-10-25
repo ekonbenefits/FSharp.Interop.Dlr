@@ -141,6 +141,11 @@ module internal Discover =
             match fromMap.Value with
             | BodyMap.Found(context, memberBody) -> { Context = context; MemberBody = memberBody; Body = List.head (runsAt builderType file line memberBody) }
             | _ -> failwith "unreachable"
+        // The member is in the map, but two of its blocks start on this line: refused as the
+        // reflected path refuses them, by the line, not as a missing attribute.
+        | [] when (match fromMap.Value with BodyMap.Found(_, q) -> List.length (runsAt builderType file line q) > 1 | _ -> false) ->
+            let n = match fromMap.Value with BodyMap.Found(_, q) -> List.length (runsAt builderType file line q) | _ -> 0
+            raise (DlrTranslationException(sprintf "%d dlr { } blocks share %s:%d; put each dlr { } on its own line." n file line))
         | [] when (match fromMap.Value with BodyMap.Shared _ -> true | _ -> false) ->
             let n = match fromMap.Value with BodyMap.Shared n -> n | _ -> 0
             raise (DlrTranslationException(sprintf "%d dlr { } blocks share %s:%d; put each dlr { } on its own line." n file line))
