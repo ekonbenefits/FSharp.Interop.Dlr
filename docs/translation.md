@@ -246,7 +246,8 @@ Not specified, and read by `TranslateBlock.Captures` and `Discover`:
 
 - The state machine struct's fields are named after the captured variables (after its own
   `Data` and `ResumptionPoint`), `this` as `this`, `FSharpRef` for mutables.
-- The same holds on the Delay closure when the compiler does not build the machine (Debug). That
+- The same holds on the Delay closure when the compiler does not build the machine (Debug on the
+  10.0 compiler, the one applied-function shape in Release, and `Tests.ClosureBuilder`). That
   closure is held in a field named `delayed` of the resumable-code delegate's target: the
   builder's own `Delay` lambda captures it under that name, read by `Delayed<'T>`. A target of
   another type is taken as the closure itself, and a null target (the applied function-typed
@@ -263,4 +264,6 @@ Not specified, and read by `TranslateBlock.Captures` and `Discover`:
 Where one of these does not hold, the translator raises `DlrTranslationException` on the first
 call at a site rather than guess. Its checks go by name and type; the suite, in Debug and Release,
 covers what they cannot. CI builds with the .NET 10 SDK, Debug and Release, on Linux and Windows
-(net48 there too), at the FSharp.Core floor and on the latest release, and on browser-wasm.
+(net48 there too), at the FSharp.Core floor and on the latest release, through the closure
+builder as well as the real one, and on browser-wasm; the 8.0, 9.0 and 11.0 compilers build it
+too (the `compilers` and `dotnet11` jobs).

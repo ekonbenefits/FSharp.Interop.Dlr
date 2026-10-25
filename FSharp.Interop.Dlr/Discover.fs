@@ -8,7 +8,7 @@ open FSharp.Quotations.Patterns
 open FSharp.Quotations.ExprShape
 
 /// Finds the quoted body of a `dlr { }` block from the type of its state machine (Release) or its
-/// Delay closure (Debug, and the one shape Release leaves to the closure), using the
+/// Delay closure (Debug on the 10.0 compiler, and the one shape Release leaves to the closure), using the
 /// `[<ReflectedDefinition>]` of the enclosing member.
 module internal Discover =
 
