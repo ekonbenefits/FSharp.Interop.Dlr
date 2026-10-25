@@ -1,6 +1,6 @@
 namespace FSharp.Interop.Dlr.Build
 
-// The capture map's field pass (#216; was Companion/capturemap.fsx).
+// The capture map's field pass (#259; was Companion/capturemap.fsx).
 
 open System
 open System.Collections.Generic

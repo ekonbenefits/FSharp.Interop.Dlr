@@ -5,7 +5,7 @@ open System.IO
 open System.IO.Compression
 open System.Text
 
-// The build companion (#216): one FCS check of the project, its passes over it, one map.
+// The build companion (#259): one FCS check of the project, its passes over it, one map.
 //
 //   FSharp.Interop.Dlr.Build [--compiler <fsc.dll>] <fsc args file, one per line> <project dir> <output map>
 //

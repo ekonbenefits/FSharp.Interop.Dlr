@@ -1,7 +1,7 @@
 <Project>
 
   <!--
-    The build companion as a build step (#216, for 2.0). Opt in with DlrCompanion=true: before
+    The build companion as a build step (#259, for 2.0). Opt in with DlrCompanion=true: before
     CoreCompile, the project's own fsc arguments are taken from a nested build that runs Compile
     without compiling (SkipCompilerExecution; NonExistentFile forces CoreCompile to run and return
     them); FSharp.Interop.Dlr.Build checks the project with FCS once and writes the capture map; and
@@ -13,6 +13,10 @@
     references it with ReferenceOutputAssembly=false so it is built first).
   -->
   <PropertyGroup>
+    <!-- The companion runs on the .NET 10 SDK: its tool targets .NET 10 and is built against that
+         compiler's FCS (an older one's API differs, #261). On 8.0 or 9.0 the step is skipped with a
+         message, never a failed build; the blocks keep the strict behaviour. -->
+    <_DlrCompanionSupported>$([MSBuild]::VersionGreaterThanOrEquals('$(NETCoreSdkVersion)', '10.0'))</_DlrCompanionSupported>
     <DlrCompanionTool Condition="'$(DlrCompanionTool)' == ''">$(MSBuildThisFileDirectory)bin/$(Configuration)/net10.0/FSharp.Interop.Dlr.Build.dll</DlrCompanionTool>
   </PropertyGroup>
 
@@ -35,7 +39,11 @@
 
   <!-- Chained by DependsOnTargets, not CallTarget: a called target does not see the properties its
        caller just set. Not in an IDE's design-time build, which only wants the compiler's inputs. -->
-  <Target Name="DlrCompanionMap" BeforeTargets="CoreCompile" Condition="'$(DlrCompanion)' == 'true' and '$(DesignTimeBuild)' != 'true'"
+  <Target Name="_DlrCompanionUnsupported" BeforeTargets="CoreCompile" Condition="'$(DlrCompanion)' == 'true' and '$(DesignTimeBuild)' != 'true' and '$(_DlrCompanionSupported)' != 'true'">
+    <Message Importance="high" Text="dlr companion: needs the .NET 10 SDK (this is $(NETCoreSdkVersion)); this build has no capture map, and every block keeps the strict behaviour." />
+  </Target>
+
+  <Target Name="DlrCompanionMap" BeforeTargets="CoreCompile" Condition="'$(DlrCompanion)' == 'true' and '$(DesignTimeBuild)' != 'true' and '$(_DlrCompanionSupported)' == 'true'"
           DependsOnTargets="_DlrCompanionPaths;_DlrCompanionArgs;_DlrCompanionRun">
     <!-- The map as a resource item, which the Fsc task quotes (a path with spaces), and an input of
          CoreCompile: a new map must recompile, or the assembly keeps the old one's resource. -->

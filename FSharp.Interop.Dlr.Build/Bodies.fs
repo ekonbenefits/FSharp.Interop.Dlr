@@ -5,7 +5,7 @@ open FSharp.Compiler.CodeAnalysis
 open FSharp.Compiler.Symbols
 open FSharp.Interop.Dlr.BodyMap
 
-/// The capture map's `body` section (#219, stacked on #216): the body of each member that holds a
+/// The capture map's `body` section (#259): the body of each member that holds a
 /// dlr { } block, from the compiler's unoptimized tree, in BodyMap's wire form, so a block needs no
 /// [<ReflectedDefinition>]. Each member is written once, at its first block (`X <payload>`); its
 /// other blocks refer to that one (`Y file line`). `Companion/oracle.fsx` checks the encoding
