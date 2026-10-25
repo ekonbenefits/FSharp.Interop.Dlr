@@ -86,21 +86,16 @@ its fields the captured values, [`Sites<'T>`](caches.md) the cache. Same `Discov
 `Translate`; the cost is three allocations and two `GetType()` compares. `Tests.ClosureBuilder`
 (`-p:DlrClosures=true`) runs the whole suite on this path, whatever the compiler does in Debug.
 
-Every `dlr { }` desugars to `Run(Delay((fun () -> …), file, line))` in one expression, which the compiler
-builds the machine for — with one exception it takes silently, no FS3511: a block whose
-function-typed result is applied on the spot, `(dlr { return x?Add } : int -> int -> int) 1 2`
-(partially, or through `|>` / `<|`, counts, and so does a function-typed block bound with `let`
-and applied once, fully or partially, `let f: int -> int -> int = dlr { … } in f 1 2` or `f 1`, which the optimizer inlines
-into that one application: #217, `Tests/Resumable.fs`. Used twice, the binding stays a value and
-the block gets its machine. The cause: the optimizer pushes the application into both
-branches of `Run`'s `if __useResumableCode`, and the compiler's state-machine recognizer then no
-longer sees the `if` at the top, so it emits the `else` branch with no diagnostic).
-That goes to the `else` branch in Release too, with the `Delay` wrapper inlined: the delegate's
-target is the closure itself when the block captures a value, and null — a static method on the
-closure class — when it captures nothing, in which case `DlrRun.Closure` compiles from that
-class (`code.Method.DeclaringType`) and passes no closure. (The builder's members called by
-hand with the `Delay` result bound or passed separately are the other way in — FS3501 (or
-FS3511) from the compiler — and nobody writes that.)
+**The one shape Release leaves to the fallback.** A block whose result is a function, applied
+where it is created, gets no state machine even in Release, and no warning:
+`(dlr { return x?Add } : int -> int -> int) 1 2`, also partially applied or through a pipe, and a
+function-typed block bound with `let` and applied once (the optimizer inlines the binding into
+that application). The optimizer moves the application into both branches of `Run`'s
+`if __useResumableCode`, and the compiler no longer recognises the state machine. Such a block
+takes the fallback with its `Delay` wrapper inlined: the delegate's target is the closure itself,
+or null when the block captures nothing, and then `DlrRun.Closure` compiles from the closure's
+class (`code.Method.DeclaringType`). Bound with `let` and applied twice, it gets its machine.
+`Tests/Resumable.fs` pins these shapes (#217).
 
 ## One call on the hot path
 
