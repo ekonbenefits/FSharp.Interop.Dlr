@@ -1,11 +1,14 @@
 /// Blocks with no [<ReflectedDefinition>] anywhere: the build companion's map holds their members'
-/// bodies (`FSharp.Interop.Dlr.Build/Bodies.fs`, academic, #219 on #216). Without a map embedded
-/// (`-p:DlrCompanion=true`) they skip.
+/// bodies (`FSharp.Interop.Dlr.Build/Bodies.fs`, the 2.0 build companion, #259). Without a map
+/// embedded (`-p:DlrCompanion=true`) they skip.
 module Tests.Companion
 
 open AnyUnit.Style.Xunit
 open AnyUnit.Style.FsUnit
 open FSharp.Interop.Dlr
+#if DLR_CLOSURES
+open Tests.ClosureBuilder
+#endif
 
 /// Whether this assembly carries a map with block bodies (`-p:DlrCompanion=true`): format 2, a text
 /// header of `F offset length file` lines, then each file's blob, deflated.
