@@ -10,7 +10,7 @@ explains why the library doesn't do that, and what it costs. Part of [internals]
 | Need | Reflected definition of the enclosing member | Quotation passed to the builder |
 |---|---|---|
 | Decode cost | Once per type, then cached | Unpickled again on every evaluation |
-| Steady-state allocation | None in Release (captures live in the state-machine struct) | New nodes for every splice, value-type captures boxed |
+| Captures at each call | Unboxed in the state-machine struct; the block itself allocates nothing | New nodes for every splice, value-type captures boxed |
 | Binder accessibility context | The member's declaring type | Not available: the quote doesn't say where it came from |
 | Works with resumable code | Yes | No: quoted code isn't lowered to a state machine |
 
@@ -23,18 +23,19 @@ A quoted builder, `dlrq { }` with a `Quote` member, was built and reviewed
 ([#60](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/60),
 [#62](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/62)), then dropped. It worked: the
 same translator and binders compiled it, and the whole test suite passed through it. What stopped
-it is below. It cost 8.2 µs per `w?Count` against 20 ns for `dlr { }` at the time, 7.3 µs of that
-FSharp.Core materialising the quotation literal, but the blocker was accessibility.
+it is below. Measured then (September 2026), it cost 8.2 µs per `w?Count` against 20 ns for
+`dlr { }`, 7.3 µs of that FSharp.Core materialising the quotation literal; but the blocker was
+accessibility.
 
 ## Why not a quotation
 
 **Decode cost on every call.** A quotation literal compiles to a call that deserializes it from a
 freshly allocated byte array, and each evaluation unpickles the tree and resolves its types and
-members through reflection again: 7.4 µs measured for a one-operation block, about 25 µs for a
-100-iteration loop body. FSharp.Core caches only reflected definitions
+members through reflection again. FSharp.Core caches only reflected definitions
 ([dotnet/fsharp#20764](https://github.com/dotnet/fsharp/issues/20764) asks for literals to be
-unpickled once). For a library whose steady state is about 11 ns per call
-([benchmarks](benchmarks.md)), a quotation per call is out of the question.
+unpickled once). That is microseconds per evaluation, hundreds of times the whole call a block
+makes on the state-machine path ([benchmarks](benchmarks.md)), so a quotation per call is out of
+the question.
 
 **Allocation, even if the tree were cached.** Captured values are spliced into the tree as
 `ValueWithName` nodes. Every evaluation builds new nodes around them and boxes value-type
@@ -82,7 +83,8 @@ it (DLR008), and the run-time error names the function: add it to the signature,
 
 **The closure path allocates.** Where the compiler builds no state machine (Debug on some
 compilers, and one shape in Release), the block runs on its closure: the same results, a little
-slower, with an allocation per call. The allocation-free steady state is the state-machine path's.
+slower, with an allocation per call. Only the state-machine path keeps the block itself
+allocation-free; on either path a value-type result is boxed, as C# `dynamic` boxes it.
 
 ## What would change this decision
 
