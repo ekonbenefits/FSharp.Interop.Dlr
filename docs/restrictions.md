@@ -55,7 +55,7 @@ Not C# restrictions, but the same family:
   into every caller, taking the block's values with it and leaving its body behind. A Debug build
   calls it as a method, so it only appears to work. The analyzer reports it (`DLR004`).
 - **A captured `int` cannot be named `ResumptionPoint`** where the block gets a state machine
-  (Release, and Debug on the 11.0 compiler): the machine has a field of that name, and the
+  (always in Release, and in Debug on compilers that build one there): the machine has a field of that name, and the
   compiler rejects the duplicate (FS2014), as it does in `task { }`. A literal the optimizer
   inlines, and a `let mutable`, are fine ([translation](translation.md#captured-variables)).
 - **A reflected definition cannot call a function its signature file hides.** In Release the
