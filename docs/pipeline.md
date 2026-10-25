@@ -77,22 +77,14 @@ the boxed copy a compiled loop or `try` makes per call; and two threads may prob
 probe runs no user code, so it cannot nest. Code that does not start with the builder's `Delay`
 (its members called by hand) answers nothing, and `Locate` raises `DlrTranslationException`.
 
-**Fallback.** Where the compiler does not build the machine — Debug builds on the 10.0 compiler
-(`__useResumableCode` is false without optimization; the 8.0, 9.0 and 11.0 compilers build the
-machine in Debug too, the last since dotnet/fsharp#20469) — `Run`'s `else` branch receives the `ResumableCode`
-delegate. `DlrRun.Closure` reads the block's `Delay` closure back out of that delegate's
-target (the builder's own `Delay` lambda captures it in a field named `delayed`, read by a
-reader compiled once per result type — `Delayed<'T>` — not by reflection per call; when the
-optimizer has inlined it, the target itself is the closure) and continues on the closure path:
-the closure's type is the key, its fields the captured values, and [`Sites<'T>`](caches.md) the
-typed cache (last-hit compare, then a dictionary). Same contract, same `Discover` and `Translate`; the cost
-is three allocations (the Delay closure, the builder's wrapper and the `ResumableCode` delegate),
-two `GetType()` calls with a reference compare each, and a compiled field read. Both paths are
-exercised on purpose, not by which compiler builds Debug: the suite runs in Debug and in Release,
-and again through `Tests.ClosureBuilder` (`-p:DlrClosures=true`), a copy of the builder without
-the state-machine branch, so every block takes the closure path in both. (On the 10.0 compiler
-Debug builds no state machine at all; on the 8.0, 9.0 and 11.0 compilers every Debug block builds
-one. `Tests/Resumable.fs` pins which, by `DEBUG_MACHINES`, and fails if a 10.0 SDK changes it.)
+**Fallback.** Where the compiler does not build the machine (`__useResumableCode` is false:
+some compilers' Debug builds, and the one shape below), `Run`'s `else` branch gets the
+`ResumableCode` delegate. `DlrRun.Closure` reads the block's `Delay` closure out of its target
+(the builder's `Delay` lambda holds it in a field named `delayed`, read by `Delayed<'T>`, a reader
+compiled once per result type) and continues on the closure path: the closure's type is the key,
+its fields the captured values, [`Sites<'T>`](caches.md) the cache. Same `Discover` and
+`Translate`; the cost is three allocations and two `GetType()` compares. `Tests.ClosureBuilder`
+(`-p:DlrClosures=true`) runs the whole suite on this path, whatever the compiler does in Debug.
 
 Every `dlr { }` desugars to `Run(Delay((fun () -> …), file, line))` in one expression, which the compiler
 builds the machine for — with one exception it takes silently, no FS3511: a block whose
@@ -135,7 +127,7 @@ sequenceDiagram
 The method-call row of [benchmarks.md](benchmarks.md) puts `w?Add(i, 1)` a few nanoseconds
 over C# `dynamic`'s `d.Add(i, 1)`, with no allocation but the box of a value result (the same
 box C# pays): what remains of the block's entry is the machine's construction, the slot read
-and the invoke; the site call itself is C#'s. (The closure path — the Debug fallback — roughly
+and the invoke; the site call itself is C#'s. (The closure path roughly
 doubles the entry with the closure allocation, `GetType()` and the compare. A `Func<'SM, 'T>`
 taking the struct by value instead of the `inref` reader measured slower —
 [translation](translation.md) has the number.)
