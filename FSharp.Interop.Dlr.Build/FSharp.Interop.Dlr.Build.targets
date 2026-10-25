@@ -59,6 +59,8 @@
       <!-- IntermediateOutputPath may be absolute (artifacts output): NormalizePath keeps it then. -->
       <_DlrCompanionArgs>$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)', '$(IntermediateOutputPath)', 'dlr.companion.fscargs'))</_DlrCompanionArgs>
       <_DlrCompanionMap>$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)', '$(IntermediateOutputPath)', 'dlr.capturemap'))</_DlrCompanionMap>
+      <_DlrCompanionFailed>$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)', '$(IntermediateOutputPath)', 'dlr.companion.failed'))</_DlrCompanionFailed>
+      <_DlrCompanionRetry Condition="Exists('$(_DlrCompanionFailed)')">$(_DlrCompanionFailed)</_DlrCompanionRetry>
       <!-- The compiler that builds the project (the SDK's, unless the project points elsewhere):
            the companion runs its FCS, so the map describes what it emits. Without one (MSBuild that
            does not set it), the companion's own FCS, and the map refuses whatever it gets wrong. -->
@@ -79,11 +81,22 @@
   </Target>
 
   <!-- Incremental: the map is rewritten only when a source, the arguments, the tool or the
-       compiler changed (a new SDK). -->
-  <Target Name="_DlrCompanionRun" Inputs="@(Compile);$(_DlrCompanionArgs);$(DlrCompanionTool);$(_DlrCompanionFcs)" Outputs="$(_DlrCompanionMap)">
+       compiler changed (a new SDK), or the last run failed. -->
+  <Target Name="_DlrCompanionRun" Inputs="@(Compile);$(_DlrCompanionArgs);$(DlrCompanionTool);$(_DlrCompanionFcs);$(_DlrCompanionRetry)" Outputs="$(_DlrCompanionMap)">
     <!-- IgnoreStandardErrorWarningFormat: an FCS message the tool prints must not read as a build
          error; the tool's own failures turn the map off, they never fail the build. -->
-    <Exec Command="&quot;$(_DlrCompanionDotnet)&quot; &quot;$(DlrCompanionTool)&quot; $(_DlrCompanionCompiler) &quot;$(_DlrCompanionArgs)&quot; &quot;$(MSBuildProjectDirectory)&quot; &quot;$(_DlrCompanionMap)&quot;" IgnoreStandardErrorWarningFormat="true" />
+    <Exec Command="&quot;$(_DlrCompanionDotnet)&quot; &quot;$(DlrCompanionTool)&quot; $(_DlrCompanionCompiler) &quot;$(_DlrCompanionArgs)&quot; &quot;$(MSBuildProjectDirectory)&quot; &quot;$(_DlrCompanionMap)&quot;" IgnoreStandardErrorWarningFormat="true" IgnoreExitCode="true">
+      <Output TaskParameter="ExitCode" PropertyName="_DlrCompanionExit" />
+    </Exec>
+    <!-- A failure the tool cannot catch (killed for memory, say, exit 137) leaves no map, or the
+         last build's: an empty one instead, which reads as no map (and, newer, recompiles), and a
+         stamp written after it, an input while it exists, so the next build runs the tool again. -->
+    <Delete Files="$(_DlrCompanionMap)" Condition="'$(_DlrCompanionExit)' != '0'" />
+    <Touch Files="$(_DlrCompanionMap)" AlwaysCreate="true" Condition="'$(_DlrCompanionExit)' != '0'" />
+    <WriteLinesToFile File="$(_DlrCompanionFailed)" Lines="exit $(_DlrCompanionExit)" Overwrite="true" Condition="'$(_DlrCompanionExit)' != '0'" />
+    <Delete Files="$(_DlrCompanionFailed)" Condition="'$(_DlrCompanionExit)' == '0'" />
+    <Message Importance="high" Condition="'$(_DlrCompanionExit)' != '0'"
+             Text="dlr companion: the capture map is off for this build (the tool exited with code $(_DlrCompanionExit)); every block keeps the strict behaviour" />
   </Target>
 
 </Project>
