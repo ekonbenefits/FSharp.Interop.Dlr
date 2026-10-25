@@ -35,7 +35,7 @@ unpacked inside (`lambdaOver` / `packArguments`).
 
 ## Byref sites
 
-A site with `ref` / `out` parameters (`Dlr.ref v`, `Dlr.out`, #131) has a delegate emitted at run
+A site with `ref` / `out` parameters (`Dlr.ref v`, `Dlr.out`, [#131](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/131)) has a delegate emitted at run
 time at any arity (`Func` has no byref parameters), and a quotation cannot pass a byref anyway.
 Its call is a placeholder too:
 

@@ -98,14 +98,14 @@ behind the [function ↔ delegate conversions](binders.md#function-and-delegate-
 
 That holds for a `try`, `while` or `for i in a .. b` anywhere, not only the builder's. Under a
 lambda, in a delegate literal, or used as a value (`let n = try … with _ -> 0`), the raw
-`TryWith`/`TryFinally`/`WhileLoop`/`ForIntegerRangeLoop` node goes to the same helpers (#158,
-#162), and so does a `use` there.
+`TryWith`/`TryFinally`/`WhileLoop`/`ForIntegerRangeLoop` node goes to the same helpers ([#158](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/158),
+[#162](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/162)), and so does a `use` there.
 
 The builder's `for` over an `int` range with step 1 is that counted loop too, `DlrRuntime.forRange`,
 with no enumerator. Any other range on a primitive, `a .. b` or `a .. step .. b`, becomes the typed
 `OperatorIntrinsics.Range*` the compiler would inline it to (`PrimitiveRange`). Compiled from
 the quotation, the generic `op_Range` runs FSharp.Core's non-inlined form, which does every step
-dynamically, a few hundred bytes per element (#240).
+dynamically, a few hundred bytes per element ([#240](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/240)).
 
 A raw `try`'s handler runs as a delegate, outside any catch block. So the `reraise ()` F# puts
 where no case matches throws the caught exception again through `DlrRuntime.rethrow`, its stack
@@ -176,7 +176,7 @@ sm =>
   - its arguments are evaluated first, so one that mutates the variable is not overwritten;
   - the write-back is in a finally, so a member that mutates then throws keeps the mutation
     (`Binders.InPlace`, which the `SiteHoister` makes a TryFinally the converter has no form
-    for, #162).
+    for, [#162](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/162)).
 - A struct tuple's element is read as its field: the converter's `TupleGet` rejects a
   `ValueTuple`.
 
@@ -191,7 +191,7 @@ A *parameterless* one (`Func<int>(fun () -> 7)`, `Action(fun () -> …)`) is quo
 parameter and a bare body. FSharp.Core takes it apart as the lambda `fun () -> body` but rebuilds
 it only from the bare body, so no rewrite could pass it through. `normalize` turns it into
 `ParameterlessLiteral<'D, 'R>.Of (fun () -> body)`, which makes the delegate by the literal's own
-type (#156).
+type ([#156](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/156)).
 
 ### Smaller rules
 
