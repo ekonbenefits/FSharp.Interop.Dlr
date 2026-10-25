@@ -400,6 +400,11 @@ module internal TranslatePatterns =
         | ShapeLambda(_, body) -> letDefinition v body
         | ShapeCombination(_, args) -> args |> List.tryPick (letDefinition v)
 
+    // `|>` is inlined inside a quotation literal, so these come from reflection instead.
+    let fsharpOperators = typeof<obj list>.Assembly.GetType("Microsoft.FSharp.Core.Operators")
+    let pipeRight = fsharpOperators.GetMethod("op_PipeRight")
+    let pipeLeft = fsharpOperators.GetMethod("op_PipeLeft")
+
     /// The argument a parameter of a let-bound local function takes, when the member body
     /// applies that function exactly once — or of a lambda applied on the spot,
     /// `(fun k -> …) 1`: the optimizer inlines such a function at its call site, so its
@@ -423,10 +428,13 @@ module internal TranslatePatterns =
                 | ShapeVar _ -> []
                 | ShapeLambda(_, body) -> applications f body
                 | ShapeCombination(_, args) -> args |> List.collect (applications f)
-        /// `(fun p1 p2 -> body) a1 a2`: the lambda chain and its arguments, in order.
+        /// `(fun p1 p2 -> body) a1 a2`: the lambda chain and its arguments, in order. A pipe is
+        /// the same application, `a |> (fun p -> …)` or `(fun p -> …) <| a` (#252).
         let rec applied (e: Expr) (acc: Expr list) =
             match e with
             | Application(inner, arg) -> applied inner (arg :: acc)
+            | Op pipeRight [ arg; f ] -> applied f (arg :: acc)
+            | Op pipeLeft [ f; arg ] -> applied f (arg :: acc)
             | Lambda _ when not acc.IsEmpty -> Some(e, acc)
             | _ -> None
         /// The argument `v` takes in a lambda applied on the spot, if `e` is one binding `v`.
@@ -447,16 +455,12 @@ module internal TranslatePatterns =
                 | [ args ] when args.Length > index -> Some args.[index]
                 | [] -> None
                 | _ -> None
-            | Application _ when (appliedArgument e).IsSome -> appliedArgument e
+            | (Application _ | Op pipeRight _ | Op pipeLeft _) when (appliedArgument e).IsSome -> appliedArgument e
             | ShapeVar _ -> None
             | ShapeLambda(_, body) -> search body
             | ShapeCombination(_, args) -> args |> List.tryPick search
         search memberBody
 
-    // `|>` is inlined inside a quotation literal, so these come from reflection instead.
-    let fsharpOperators = typeof<obj list>.Assembly.GetType("Microsoft.FSharp.Core.Operators")
-    let pipeRight = fsharpOperators.GetMethod("op_PipeRight")
-    let pipeLeft = fsharpOperators.GetMethod("op_PipeLeft")
 
     /// `x |> f` in a reflected body is `op_PipeRight(x, let name = "A" in fun target -> …)`, and a
     /// curried marker applied to its arguments is `Application(Lambda(name, Lambda(target, …)), …)`.

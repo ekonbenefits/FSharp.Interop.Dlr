@@ -113,6 +113,19 @@ let ``values the optimizer inlines instead of capturing still resolve`` () =
     (fun (k: int) -> (dlr { return w?Add(k, 1) } : int)) 41 |> should equal 42
     (fun (a: int) (b: string) -> (dlr { return w?Greet(b, string a) } : string)) 7 "Hi" |> should equal "Hi, 7"
 
+/// A value piped into a lambda holding a block is the same application, `x |> (fun p -> …)`:
+/// the optimizer beta-reduces it, so `p` is the piped value and is never captured (#252).
+let private pipedInto (o: obj) : int = o |> (fun x -> dlr { return x?Count })
+let private pipedBack (o: obj) : int = (fun x -> dlr { return x?Count }) <| o
+
+[<Fact>]
+let ``a value piped into a lambda holding a block resolves`` () =
+    let w = Widget()
+    pipedInto w |> should equal 3
+    pipedBack w |> should equal 3
+    let o = box w
+    (41 |> fun (k: int) -> (dlr { return o?Add(k, 1) } : int)) |> should equal 42
+
 /// A `let rec` local function the Release optimizer inlines into the block: recovered as its
 /// whole group (#198).
 let private recursiveLocal (o: obj) (seed: int) : int =
