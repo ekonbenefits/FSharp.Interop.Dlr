@@ -89,8 +89,7 @@ module internal Bodies =
 
     // ---- Members that hold a block: a call to the builder's Run with caller information.
 
-    let isRun (m: FSharpMemberOrFunctionOrValue) =
-        m.CompiledName = "Run" && (try m.DeclaringEntity.Value.CompiledName = "DlrBuilder" with _ -> false)
+    let isRun = Fields.isRun
 
     let rec holdsBlock (e: FSharpExpr) =
         match e with
@@ -287,15 +286,11 @@ module internal Bodies =
                 WLambda(tupled, List.foldBack (fun (i, d) b -> WLet(d, WTupleGet(t, i, WVar tupled.Id), b)) (List.indexed ds) (wrap rest))
         wrap args
 
-    /// The block keys in a member: each Run's caller information (file, line), which is on the Delay
-    /// that is Run's argument (#235: `Run(Delay(fun () -> …, file, line))`).
+    /// The block keys in a member: each Run's caller information (file, line), on its Delay.
     let rec runs (e: FSharpExpr) : (string * int) list =
-        [ match e with
-          | FSharpExprPatterns.Call(_, r, _, _, [ FSharpExprPatterns.Call(_, d, _, _, ds) ]) when isRun r && d.CompiledName = "Delay" ->
-              match List.rev ds with
-              | FSharpExprPatterns.Const(:? int as line, _) :: FSharpExprPatterns.Const(:? string as file, _) :: _ -> yield file, line
-              | _ -> ()
-          | _ -> ()
+        [ match Fields.delayKey e with
+          | Some key -> yield key
+          | None -> ()
           for x in e.ImmediateSubExpressions do yield! runs x ]
 
     /// The type declaring a member: the binder's accessibility context.

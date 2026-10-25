@@ -476,7 +476,17 @@ let decode (scope: Scope) (w: W) : Expr =
             match t.GetProperty(name, all) with
             | null -> raise (Unsupported(sprintf "module value %s.%s" t.Name name))
             | p -> Expr.PropertySet(p, go v)
-        | WNewRecord(t, args) -> Expr.NewRecord(resolve scope t, List.map go args)
+        | WNewRecord(t, args) ->
+            let t = resolve scope t
+            // FCS has an F# exception's construction as a record's; the quotation has its constructor,
+            // coerced to `exn` (the type F# gives it).
+            if FSharpType.IsExceptionRepresentation(t, true) then
+                let exceptionType = t
+                let fields = FSharpType.GetExceptionFields(exceptionType, true) |> Array.map (fun p -> p.PropertyType)
+                match exceptionType.GetConstructor(all, null, fields, null) with
+                | null -> raise (Unsupported(sprintf "exception constructor %s" t.Name))
+                | c -> Expr.Coerce(Expr.NewObject(c, List.map go args), typeof<exn>)
+            else Expr.NewRecord(t, List.map go args)
         | WNewUnion(t, case, args) ->
             let c = FSharpType.GetUnionCases(resolve scope t, true) |> Array.find (fun c -> c.Name = case)
             Expr.NewUnionCase(c, List.map go args)
@@ -494,7 +504,7 @@ let decode (scope: Scope) (w: W) : Expr =
         | WFieldGet(o, t, name) ->
             let t = resolve scope t
             match t.GetProperty(name, all), t.GetField(name, all) with
-            | p, _ when not (isNull p) && FSharpType.IsRecord(t, true) ->
+            | p, _ when not (isNull p) && (FSharpType.IsRecord(t, true) || FSharpType.IsExceptionRepresentation(t, true)) ->
                 match o with
                 | Some o -> Expr.PropertyGet(go o, p)
                 | None -> Expr.PropertyGet p

@@ -99,6 +99,40 @@ let ``a member with a unit of measure in its signature`` () =
     let result = scaled w 2.0<m>
     result |> should equal 3
 
+/// An F# exception, raised and caught by its field: FCS has its construction as a record's and its
+/// field as a record field; the quotation, its constructor and its `Data0` property.
+exception Carried of int
+
+let private carried (w: obj) (k: int) : int =
+    try raise (Carried(k * 10))
+    with Carried n ->
+        // fsharpanalyzer: ignore-line-next DLR001
+        dlr { return w?Count + n }
+
+[<Fact>]
+let ``an F# exception raised and caught by its field`` () =
+    needsBodies ()
+    let w: obj = Widget()
+    let result = carried w 2
+    result |> should equal 23
+
+/// A guard's variable: bound for the guard and again for its target, both in the quotation; the
+/// block reads the target's (the field pass takes the binding in scope at the block; a handler's
+/// variable, above, is the filter's and the handler's the same way).
+let private guarded (w: obj) (k: int) : int =
+    match Some(k * 10) with
+    | Some x when x <> -1 ->
+        // fsharpanalyzer: ignore-line-next DLR001
+        dlr { return w?Count + x }
+    | _ -> 0
+
+[<Fact>]
+let ``a guard's variable, bound for the guard and for its target`` () =
+    needsBodies ()
+    let w: obj = Widget()
+    let result = guarded w 4
+    result |> should equal 43
+
 /// Two blocks of one member on one line: refused as the reflected path refuses them, by the line,
 /// not as a missing attribute.
 let private twoOnOneLine (w: obj) : int * string =

@@ -30,7 +30,12 @@ each field to a source variable, identified as the run time can find it again in
 its name and its order among the member's bindings of that name, counted as the quotation lays
 the member out: a `match` case that two paths reach (an or-pattern binding `x`) is bound at each
 path, so it counts twice, and a `let rec` is its variables, then its body, then its definitions,
-as F# puts them in the quotation. Each rule gives an exact answer
+as F# puts them in the quotation. A value bound more than once (a guard's variable, bound for the
+guard and again for its target; a handler's, for the filter and for the handler) is the binding in
+scope at the block, found from the block's `Delay` in the unoptimized tree. Both trees are walked
+after optimizing: the optimizer renames values they share (a match's input after the pattern
+variable it stands for), and fsc pickles a reflected definition after optimizing, so the quotation
+has the renamed names too. Each rule gives an exact answer
 or none:
 
 - a variable of the source is itself;
@@ -50,7 +55,8 @@ compiles as part of it), so per line the map keeps the block whose `dlr` comes f
 The `body` pass (`Bodies.run`) records each block's member body from the unoptimized tree, so a
 block needs no `[<ReflectedDefinition>]`: `Discover` falls back to it when no reflected definition
 has the block. `Companion/oracle.fsx` checks it, decoding each body and comparing it with the
-member's reflected definition.
+member's reflected definition; its layout oracle lays each member out as the field pass does and
+compares that, per name, with the quotation's variables (mutability and type, in order).
 
 ## The map
 
@@ -78,7 +84,9 @@ configuration (a Debug build has no state machines, so no fields, but bodies):
 - the map goes to fsc as a resource item (quoted, so a path with spaces works), so nothing is
   rewritten after compiling; an IDE's design-time build skips the step;
 - the map and the companion setting are compile inputs, so a new map, or switching the companion
-  off, recompiles.
+  off, recompiles;
+- a tool that fails where it cannot catch it (killed for memory, exit 137) leaves an empty map,
+  which reads as no map, and a stamp that makes the next build run it again: the build goes on.
 
 ## At run time
 
@@ -113,6 +121,14 @@ rejected. The CI job `companion` builds `Tests` this way in Debug and Release an
 rejected entry; "0 rejected" shows the companion and the quotation agree on the suite's shapes,
 not that they agree on every shape, which is what the run-time checks are for.
 
+The differential corpus (#200, outside the repository) binds a name one way or another and reaches
+it from a block one way or another, and checks Release against Debug. Its 51,808 cases of the first
+grammar run the same with the map, none wrong; the 14,084 cases of the forms added for #259 (an
+or-pattern, a guard, a `let rec` whose definition binds the name or comes before it, a `try … with`
+handler, an active pattern, `function`) have none wrong either, and every map entry is used, with no
+rejection. The rest are refusals: a block in an or-pattern's case fails in Debug too (#263), and an
+active pattern the optimizer inlines is below.
+
 ## Limits
 
 - The recipe mirrors compiler internals: the stamp (read through reflection on FCS) and the
@@ -133,3 +149,11 @@ not that they agree on every shape, which is what the run-time checks are for.
   leaves the block's upstream, not one that swaps two such variables and keeps both.
 - A block in an `inline` function is expanded into its callers and stays refused (DLR004), so
   SRTP witness fields never reach the map.
+- An active pattern the optimizer inlines away (`| Same x ->` with `Same` the identity) leaves the
+  machine the match's input, which the map says, while the block reads the pattern's variable,
+  whose definition is the pattern's call: the block refuses (it would run that call again), where
+  the strict mode binds the field by name. Taking the variable the block reads instead is not done:
+  it could bind wrongly where another variable of that name reaches the block through an inlined
+  function.
+- The companion checks the whole project at once, keeping both trees: a 66,000-member project (the
+  corpus in one) ran a 16 GB machine out of memory, and the build then went on without a map.

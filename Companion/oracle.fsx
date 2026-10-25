@@ -20,7 +20,14 @@ open FSharp.Interop.Dlr.Build.Bodies
 
 let argsFile, projectDir, built = fsi.CommandLineArgs.[1], fsi.CommandLineArgs.[2], fsi.CommandLineArgs.[3]
 let results = Check.project argsFile projectDir
-let candidates = members results.AssemblyContents
+// As the companion: optimized before either tree is walked (the optimizer renames shared values,
+// as fsc's reflected definitions have them; Program.fs).
+let _optimized = results.GetOptimizedAssemblyContents()
+// DLR_ORACLE_ONLY=<text>: only the members whose compiled name contains it (to read one form's samples).
+let candidates =
+    match Environment.GetEnvironmentVariable "DLR_ORACLE_ONLY" with
+    | null | "" -> members results.AssemblyContents
+    | only -> members results.AssemblyContents |> List.filter (fun (m, _, _) -> m.CompiledName.Contains only)
 
 let builtDir = Path.GetDirectoryName(Path.GetFullPath built)
 AppDomain.CurrentDomain.add_AssemblyResolve(ResolveEventHandler(fun _ e ->
@@ -176,7 +183,7 @@ let quotationLayout (e: Expr) =
     go e
     out |> Seq.groupBy fst |> Seq.map (fun (n, xs) -> n, (xs |> Seq.map snd |> List.ofSeq)) |> Map.ofSeq
 let companionLayout args body =
-    let _, _, layout = Fields.bindings args body
+    let _, _, layout, _ = Fields.bindings args body
     // A split tuple parameter's element stands for the tuple (`x_0` for `x`).
     layout |> Seq.groupBy fst |> Seq.map (fun (n, xs) -> n, (xs |> Seq.map (fun (n, v) ->
         let split = v.LogicalName.StartsWith(n + "_") && v.LogicalName.Substring(n.Length + 1) |> Seq.forall Char.IsDigit

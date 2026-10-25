@@ -40,7 +40,12 @@ module Run =
 
     let run (argsFile: string) (projectDir: string) (output: string) : int =
         let results = Check.project argsFile projectDir
-        let fields = Fields.run results.AssemblyContents (results.GetOptimizedAssemblyContents())
+        // Optimized first, walked after: the optimizer renames values the trees share (a match's
+        // input after the pattern variable it stands for, `matchValue` to `x`), and fsc pickles a
+        // reflected definition after optimizing, so its names are the renamed ones. The unoptimized
+        // tree is read lazily, after this.
+        let optimized = results.GetOptimizedAssemblyContents()
+        let fields = Fields.run results.AssemblyContents optimized
         let bodies = Bodies.run results
         let keys = Seq.append fields.Keys bodies.Keys |> Seq.distinct |> Seq.sort |> List.ofSeq
         // Per source file, its blocks' lines: `B`, then whichever sections the block has.

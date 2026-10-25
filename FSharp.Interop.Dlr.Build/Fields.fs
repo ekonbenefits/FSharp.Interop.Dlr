@@ -110,6 +110,19 @@ module Fields =
     /// each value's name and declaration.
     let sourceKey (v: FSharpMemberOrFunctionOrValue) = v.LogicalName, v.DeclarationLocation.ToString()
 
+    let isRun (m: FSharpMemberOrFunctionOrValue) =
+        m.CompiledName = "Run" && (try m.DeclaringEntity.Value.CompiledName = "DlrBuilder" with _ -> false)
+
+    /// A block's key in the unoptimized tree: the caller information (file, line) on the Delay that
+    /// is Run's argument (#235: `Run(Delay(fun () -> …, file, line))`).
+    let delayKey (e: FSharpExpr) : (string * int) option =
+        match e with
+        | FSharpExprPatterns.Call(_, r, _, _, [ FSharpExprPatterns.Call(_, d, _, _, ds) ]) when isRun r && d.CompiledName = "Delay" ->
+            match List.rev ds with
+            | FSharpExprPatterns.Const(:? int as line, _) :: FSharpExprPatterns.Const(:? string as file, _) :: _ -> Some(file, line)
+            | _ -> None
+        | _ -> None
+
     /// A curried parameter of tuple type compiles as one parameter per element (`x_0`, `x_1`), and
     /// FCS shows them so, compiler-generated and sharing the tuple's range; the quotation has the
     /// one tuple `x`. Such a group: (`x`, its elements).
@@ -138,17 +151,38 @@ module Fields =
         // gives it when not its own (a tupled group's `tupledArg`, which has no value in FCS's tree).
         let order = ResizeArray<FSharpMemberOrFunctionOrValue * FSharpExpr option * string option>()
         let add (v: FSharpMemberOrFunctionOrValue, d: FSharpExpr option) = order.Add((v, d, None))
+        // A value bound more than once (a guard's variable, bound for the guard and again for its
+        // target; a handler's, for the filter and the handler; an or-pattern's target, at each
+        // leaf): per source value, its bindings in scope (indices into `order`), innermost on top;
+        // and at each block, the one in scope there, which is the one the block reads.
+        let active = Dictionary<string * string, Stack<int>>()
+        let atBlocks = Dictionary<string * int, Dictionary<string * string, int>>()
+        let scoped (bound: (FSharpMemberOrFunctionOrValue * int) list) (scope: unit -> unit) =
+            for v, i in bound do
+                match active.TryGetValue(sourceKey v) with
+                | true, s -> s.Push i
+                | _ -> active.[sourceKey v] <- Stack [ i ]
+            scope ()
+            for v, _ in bound do active.[sourceKey v].Pop() |> ignore
+        /// Binds `v` over `scope`.
+        let bind (v: FSharpMemberOrFunctionOrValue, d: FSharpExpr option) (scope: unit -> unit) =
+            add ((v, d))
+            scoped [ v, order.Count - 1 ] scope
+        let parameters = ResizeArray<FSharpMemberOrFunctionOrValue * int>()
         for group in args do
             match splitParameter group with
             | Some name ->
                 // Bound once, as the quotation's tuple parameter: its first element stands for it.
                 add ((group.Head, None))
+                parameters.Add((group.Head, order.Count - 1))
                 group |> List.iteri (fun i v -> splitElements.[sourceKey v] <- (name, i))
             | None ->
                 // A tupled group (`(a, b)`) is one `tupledArg` in the quotation, its elements bound
                 // from it: it counts first.
                 if group.Length > 1 then order.Add((group.Head, None, Some "tupledArg"))
-                for v in group do add ((v, None))
+                for v in group do
+                    add ((v, None))
+                    parameters.Add((v, order.Count - 1))
         // The body may rebuild a split parameter's tuple (`let x = (x_0, x_1)`): that is the parameter
         // itself, not a binding of its own.
         let rebuilt = HashSet<string * string>()
@@ -157,6 +191,11 @@ module Fields =
         // The decision trees being walked, innermost first: a leaf's targets.
         let trees = Stack<(FSharpMemberOrFunctionOrValue list * FSharpExpr) list>()
         let rec go (e: FSharpExpr) =
+            match delayKey e with
+            | Some key when not (atBlocks.ContainsKey key) ->
+                // An or-pattern's copies of a block share its key: the first stands for it.
+                atBlocks.[key] <- Dictionary(active |> Seq.filter (fun kv -> kv.Value.Count > 0) |> Seq.map (fun kv -> KeyValuePair(kv.Key, kv.Value.Peek())))
+            | _ -> ()
             match e with
             | FSharpExprPatterns.Let((v, (FSharpExprPatterns.NewTuple(_, es) as d), _), b)
                 when not es.IsEmpty
@@ -164,24 +203,27 @@ module Fields =
                         | FSharpExprPatterns.Value w -> (match splitElements.TryGetValue(sourceKey w) with | true, (n, _) -> n = v.LogicalName | _ -> false)
                         | _ -> false) ->
                 rebuilt.Add(sourceKey v) |> ignore
-                add ((v, Some d)); go b
-            | FSharpExprPatterns.Let((v, d, _), b) -> go d; bindRanges.[sourceKey v] <- e.Range; add ((v, Some d)); go b
+                bind (v, Some d) (fun () -> go b)
+            | FSharpExprPatterns.Let((v, d, _), b) -> go d; bindRanges.[sourceKey v] <- e.Range; bind (v, Some d) (fun () -> go b)
             // As the quotation has a `let rec` (FSharp.Core's LetRecursive: the variables, then
             // `body :: definitions`): the body before the definitions, or a name bound in both
             // gets its two orders swapped with its count kept (#259's review).
-            | FSharpExprPatterns.LetRec(bs, b) -> (for (v, d, _) in bs do add ((v, Some d))); go b; (for (_, d, _) in bs do go d)
+            | FSharpExprPatterns.LetRec(bs, b) ->
+                let first = order.Count
+                for (v, d, _) in bs do add ((v, Some d))
+                scoped (bs |> List.mapi (fun i (v, _, _) -> v, first + i)) (fun () -> go b; for (_, d, _) in bs do go d)
             // A lambda applied on the spot: its parameter's value is the argument. As a quotation
             // has it: the parameter, its body, then the argument.
-            | FSharpExprPatterns.Application(FSharpExprPatterns.Lambda(v, b), _, [ arg ]) -> bindRanges.[sourceKey v] <- e.Range; add ((v, Some arg)); go b; go arg
+            | FSharpExprPatterns.Application(FSharpExprPatterns.Lambda(v, b), _, [ arg ]) -> bindRanges.[sourceKey v] <- e.Range; bind (v, Some arg) (fun () -> go b); go arg
             // A compiler-named lambda parameter bound at once to a pattern's variable (`for i in`,
             // `fun (a, b) ->`, `use r`, a handler's `e`: `fun _arg1 -> let i = _arg1 in …`): the
             // quotation names the parameter after that variable, so it counts as one more `i`.
             | FSharpExprPatterns.Lambda(v, (FSharpExprPatterns.Let((w, FSharpExprPatterns.Value u, _), _) as b))
                 when v.IsCompilerGenerated && v.LogicalName.StartsWith "_arg" && stamp u = stamp v && not (w.LogicalName.StartsWith "_") ->
                 renamed.[sourceKey v] <- w.LogicalName
-                add ((v, None)); go b
-            | FSharpExprPatterns.Lambda(v, b) -> add ((v, None)); go b
-            | FSharpExprPatterns.TryWith(b, v1, f, v2, h, _, _) -> go b; add ((v1, None)); go f; add ((v2, None)); go h
+                bind (v, None) (fun () -> go b)
+            | FSharpExprPatterns.Lambda(v, b) -> bind (v, None) (fun () -> go b)
+            | FSharpExprPatterns.TryWith(b, v1, f, v2, h, _, _) -> go b; bind (v1, None) (fun () -> go f); bind (v2, None) (fun () -> go h)
             // As the quotation has a match (QuotationTranslator.ConvDecisionTree): a target is
             // inlined at every leaf that reaches it, its variables bound and its body there each
             // time, so a target two leaves reach (an or-pattern binding `x`) binds `x` twice.
@@ -189,10 +231,14 @@ module Fields =
             | FSharpExprPatterns.DecisionTreeSuccess(i, es) when trees.Count > 0 && i < trees.Peek().Length ->
                 let vs, t = trees.Peek().[i]
                 for x in es do go x
-                (for v in vs do add ((v, None))); go t
+                let first = order.Count
+                for v in vs do add ((v, None))
+                scoped (vs |> List.mapi (fun i v -> v, first + i)) (fun () -> go t)
             | _ -> for x in e.ImmediateSubExpressions do go x
-        go body
+        scoped (List.ofSeq parameters) (fun () -> go body)
         let counts = Dictionary<string, int>()
+        // Each counted binding's ordinal among its name's, by its index in `order`.
+        let ordinalAt = Dictionary<int, int>()
         let ordinals = Dictionary<string * string, int>()
         // A target two leaves reach is bound twice: both count, the first stands for the value.
         let seen = HashSet<string * string>()
@@ -200,7 +246,8 @@ module Fields =
         // the quotation's (Companion/oracle.fsx).
         let layout = ResizeArray<string * FSharpMemberOrFunctionOrValue>()
         let entries =
-            [ for (v, d, named) in order do
+            [ for i in 0 .. order.Count - 1 do
+              let v, d, named = order.[i]
               match named with
               | Some name ->
                   // Counted only: no source value of that name to attribute.
@@ -220,6 +267,7 @@ module Fields =
                 let n = match counts.TryGetValue name with | true, n -> n | _ -> 0
                 counts.[name] <- n + 1
                 layout.Add((name, v))
+                ordinalAt.[i] <- n
                 if seen.Add(sourceKey v) then
                     ordinals.[(name, v.DeclarationLocation.ToString())] <- n
                     yield sourceKey v, (v, n, d) ]
@@ -231,7 +279,18 @@ module Fields =
                     let n = ordinals.[(name, group.Head.DeclarationLocation.ToString())]
                     for v in group.Tail -> sourceKey v, (v, n, None)
                 | None -> () ]
-        dict (entries @ extra), (counts :> IReadOnlyDictionary<string, int>), List.ofSeq layout
+        // Per block, a value bound more than once: the ordinal of its binding in scope there (the
+        // entries have its first).
+        let twice =
+            order |> Seq.choose (fun (v, _, named) -> if named.IsNone && not (rebuilt.Contains(sourceKey v)) then Some(sourceKey v) else None)
+            |> Seq.countBy id |> Seq.filter (fun (_, n) -> n > 1) |> Seq.map fst |> HashSet
+        let inScope =
+            dict [ for KeyValue(block, at) in atBlocks ->
+                    block, (dict [ for KeyValue(k, i) in at do
+                                    match ordinalAt.TryGetValue i with
+                                    | true, n when twice.Contains k -> yield k, n
+                                    | _ -> () ] :> IDictionary<_, _>) ]
+        dict (entries @ extra), (counts :> IReadOnlyDictionary<string, int>), List.ofSeq layout, inScope
 
     /// The source range a variable's value comes from: its definition, through element projections
     /// of tuple literals (a pattern binds `x` as an element of its input's literal) and union cases'
@@ -305,7 +364,7 @@ module Fields =
                         | _ -> ()
                         for x in e.ImmediateSubExpressions do lambdas x
                     lambdas obody
-                    let bySource, nameCounts, _ = bindings uargs ubody
+                    let bySource, nameCounts, _, inScope = bindings uargs ubody
                     let rec machines (e: FSharpExpr) =
                         match e with
                         | FSharpExprPatterns.Call(_, mfv, _, _, _) when mfv.CompiledName = "__stateMachine" ->
@@ -313,6 +372,11 @@ module Fields =
                             match blockKey definitions e with
                             | None -> ()
                             | Some(file, line) ->
+                                // A value bound more than once: its binding in scope at this block.
+                                let ordinal (sv: FSharpMemberOrFunctionOrValue) (n: int) =
+                                    match inScope.TryGetValue((file, line)) with
+                                    | true, at -> (match at.TryGetValue(sourceKey sv) with | true, k -> k | _ -> n)
+                                    | _ -> n
                                 // A value of the optimized member: the source variable (name, ordinal) it is,
                                 // and the element when it is one of a split tuple's; None when not attributed.
                                 let rec attribute (v: FSharpMemberOrFunctionOrValue) : (string * int * int option) option =
@@ -329,7 +393,7 @@ module Fields =
                                         | true, (_, n, _) when splitElements.ContainsKey(sourceKey v) ->
                                             let name, i = splitElements.[sourceKey v]
                                             Some(name, n, Some i)
-                                        | true, (sv, n, _) -> Some(sv.LogicalName, n, None)
+                                        | true, (sv, n, _) -> Some(sv.LogicalName, ordinal sv n, None)
                                         | _ ->
                                             // The optimizer's own: a temporary `<tuple>_<i>` (an element), or a value
                                             // it re-created under the source name (a pattern's). Attributed to the one
@@ -365,12 +429,12 @@ module Fields =
                                                     sv.FullType.IsTupleType && i < sv.FullType.GenericArguments.Count
                                                     && sv.FullType.GenericArguments.[i].Format(FSharpDisplayContext.Empty) = v.FullType.Format(FSharpDisplayContext.Empty)
                                                 match owner tuple elementOf with
-                                                | [ (sv, n, _) ] -> Some(sv.LogicalName, n, Some i)
+                                                | [ (sv, n, _) ] -> Some(sv.LogicalName, ordinal sv n, Some i)
                                                 | _ -> None
                                             | None ->
                                                 let sameType (sv: FSharpMemberOrFunctionOrValue) = sv.FullType.Format(FSharpDisplayContext.Empty) = v.FullType.Format(FSharpDisplayContext.Empty)
                                                 match owner v.LogicalName sameType with
-                                                | [ (sv, n, _) ] -> Some(sv.LogicalName, n, None)
+                                                | [ (sv, n, _) ] -> Some(sv.LogicalName, ordinal sv n, None)
                                                 | _ ->
                                                     // A closure's copy of a captured variable: closure conversion (a local
                                                     // function or lambda made a closure, or lifted) gives the captured value a
@@ -402,11 +466,11 @@ module Fields =
                                                         Path.GetFileName sv.DeclarationLocation.FileName = Path.GetFileName file && Position.posLt sv.DeclarationLocation.End atBlock
                                                     if enclosing then
                                                         match bySource.Values |> Seq.filter (fun (sv, _, _) -> sv.LogicalName = v.LogicalName && fitsType sv && before sv) |> List.ofSeq with
-                                                        | [ (sv, n, _) ] -> Some(sv.LogicalName, n, None)
+                                                        | [ (sv, n, _) ] -> Some(sv.LogicalName, ordinal sv n, None)
                                                         | _ -> None
                                                     elif lambdaBound then
                                                         match bySource.Values |> Seq.filter (fun (sv, _, _) -> sv.LogicalName = v.LogicalName && fitsType sv && beforeBlock sv) |> List.ofSeq with
-                                                        | [ (sv, n, _) ] -> Some(sv.LogicalName, n, None)
+                                                        | [ (sv, n, _) ] -> Some(sv.LogicalName, ordinal sv n, None)
                                                         | _ -> None
                                                     else None
                                 let fields = fieldsOf definitions e
