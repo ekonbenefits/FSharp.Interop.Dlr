@@ -251,6 +251,23 @@ let private twoBlocksOneLine (o: obj) : int * int =
     // fsharpanalyzer: ignore-line-next DLR003
     (dlr { return o?Count } : int), (dlr { return o?Add(1, 2) } : int)
 
+/// An or-pattern arm whose block reads a variable the Release optimizer does not capture as
+/// itself (`whole`, substituted by the matched value) is still one block: it runs, or it is refused
+/// as such, not as two blocks on a line.
+let private orPatternAs (o: obj) (c: Choice<int, int>) : string =
+    match c with
+    | (Choice1Of2 x | Choice2Of2 x) as whole -> dlr { return o?Echo(sprintf "%d %A" x whole) }
+
+[<Fact>]
+let ``an or-pattern block that cannot be resolved says so, not that two blocks share a line`` () =
+    let w = box (Widget())
+    match (try Choice1Of2(orPatternAs w (Choice2Of2 5)) with :? DlrTranslationException as e -> Choice2Of2 e.Message) with
+    | Choice1Of2 value -> value |> should equal "5 Choice2Of2 5"
+    | Choice2Of2 message ->
+        message |> should haveSubstring "is held 2 times"
+        message |> should haveSubstring "'whole'"
+        message |> should not' (haveSubstring "put each dlr { } on its own line")
+
 [<Fact>]
 let ``two different blocks on one line are still refused`` () =
     // The analyzer reports this at build time (DLR003); this pins the run-time error behind it.

@@ -105,7 +105,9 @@ module internal Discover =
     /// A body with its variables renamed canonically, so two trees compare equal exactly when they
     /// are the same up to their variables: each binder by its position, each free variable by its
     /// name, type and mutability. `shared` gives both trees the same `Var` for the same name, as
-    /// `Expr` compares variables by reference.
+    /// `Expr` compares variables by reference. Two free variables of one name in one tree would
+    /// become one; the reflected definition is the unoptimized source, where a block cannot see
+    /// two variables of one name (the inner one shadows the outer), so that does not arise.
     let private canonical (shared: System.Collections.Generic.Dictionary<string, Var>) (e: Expr) : Expr =
         let var (key: string) (t: Type) (isMutable: bool) =
             let key = sprintf "%s:%O:%b" key t isMutable
@@ -133,19 +135,23 @@ module internal Discover =
     /// the block reads a field of its own container (as the translator sees them), read by name. A variable that is not (the
     /// optimizer inlined it) would be recovered from one copy's definition, which may be another
     /// block's on the same line, so those stay refused. The builder is not one of them: it is never
-    /// captured (the translator drops it by type, as here).
-    let private oneOf (builderType: Type) (closureType: Type) (bodies: Expr list) : Expr option =
+    /// captured (the translator drops it by type, as here). `Error` names the variables that kept
+    /// copies from being taken as one, or is empty when the runs are not copies at all.
+    let private oneOf (builderType: Type) (closureType: Type) (bodies: Expr list) : Result<Expr, string list> =
         match bodies with
-        | [ body ] -> Some body
+        | [ body ] -> Ok body
         | first :: rest ->
             let shared = System.Collections.Generic.Dictionary<string, Var>()
             let shape = canonical shared first
-            // The translator's own view of the container's fields: a machine's `Data` and
-            // `ResumptionPoint` are not captures, though a variable may be named either.
-            let fields = TranslateBlock.Captures.fields closureType
-            let captured = first.GetFreeVars() |> Seq.forall (fun v -> v.Type = builderType || fields.ContainsKey v.Name)
-            if captured && rest |> List.forall (fun b -> canonical shared b = shape) then Some first else None
-        | [] -> None
+            if not (rest |> List.forall (fun b -> canonical shared b = shape)) then Error []
+            else
+                // The translator's own view of the container's fields: a machine's `Data` and
+                // `ResumptionPoint` are not captures, though a variable may be named either.
+                let fields = TranslateBlock.Captures.fields closureType
+                match first.GetFreeVars() |> Seq.filter (fun v -> v.Type <> builderType && not (fields.ContainsKey v.Name)) |> Seq.map (fun v -> v.Name) |> List.ofSeq with
+                | [] -> Ok first
+                | uncaptured -> Error uncaptured
+        | [] -> Error []
 
     /// The block whose Delay closure has type `closureType`, at `file:line`.
     let findBody (builderType: Type) (closureType: Type) (file: string) (line: int) : Found =
@@ -171,8 +177,13 @@ module internal Discover =
             match matches with
             | (m, memberBody, _) :: rest when not rest.IsEmpty && rest |> List.forall (fun (m', _, _) -> m' = m) ->
                 match oneOf builderType closureType (matches |> List.map (fun (_, _, b) -> b)) with
-                | Some body -> [ m, memberBody, body ]
-                | None -> matches
+                | Ok body -> [ m, memberBody, body ]
+                | Error [] -> matches
+                | Error uncaptured ->
+                    raise (DlrTranslationException(
+                            sprintf "dlr { } at %s:%d is held %d times in its member's reflected definition (an or-pattern's arm, or look-alike blocks on one line), and reads %s, which the optimizer did not capture as itself (fields: %s), so which copy is meant cannot be told. Bind it to a value the block reads directly, or move the block into its own function."
+                                file line matches.Length (uncaptured |> List.map (sprintf "'%s'") |> String.concat ", ")
+                                (String.Join(", ", (TranslateBlock.Captures.fields closureType).Keys))))
             | _ -> matches
         match matches with
         | [ m, memberBody, body ] ->
@@ -183,8 +194,8 @@ module internal Discover =
                     match tryReflected inst with
                     | Choice1Of2(Some q) ->
                         match oneOf builderType closureType (runsAt builderType file line q) with
-                        | Some b -> inst, q, b
-                        | None -> m, memberBody, body
+                        | Ok b -> inst, q, b
+                        | Error _ -> m, memberBody, body
                     | _ -> m, memberBody, body
             { Context = m.DeclaringType; MemberBody = memberBody; Body = body }
         | [] ->
