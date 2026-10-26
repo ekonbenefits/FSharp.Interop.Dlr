@@ -125,6 +125,159 @@ let private pipedBackIntoLocal (o: obj) : int =
     let g (x: obj) : int = dlr { return x?Count }
     g <| o
 
+/// A block in a match arm whose or-pattern binds a variable: the quotation holds the arm's body once
+/// per alternative, so the block is found once per alternative on its line; the copies are one block
+/// (#263), with binders inside it, in generic and class members, nested, over tuples and unions.
+let private orPatternBound (o: obj) (c: Choice<int, int>) : int =
+    match c with
+    | Choice1Of2 x | Choice2Of2 x -> dlr { return o?Echo(x) }
+let private orPatternThree (o: obj) (c: Choice<int, int, int>) : int =
+    match c with
+    | Choice1Of3 x | Choice2Of3 x | Choice3Of3 x -> dlr { return o?Add(x, 1) }
+let private orPatternUnbound (o: obj) (c: Choice<int, string>) : int =
+    match c with
+    | Choice1Of2 _ | Choice2Of2 _ -> dlr { return o?Count }
+let private orPatternLet (o: obj) (c: Choice<int, int>) : int =
+    match c with
+    | Choice1Of2 x | Choice2Of2 x -> dlr { let y = x + 1 in return o?Echo(y) }
+let private orPatternLoop (o: obj) (c: Choice<int, int>) : int =
+    match c with
+    | Choice1Of2 x | Choice2Of2 x ->
+        dlr {
+            let mutable total = 0
+            for i in 1 .. x do total <- total + (o?Add(i, 0) : int)
+            return total
+        }
+let private orPatternGuard (o: obj) (c: Choice<int, int>) : int =
+    match c with
+    | Choice1Of2 x | Choice2Of2 x when x > 0 -> dlr { return o?Echo(x) }
+    | _ -> -1
+let private orPatternNested (o: obj) (c: Choice<Choice<int, int>, int>) : int =
+    match c with
+    | Choice1Of2 (Choice1Of2 x | Choice2Of2 x) | Choice2Of2 x -> dlr { return o?Echo(x) }
+let private orPatternTwoVars (o: obj) (c: int * Choice<int, int>) : int =
+    match c with
+    | (x, Choice1Of2 y) | (x, Choice2Of2 y) -> dlr { return o?Add(x, y) }
+let private orPatternFunction (o: obj) : Choice<int, int> -> int =
+    function Choice1Of2 x | Choice2Of2 x -> dlr { return o?Echo(x) }
+let private orPatternGeneric<'T> (o: obj) (c: Choice<'T, 'T>) : 'T =
+    match c with
+    | Choice1Of2 x | Choice2Of2 x -> dlr { return o?Echo(x) }
+let private orPatternTuple (o: obj) (c: Choice<int * int, int * int>) : int =
+    match c with
+    | Choice1Of2 x | Choice2Of2 x -> dlr { return o?Add(fst x, snd x) }
+type OrPatternCase = OrA of int * int | OrB of int * int
+let private orPatternUnion (o: obj) (c: OrPatternCase) : int =
+    match c with
+    | OrA (p, q) | OrB (p, q) -> dlr { return o?Add(p, q) }
+/// A captured variable named like the machine's own `Data` field (two fields of that name).
+let private orPatternCapturesData (c: Choice<int, int>) : int =
+    let Data: obj = box (Widget())
+    match c with
+    | Choice1Of2 x | Choice2Of2 x -> dlr { return Data?Echo(x) }
+type OrPatternMembers(o: obj) =
+    member _.Pick(c: Choice<int, int>) : int =
+        match c with
+        | Choice1Of2 x | Choice2Of2 x -> dlr { return o?Echo(x) }
+    member _.PickGeneric<'T>(c: Choice<'T, 'T>) : 'T =
+        match c with
+        | Choice1Of2 x | Choice2Of2 x -> dlr { return o?Echo(x) }
+type OrPatternGenericType<'T>(o: obj) =
+    member _.Pick(c: Choice<'T, 'T>) : 'T =
+        match c with
+        | Choice1Of2 x | Choice2Of2 x -> dlr { return o?Echo(x) }
+
+[<Fact>]
+let ``a block in an or-pattern's arm is one block, not one per alternative`` () =
+    let w = box (Widget())
+    orPatternBound w (Choice1Of2 4) |> should equal 4
+    orPatternBound w (Choice2Of2 5) |> should equal 5
+    orPatternThree w (Choice3Of3 6) |> should equal 7
+    orPatternUnbound w (Choice2Of2 "s") |> should equal 3
+    orPatternLet w (Choice2Of2 5) |> should equal 6
+    orPatternLoop w (Choice2Of2 4) |> should equal 10
+    (orPatternGuard w (Choice1Of2 4), orPatternGuard w (Choice2Of2 -5)) |> should equal (4, -1)
+    (orPatternNested w (Choice1Of2 (Choice2Of2 2)), orPatternNested w (Choice2Of2 3)) |> should equal (2, 3)
+    orPatternTwoVars w (3, Choice2Of2 4) |> should equal 7
+    orPatternFunction w (Choice2Of2 5) |> should equal 5
+    (orPatternGeneric<int> w (Choice1Of2 4), orPatternGeneric<string> w (Choice2Of2 "b")) |> should equal (4, "b")
+    orPatternTuple w (Choice2Of2 (3, 4)) |> should equal 7
+    orPatternUnion w (OrB (3, 4)) |> should equal 7
+    OrPatternMembers(w).Pick(Choice2Of2 5) |> should equal 5
+    OrPatternMembers(w).PickGeneric<string>(Choice2Of2 "b") |> should equal "b"
+    OrPatternGenericType<string>(w).Pick(Choice2Of2 "b") |> should equal "b"
+    orPatternCapturesData (Choice2Of2 5) |> should equal 5
+
+/// Look-alike blocks on one line in different scopes, over same-named variables, are not copies of
+/// one block: whichever way the compiler built them, each gives its own value or is refused, never
+/// the other's (#263). The analyzer reports two blocks on a line at build time (DLR003).
+let private lookAlikeTuples (o: obj) (a: int) : int * int =
+    // fsharpanalyzer: ignore-line-next DLR003
+    (let x = (a, 1) in (dlr { return o?Add(fst x, snd x) } : int)), (let x = (a, 2) in (dlr { return o?Add(fst x, snd x) } : int))
+let private lookAlikeValues (o: obj) (a: int) (b: int) : int * int =
+    // fsharpanalyzer: ignore-line-next DLR003
+    (let x = a in (dlr { return o?Echo(x) } : int)), (let x = b in (dlr { return o?Echo(x) } : int))
+let private lookAlikeConstants (o: obj) : int * int =
+    // fsharpanalyzer: ignore-line-next DLR003
+    (let x = 1 in (dlr { return o?Echo(x) } : int)), (let x = 2 in (dlr { return o?Echo(x) } : int))
+let private lookAlikeComputed (o: obj) (a: int) : int * int =
+    // fsharpanalyzer: ignore-line-next DLR003
+    (let x = a + 1 in (dlr { return o?Echo(x) } : int)), (let x = a + 2 in (dlr { return o?Echo(x) } : int))
+let private lookAlikeLets (o: obj) (a: int) (b: int) : int * int =
+    // fsharpanalyzer: ignore-line-next DLR003
+    (let x = a in (dlr { let y = x in return o?Echo(y) } : int)), (let x = b in (dlr { let y = x in return o?Echo(y) } : int))
+
+/// The same named like a state machine's own fields, which are not captures (#266 review).
+let private lookAlikeNamedData (o: obj) (a: int) : int * int =
+    // fsharpanalyzer: ignore-line-next DLR003
+    (let Data = (a, 1) in (dlr { return o?Add(fst Data, snd Data) } : int)), (let Data = (a, 2) in (dlr { return o?Add(fst Data, snd Data) } : int))
+let private lookAlikeNamedResumptionPoint (o: obj) (a: int) : int * int =
+    // fsharpanalyzer: ignore-line-next DLR003
+    (let ResumptionPoint = (a, 1) in (dlr { return o?Add(fst ResumptionPoint, snd ResumptionPoint) } : int)), (let ResumptionPoint = (a, 2) in (dlr { return o?Add(fst ResumptionPoint, snd ResumptionPoint) } : int))
+
+[<Fact>]
+let ``look-alike blocks on one line give their own values or are refused`` () =
+    let w = box (Widget())
+    let ownOrRefused (expected: int * int) (f: unit -> int * int) =
+        match (try Choice1Of2(f ()) with :? DlrTranslationException as e -> Choice2Of2 e) with
+        | Choice1Of2 values -> values |> should equal expected
+        | Choice2Of2 _ -> ()
+    ownOrRefused (11, 12) (fun () -> lookAlikeTuples w 10)
+    ownOrRefused (1, 2) (fun () -> lookAlikeValues w 1 2)
+    ownOrRefused (1, 2) (fun () -> lookAlikeConstants w)
+    ownOrRefused (11, 12) (fun () -> lookAlikeComputed w 10)
+    ownOrRefused (1, 2) (fun () -> lookAlikeLets w 1 2)
+    ownOrRefused (11, 12) (fun () -> lookAlikeNamedData w 10)
+    ownOrRefused (11, 12) (fun () -> lookAlikeNamedResumptionPoint w 10)
+
+/// Two different blocks on one line are still refused: only copies of one block are collapsed.
+let private twoBlocksOneLine (o: obj) : int * int =
+    // fsharpanalyzer: ignore-line-next DLR003
+    (dlr { return o?Count } : int), (dlr { return o?Add(1, 2) } : int)
+
+/// An or-pattern arm whose block reads a variable the Release optimizer does not capture as
+/// itself (`whole`, substituted by the matched value) is still one block: it runs, or it is refused
+/// as such, not as two blocks on a line.
+let private orPatternAs (o: obj) (c: Choice<int, int>) : string =
+    match c with
+    | (Choice1Of2 x | Choice2Of2 x) as whole -> dlr { return o?Echo(sprintf "%d %A" x whole) }
+
+[<Fact>]
+let ``an or-pattern block that cannot be resolved says so, not that two blocks share a line`` () =
+    let w = box (Widget())
+    match (try Choice1Of2(orPatternAs w (Choice2Of2 5)) with :? DlrTranslationException as e -> Choice2Of2 e.Message) with
+    | Choice1Of2 value -> value |> should equal "5 Choice2Of2 5"
+    | Choice2Of2 message ->
+        message |> should haveSubstring "is held 2 times"
+        message |> should haveSubstring "'whole'"
+        message |> should not' (haveSubstring "put each dlr { } on its own line")
+
+[<Fact>]
+let ``two different blocks on one line are still refused`` () =
+    // The analyzer reports this at build time (DLR003); this pins the run-time error behind it.
+    let e = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> twoBlocksOneLine (Widget()) |> ignore)
+    e.Message |> should haveSubstring "2 dlr { } blocks share"
+
 [<Fact>]
 let ``a value piped into a lambda or local function holding a block resolves`` () =
     let w = Widget()
