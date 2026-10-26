@@ -130,7 +130,7 @@ module internal Discover =
     /// arm whose or-pattern binds a variable once per alternative, each copy over its own `Var`s,
     /// so the block is found once per alternative at its line (#263). Copies are taken as one block
     /// only when it cannot matter which is used: the same up to their variables, and every variable
-    /// the block reads a field of its own container, read by name. A variable that is not (the
+    /// the block reads a field of its own container (as the translator sees them), read by name. A variable that is not (the
     /// optimizer inlined it) would be recovered from one copy's definition, which may be another
     /// block's on the same line, so those stay refused. The builder is not one of them: it is never
     /// captured (the translator drops it by type, as here).
@@ -140,8 +140,10 @@ module internal Discover =
         | first :: rest ->
             let shared = System.Collections.Generic.Dictionary<string, Var>()
             let shape = canonical shared first
-            let captured =
-                first.GetFreeVars() |> Seq.forall (fun v -> v.Type = builderType || not (isNull (closureType.GetField(v.Name, all))))
+            // The translator's own view of the container's fields: a machine's `Data` and
+            // `ResumptionPoint` are not captures, though a variable may be named either.
+            let fields = TranslateBlock.Captures.fields closureType
+            let captured = first.GetFreeVars() |> Seq.forall (fun v -> v.Type = builderType || fields.ContainsKey v.Name)
             if captured && rest |> List.forall (fun b -> canonical shared b = shape) then Some first else None
         | [] -> None
 

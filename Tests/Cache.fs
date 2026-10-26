@@ -170,6 +170,11 @@ type OrPatternCase = OrA of int * int | OrB of int * int
 let private orPatternUnion (o: obj) (c: OrPatternCase) : int =
     match c with
     | OrA (p, q) | OrB (p, q) -> dlr { return o?Add(p, q) }
+/// A captured variable named like the machine's own `Data` field (two fields of that name).
+let private orPatternCapturesData (c: Choice<int, int>) : int =
+    let Data: obj = box (Widget())
+    match c with
+    | Choice1Of2 x | Choice2Of2 x -> dlr { return Data?Echo(x) }
 type OrPatternMembers(o: obj) =
     member _.Pick(c: Choice<int, int>) : int =
         match c with
@@ -201,6 +206,7 @@ let ``a block in an or-pattern's arm is one block, not one per alternative`` () 
     OrPatternMembers(w).Pick(Choice2Of2 5) |> should equal 5
     OrPatternMembers(w).PickGeneric<string>(Choice2Of2 "b") |> should equal "b"
     OrPatternGenericType<string>(w).Pick(Choice2Of2 "b") |> should equal "b"
+    orPatternCapturesData (Choice2Of2 5) |> should equal 5
 
 /// Look-alike blocks on one line in different scopes, over same-named variables, are not copies of
 /// one block: whichever way the compiler built them, each gives its own value or is refused, never
@@ -218,6 +224,14 @@ let private lookAlikeLets (o: obj) (a: int) (b: int) : int * int =
     // fsharpanalyzer: ignore-line-next DLR003
     (let x = a in (dlr { let y = x in return o?Echo(y) } : int)), (let x = b in (dlr { let y = x in return o?Echo(y) } : int))
 
+/// The same named like a state machine's own fields, which are not captures (#266 review).
+let private lookAlikeNamedData (o: obj) (a: int) : int * int =
+    // fsharpanalyzer: ignore-line-next DLR003
+    (let Data = (a, 1) in (dlr { return o?Add(fst Data, snd Data) } : int)), (let Data = (a, 2) in (dlr { return o?Add(fst Data, snd Data) } : int))
+let private lookAlikeNamedResumptionPoint (o: obj) (a: int) : int * int =
+    // fsharpanalyzer: ignore-line-next DLR003
+    (let ResumptionPoint = (a, 1) in (dlr { return o?Add(fst ResumptionPoint, snd ResumptionPoint) } : int)), (let ResumptionPoint = (a, 2) in (dlr { return o?Add(fst ResumptionPoint, snd ResumptionPoint) } : int))
+
 [<Fact>]
 let ``look-alike blocks on one line give their own values or are refused`` () =
     let w = box (Widget())
@@ -229,6 +243,8 @@ let ``look-alike blocks on one line give their own values or are refused`` () =
     ownOrRefused (1, 2) (fun () -> lookAlikeValues w 1 2)
     ownOrRefused (11, 12) (fun () -> lookAlikeComputed w 10)
     ownOrRefused (1, 2) (fun () -> lookAlikeLets w 1 2)
+    ownOrRefused (11, 12) (fun () -> lookAlikeNamedData w 10)
+    ownOrRefused (11, 12) (fun () -> lookAlikeNamedResumptionPoint w 10)
 
 /// Two different blocks on one line are still refused: only copies of one block are collapsed.
 let private twoBlocksOneLine (o: obj) : int * int =
