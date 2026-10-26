@@ -176,6 +176,28 @@ jobs:
           name: coverage-net48-${{ matrix.configuration }}
           path: coverage/coverage.cobertura.*.xml
 
+      # The build companion (#259) for a .NET Framework target: the tool runs on the SDK at build
+      # time, and the map is read by the library's netstandard2.0 build (no load contexts there:
+      # names resolve by name in the AppDomain). As in `companion`: no map entry rejected, and in
+      # Release some blocks bound through the map. Last, since it rebuilds Tests in place.
+      - name: Test with the companion
+        shell: bash
+        env:
+          CONFIGURATION: ${{ matrix.configuration }}
+          DLR_CAPTURE_MAP_TRACE: '1'
+        run: |
+          dotnet build Tests/Tests.fsproj --configuration "$CONFIGURATION" -f net48 -p:RunAnalyzers=false -p:DlrCompanion=true
+          "Tests/bin/$CONFIGURATION/net48/Tests.exe" 2> trace.txt
+          exact=$(grep -c '^dlr capture map: exact' trace.txt || true)
+          rejected=$(grep '^dlr capture map: strict' trace.txt | grep -vc 'a closure, not a state machine' || true)
+          echo "bound exactly: $exact; rejected maps: $rejected"
+          if [ "$rejected" -gt 0 ]; then
+            echo "::error::a capture map entry was rejected"; grep '^dlr capture map: strict' trace.txt | grep -v 'a closure, not a state machine'; exit 1
+          fi
+          if [ "$CONFIGURATION" = Release ] && [ "$exact" -eq 0 ]; then
+            echo "::error::no block bound through the capture map in Release"; exit 1
+          fi
+
   # .NET 11 while it is in preview (#67): the next F# compiler and runtime, as an early warning.
   # The translator reads compiler output no spec pins down (the closure classes F# generates for a
   # block, what the optimizer inlines) and relies on System.Linq.Expressions and the C# runtime
