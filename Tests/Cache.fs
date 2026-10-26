@@ -217,6 +217,9 @@ let private lookAlikeTuples (o: obj) (a: int) : int * int =
 let private lookAlikeValues (o: obj) (a: int) (b: int) : int * int =
     // fsharpanalyzer: ignore-line-next DLR003
     (let x = a in (dlr { return o?Echo(x) } : int)), (let x = b in (dlr { return o?Echo(x) } : int))
+let private lookAlikeConstants (o: obj) : int * int =
+    // fsharpanalyzer: ignore-line-next DLR003
+    (let x = 1 in (dlr { return o?Echo(x) } : int)), (let x = 2 in (dlr { return o?Echo(x) } : int))
 let private lookAlikeComputed (o: obj) (a: int) : int * int =
     // fsharpanalyzer: ignore-line-next DLR003
     (let x = a + 1 in (dlr { return o?Echo(x) } : int)), (let x = a + 2 in (dlr { return o?Echo(x) } : int))
@@ -241,6 +244,7 @@ let ``look-alike blocks on one line give their own values or are refused`` () =
         | Choice2Of2 _ -> ()
     ownOrRefused (11, 12) (fun () -> lookAlikeTuples w 10)
     ownOrRefused (1, 2) (fun () -> lookAlikeValues w 1 2)
+    ownOrRefused (1, 2) (fun () -> lookAlikeConstants w)
     ownOrRefused (11, 12) (fun () -> lookAlikeComputed w 10)
     ownOrRefused (1, 2) (fun () -> lookAlikeLets w 1 2)
     ownOrRefused (11, 12) (fun () -> lookAlikeNamedData w 10)
