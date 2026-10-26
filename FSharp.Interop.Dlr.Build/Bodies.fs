@@ -117,6 +117,11 @@ module internal Bodies =
         unsupportedTotal <- unsupportedTotal + 1
         unsupported.[s] <- (match unsupported.TryGetValue s with | true, n -> n + 1 | _ -> 1)
 
+    /// UTF-8 carries the string exactly: no lone surrogate.
+    let encodable (s: string) =
+        try System.Text.UTF8Encoding(false, true).GetByteCount s |> ignore; true
+        with :? System.Text.EncoderFallbackException -> false
+
     let encode (args: FSharpMemberOrFunctionOrValue list list) (body: FSharpExpr) : W =
         let ids = Dictionary<FSharpMemberOrFunctionOrValue, int>()
         let mutable next = 0
@@ -167,6 +172,14 @@ module internal Bodies =
                 let ds = [ for (v, _, _) in bs -> def v ]
                 WLetRec([ for d, (_, x, _) in List.zip ds bs -> d, go x ], go b)
             | FSharpExprPatterns.Application(f, _, xs) -> List.fold (fun f x -> WApp(f, go x)) (go f) xs
+            // A string or char UTF-8 cannot carry (a lone surrogate): the map's text would read back
+            // U+FFFD, another constant, so it leaves the member out (Program.fs's writer throws too).
+            | FSharpExprPatterns.Const((:? string as s), _) when not (encodable s) ->
+                note "constant String (lone surrogate)"
+                WUnsupported "constant String (lone surrogate)"
+            | FSharpExprPatterns.Const((:? char as c), _) when System.Char.IsSurrogate c ->
+                note "constant Char (lone surrogate)"
+                WUnsupported "constant Char (lone surrogate)"
             // A constant the text carries (a primitive, a string, a char, a decimal, null); any other
             // (a byte array, a nativeint) leaves the member out.
             | FSharpExprPatterns.Const(v, t) when isNull v || (match System.Type.GetTypeCode(v.GetType()) with System.TypeCode.Object | System.TypeCode.Empty | System.TypeCode.DBNull -> false | _ -> true) ->

@@ -270,8 +270,11 @@ let rec read (r: Reader) : W =
 
 let all = BindingFlags.Static ||| BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic
 
-/// Generic parameters in scope, by name.
-type Scope = IDictionary<string, Type>
+/// Generic parameters in scope, by name, and the assembly the map is read for (null: none, the
+/// oracle's): names resolve as that assembly sees them.
+type Scope(anchor: Assembly) =
+    inherit Dictionary<string, Type>()
+    member _.Anchor = anchor
 
 let private assemblies = ConcurrentDictionary<string, Assembly>()
 let assemblyNamed (name: string) =
@@ -279,8 +282,29 @@ let assemblyNamed (name: string) =
         AppDomain.CurrentDomain.GetAssemblies() |> Array.tryFind (fun a -> a.GetName().Name = name)
         |> Option.defaultWith (fun () -> Assembly.Load(AssemblyName name)))
 
-let typeDefinition (asm: string) (name: string) : Type =
-    let a = assemblyNamed asm
+#if NET
+/// Per load context, the assemblies it resolves by name: weakly, so a collectible one can unload.
+let private byContext = System.Runtime.CompilerServices.ConditionalWeakTable<System.Runtime.Loader.AssemblyLoadContext, ConcurrentDictionary<string, Assembly>>()
+#endif
+
+/// The assembly a map's name stands for, as the map's own assembly sees it: that assembly itself
+/// for its own name (two copies of a plugin in two load contexts each read their own map), and in
+/// its load context the others. netstandard2.0 has no load contexts: by name in the AppDomain.
+let assemblyFor (anchor: Assembly) (name: string) =
+    if isNull anchor then assemblyNamed name
+    elif anchor.GetName().Name = name then anchor
+    else
+#if NET
+        match System.Runtime.Loader.AssemblyLoadContext.GetLoadContext anchor with
+        | null -> assemblyNamed name
+        | context when obj.ReferenceEquals(context, System.Runtime.Loader.AssemblyLoadContext.Default) -> assemblyNamed name
+        | context -> byContext.GetValue(context, fun _ -> ConcurrentDictionary()).GetOrAdd(name, fun name -> context.LoadFromAssemblyName(AssemblyName name))
+#else
+        assemblyNamed name
+#endif
+
+let typeDefinition (scope: Scope) (asm: string) (name: string) : Type =
+    let a = assemblyFor scope.Anchor asm
     match a.GetType(name) with
     | null ->
         // Forwarded (System.Runtime → System.Private.CoreLib) or a reference assembly's name.
@@ -305,13 +329,13 @@ let rec resolve (scope: Scope) (t: TypeRef) : Type =
     | TArray(1, e) -> (resolve scope e).MakeArrayType()
     | TArray(r, e) -> (resolve scope e).MakeArrayType r
     | TByref e -> (resolve scope e).MakeByRefType()
-    | TNamed(asm, name, []) -> typeDefinition asm name
-    | TNamed(asm, name, args) -> (typeDefinition asm name).MakeGenericType [| for a in args -> resolve scope a |]
+    | TNamed(asm, name, []) -> typeDefinition scope asm name
+    | TNamed(asm, name, args) -> (typeDefinition scope asm name).MakeGenericType [| for a in args -> resolve scope a |]
 
 /// Does the wire type describe `t`, a parameter type of a generic definition?
 /// Does the wire type describe `t`, a parameter or return type of a generic definition? Exact:
 /// a member is bound only when its whole signature is the one the compiler resolved.
-let rec matches (r: TypeRef) (t: Type) =
+let rec matches (scope: Scope) (r: TypeRef) (t: Type) =
     match r with
     // A `$W` twin's witness parameter, whose type the wire form does not name.
     | TParam "?" -> true
@@ -319,27 +343,30 @@ let rec matches (r: TypeRef) (t: Type) =
     | TParam n when n.StartsWith "!!" -> t.IsGenericParameter && not (isNull t.DeclaringMethod) && t.GenericParameterPosition = int (n.Substring 2)
     | TParam n when n.StartsWith "!" -> t.IsGenericParameter && isNull t.DeclaringMethod && t.GenericParameterPosition = int (n.Substring 1)
     | TParam n -> t.IsGenericParameter && t.Name = n
-    | TByref e -> t.IsByRef && matches e (t.GetElementType())
-    | TArray(rank, e) -> t.IsArray && t.GetArrayRank() = rank && matches e (t.GetElementType())
+    | TByref e -> t.IsByRef && matches scope e (t.GetElementType())
+    | TArray(rank, e) -> t.IsArray && t.GetArrayRank() = rank && matches scope e (t.GetElementType())
     | TTuple(isStruct, ts) ->
         // FSharpType reads a long tuple's nested rest as more elements.
         FSharpType.IsTuple t && t.IsValueType = isStruct
-        && (let es = FSharpType.GetTupleElements t in es.Length = ts.Length && List.forall2 matches ts (List.ofArray es))
-    | TNamed(_, name, args) ->
+        && (let es = FSharpType.GetTupleElements t in es.Length = ts.Length && List.forall2 (matches scope) ts (List.ofArray es))
+    // The type itself, not its name: a same-named type of another assembly is another type (a
+    // reference assembly's name resolves through its forwarding).
+    | TNamed(asm, name, args) ->
+        let isIt (d: Type) = d.FullName = name && (try obj.ReferenceEquals(typeDefinition scope asm name, d) with _ -> false)
         if t.IsGenericParameter || t.IsArray || t.IsByRef then false
         elif t.IsGenericType then
             let d = t.GetGenericTypeDefinition()
-            d.FullName = name && (let a = t.GetGenericArguments() in a.Length = args.Length && List.forall2 matches args (List.ofArray a))
-        else t.FullName = name && args.IsEmpty
+            isIt d && (let a = t.GetGenericArguments() in a.Length = args.Length && List.forall2 (matches scope) args (List.ofArray a))
+        else isIt t && args.IsEmpty
 
-let returns (r: TypeRef) (c: MethodBase) =
+let returns (scope: Scope) (r: TypeRef) (c: MethodBase) =
     match c with
-    | :? MethodInfo as mi -> matches r mi.ReturnType || (r = TNamed("FSharp.Core", "Microsoft.FSharp.Core.Unit", []) && mi.ReturnType = typeof<Void>)
+    | :? MethodInfo as mi -> matches scope r mi.ReturnType || (r = TNamed("FSharp.Core", "Microsoft.FSharp.Core.Unit", []) && mi.ReturnType = typeof<Void>)
     | _ -> false
 
 let methodOf (scope: Scope) (m: MemberRef) (typeArgs: TypeRef list) (methodArgs: TypeRef list) : MethodBase =
     let asm, name = match m.Declaring with TNamed(a, n, _) -> a, n | other -> raise (Unsupported(sprintf "declaring %A" other))
-    let def = typeDefinition asm name
+    let def = typeDefinition scope asm name
     let candidates =
         [ for c in Seq.append (def.GetMethods all |> Seq.cast<MethodBase>) (def.GetConstructors all |> Seq.cast<MethodBase>) do
             let arity = if c.IsGenericMethodDefinition then c.GetGenericArguments().Length else 0
@@ -350,8 +377,8 @@ let methodOf (scope: Scope) (m: MemberRef) (typeArgs: TypeRef list) (methodArgs:
     // one compiled against must not bind another member of the same shape.
     let fits =
         candidates |> List.filter (fun c ->
-            List.forall2 matches m.Parameters [ for p in c.GetParameters() -> p.ParameterType ]
-            && (match c with :? MethodInfo -> returns m.Return c | _ -> true))
+            List.forall2 (matches scope) m.Parameters [ for p in c.GetParameters() -> p.ParameterType ]
+            && (match c with :? MethodInfo -> returns scope m.Return c | _ -> true))
     let chosen =
         match fits with
         | [ c ] -> c
@@ -641,7 +668,7 @@ let find (lines: string -> int -> string list option) (closureType: Type) (file:
         match payload with
         | Choice1Of2 payload ->
             let context, body = decodeEntry payload
-            let scope = Dictionary<string, Type>()
+            let scope = Scope(closureType.Assembly)
             if closureType.IsGenericType && not closureType.IsGenericTypeDefinition then
                 Array.iter2 (fun (p: Type) a -> scope.[p.Name] <- a) (closureType.GetGenericTypeDefinition().GetGenericArguments()) (closureType.GetGenericArguments())
             Found(resolve scope context, decode scope body)

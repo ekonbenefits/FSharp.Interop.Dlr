@@ -93,7 +93,7 @@ for (m, args, body) in candidates do
         | None -> noOracle <- noOracle + 1; eprintfn "no definition: %O" mb
         | Some expected ->
             try
-                let scope = Dictionary<string, Type>()
+                let scope = Scope(null)
                 if mb.IsGenericMethod then for t in mb.GetGenericArguments() do scope.[t.Name] <- t
                 if mb.DeclaringType.IsGenericType then for t in mb.DeclaringType.GetGenericArguments() do scope.[t.Name] <- t
                 let w = encode args body
@@ -129,7 +129,7 @@ if unsupported.Count > 0 then printfn "unsupported FCS nodes: %A" (List.ofSeq un
 // ---- Resolution refuses rather than guesses (#225): a lone candidate of the right name and shape
 // whose signature differs (as when a referenced assembly differs at run time) is not bound.
 let refused (m: MemberRef) =
-    try methodOf (Dictionary()) m [] [] |> ignore; false with Unsupported _ -> true
+    try methodOf (Scope(null)) m [] [] |> ignore; false with Unsupported _ -> true
 let int32 = TNamed("System.Runtime", "System.Int32", [])
 let mathAbs = { Declaring = TNamed("System.Runtime", "System.Math", []); Name = "Abs"; Instance = false; GenericArity = 0; Parameters = [ int32 ]; Return = int32 }
 let exactOk = not (refused mathAbs)
@@ -137,7 +137,12 @@ let wrongParam = refused { mathAbs with Parameters = [ TNamed("System.Runtime", 
 let wrongReturn = refused { mathAbs with Return = TNamed("System.Runtime", "System.Int64", []) }
 // Path.GetTempPath has one overload: right name and shape, wrong return type.
 let lone = refused { Declaring = TNamed("System.Runtime", "System.IO.Path", []); Name = "GetTempPath"; Instance = false; GenericArity = 0; Parameters = []; Return = int32 }
-printfn "signature checks: exact binds %b, wrong parameter refused %b, wrong return refused %b, lone candidate refused %b" exactOk wrongParam wrongReturn lone
+// A type of the right full name in another assembly is another type (#259's review): the
+// DefaultAsyncBuilder getter, its return type claimed in netstandard rather than FSharp.Core.
+let asyncBuilder asm = TNamed(asm, "Microsoft.FSharp.Control.FSharpAsyncBuilder", [])
+let defaultBuilder = { Declaring = TNamed("FSharp.Core", "Microsoft.FSharp.Core.ExtraTopLevelOperators", []); Name = "get_DefaultAsyncBuilder"; Instance = false; GenericArity = 0; Parameters = []; Return = asyncBuilder "FSharp.Core" }
+let otherAssembly = not (refused defaultBuilder) && refused { defaultBuilder with Return = asyncBuilder "netstandard" }
+printfn "signature checks: exact binds %b, wrong parameter refused %b, wrong return refused %b, lone candidate refused %b, same name in another assembly refused %b" exactOk wrongParam wrongReturn lone otherAssembly
 
 // ---- The layout oracle: the capture map names a variable by its name and its order among the
 // member's bindings of that name, as the field pass lays the member out (`Fields.bindings`); the
@@ -233,4 +238,4 @@ for l in layoutSamples do printfn "  differs: %s" l
 // another body), a signature check, and a reordered layout (a wrong binding the run time cannot
 // see). Reported only: a member the encoder cannot carry (the map leaves it out: the attribute is
 // needed) and a count that differs (a refusal, the N check).
-if differ > 0 || not (exactOk && wrongParam && wrongReturn && lone) || layoutReordered > 0 || layoutFailed > 0 then exit 1
+if differ > 0 || not (exactOk && wrongParam && wrongReturn && lone && otherAssembly) || layoutReordered > 0 || layoutFailed > 0 then exit 1

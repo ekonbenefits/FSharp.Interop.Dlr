@@ -151,6 +151,61 @@ let ``a second guarded arm binding the same name`` () =
     let result = secondGuard w 4
     result |> should equal 43
 
+/// A string constant UTF-8 cannot carry (a lone surrogate): the map would read back U+FFFD, a
+/// different constant, so the member is left out of the map and needs the attribute.
+let private loneSurrogate (w: obj) : int =
+    let s = "\uD800"
+    // fsharpanalyzer: ignore-line-next DLR001
+    dlr { return w?Count + int s.[0] }
+
+[<Fact>]
+let ``a string constant UTF-8 cannot carry leaves the member out`` () =
+    needsBodies ()
+    let ex = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> loneSurrogate (Widget()) |> ignore)
+    ex.Message |> should haveSubstring "[<ReflectedDefinition>]"
+
+let private loneSurrogateChar (w: obj) : int =
+    let c = '\uDC00'
+    // fsharpanalyzer: ignore-line-next DLR001
+    dlr { return w?Count + int c }
+
+[<Fact>]
+let ``a char constant UTF-8 cannot carry leaves the member out`` () =
+    needsBodies ()
+    let ex = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> loneSurrogateChar (Widget()) |> ignore)
+    ex.Message |> should haveSubstring "[<ReflectedDefinition>]"
+
+#if NET
+/// Per copy of this assembly: two copies in two load contexts, sharing the library, each read
+/// their own map, and its names as their own copy resolves them (#259's review: by simple name in
+/// the AppDomain, the second copy's block read the first copy's value).
+let mutable copyTag = 0
+
+let private readCopy (w: obj) : int =
+    // fsharpanalyzer: ignore-line-next DLR001
+    dlr { return w?Count + copyTag }
+
+type private CopyContext(path: string) =
+    inherit System.Runtime.Loader.AssemblyLoadContext("Tests copy", true)
+    override this.Load(name) = if name.Name = "Tests" then this.LoadFromAssemblyPath path else null
+
+[<Fact>]
+let ``two copies of the assembly in two load contexts each read their own`` () =
+    needsBodies ()
+    let path = typeof<Widget>.Assembly.Location
+    let copy (tag: int) =
+        let companion = CopyContext(path).LoadFromAssemblyPath(path).GetType "Tests.Companion"
+        companion.GetProperty("copyTag").SetValue(null, tag)
+        let read = companion.GetMethod("readCopy", System.Reflection.BindingFlags.NonPublic ||| System.Reflection.BindingFlags.Static)
+        fun (w: obj) -> read.Invoke(null, [| w |]) :?> int
+    let second, first = copy 20, copy 10
+    let w: obj = Widget()
+    let fromSecond = second w
+    fromSecond |> should equal 23
+    let fromFirst = first w
+    fromFirst |> should equal 13
+#endif
+
 /// An or-pattern's arm: the map's body holds the block once per alternative, and its copies are
 /// that block (#263), as from a reflected definition; the field pass takes the first copy's `x`,
 /// as the run time takes the first copy.

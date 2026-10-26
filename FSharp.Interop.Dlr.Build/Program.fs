@@ -24,7 +24,8 @@ module Run =
             [ for file, lines in perFile ->
                 use buffer = new MemoryStream()
                 (use deflate = new DeflateStream(buffer, CompressionLevel.Optimal, true)
-                 let text = Encoding.UTF8.GetBytes(String.concat "\n" lines + "\n")
+                 // Throwing: text UTF-8 cannot carry exactly turns the map off, never alters it.
+                 let text = UTF8Encoding(false, true).GetBytes(String.concat "\n" lines + "\n")
                  deflate.Write(text, 0, text.Length))
                 file, buffer.ToArray() ]
         let header =
@@ -34,7 +35,7 @@ module Run =
                   yield sprintf "F\t%d\t%d\t%s" offset blob.Length file
                   offset <- offset + blob.Length ]
         use out = File.Create output
-        let head = Encoding.UTF8.GetBytes(String.concat "\n" header + "\n\n")
+        let head = UTF8Encoding(false, true).GetBytes(String.concat "\n" header + "\n\n")
         out.Write(head, 0, head.Length)
         for _, blob in blobs do out.Write(blob, 0, blob.Length)
 
