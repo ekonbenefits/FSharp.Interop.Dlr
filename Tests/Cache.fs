@@ -423,6 +423,19 @@ let private userT0BesideSplitTuple (o: obj) : string =
     let t_0 = 999
     dlr { return o?Echo(fst t, t_0) }
 
+/// An alias of a tuple beside a user's `y_0`: where the alias has a field of its own (every
+/// Debug closure), `fst x` reads through it, not `y_0` as if `y` were split (#267).
+let private aliasOfTupleBesideUserY0 (o: obj) (a: int) : string =
+    let y_0 = 99
+    let y = (a, 1)
+    let x = y
+    dlr { return o?Echo(fst x, y_0) }
+let private aliasOfTupleBesideUserY0Closure (o: obj) (a: int) : string =
+    let y_0 = 99
+    let y = (a, 1)
+    let x = y
+    (dlr { return fun () -> o?Echo(fst x, y_0) } : unit -> string) ()
+
 /// A split element the optimizer names after the block's own binding (`a`, not `t_0`), from a
 /// mutable changed since: rebuilt from the definition it would read the mutable's current value.
 let private elementOfAMutableRenamedInTheBlock (o: obj) : string =
@@ -467,10 +480,14 @@ let ``what the optimizer did to a tuple or a shared name is never guessed`` () =
     check "1|999" (fun () -> userT0BesideSplitTuple echo)
     check "1|99" (fun () -> elementOfAMutableRenamedInTheBlock echo)
     check "1|999" (fun () -> userT0BesideSplitTupleClosure echo)
+    check "10|99" (fun () -> aliasOfTupleBesideUserY0 echo 10)
+    check "10|99" (fun () -> aliasOfTupleBesideUserY0Closure echo 10)
 #if DEBUG
     // Debug splits no tuple: nothing to refuse.
     Ticks.Reset()
     userT0BesideSplitTuple echo |> should equal "1|999"
+    aliasOfTupleBesideUserY0 echo 10 |> should equal "10|99"
+    aliasOfTupleBesideUserY0Closure echo 10 |> should equal "10|99"
 #endif
 
 /// A shadowed name inside a local function the Release optimizer inlines: the machine captures
