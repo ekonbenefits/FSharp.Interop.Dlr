@@ -126,8 +126,10 @@ it from a block one way or another, and checks Release against Debug. Its 51,808
 grammar run the same with the map, none wrong; the 14,084 cases of the forms added for #259 (an
 or-pattern, a guard, a `let rec` whose definition binds the name or comes before it, a `try … with`
 handler, an active pattern, `function`) have none wrong either, and every map entry is used, with no
-rejection. The rest are refusals: a block in an or-pattern's case fails in Debug too (#263), and an
-active pattern the optimizer inlines is below.
+rejection: 9,148 run the same, against 4,432 without the map. The rest are refusals. An or-pattern's
+arm holds its block once per alternative, and its copies are one block (#266) only when every
+variable the block reads is captured as itself, a check made before the map is read, so the map
+lifts none of those; an active pattern the optimizer inlines is below.
 
 ## Limits
 
