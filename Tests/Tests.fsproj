@@ -141,9 +141,10 @@
   <ItemGroup Condition="'$(DlrCaptureMap)' != ''">
     <EmbeddedResource Include="$(DlrCaptureMap)" LogicalName="FSharp.Interop.Dlr.CaptureMap" />
   </ItemGroup>
-  <!-- The tool targets .NET 10: below that SDK it is not built, and the targets skip the step. -->
+  <!-- The tool targets .NET 10: below that SDK it is not built, and the targets skip the step. A
+       build-order reference only, whatever the tests target (net48 too): no framework negotiation. -->
   <ItemGroup Condition="'$(DlrCompanion)' == 'true' and '$(_DlrCompanionSupported)' == 'true'">
-    <ProjectReference Include="../FSharp.Interop.Dlr.Build/FSharp.Interop.Dlr.Build.fsproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../FSharp.Interop.Dlr.Build/FSharp.Interop.Dlr.Build.fsproj" ReferenceOutputAssembly="false" SkipGetTargetFrameworkProperties="true" SetTargetFramework="TargetFramework=net10.0" />
   </ItemGroup>
   <!-- Imported whether the companion is on or not, so that switching it off recompiles (its
        setting is a compile input); the map step runs only with DlrCompanion=true, and not in the
