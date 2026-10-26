@@ -153,6 +153,13 @@ module internal Discover =
                 | uncaptured -> Error uncaptured
         | [] -> Error []
 
+    /// Copies of one block that read a variable the optimizer did not capture as itself.
+    let private heldTimes (file: string) (line: int) (copies: int) (uncaptured: string list) (closureType: Type) =
+        DlrTranslationException(
+            sprintf "dlr { } at %s:%d is held %d times in its member's reflected definition (an or-pattern's arm, or look-alike blocks on one line), and reads %s, which the optimizer did not capture as itself (fields: %s), so which copy is meant cannot be told. Bind it to a value the block reads directly, or move the block into its own function."
+                file line copies (uncaptured |> List.map (sprintf "'%s'") |> String.concat ", ")
+                (String.Join(", ", (TranslateBlock.Captures.fields closureType).Keys)))
+
     /// The block whose Delay closure has type `closureType`, at `file:line`.
     let findBody (builderType: Type) (closureType: Type) (file: string) (line: int) : Found =
         let holder = if isNull closureType.DeclaringType then closureType else closureType.DeclaringType
@@ -172,6 +179,7 @@ module internal Discover =
                 searched.AddRange all
                 search all
             | found -> found
+        let fromMap = lazy (BodyMap.find (CaptureMap.body closureType.Assembly) closureType file line)
         // Copies of one block in one member (an or-pattern's arm) are that block, not several.
         let matches =
             match matches with
@@ -179,11 +187,7 @@ module internal Discover =
                 match oneOf builderType closureType (matches |> List.map (fun (_, _, b) -> b)) with
                 | Ok body -> [ m, memberBody, body ]
                 | Error [] -> matches
-                | Error uncaptured ->
-                    raise (DlrTranslationException(
-                            sprintf "dlr { } at %s:%d is held %d times in its member's reflected definition (an or-pattern's arm, or look-alike blocks on one line), and reads %s, which the optimizer did not capture as itself (fields: %s), so which copy is meant cannot be told. Bind it to a value the block reads directly, or move the block into its own function."
-                                file line matches.Length (uncaptured |> List.map (sprintf "'%s'") |> String.concat ", ")
-                                (String.Join(", ", (TranslateBlock.Captures.fields closureType).Keys))))
+                | Error uncaptured -> raise (heldTimes file line matches.Length uncaptured closureType)
             | _ -> matches
         match matches with
         | [ m, memberBody, body ] ->
@@ -198,6 +202,23 @@ module internal Discover =
                         | Error _ -> m, memberBody, body
                     | _ -> m, memberBody, body
             { Context = m.DeclaringType; MemberBody = memberBody; Body = body }
+        | [] when (match fromMap.Value with BodyMap.Found(_, q) -> not (List.isEmpty (runsAt builderType file line q)) | _ -> false) ->
+            // No reflected definition (or one FSharp.Core cannot decode), but the build companion's
+            // map has the member: its body, rebuilt from the compiler's tree, is the same Expr, and
+            // its copies of one block (an or-pattern's arm) are that block, as from a reflected one.
+            match fromMap.Value with
+            | BodyMap.Found(context, memberBody) ->
+                let runs = runsAt builderType file line memberBody
+                match oneOf builderType closureType runs with
+                | Ok body -> { Context = context; MemberBody = memberBody; Body = body }
+                // Two of its blocks start on this line: refused as the reflected path refuses them,
+                // by the line, not as a missing attribute.
+                | Error [] -> raise (DlrTranslationException(sprintf "%d dlr { } blocks share %s:%d; put each dlr { } on its own line." runs.Length file line))
+                | Error uncaptured -> raise (heldTimes file line runs.Length uncaptured closureType)
+            | _ -> failwith "unreachable"
+        | [] when (match fromMap.Value with BodyMap.Shared _ -> true | _ -> false) ->
+            let n = match fromMap.Value with BodyMap.Shared n -> n | _ -> 0
+            raise (DlrTranslationException(sprintf "%d dlr { } blocks share %s:%d; put each dlr { } on its own line." n file line))
         | [] ->
             // The block's own container never has a reflected definition, so decoding one of its
             // methods throws only when the assembly's definitions cannot be read at all: FSharp.Core

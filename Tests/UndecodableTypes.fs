@@ -29,6 +29,7 @@ module Tests =
 
     [<Fact>]
     let ``a same-named member of another type is not stated as the block's`` () =
+        if global.Tests.Companion.bodiesMapped then raise (AnyUnit.IgnoreException "the companion's map holds this block's body (Tests/Companion.fs)")
         let ex = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> SameNamed().Count(Tests.Widget()) |> ignore)
         ex.Message |> should haveSubstring "needs [<ReflectedDefinition>]"
         ex.Message |> should not' (haveSubstring "is in VoidInNamespace.Count")

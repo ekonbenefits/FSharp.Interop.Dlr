@@ -46,9 +46,10 @@ check() {
 # internal delegate's members internal, and a public-only lookup returns null. Allowed only on
 # types that are always public: a call site's or per-key delegate (`siteDelegate`), a factory's
 # `Func` (`factoryType`), `FSharpFunc` (`funcType`, `typeof<FSharpFunc…`), a generated adapter,
-# `typeof<…>`, an FSharpRef (`cell.Type`) — and DelegateMembers' own lookup.
+# `typeof<…>`, an FSharpRef (`cell.Type`) — and DelegateMembers' own lookup; and an F# exception's
+# constructor (`exceptionType`, BodyMap), not a delegate, looked up with the non-public flags.
 check "a delegate's Invoke/constructor looked up outside DelegateMembers (use DelegateMembers.invokeOf/constructorOf)" \
-  "$(violations '\.GetMethod\("Invoke"\)|\.GetConstructor\(' '(siteDelegate|factoryType|funcType|adapter|typeof<[^>]*>+|cell\.Type)\.Get(Method|Constructor)|GetConstructor\(flags, null')"
+  "$(violations '\.GetMethod\("Invoke"\)|\.GetConstructor\(' '(siteDelegate|factoryType|funcType|adapter|typeof<[^>]*>+|cell\.Type|exceptionType)\.Get(Method|Constructor)|GetConstructor\(flags, null')"
 
 check "a quotation rebuilt outside Quotation.rebuild" \
   "$(outside_module 'RebuildShapeCombination' Quotation)"

@@ -493,6 +493,73 @@ let ``what the optimizer did to a tuple or a shared name is never guessed`` () =
 #endif
 #endif
 
+/// A match whose case is reached from two paths (an or-pattern binding `x`), before two `x`s the
+/// block reaches: the quotation binds the case's `x` once per path, so a capture map counting it
+/// once would take the wrong `x` (#216's review: 1406 instead of 1316). Right or refused.
+let private orPatternBeforeSharedName (o: obj) (c: Choice<int, int>) (p: int) (q: int) : int =
+    let k = match c with Choice1Of2 x | Choice2Of2 x -> x + 1
+    let x = p + 1
+    let add y = x + y
+    let x = q + 1
+    // The analyzer reports it at build time (DLR007).
+    // fsharpanalyzer: ignore-line-next DLR007
+    let r: int = dlr { return o?Add(add 2, x + q) }
+    r + k + x
+
+let private listOrPatternBeforeSharedName (o: obj) (l: int list) (p: int) (q: int) : int =
+    let k = match l with [x] | [_; x] -> x | _ -> 0
+    let x = p + 1
+    let add y = x + y
+    let x = q + 1
+    // The analyzer reports it at build time (DLR007).
+    // fsharpanalyzer: ignore-line-next DLR007
+    let r: int = dlr { return o?Add(add 2, x + q) }
+    r + k + x
+
+/// The same with a two-column match, whose first row's case two paths reach too.
+let private columnsBeforeSharedName (o: obj) (a: int) (b: int) (p: int) (q: int) : int =
+    let k = match a, b with | x, 1 -> x | 1, _ -> 20 | x, _ -> x + 100
+    let x = p + 1
+    let add y = x + y
+    let x = q + 1
+    // The analyzer reports it at build time (DLR007).
+    // fsharpanalyzer: ignore-line-next DLR007
+    let r: int = dlr { return o?Add(add 2, x + q) }
+    r + k + x
+
+/// A `let rec` binding `x` in its definition, before an `x` the block captures: the quotation
+/// lays a `let rec` out body first (`Lambda(f, body :: definitions)`), so a capture map that
+/// counted the definition first would swap the two `x`s with every count kept (#259's review:
+/// 21 instead of 26, the mutation lost). Right or refused.
+let private letRecBeforeMutable (o: obj) (p: int) : int =
+    let rec f (n: int) : int = (let x = n * 2 in if n > 100 then f (n - 1) else x)
+    let mutable x = 1
+    x <- x + 5
+    // The analyzer reports it at build time (DLR007).
+    // fsharpanalyzer: ignore-line-next DLR007
+    dlr { return o?Add(f p, x) }
+
+let private letRecBeforeImmutable (o: obj) (p: int) (q: int) : int =
+    let rec f (n: int) : int = (let x = n * 2 in if n > 100 then f (n - 1) else x)
+    let x = q + 1
+    // The analyzer reports it at build time (DLR007).
+    // fsharpanalyzer: ignore-line-next DLR007
+    dlr { return o?Add(f p, x) }
+
+[<Fact>]
+let ``a match case two paths reach shifts no later variable`` () =
+    let w = box (Widget())
+    let check (expected: int) (run: unit -> int) =
+        match (try Ok(run ()) with :? DlrTranslationException as e -> Error e.Message) with
+        | Ok value -> value |> should equal expected
+        | Error _ -> ()
+    check 1316 (fun () -> orPatternBeforeSharedName w (Choice1Of2 1000) 10 100)
+    check 1316 (fun () -> orPatternBeforeSharedName w (Choice2Of2 1000) 10 100)
+    check 322 (fun () -> listOrPatternBeforeSharedName w [ 1; 7 ] 10 100)
+    check 320 (fun () -> columnsBeforeSharedName w 5 1 10 100)
+    check 26 (fun () -> letRecBeforeMutable w 10)
+    check 121 (fun () -> letRecBeforeImmutable w 10 100)
+
 /// A shadowed name inside a local function the Release optimizer inlines: the machine captures
 /// only the later `x`, and the earlier one, reached through `f`'s recovered definition, read that
 /// field and returned 1400 (#196).

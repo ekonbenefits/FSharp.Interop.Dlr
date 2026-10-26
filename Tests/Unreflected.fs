@@ -9,6 +9,7 @@ open Tests.ClosureBuilder
 
 [<Fact>]
 let ``dlr without ReflectedDefinition reports what is missing`` () =
+    if Tests.Companion.bodiesMapped then raise (AnyUnit.IgnoreException "the companion's map holds this block's body (Tests/Companion.fs)")
     let w = box (Widget())
     // fsharpanalyzer: ignore-line-next DLR001
     let ex = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> (dlr { return w?Count } : int) |> ignore)
@@ -22,6 +23,7 @@ let ``dlr without ReflectedDefinition reports what is missing`` () =
 /// `clear` forgets it like any entry.
 [<Fact>]
 let ``a refused block is not translated again on every call`` () =
+    if Tests.Companion.bodiesMapped then raise (AnyUnit.IgnoreException "the companion's map holds this block's body (Tests/Companion.fs)")
     let w = box (Widget())
     // fsharpanalyzer: ignore-line-next DLR001
     let call () = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> (dlr { return w?Count } : int) |> ignore)

@@ -1,0 +1,32 @@
+<!-- TreatAsLocalProperty: the tool keeps its own framework when a build sets TargetFrameworks for
+     everything (-p:TargetFrameworks=net11.0 for the tests on the 11.0 SDK), restore included. -->
+<Project Sdk="Microsoft.NET.Sdk" TreatAsLocalProperty="TargetFrameworks">
+
+  <!--
+    The build companion (#259, for 2.0): checks a project with FCS once and writes the capture
+    map its dlr { } blocks bind through (the fields pass; a body pass is stacked on it). FCS pins
+    FSharp.Core exactly, as for the analyzer; the map is right only for the compiler this FCS
+    matches (a mismatch makes the run time refuse the map, never bind wrongly).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks></TargetFrameworks>
+    <IsPackable>false</IsPackable>
+    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Check.fs" />
+    <Compile Include="Fields.fs" />
+    <Compile Include="..\FSharp.Interop.Dlr\BodyMap.fs" Link="BodyMap.fs" />
+    <Compile Include="Bodies.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" VersionOverride="10.1.400" />
+    <PackageReference Include="FSharp.Compiler.Service" />
+  </ItemGroup>
+
+</Project>

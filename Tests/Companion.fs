@@ -1,0 +1,363 @@
+/// Blocks with no [<ReflectedDefinition>] anywhere: the build companion's map holds their members'
+/// bodies (`FSharp.Interop.Dlr.Build/Bodies.fs`, the 2.0 build companion, #259). Without a map
+/// embedded (`-p:DlrCompanion=true`) they skip.
+module Tests.Companion
+
+open AnyUnit.Style.Xunit
+open AnyUnit.Style.FsUnit
+open FSharp.Interop.Dlr
+#if DLR_CLOSURES
+open Tests.ClosureBuilder
+#endif
+
+/// Whether this assembly carries a map with block bodies (`-p:DlrCompanion=true`): format 2, a text
+/// header of `F offset length file` lines, then each file's blob, deflated.
+let bodiesMapped =
+    use s = typeof<Widget>.Assembly.GetManifestResourceStream "FSharp.Interop.Dlr.CaptureMap"
+    if isNull s then false
+    else
+        use m = new System.IO.MemoryStream()
+        s.CopyTo m
+        let bytes = m.ToArray()
+        let text = System.Text.Encoding.UTF8.GetString bytes
+        match text.IndexOf "\n\n" with
+        | -1 -> false
+        | header ->
+            let start = System.Text.Encoding.UTF8.GetByteCount(text.Substring(0, header + 2))
+            text.Substring(0, header).Split '\n'
+            |> Array.exists (fun line ->
+                match line.Split '\t' with
+                | [| "F"; offset; length; _ |] ->
+                    use z = new System.IO.Compression.DeflateStream(new System.IO.MemoryStream(bytes, start + int offset, int length), System.IO.Compression.CompressionMode.Decompress)
+                    (new System.IO.StreamReader(z)).ReadToEnd().Contains "S\tbody"
+                | _ -> false)
+
+let private needsBodies () =
+    if not bodiesMapped then raise (AnyUnit.IgnoreException "no block bodies embedded (-p:DlrCompanion=true)")
+
+/// Beside the blocks, what a module-wide attribute could not take: a byref parameter.
+let bump (x: byref<int>) = x <- x + 1
+
+let private count (w: obj) : int =
+    // fsharpanalyzer: ignore-line-next DLR001
+    dlr { return w?Count }
+
+let private countPlus (w: obj) (k: int) : int =
+    let doubled = k * 2
+    // fsharpanalyzer: ignore-line-next DLR001
+    dlr { return w?Count + doubled }
+
+let private generic<'T> (w: obj) : 'T =
+    // fsharpanalyzer: ignore-line-next DLR001
+    dlr { return w?Count }
+
+type private Reader(w: obj) =
+    member _.Count : int =
+        // fsharpanalyzer: ignore-line-next DLR001
+        dlr { return w?Count }
+
+[<Fact>]
+let ``a block with no reflected definition runs from the companion's body`` () =
+    needsBodies ()
+    count (Widget()) |> should equal 3
+
+[<Fact>]
+let ``its captures bind as they do from a reflected definition`` () =
+    needsBodies ()
+    countPlus (Widget()) 4 |> should equal 11
+
+[<Fact>]
+let ``a generic member's block takes its instantiation`` () =
+    needsBodies ()
+    generic<int64> (Widget()) |> should equal 3L
+
+[<Fact>]
+let ``a class member's block`` () =
+    needsBodies ()
+    Reader(Widget()).Count |> should equal 3
+
+[<Fact>]
+let ``the module also holds a byref member, which a module-wide attribute would refuse`` () =
+    let mutable n = 1
+    bump &n
+    n |> should equal 2
+
+// ---- Shapes the encoder must carry exactly or refuse (the cold review of #219).
+
+/// A unit of measure in the member's signature: erased to its underlying type, as in the reflected
+/// definition (`float<m>` is `System.Double`), not named as FSharp.Core's annotated abbreviation.
+[<Measure>] type m
+
+let private scaled (w: obj) (d: float<m>) : int =
+    // fsharpanalyzer: ignore-line-next DLR001
+    dlr { return w?Add(int (float d), 1) }
+
+[<Fact>]
+let ``a member with a unit of measure in its signature`` () =
+    needsBodies ()
+    let w: obj = Widget()
+    let result = scaled w 2.0<m>
+    result |> should equal 3
+
+/// An F# exception, raised and caught by its field: FCS has its construction as a record's and its
+/// field as a record field; the quotation, its constructor and its `Data0` property.
+exception Carried of int
+
+let private carried (w: obj) (k: int) : int =
+    try raise (Carried(k * 10))
+    with Carried n ->
+        // fsharpanalyzer: ignore-line-next DLR001
+        dlr { return w?Count + n }
+
+[<Fact>]
+let ``an F# exception raised and caught by its field`` () =
+    needsBodies ()
+    let w: obj = Widget()
+    let result = carried w 2
+    result |> should equal 23
+
+/// A guard's variable: bound for the guard and again for its target, both in the quotation; the
+/// block reads the target's (the field pass takes the binding in scope at the block; a handler's
+/// variable, above, is the filter's and the handler's the same way).
+let private guarded (w: obj) (k: int) : int =
+    match Some(k * 10) with
+    | Some x when x <> -1 ->
+        // fsharpanalyzer: ignore-line-next DLR001
+        dlr { return w?Count + x }
+    | _ -> 0
+
+[<Fact>]
+let ``a guard's variable, bound for the guard and for its target`` () =
+    needsBodies ()
+    let w: obj = Widget()
+    let result = guarded w 4
+    result |> should equal 43
+
+/// Two guarded arms binding one name, the block in the second: the match compiler gives the
+/// machine's field the first arm's value, which the field pass does not attribute (no entry: the
+/// strict behaviour, which binds it by name), rather than guess between the arms.
+let private secondGuard (w: obj) (k: int) : int =
+    match Some(k * 10) with
+    | Some x when x < 0 -> x
+    | Some x when x > 0 ->
+        // fsharpanalyzer: ignore-line-next DLR001
+        dlr { return w?Count + x }
+    | _ -> 0
+
+[<Fact>]
+let ``a second guarded arm binding the same name`` () =
+    needsBodies ()
+    let w: obj = Widget()
+    let result = secondGuard w 4
+    result |> should equal 43
+
+/// A string constant UTF-8 cannot carry (a lone surrogate): the map would read back U+FFFD, a
+/// different constant, so the member is left out of the map and needs the attribute.
+let private loneSurrogate (w: obj) : int =
+    let s = "\uD800"
+    // fsharpanalyzer: ignore-line-next DLR001
+    dlr { return w?Count + int s.[0] }
+
+[<Fact>]
+let ``a string constant UTF-8 cannot carry leaves the member out`` () =
+    needsBodies ()
+    let ex = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> loneSurrogate (Widget()) |> ignore)
+    ex.Message |> should haveSubstring "[<ReflectedDefinition>]"
+
+let private loneSurrogateChar (w: obj) : int =
+    let c = '\uDC00'
+    // fsharpanalyzer: ignore-line-next DLR001
+    dlr { return w?Count + int c }
+
+[<Fact>]
+let ``a char constant UTF-8 cannot carry leaves the member out`` () =
+    needsBodies ()
+    let ex = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> loneSurrogateChar (Widget()) |> ignore)
+    ex.Message |> should haveSubstring "[<ReflectedDefinition>]"
+
+#if NET
+/// Per copy of this assembly: two copies in two load contexts, sharing the library, each read
+/// their own map, and its names as their own copy resolves them (#259's review: by simple name in
+/// the AppDomain, the second copy's block read the first copy's value).
+let mutable copyTag = 0
+
+let private readCopy (w: obj) : int =
+    // fsharpanalyzer: ignore-line-next DLR001
+    dlr { return w?Count + copyTag }
+
+type private CopyContext(path: string) =
+    inherit System.Runtime.Loader.AssemblyLoadContext("Tests copy", true)
+    override this.Load(name) = if name.Name = "Tests" then this.LoadFromAssemblyPath path else null
+
+[<Fact>]
+let ``two copies of the assembly in two load contexts each read their own`` () =
+    needsBodies ()
+    let path = typeof<Widget>.Assembly.Location
+    let copy (tag: int) =
+        let companion = CopyContext(path).LoadFromAssemblyPath(path).GetType "Tests.Companion"
+        companion.GetProperty("copyTag").SetValue(null, tag)
+        let read = companion.GetMethod("readCopy", System.Reflection.BindingFlags.NonPublic ||| System.Reflection.BindingFlags.Static)
+        fun (w: obj) -> read.Invoke(null, [| w |]) :?> int
+    let second, first = copy 20, copy 10
+    let w: obj = Widget()
+    let fromSecond = second w
+    fromSecond |> should equal 23
+    let fromFirst = first w
+    fromFirst |> should equal 13
+#endif
+
+/// An or-pattern's arm: the map's body holds the block once per alternative, and its copies are
+/// that block (#263), as from a reflected definition; the field pass takes the first copy's `x`,
+/// as the run time takes the first copy.
+let private eitherWay (w: obj) (k: int) : int =
+    match (if k > 0 then Choice1Of2(k * 10) else Choice2Of2(k * 10)) with
+    | Choice1Of2 x
+    | Choice2Of2 x ->
+        // fsharpanalyzer: ignore-line-next DLR001
+        dlr { return w?Count + x }
+
+[<Fact>]
+let ``an or-pattern's arm`` () =
+    needsBodies ()
+    let w: obj = Widget()
+    let first = eitherWay w 5
+    first |> should equal 53
+    let second = eitherWay w -2
+    second |> should equal -17
+
+/// Two blocks of one member on one line: refused as the reflected path refuses them, by the line,
+/// not as a missing attribute.
+let private twoOnOneLine (w: obj) : int * string =
+    // fsharpanalyzer: ignore-region-start DLR001
+    // fsharpanalyzer: ignore-line-next DLR003
+    let a: int = dlr { return w?Count } in let b: string = dlr { return w?Name } in (a, b)
+    // fsharpanalyzer: ignore-region-end DLR001
+
+[<Fact>]
+let ``two blocks of a member on one line are refused by the line`` () =
+    needsBodies ()
+    let ex = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> twoOnOneLine (Widget()) |> ignore)
+    ex.Message |> should haveSubstring "blocks share"
+
+type IntToInt = System.Func<int, int>
+
+let private viaAbbreviatedDelegate (w: obj) : int =
+    let f = IntToInt(fun x -> x + 1)
+    // fsharpanalyzer: ignore-line-next DLR001
+    dlr { return w?Count + f.Invoke 1 }
+
+[<Fact>]
+let ``a delegate constructed through a type abbreviation`` () =
+    needsBodies ()
+    viaAbbreviatedDelegate (Widget()) |> should equal 5
+
+// The analyzer reports this at build time (DLR003).
+// fsharpanalyzer: ignore-region-start DLR001
+// fsharpanalyzer: ignore-region-start DLR003
+type private SharedLine(w: obj) =
+    member _.A : int = (dlr { return w?Count }) member _.B : int = (dlr { return w?Count * 2 })
+// fsharpanalyzer: ignore-region-end DLR003
+// fsharpanalyzer: ignore-region-end DLR001
+
+[<Fact>]
+let ``two members' blocks on one line are refused, as from reflected definitions`` () =
+    needsBodies ()
+    let s = SharedLine(Widget())
+    let ex = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> s.A |> ignore)
+    ex.Message |> should haveSubstring "share"
+
+let private byteConstant (w: obj) : int =
+    let b = "abc"B
+    // fsharpanalyzer: ignore-line-next DLR001
+    dlr { return w?Count + b.Length }
+
+let private nativeConstant (w: obj) : int =
+    let n = 5n
+    // fsharpanalyzer: ignore-line-next DLR001
+    dlr { return w?Count + int n }
+
+[<Fact>]
+let ``a constant the map cannot carry leaves the member out: the attribute is needed`` () =
+    needsBodies ()
+    let ex = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> byteConstant (Widget()) |> ignore)
+    ex.Message |> should haveSubstring "[<ReflectedDefinition>]"
+    let ex = AnyUnit.Run.Assert.Current.Throws<DlrTranslationException>(fun () -> nativeConstant (Widget()) |> ignore)
+    ex.Message |> should haveSubstring "[<ReflectedDefinition>]"
+
+let private fromDecimal (w: obj) (d: decimal) : int =
+    let n = int d
+    // fsharpanalyzer: ignore-line-next DLR001
+    dlr { return w?Count + n }
+
+[<Fact>]
+let ``a conversion overloaded only by its return type`` () =
+    needsBodies ()
+    fromDecimal (Widget()) 4m |> should equal 7
+
+type Widget with
+    member w.Thrice = w.Count * 3
+
+let private viaExtension (w: Widget) : int =
+    let t = w.Thrice
+    let o = box w
+    // fsharpanalyzer: ignore-line-next DLR001
+    dlr { return o?Count + t }
+
+[<Fact>]
+let ``an F# extension member`` () =
+    needsBodies ()
+    viaExtension (Widget()) |> should equal 12
+
+let private rawQuotation (w: obj) : int =
+    let q: FSharp.Quotations.Expr = <@@ 1 @@>
+    // fsharpanalyzer: ignore-line-next DLR001
+    dlr { return w?Count + (if isNull (box q) then 0 else 1) }
+
+[<Fact>]
+let ``a raw quotation literal`` () =
+    needsBodies ()
+    rawQuotation (Widget()) |> should equal 4
+
+let mutable private sideEffects = 0
+let private bumpSide () = sideEffects <- sideEffects + 1
+
+/// With the attribute, so the oracle compares the map's body with it: a unit argument with an effect.
+[<ReflectedDefinition>]
+let private unitArgumentWithEffect (w: obj) : int =
+    bumpSide (sideEffects <- sideEffects + 10)
+    dlr { return w?Count }
+
+[<Fact>]
+let ``a unit argument with an effect keeps it`` () =
+    unitArgumentWithEffect (Widget()) |> should equal 3
+
+let private userNamedTupled (x_0: obj, x_1: int) : int =
+    // fsharpanalyzer: ignore-line-next DLR001
+    dlr { return x_0?Count + x_1 }
+
+let private userNamedCurried (x_0: obj) (x_1: int) : int =
+    // fsharpanalyzer: ignore-line-next DLR001
+    dlr { return x_0?Count + x_1 }
+
+let private realSplit (x: obj * int) : int =
+    // fsharpanalyzer: ignore-line-next DLR001
+    dlr { return (fst x)?Count + snd x }
+
+[<Fact>]
+let ``parameters named like a split tuple's elements are themselves, and a real split is one tuple`` () =
+    needsBodies ()
+    userNamedTupled (Widget(), 4) |> should equal 7
+    userNamedCurried (Widget()) 4 |> should equal 7
+    realSplit (Widget(), 4) |> should equal 7
+
+/// With the attribute, so the oracle compares the map's body with it: or-patterns binding a variable,
+/// whose target the quotation copies into each leaf that reaches it.
+[<ReflectedDefinition>]
+let private orPatterns (w: obj) (c: Choice<int, int>) (xs: int list) : int =
+    let a = match c with Choice1Of2 x | Choice2Of2 x -> x
+    let b = match xs with [ x ] | [ _; x ] -> x | _ -> 0
+    dlr { return w?Count + a * 10 + b }
+
+[<Fact>]
+let ``or-patterns before a block`` () =
+    orPatterns (Widget()) (Choice2Of2 4) [ 1; 2 ] |> should equal 45
