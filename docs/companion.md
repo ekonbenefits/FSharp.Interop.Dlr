@@ -150,13 +150,16 @@ lifts none of those; an active pattern the optimizer inlines is below.
   FSharp.Compiler.Service and FSharp.Core from beside it in a load context of its own, so a new
   SDK's map describes the new compiler. If that fails (no FCS there, an API that moved), it
   writes an empty map: every block keeps the strict behaviour, and the build goes on.
-- It needs the .NET 10 SDK: the tool targets .NET 10 and is built against that compiler's FCS,
-  whose API older ones lack. On 8.0 or 9.0 the step is skipped with a message (the build has no
-  map, and every block keeps the strict behaviour); a leg per compiler, with the tool built
-  against each one's FCS, is #261. The tool creates its checker by reflection (every optional
-  parameter but `keepAssemblyContents` None), since `FSharpChecker.Create` gains parameters
-  between versions: on the 11.0 SDK (rc.3) it runs against that compiler's FCS, and the corpus's
-  14,084 cases give the same result as on 10 (11,768 exact, none rejected, none wrong).
+- The tool targets .NET 10, so only the .NET 10 SDK or later builds it; once built, it runs under
+  an older SDK's build too (8.0, 9.0: the .NET 10 runtime installed beside) against that compiler's
+  own FCS (#261). Without a built tool the step is skipped with a message (the build has no map, and
+  every block keeps the strict behaviour). Where FCS's API differs between versions the tool reads it
+  by reflection: `FSharpChecker.Create` gains parameters (every optional one but
+  `keepAssemblyContents` None), and `ApparentEnclosingEntity` is an option only from 10.0's FCS on.
+  On the 11.0 SDK (rc.3) the corpus's 14,084 cases give the same result as on 10 (11,768 exact,
+  none rejected, none wrong); on 9.0, `Tests` binds 2,223 blocks exactly, none rejected. Debug
+  builds on 8.0, 9.0 and 11.0 are state machines too, but the field pass finds none in their
+  Debug tree yet: those blocks have bodies and keep the strict behaviour.
 - The project is checked twice per build: once by the companion, once by fsc.
 - Two same-named variables of the same type, or two same-typed elements of one tuple, are told
   apart only by the companion's layout: the run-time checks catch a layout that changes a count or
