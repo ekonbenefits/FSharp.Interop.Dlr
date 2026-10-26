@@ -144,7 +144,10 @@ lifts none of those; an active pattern the optimizer inlines is below.
 - It needs the .NET 10 SDK: the tool targets .NET 10 and is built against that compiler's FCS,
   whose API older ones lack. On 8.0 or 9.0 the step is skipped with a message (the build has no
   map, and every block keeps the strict behaviour); a leg per compiler, with the tool built
-  against each one's FCS, is #261.
+  against each one's FCS, is #261. The tool creates its checker by reflection (every optional
+  parameter but `keepAssemblyContents` None), since `FSharpChecker.Create` gains parameters
+  between versions: on the 11.0 SDK (rc.3) it runs against that compiler's FCS, and the corpus's
+  14,084 cases give the same result as on 10 (11,768 exact, none rejected, none wrong).
 - The project is checked twice per build: once by the companion, once by fsc.
 - Two same-named variables of the same type, or two same-typed elements of one tuple, are told
   apart only by the companion's layout: the run-time checks catch a layout that changes a count or
