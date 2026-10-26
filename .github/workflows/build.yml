@@ -291,6 +291,31 @@ jobs:
             --report-anyunit-json results/Tests-net11-latest-${{ matrix.configuration }}.json \
             --platform-suffix ${{ matrix.configuration }}-latest
 
+      # The build companion (#259, #261) on this compiler: the tool loads the 11.0 compiler's own
+      # FCS, so the map describes what 11 emits. As in `companion`: no map entry rejected, and in
+      # Release some blocks bound through the map. (Debug on 11 builds state machines too, but the
+      # field pass finds none in its tree yet: those blocks keep the strict behaviour.) The tool
+      # targets net10.0; DOTNET_ROLL_FORWARD runs it on this runtime if 10's is not installed.
+      - name: Test with the companion (net11.0)
+        shell: bash
+        env:
+          CONFIGURATION: ${{ matrix.configuration }}
+          DOTNET_ROLL_FORWARD: Major
+        run: |
+          dotnet build Tests/Tests.fsproj --configuration "$CONFIGURATION" -p:TargetFrameworks=net11.0 -p:RunAnalyzers=false -p:DlrCompanion=true
+          DLR_CAPTURE_MAP_TRACE=1 dotnet "Tests/bin/$CONFIGURATION/net11.0/Tests.dll" \
+            --report-anyunit-json "results/Tests-net11-companion-$CONFIGURATION.json" \
+            --platform-suffix "$CONFIGURATION-companion" 2> trace.txt
+          exact=$(grep -c '^dlr capture map: exact' trace.txt || true)
+          rejected=$(grep '^dlr capture map: strict' trace.txt | grep -vc 'a closure, not a state machine' || true)
+          echo "bound exactly: $exact; rejected maps: $rejected"
+          if [ "$rejected" -gt 0 ]; then
+            echo "::error::a capture map entry was rejected"; grep '^dlr capture map: strict' trace.txt | grep -v 'a closure, not a state machine'; exit 1
+          fi
+          if [ "$CONFIGURATION" = Release ] && [ "$exact" -eq 0 ]; then
+            echo "::error::no block bound through the capture map in Release"; exit 1
+          fi
+
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
