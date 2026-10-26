@@ -203,12 +203,14 @@ module internal Translate =
             | None ->
             // An element of a captured tuple the optimizer split into a field per element, read
             // directly or through what it inlines: a local function applied to unit, or an
-            // immutable alias of an immutable variable (that value) whose name is no other's.
+            // immutable alias of an immutable variable (that value) whose name is no other's. An
+            // alias with a field of its own is read through it: a field `y_0` beside it is then a
+            // user's variable, not the split of `y` (#267).
             let rec tupleVar (e: Expr) : Var option =
                 match e with
                 | Var v when isCaptured bound v && FSharp.Reflection.FSharpType.IsTuple v.Type ->
                     match letDefinition v memberBody with
-                    | Some(Var y as d) when block.Substituted.Contains v || (not v.IsMutable && not y.IsMutable && not (block.Ambiguous.Contains y.Name)) ->
+                    | Some(Var y as d) when block.Substituted.Contains v || (not v.IsMutable && not y.IsMutable && not (block.Ambiguous.Contains y.Name) && not (block.Fields.ContainsKey v.Name)) ->
                         tupleVar d |> Option.orElse (Some v)
                     | _ -> Some v
                 | Application(Var f, Value(_, t)) when t = typeof<unit> && isCaptured bound f && not (if block.Exact then block.Resolved.ContainsKey(f, None) else block.Fields.ContainsKey f.Name) ->
