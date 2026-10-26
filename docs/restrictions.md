@@ -55,7 +55,7 @@ Not C# restrictions, but the same family:
   into every caller, taking the block's values with it and leaving its body behind. A Debug build
   calls it as a method, so it only appears to work. The analyzer reports it (`DLR004`).
 - **A captured `int` cannot be named `ResumptionPoint`** where the block gets a state machine
-  (Release, and Debug on the 11.0 compiler): the machine has a field of that name, and the
+  (always in Release, and in Debug on compilers that build one there): the machine has a field of that name, and the
   compiler rejects the duplicate (FS2014), as it does in `task { }`. A literal the optimizer
   inlines, and a `let mutable`, are fine ([translation](translation.md#captured-variables)).
 - **A reflected definition cannot call a function its signature file hides.** In Release the
@@ -85,7 +85,7 @@ Not C# restrictions, but the same family:
   (a 17-parameter lambda summing its arguments is enough) can overflow a small thread stack: an
   IIS worker's 256 KB, .NET 8's 512 KB default on macOS, a thread created with a small
   stack size. A stack overflow ends the process rather than raising an exception. Default
-  stacks on .NET 9 and later, and on Linux, have room for ordinary blocks. Open as #254.
+  stacks on .NET 9 and later, and on Linux, have room for ordinary blocks. Open as [#254](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/254).
 
 ## Five places it goes beyond C#
 

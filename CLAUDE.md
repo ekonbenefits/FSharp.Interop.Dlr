@@ -126,9 +126,9 @@ FSharp.Interop.Dlr/check-internals.sh  # each idiom fixed more than once has one
 - .NET SDK 10 or later (net10.0 targets, the `.slnx`); SDK 8 and 9 are not supported (end of
   support November 2026). Their compilers build the tests in the `compilers` job only as a canary
   for behaviour that has been stable across compiler versions. Caller info
-  is on `Delay`, never `Run`: on `Run` it made the 8/9 compilers warn FS3511 on every block in
-  Debug (#126) and makes 11.0's fail FS2014 on an inline call in one (#235, dotnet/fsharp#20836).
-  The block's file and line come from a probe on a miss (`DlrLocation`).
+  is on `Delay`, never `Run`: compilers have handled it the same on `Delay` across versions, while
+  on `Run` (which holds the `if __useResumableCode` branches) it has broken Debug builds more than
+  once (#126, #235). The block's file and line come from a probe on a miss (`DlrLocation`).
 - `Tests.ClosureBuilder` (`Tests/ClosureBuilder.fs`) is `DlrBuilder` without its
   `if __useResumableCode` branch: `Run` always calls `DlrRun.Closure`, so `-p:DlrClosures=true`
   runs the suite on the closure path in Debug and Release. Every test file opens it after
@@ -141,16 +141,24 @@ FSharp.Interop.Dlr/check-internals.sh  # each idiom fixed more than once has one
   consumer calls `Delay` itself; changing one is `MissingMethodException` in an already-built
   consumer. `dotnet pack` validates against the last nuget.org release
   (`PackageValidationBaselineVersion` in `FSharp.Interop.Dlr.fsproj`); an intentional break goes in
-  `FSharp.Interop.Dlr/CompatibilitySuppressions.xml` (written by
-  `-p:GenerateCompatibilitySuppressionFile=true`) and the release notes. On each release that
-  reaches nuget.org, move the baseline to it and clear that file.
+  `CompatibilitySuppressions.xml` beside the fsproj (written by
+  `-p:GenerateCompatibilitySuppressionFile=true`; absent while nothing is suppressed) and the
+  release notes. On each release that reaches nuget.org, move the baseline to it and delete that
+  file.
 - FSharp.Core floor 10.1.201 (older converters reject `Sequential`/`PropertySet`, so unit blocks,
   mutables and `let rec` fail there; the test projects run at the floor); netstandard2.0 has no `Architecture.Wasm` or Reflection.Emit inbox
   (`System.Reflection.Emit.Lightweight` is referenced for it).
-- Benchmarks: only on a quiet machine (load average under 4; a busy one skews every cell).
+- Benchmarks: only on a quiet machine (load average under 4 before starting; a busy one skews
+  every cell), and with no other work during the run: other sessions on this machine hold their
+  builds and test runs until it ends (ask them). The 1-minute load rises on its own at the start,
+  while BenchmarkDotNet builds its projects; that is not interference. A busy run cannot hide a
+  regression, but it can inflate cells that later runs compare against, so before committing
+  regenerated numbers, compare the reference columns (static, C# `dynamic`, reflection, whose
+  code did not change) cell by cell with the committed file: moves beyond noise (a few percent)
+  mean the run was skewed. If the numbers match the committed ones, there is nothing to commit.
   `Benchmarks/bench.sh docs` regenerates `docs/benchmarks.md`, then `bench.sh compare` flags the
   `dlr { }` cells over 25% slower or allocating more than the committed file (and prints the
-  other columns' drift). Allocations on the hot paths are pinned exactly in `Tests/HotPath.fs`,
+  other columns' median drift, which can hide single inflated cells). Allocations on the hot paths are pinned exactly in `Tests/HotPath.fs`,
   which the gate runs; timings cannot be, so they are compared, not asserted. So in the docs a
   byte count may be written out where `Tests/HotPath.fs` pins it, but a timing is relative ("a few
   nanoseconds more", "several times") and points at its `docs/benchmarks.md` row: nothing checks a

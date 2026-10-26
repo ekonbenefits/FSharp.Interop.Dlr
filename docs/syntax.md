@@ -41,7 +41,9 @@ type Report(data: obj) =
 ### One block per line
 
 A block is found by the file and line it starts on, so two blocks cannot start on one source
-line: the first call raises a `DlrTranslationException`. Put each block on its own line.
+line: the first call raises a `DlrTranslationException`. Put each block on its own line. A block
+in a match arm with an or-pattern (`| A x | B x -> dlr { … }`) is one block, although the
+quotation holds the arm once per alternative.
 
 ### Not in an `inline` function
 
@@ -253,7 +255,7 @@ whether the member is a method, a delegate or an F# function. So
 - `unit -> R` reads a property or calls a parameterless method.
 
 Read as a delegate type, `x?Name` is the member's value, or, when the member is a method, the
-delegate over an invoker of it (#201). So a block passes a method where a `Func` is expected:
+delegate over an invoker of it ([#201](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/201)). So a block passes a method where a `Func` is expected:
 `Api.Fold(dlr { return w?Add })`, the block typed `Func<int, int, int>` by the parameter. A
 property, field or dynamic object's member holding a delegate is read as itself. A dynamic
 object with nothing to read is asked at the call, as for a function type: a proxy that only
@@ -303,7 +305,7 @@ named: `Task<T>`, `Task`, `ValueTask<T>`, an F# `Async<'T>`. `task { }` or `asyn
 as any other (`Async.AwaitTask` where F# needs it).
 
 - A result type not known: `let t: Task = dlr { … }`, `do! t`, then `t?Result`.
-- A `ValueTask<T>` of unknown `T` is `?AsTask()` first (#110).
+- A `ValueTask<T>` of unknown `T` is `?AsTask()` first ([#110](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/110)).
 - An awaitable of unknown, non-`Task` type has no spelling, and none is planned: nothing in
   practice returns one.
 - A JS promise from ClearScript is bridged by its `JavaScriptExtensions.ToTask`, an extension

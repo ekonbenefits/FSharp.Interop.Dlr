@@ -133,6 +133,25 @@ let ``a guard's variable, bound for the guard and for its target`` () =
     let result = guarded w 4
     result |> should equal 43
 
+/// An or-pattern's arm: the map's body holds the block once per alternative, and its copies are
+/// that block (#263), as from a reflected definition; the field pass takes the first copy's `x`,
+/// as the run time takes the first copy.
+let private eitherWay (w: obj) (k: int) : int =
+    match (if k > 0 then Choice1Of2(k * 10) else Choice2Of2(k * 10)) with
+    | Choice1Of2 x
+    | Choice2Of2 x ->
+        // fsharpanalyzer: ignore-line-next DLR001
+        dlr { return w?Count + x }
+
+[<Fact>]
+let ``an or-pattern's arm`` () =
+    needsBodies ()
+    let w: obj = Widget()
+    let first = eitherWay w 5
+    first |> should equal 53
+    let second = eitherWay w -2
+    second |> should equal -17
+
 /// Two blocks of one member on one line: refused as the reflected path refuses them, by the line,
 /// not as a missing attribute.
 let private twoOnOneLine (w: obj) : int * string =

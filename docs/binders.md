@@ -89,7 +89,7 @@ These three carry the function rule:
 - **`FSharpReadOrInvokeBinder`** (`x?Name` read as `unit -> R`). A parameterless method is
   invoked; a property or field is read (and applied if it is an F# function); on a dynamic
   target the value itself is the result unless it is a delegate or function.
-- **`FSharpGetMemberOrMethodBinder`** (`x?Name` read as a delegate type, #201). C#'s
+- **`FSharpGetMemberOrMethodBinder`** (`x?Name` read as a delegate type, [#201](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/201)). C#'s
   `GetMember`, with ours as its error suggestion where the name is an accessible instance
   method, or the target is a dynamic object with nothing to read (asked at the call, as a
   function type's invoker is): the `MethodGroup` marker, restricted to the target's type. The block then builds the
@@ -203,7 +203,7 @@ function or `Delegate` accepts the other kind too.
 The fallback (`Fallback.tryCall`, C#'s error suggestion) converts an F# function argument for a
 delegate parameter, and a delegate argument for a function parameter.
 
-Assignment takes the same conversions (#153): `FSharpSetMemberBinder` and `FSharpSetIndexBinder`
+Assignment takes the same conversions ([#153](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/153)): `FSharpSetMemberBinder` and `FSharpSetIndexBinder`
 offer `Fallback.trySet` as C#'s error suggestion. A property's or indexer's setter is called
 through the same `tryInvoke` (indexes, then the value); a field or array element is assigned
 the converted value. So these bind where C# reports "cannot implicitly convert":
@@ -222,7 +222,7 @@ C# does.
 
 ### Conversions
 
-A value converted to a delegate or F# function type takes the same conversions (#202): a
+A value converted to a delegate or F# function type takes the same conversions ([#202](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/202)): a
 block's result (`(dlr { return h?AsFunction } : Func<int, int>)`), `Dlr.implicit` and
 `Dlr.cast`. **`FSharpConvertBinder`** wraps C#'s `Convert` and offers `Fallback.conversion`,
 restricted to the value's type, as its error suggestion. To any other type the site is C#'s
@@ -245,7 +245,7 @@ The standard binders seal `Bind`, so `MetaObjectAwareBinder` wraps:
 
 - the invoke, apply, set-member and set-index binders;
 - the AddAssign/SubtractAssign step of `Dlr.addAssign`'s read-modify-write (a COM event reads as
-  a bound event that takes `+=` of a delegate only, #132);
+  a bound event that takes `+=` of a delegate only, [#132](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/132));
 - but not the nested invoke of a member read as a callable value.
 
 It answers that case with a nested site on the real binder whose arguments are the delegates: a
@@ -333,7 +333,7 @@ conversion, the one shape it builds as a compiled lambda rather than an adapter 
 A delegate's own members are looked up through `DelegateMembers`, public or not. F# compiles a
 delegate's `Invoke` and constructor at the type's accessibility, so an `internal` F# delegate's
 are internal where C#'s stay public. A public-only lookup missed every conversion (either
-direction) and the `Dlr.call` fallback for it (#150).
+direction) and the `Dlr.call` fallback for it ([#150](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/150)).
 
 .NET Framework does the same in two places of its own:
 

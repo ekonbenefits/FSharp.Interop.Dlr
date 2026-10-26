@@ -12,6 +12,7 @@ flowchart TD
     sites["<b>Machines&lt;'SM,'T&gt;</b><br/>(Cache.fs)"]
     invoke["<b>reader.Invoke(&amp;sm)</b>"]
     cache["<b>DlrCache</b><br/>(Cache.fs)"]
+    locate["<b>Locate</b><br/>(Cache.fs)"]
     discover["<b>Discover</b><br/>(Discover.fs)"]
     translate["<b>Translate</b><br/>(Translate*.fs)"]
     binders["<b>Binders</b><br/>(Binders.fs, Seam.fs, …)"]
@@ -22,7 +23,7 @@ flowchart TD
     src --> run --> sites
     sites -- hit --> invoke
     sites -- miss --> cache
-    cache -- miss --> discover --> translate
+    cache -- miss --> locate --> discover --> translate
     translate <--> binders
     translate --> conv --> hoist --> compile -- adds --> cache
     cache -- hit --> sites
@@ -30,7 +31,7 @@ flowchart TD
     classDef entry fill:#e8f1ff,stroke:#4a78c2
     classDef compileOnce fill:#fff4e0,stroke:#c98a1b
     class src,run,sites,invoke entry
-    class cache,discover,translate,binders,conv,hoist,compile compileOnce
+    class cache,locate,discover,translate,binders,conv,hoist,compile compileOnce
 ```
 
 Blue is every call; orange is the first call at a site (and again after `DlrCache.clear()`).
@@ -42,6 +43,7 @@ Blue is every call; orange is the first call at a site (and again after `DlrCach
   generation compare.
 - **`reader.Invoke(&sm)`**: field reads, and one `CallSite` per operation.
 - **`DlrCache`**: machine type → `Compiled`.
+- **`Locate`**: the block's file and line, from a probe of its outermost `Delay` (below).
 - **`Discover`**: the block's body, from the enclosing member's `[<ReflectedDefinition>]`, by
   file and line.
 - **`Translate.translate`**: `normalize`, then Plumbing / Members / Captures, giving a quotation
@@ -62,10 +64,11 @@ the captured values. The compiled reader takes the machine by reference and read
 variables off its fields ([translation](translation.md)). No closure is allocated and no
 `GetType()` runs.
 
-**Locating the block.** The caller's file and line are `Delay`'s arguments, not `Run`'s: a
-caller-info argument on `Run` makes the 11.0 compiler keep both branches of `if
-__useResumableCode` in Debug, and an inline call in the body is then emitted twice under one name
-(FS2014, dotnet/fsharp#20836, #235). So `Run` has no file and line to pass. On a miss, `Locate`
+**Locating the block.** The caller's file and line are `Delay`'s arguments, not `Run`'s.
+Compilers have handled caller-info arguments on `Delay` the same way across versions; on `Run`,
+the member holding the `if __useResumableCode` branches, they have broken Debug builds more than
+once, a warning on every block from one compiler generation ([#126](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/126)) and a build failure from
+another ([#235](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/235)). So `Run` has no file and line to pass. On a miss, `Locate`
 (`Cache.fs`) runs the block's code once with `DlrLocation`'s thread-static flag set — `MoveNext`
 on a boxed copy of the machine, or the fallback's `ResumableCode` on a fresh one — and the
 outermost `Delay` writes its file and line there and returns without running the body. A hit
@@ -74,38 +77,25 @@ the boxed copy a compiled loop or `try` makes per call; and two threads may prob
 probe runs no user code, so it cannot nest. Code that does not start with the builder's `Delay`
 (its members called by hand) answers nothing, and `Locate` raises `DlrTranslationException`.
 
-**Fallback.** Where the compiler does not build the machine — Debug builds on the 10.0 compiler
-(`__useResumableCode` is false without optimization; the 8.0, 9.0 and 11.0 compilers build the
-machine in Debug too, the last since dotnet/fsharp#20469) — `Run`'s `else` branch receives the `ResumableCode`
-delegate. `DlrRun.Closure` reads the block's `Delay` closure back out of that delegate's
-target (the builder's own `Delay` lambda captures it in a field named `delayed`, read by a
-reader compiled once per result type — `Delayed<'T>` — not by reflection per call; when the
-optimizer has inlined it, the target itself is the closure) and continues on the closure path:
-the closure's type is the key, its fields the captured values, and [`Sites<'T>`](caches.md) the
-typed cache (last-hit compare, then a dictionary). Same contract, same `Discover` and `Translate`; the cost
-is three allocations (the Delay closure, the builder's wrapper and the `ResumableCode` delegate),
-two `GetType()` calls with a reference compare each, and a compiled field read. Both paths are
-exercised on purpose, not by which compiler builds Debug: the suite runs in Debug and in Release,
-and again through `Tests.ClosureBuilder` (`-p:DlrClosures=true`), a copy of the builder without
-the state-machine branch, so every block takes the closure path in both. (On the 10.0 compiler
-Debug builds no state machine at all; on the 8.0, 9.0 and 11.0 compilers every Debug block builds
-one. `Tests/Resumable.fs` pins which, by `DEBUG_MACHINES`, and fails if a 10.0 SDK changes it.)
+**Fallback.** Where the compiler does not build the machine (`__useResumableCode` is false:
+some compilers' Debug builds, and the one shape below), `Run`'s `else` branch gets the
+`ResumableCode` delegate. `DlrRun.Closure` reads the block's `Delay` closure out of its target
+(the builder's `Delay` lambda holds it in a field named `delayed`, read by `Delayed<'T>`, a reader
+compiled once per result type) and continues on the closure path: the closure's type is the key,
+its fields the captured values, [`Sites<'T>`](caches.md) the cache. Same `Discover` and
+`Translate`; the cost is three allocations and two `GetType()` compares. `Tests.ClosureBuilder`
+(`-p:DlrClosures=true`) runs the whole suite on this path, whatever the compiler does in Debug.
 
-Every `dlr { }` desugars to `Run(Delay(fun () -> …))` in one expression, which the compiler
-builds the machine for — with one exception it takes silently, no FS3511: a block whose
-function-typed result is applied on the spot, `(dlr { return x?Add } : int -> int -> int) 1 2`
-(partially, or through `|>` / `<|`, counts, and so does a function-typed block bound with `let`
-and applied once, fully or partially, `let f: int -> int -> int = dlr { … } in f 1 2` or `f 1`, which the optimizer inlines
-into that one application: #217, `Tests/Resumable.fs`. Used twice, the binding stays a value and
-the block gets its machine. The cause: the optimizer pushes the application into both
-branches of `Run`'s `if __useResumableCode`, and the compiler's state-machine recognizer then no
-longer sees the `if` at the top, so it emits the `else` branch with no diagnostic).
-That goes to the `else` branch in Release too, with the `Delay` wrapper inlined: the delegate's
-target is the closure itself when the block captures a value, and null — a static method on the
-closure class — when it captures nothing, in which case `DlrRun.Closure` compiles from that
-class (`code.Method.DeclaringType`) and passes no closure. (The builder's members called by
-hand with the `Delay` result bound or passed separately are the other way in — FS3501 (or
-FS3511) from the compiler — and nobody writes that.)
+**The one shape Release leaves to the fallback.** A block whose result is a function, applied
+where it is created, gets no state machine even in Release, and no warning:
+`(dlr { return x?Add } : int -> int -> int) 1 2`, also partially applied or through a pipe, and a
+function-typed block bound with `let` and applied once (the optimizer inlines the binding into
+that application). The optimizer moves the application into both branches of `Run`'s
+`if __useResumableCode`, and the compiler no longer recognises the state machine. Such a block
+takes the fallback with its `Delay` wrapper inlined: the delegate's target is the closure itself,
+or null when the block captures nothing, and then `DlrRun.Closure` compiles from the closure's
+class (`code.Method.DeclaringType`). Bound with `let` and applied twice, it gets its machine.
+`Tests/Resumable.fs` pins these shapes ([#217](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/217)).
 
 ## One call on the hot path
 
@@ -132,7 +122,7 @@ sequenceDiagram
 The method-call row of [benchmarks.md](benchmarks.md) puts `w?Add(i, 1)` a few nanoseconds
 over C# `dynamic`'s `d.Add(i, 1)`, with no allocation but the box of a value result (the same
 box C# pays): what remains of the block's entry is the machine's construction, the slot read
-and the invoke; the site call itself is C#'s. (The closure path — the Debug fallback — roughly
+and the invoke; the site call itself is C#'s. (The closure path roughly
 doubles the entry with the closure allocation, `GetType()` and the compare. A `Func<'SM, 'T>`
 taking the struct by value instead of the `inref` reader measured slower —
 [translation](translation.md) has the number.)
@@ -184,7 +174,7 @@ first bind per site (the rule) is paid on the first invoke like any C# `dynamic`
 That work runs on the thread making the first call, and FSharp.Core's quotation-to-LINQ
 converter takes a large stack frame per nesting level of the block's expression: a deep block on
 a small thread stack (an IIS worker's 256 KB, .NET 8's 512 KB default on macOS) can overflow it,
-which ends the process rather than raising an exception (#254).
+which ends the process rather than raising an exception ([#254](https://github.com/ekonbenefits/FSharp.Interop.Dlr/issues/254)).
 
 ## Measured
 

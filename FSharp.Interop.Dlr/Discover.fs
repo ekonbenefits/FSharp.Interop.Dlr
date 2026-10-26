@@ -102,6 +102,64 @@ module internal Discover =
             try build (fun _ -> typeof<obj>)
             with :? ArgumentException -> build id
 
+    /// A body with its variables renamed canonically, so two trees compare equal exactly when they
+    /// are the same up to their variables: each binder by its position, each free variable by its
+    /// name, type and mutability. `shared` gives both trees the same `Var` for the same name, as
+    /// `Expr` compares variables by reference. Two free variables of one name in one tree would
+    /// become one; the reflected definition is the unoptimized source, where a block cannot see
+    /// two variables of one name (the inner one shadows the outer), so that does not arise.
+    let private canonical (shared: System.Collections.Generic.Dictionary<string, Var>) (e: Expr) : Expr =
+        let var (key: string) (t: Type) (isMutable: bool) =
+            let key = sprintf "%s:%O:%b" key t isMutable
+            match shared.TryGetValue key with
+            | true, v -> v
+            | _ -> let v = Var(key, t, isMutable) in shared.[key] <- v; v
+        let mutable binders = 0
+        let rec go (bound: Map<Var, Var>) (e: Expr) =
+            match e with
+            | ShapeVar v ->
+                match bound.TryFind v with
+                | Some c -> Expr.Var c
+                | None -> Expr.Var(var ("free " + v.Name) v.Type v.IsMutable)
+            | ShapeLambda(v, body) ->
+                binders <- binders + 1
+                let c = var (sprintf "bound %d" binders) v.Type v.IsMutable
+                Expr.Lambda(c, go (bound.Add(v, c)) body)
+            | _ -> Quotation.rebuild (go bound) e
+        go Map.empty e
+
+    /// The one block `bodies` are, when they are several copies of it. The quotation holds a match
+    /// arm whose or-pattern binds a variable once per alternative, each copy over its own `Var`s,
+    /// so the block is found once per alternative at its line (#263). Copies are taken as one block
+    /// only when it cannot matter which is used: the same up to their variables, and every variable
+    /// the block reads a field of its own container (as the translator sees them), read by name. A variable that is not (the
+    /// optimizer inlined it) would be recovered from one copy's definition, which may be another
+    /// block's on the same line, so those stay refused. The builder is not one of them: it is never
+    /// captured (the translator drops it by type, as here). `Error` names the variables that kept
+    /// copies from being taken as one, or is empty when the runs are not copies at all.
+    let private oneOf (builderType: Type) (closureType: Type) (bodies: Expr list) : Result<Expr, string list> =
+        match bodies with
+        | [ body ] -> Ok body
+        | first :: rest ->
+            let shared = System.Collections.Generic.Dictionary<string, Var>()
+            let shape = canonical shared first
+            if not (rest |> List.forall (fun b -> canonical shared b = shape)) then Error []
+            else
+                // The translator's own view of the container's fields: a machine's `Data` and
+                // `ResumptionPoint` are not captures, though a variable may be named either.
+                let fields = TranslateBlock.Captures.fields closureType
+                match first.GetFreeVars() |> Seq.filter (fun v -> v.Type <> builderType && not (fields.ContainsKey v.Name)) |> Seq.map (fun v -> v.Name) |> List.ofSeq with
+                | [] -> Ok first
+                | uncaptured -> Error uncaptured
+        | [] -> Error []
+
+    /// Copies of one block that read a variable the optimizer did not capture as itself.
+    let private heldTimes (file: string) (line: int) (copies: int) (uncaptured: string list) (closureType: Type) =
+        DlrTranslationException(
+            sprintf "dlr { } at %s:%d is held %d times in its member's reflected definition (an or-pattern's arm, or look-alike blocks on one line), and reads %s, which the optimizer did not capture as itself (fields: %s), so which copy is meant cannot be told. Bind it to a value the block reads directly, or move the block into its own function."
+                file line copies (uncaptured |> List.map (sprintf "'%s'") |> String.concat ", ")
+                (String.Join(", ", (TranslateBlock.Captures.fields closureType).Keys)))
+
     /// The block whose Delay closure has type `closureType`, at `file:line`.
     let findBody (builderType: Type) (closureType: Type) (file: string) (line: int) : Found =
         let holder = if isNull closureType.DeclaringType then closureType else closureType.DeclaringType
@@ -122,6 +180,15 @@ module internal Discover =
                 search all
             | found -> found
         let fromMap = lazy (BodyMap.find (CaptureMap.body closureType.Assembly) closureType file line)
+        // Copies of one block in one member (an or-pattern's arm) are that block, not several.
+        let matches =
+            match matches with
+            | (m, memberBody, _) :: rest when not rest.IsEmpty && rest |> List.forall (fun (m', _, _) -> m' = m) ->
+                match oneOf builderType closureType (matches |> List.map (fun (_, _, b) -> b)) with
+                | Ok body -> [ m, memberBody, body ]
+                | Error [] -> matches
+                | Error uncaptured -> raise (heldTimes file line matches.Length uncaptured closureType)
+            | _ -> matches
         match matches with
         | [ m, memberBody, body ] ->
             let m, memberBody, body =
@@ -130,22 +197,25 @@ module internal Discover =
                 | inst ->
                     match tryReflected inst with
                     | Choice1Of2(Some q) ->
-                        match runsAt builderType file line q with
-                        | [ b ] -> inst, q, b
-                        | _ -> m, memberBody, body
+                        match oneOf builderType closureType (runsAt builderType file line q) with
+                        | Ok b -> inst, q, b
+                        | Error _ -> m, memberBody, body
                     | _ -> m, memberBody, body
             { Context = m.DeclaringType; MemberBody = memberBody; Body = body }
-        | [] when (match fromMap.Value with BodyMap.Found(_, q) -> List.length (runsAt builderType file line q) = 1 | _ -> false) ->
+        | [] when (match fromMap.Value with BodyMap.Found(_, q) -> not (List.isEmpty (runsAt builderType file line q)) | _ -> false) ->
             // No reflected definition (or one FSharp.Core cannot decode), but the build companion's
-            // map has the member: its body, rebuilt from the compiler's tree, is the same Expr.
+            // map has the member: its body, rebuilt from the compiler's tree, is the same Expr, and
+            // its copies of one block (an or-pattern's arm) are that block, as from a reflected one.
             match fromMap.Value with
-            | BodyMap.Found(context, memberBody) -> { Context = context; MemberBody = memberBody; Body = List.head (runsAt builderType file line memberBody) }
+            | BodyMap.Found(context, memberBody) ->
+                let runs = runsAt builderType file line memberBody
+                match oneOf builderType closureType runs with
+                | Ok body -> { Context = context; MemberBody = memberBody; Body = body }
+                // Two of its blocks start on this line: refused as the reflected path refuses them,
+                // by the line, not as a missing attribute.
+                | Error [] -> raise (DlrTranslationException(sprintf "%d dlr { } blocks share %s:%d; put each dlr { } on its own line." runs.Length file line))
+                | Error uncaptured -> raise (heldTimes file line runs.Length uncaptured closureType)
             | _ -> failwith "unreachable"
-        // The member is in the map, but two of its blocks start on this line: refused as the
-        // reflected path refuses them, by the line, not as a missing attribute.
-        | [] when (match fromMap.Value with BodyMap.Found(_, q) -> List.length (runsAt builderType file line q) > 1 | _ -> false) ->
-            let n = match fromMap.Value with BodyMap.Found(_, q) -> List.length (runsAt builderType file line q) | _ -> 0
-            raise (DlrTranslationException(sprintf "%d dlr { } blocks share %s:%d; put each dlr { } on its own line." n file line))
         | [] when (match fromMap.Value with BodyMap.Shared _ -> true | _ -> false) ->
             let n = match fromMap.Value with BodyMap.Shared n -> n | _ -> 0
             raise (DlrTranslationException(sprintf "%d dlr { } blocks share %s:%d; put each dlr { } on its own line." n file line))
