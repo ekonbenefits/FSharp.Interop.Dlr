@@ -32,6 +32,8 @@ type internal CaptureFields = { Entries: CaptureEntry list; Counts: Map<string, 
 /// its optional sections; `fields` holds `V field name ordinal`, `E field name ordinal element`,
 /// `U name ordinal element` (a split tuple's element nothing keeps) and `N name count`; `body`
 /// lines are BodyMap's. A file's blob is inflated the first time one of its blocks is looked up.
+/// A section this reader does not know is skipped, so a new kind of fact about a block (for this
+/// library or another consumer of the format) is a new section, not a new version.
 ///
 /// Anything malformed is never an exception: a bad header or `F` line, a blob that does not
 /// inflate, and the map is ignored whole; a bad line inside a block's `fields`, and that block has

@@ -71,6 +71,15 @@ many bindings of it the companion counted in the member) and `S body`. Blocks ar
 `Delay`'s caller information, the same file and line the run time's probe finds; under a path map (deterministic builds)
 FCS applies the same mapping, so the keys still match.
 
+Little of the format is about `dlr { }`. It records, per source location, facts the compiler knows
+and the run time does not: a member's body without `[<ReflectedDefinition>]`, and which compiled
+field holds which source variable. A section the reader does not know is skipped, so a new kind of
+fact is a new section, not a new version. What is this library's own: the resource name, the block
+key (`Delay`'s caller information, through `DlrLocation`), the field pass taking only machines whose
+code reaches `DlrLocation.Answer`, and the run-time checks. Another consumer (a resumable
+computation expression inspecting its captures, a reader of code as data) would supply its own
+key and checks, and could share the rest; it is kept that way on purpose, not yet split out.
+
 ## The build step
 
 `FSharp.Interop.Dlr.Build.targets`, opted into with the DlrCompanion property, in any
