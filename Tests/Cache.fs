@@ -486,8 +486,11 @@ let ``what the optimizer did to a tuple or a shared name is never guessed`` () =
     // Debug splits no tuple: nothing to refuse.
     Ticks.Reset()
     userT0BesideSplitTuple echo |> should equal "1|999"
+#if !DEBUG_MACHINES
+    // A Debug machine (8.0, 9.0, 11.0) holds no field for `y`, so it may be split: refused there.
     aliasOfTupleBesideUserY0 echo 10 |> should equal "10|99"
     aliasOfTupleBesideUserY0Closure echo 10 |> should equal "10|99"
+#endif
 #endif
 
 /// A shadowed name inside a local function the Release optimizer inlines: the machine captures
