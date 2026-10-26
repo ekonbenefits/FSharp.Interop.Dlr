@@ -303,7 +303,8 @@ jobs:
   # the capture map during the build (FSharp.Interop.Dlr.Build) and embeds it, then the suite with
   # the map's trace on. Beyond a passing suite: no block's map entry may be rejected for anything
   # but being a closure (that would be the companion disagreeing with the compiler), and in
-  # Release, where blocks are state machines, some must bind through the map.
+  # Release, where blocks are state machines, some must bind through the map. Then the oracles
+  # (Companion/oracle.fsx) over the same build.
   companion:
     strategy:
       fail-fast: false
@@ -343,6 +344,17 @@ jobs:
           if [ "$CONFIGURATION" = Release ] && [ "$exact" -eq 0 ]; then
             echo "::error::no block bound through the capture map in Release"; exit 1
           fi
+
+      # The oracles (#227): each map body decoded and compared with its member's reflected
+      # definition, and each member laid out as the field pass does and compared, per name, with
+      # the quotation's variables. A body that differs or a reordered layout fails it.
+      - name: Oracle
+        shell: bash
+        env:
+          CONFIGURATION: ${{ matrix.configuration }}
+        run: |
+          dotnet fsi Companion/oracle.fsx "Tests/obj/$CONFIGURATION/net10.0/dlr.companion.fscargs" "$PWD/Tests" "$PWD/Tests/bin/$CONFIGURATION/net10.0/Tests.dll" > oracle.txt 2>&1 || { cat oracle.txt; echo "::error::the companion's oracle failed"; exit 1; }
+          grep -E '^members|^layouts|^signature' oracle.txt
 
   # The library is JIT-only by design (README) - the C# runtime binder,
   # LambdaExpression.Compile and ReflectedDefinition lookup - and Mono's

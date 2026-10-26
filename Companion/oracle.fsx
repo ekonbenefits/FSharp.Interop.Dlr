@@ -229,6 +229,8 @@ printfn "layouts %d: same %d, differ %d (same count, another order: %d), failed 
 for l in reorderedSamples do printfn "  REORDERED %s" l
 for KeyValue(k, n) in countKinds |> Seq.sortByDescending (fun kv -> kv.Value) do printfn "  count differs, %s: %d names" k n
 for l in layoutSamples do printfn "  differs: %s" l
-// A reordered layout is a wrong binding the run time cannot see: it fails the oracle. A count that
-// differs is a refusal (the N check), reported above.
-if not (exactOk && wrongParam && wrongReturn && lone) || layoutReordered > 0 || layoutFailed > 0 then exit 1
+// Fails the oracle: a body that decodes differently from its quotation (the run time would compile
+// another body), a signature check, and a reordered layout (a wrong binding the run time cannot
+// see). Reported only: a member the encoder cannot carry (the map leaves it out: the attribute is
+// needed) and a count that differs (a refusal, the N check).
+if differ > 0 || not (exactOk && wrongParam && wrongReturn && lone) || layoutReordered > 0 || layoutFailed > 0 then exit 1
