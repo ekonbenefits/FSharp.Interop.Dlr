@@ -133,6 +133,24 @@ let ``a guard's variable, bound for the guard and for its target`` () =
     let result = guarded w 4
     result |> should equal 43
 
+/// Two guarded arms binding one name, the block in the second: the match compiler gives the
+/// machine's field the first arm's value, which the field pass does not attribute (no entry: the
+/// strict behaviour, which binds it by name), rather than guess between the arms.
+let private secondGuard (w: obj) (k: int) : int =
+    match Some(k * 10) with
+    | Some x when x < 0 -> x
+    | Some x when x > 0 ->
+        // fsharpanalyzer: ignore-line-next DLR001
+        dlr { return w?Count + x }
+    | _ -> 0
+
+[<Fact>]
+let ``a second guarded arm binding the same name`` () =
+    needsBodies ()
+    let w: obj = Widget()
+    let result = secondGuard w 4
+    result |> should equal 43
+
 /// An or-pattern's arm: the map's body holds the block once per alternative, and its copies are
 /// that block (#263), as from a reflected definition; the field pass takes the first copy's `x`,
 /// as the run time takes the first copy.

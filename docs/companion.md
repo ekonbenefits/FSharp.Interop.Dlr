@@ -33,9 +33,9 @@ path, so it counts twice, and a `let rec` is its variables, then its body, then 
 as F# puts them in the quotation. A value bound more than once (a guard's variable, bound for the
 guard and again for its target; a handler's, for the filter and for the handler) is the binding in
 scope at the block, found from the block's `Delay` in the unoptimized tree. Both trees are walked
-after optimizing: the optimizer renames values they share (a match's input after the pattern
-variable it stands for), and fsc pickles a reflected definition after optimizing, so the quotation
-has the renamed names too. Each rule gives an exact answer
+after optimizing: the optimizer renames values the trees share (a match's input after the pattern
+variable it stands for), and the reflected definition fsc pickles is the unoptimized expression with
+those renames, so the unoptimized tree read after optimizing has the quotation's names. Each rule gives an exact answer
 or none:
 
 - a variable of the source is itself;
@@ -163,6 +163,10 @@ lifts none of those; an active pattern the optimizer inlines is below.
   leaves the block's upstream, not one that swaps two such variables and keeps both.
 - A block in an `inline` function is expanded into its callers and stays refused (DLR004), so
   SRTP witness fields never reach the map.
+- Two guarded arms binding one name, the block in the second (`| Some x when x < 0 -> … | Some x
+  when x > 0 -> dlr { … }`): the match compiler gives the machine's field a value with the first
+  arm's range, which the field pass does not attribute between the arms. The block has no entry and
+  keeps the strict behaviour (`Tests/Companion.fs` pins it).
 - An active pattern the optimizer inlines away (`| Same x ->` with `Same` the identity) leaves the
   machine the match's input, which the map says, while the block reads the pattern's variable,
   whose definition is the pattern's call: the block refuses (it would run that call again), where

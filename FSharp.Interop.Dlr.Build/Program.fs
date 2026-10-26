@@ -41,9 +41,9 @@ module Run =
     let run (argsFile: string) (projectDir: string) (output: string) : int =
         let results = Check.project argsFile projectDir
         // Optimized first, walked after: the optimizer renames values the trees share (a match's
-        // input after the pattern variable it stands for, `matchValue` to `x`), and fsc pickles a
-        // reflected definition after optimizing, so its names are the renamed ones. The unoptimized
-        // tree is read lazily, after this.
+        // input after the pattern variable it stands for, `matchValue` to `x`), and the reflected
+        // definition fsc pickles is the unoptimized expression with those renames. The unoptimized
+        // tree's values are read live, so walked after this, it has the quotation's names.
         let optimized = results.GetOptimizedAssemblyContents()
         let fields = Fields.run results.AssemblyContents optimized
         let bodies = Bodies.run results

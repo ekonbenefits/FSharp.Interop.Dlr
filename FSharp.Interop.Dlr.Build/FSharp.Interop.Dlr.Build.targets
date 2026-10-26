@@ -80,9 +80,10 @@
     <WriteLinesToFile File="$(_DlrCompanionArgs)" Lines="@(_DlrCompanionFscArg)" Overwrite="true" WriteOnlyWhenDifferent="true" />
   </Target>
 
-  <!-- Incremental: the map is rewritten only when a source, the arguments, the tool or the
-       compiler changed (a new SDK), or the last run failed. -->
-  <Target Name="_DlrCompanionRun" Inputs="@(Compile);$(_DlrCompanionArgs);$(DlrCompanionTool);$(_DlrCompanionFcs);$(_DlrCompanionRetry)" Outputs="$(_DlrCompanionMap)">
+  <!-- Incremental: the map is rewritten only when a source, a referenced assembly (a project
+       reference's new build has the same path, so the arguments do not change), the arguments,
+       the tool or the compiler changed (a new SDK), or the last run failed. -->
+  <Target Name="_DlrCompanionRun" Inputs="@(Compile);@(ReferencePath);$(_DlrCompanionArgs);$(DlrCompanionTool);$(_DlrCompanionFcs);$(_DlrCompanionRetry)" Outputs="$(_DlrCompanionMap)">
     <!-- IgnoreStandardErrorWarningFormat: an FCS message the tool prints must not read as a build
          error; the tool's own failures turn the map off, they never fail the build. -->
     <Exec Command="&quot;$(_DlrCompanionDotnet)&quot; &quot;$(DlrCompanionTool)&quot; $(_DlrCompanionCompiler) &quot;$(_DlrCompanionArgs)&quot; &quot;$(MSBuildProjectDirectory)&quot; &quot;$(_DlrCompanionMap)&quot;" IgnoreStandardErrorWarningFormat="true" IgnoreExitCode="true">
