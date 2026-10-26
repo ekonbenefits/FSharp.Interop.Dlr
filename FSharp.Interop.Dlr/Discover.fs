@@ -102,20 +102,48 @@ module internal Discover =
             try build (fun _ -> typeof<obj>)
             with :? ArgumentException -> build id
 
-    /// Whether two block bodies are copies of one block: the same up to their free variables, each
-    /// paired with the other's of the same name and type. The quotation holds a match arm whose
-    /// or-pattern binds a variable once per alternative, each copy over that alternative's own `Var`
-    /// for it (#263). A block reads its captures by name, so either copy compiles the same way.
-    let private copies (a: Expr) (b: Expr) =
-        let free (e: Expr) = e.GetFreeVars() |> List.ofSeq
-        let fa, fb = free a, free b
-        let unique (vs: Var list) = (vs |> List.distinctBy (fun v -> v.Name)).Length = vs.Length
-        fa.Length = fb.Length && unique fa
-        && (let pairs =
-                fb |> List.map (fun v -> v, fa |> List.tryFind (fun u -> u.Name = v.Name && u.Type = v.Type && u.IsMutable = v.IsMutable))
-            pairs |> List.forall (fun (_, u) -> u.IsSome)
-            && (let map = dict [ for v, u in pairs -> v, u.Value ]
-                a = b.Substitute(fun v -> match map.TryGetValue v with | true, u -> Some(Expr.Var u) | _ -> None)))
+    /// A body with its variables renamed canonically, so two trees compare equal exactly when they
+    /// are the same up to their variables: each binder by its position, each free variable by its
+    /// name, type and mutability. `shared` gives both trees the same `Var` for the same name, as
+    /// `Expr` compares variables by reference.
+    let private canonical (shared: System.Collections.Generic.Dictionary<string, Var>) (e: Expr) : Expr =
+        let var (key: string) (t: Type) (isMutable: bool) =
+            let key = sprintf "%s:%O:%b" key t isMutable
+            match shared.TryGetValue key with
+            | true, v -> v
+            | _ -> let v = Var(key, t, isMutable) in shared.[key] <- v; v
+        let mutable binders = 0
+        let rec go (bound: Map<Var, Var>) (e: Expr) =
+            match e with
+            | ShapeVar v ->
+                match bound.TryFind v with
+                | Some c -> Expr.Var c
+                | None -> Expr.Var(var ("free " + v.Name) v.Type v.IsMutable)
+            | ShapeLambda(v, body) ->
+                binders <- binders + 1
+                let c = var (sprintf "bound %d" binders) v.Type v.IsMutable
+                Expr.Lambda(c, go (bound.Add(v, c)) body)
+            | _ -> Quotation.rebuild (go bound) e
+        go Map.empty e
+
+    /// The one block `bodies` are, when they are several copies of it. The quotation holds a match
+    /// arm whose or-pattern binds a variable once per alternative, each copy over its own `Var`s,
+    /// so the block is found once per alternative at its line (#263). Copies are taken as one block
+    /// only when it cannot matter which is used: the same up to their variables, and every variable
+    /// the block reads a field of its own container, read by name. A variable that is not (the
+    /// optimizer inlined it) would be recovered from one copy's definition, which may be another
+    /// block's on the same line, so those stay refused. The builder is not one of them: it is never
+    /// captured (the translator drops it by type, as here).
+    let private oneOf (builderType: Type) (closureType: Type) (bodies: Expr list) : Expr option =
+        match bodies with
+        | [ body ] -> Some body
+        | first :: rest ->
+            let shared = System.Collections.Generic.Dictionary<string, Var>()
+            let shape = canonical shared first
+            let captured =
+                first.GetFreeVars() |> Seq.forall (fun v -> v.Type = builderType || not (isNull (closureType.GetField(v.Name, all))))
+            if captured && rest |> List.forall (fun b -> canonical shared b = shape) then Some first else None
+        | [] -> None
 
     /// The block whose Delay closure has type `closureType`, at `file:line`.
     let findBody (builderType: Type) (closureType: Type) (file: string) (line: int) : Found =
@@ -139,7 +167,10 @@ module internal Discover =
         // Copies of one block in one member (an or-pattern's arm) are that block, not several.
         let matches =
             match matches with
-            | (m, _, body) as first :: rest when not rest.IsEmpty && rest |> List.forall (fun (m', _, body') -> m' = m && copies body body') -> [ first ]
+            | (m, memberBody, _) :: rest when not rest.IsEmpty && rest |> List.forall (fun (m', _, _) -> m' = m) ->
+                match oneOf builderType closureType (matches |> List.map (fun (_, _, b) -> b)) with
+                | Some body -> [ m, memberBody, body ]
+                | None -> matches
             | _ -> matches
         match matches with
         | [ m, memberBody, body ] ->
@@ -149,9 +180,9 @@ module internal Discover =
                 | inst ->
                     match tryReflected inst with
                     | Choice1Of2(Some q) ->
-                        match runsAt builderType file line q with
-                        | [ b ] -> inst, q, b
-                        | _ -> m, memberBody, body
+                        match oneOf builderType closureType (runsAt builderType file line q) with
+                        | Some b -> inst, q, b
+                        | None -> m, memberBody, body
                     | _ -> m, memberBody, body
             { Context = m.DeclaringType; MemberBody = memberBody; Body = body }
         | [] ->

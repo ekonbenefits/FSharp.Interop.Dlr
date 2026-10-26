@@ -126,7 +126,8 @@ let private pipedBackIntoLocal (o: obj) : int =
     g <| o
 
 /// A block in a match arm whose or-pattern binds a variable: the quotation holds the arm's body once
-/// per alternative, so the block is found twice on its line; the copies are one block (#263).
+/// per alternative, so the block is found once per alternative on its line; the copies are one block
+/// (#263), with binders inside it, in generic and class members, nested, over tuples and unions.
 let private orPatternBound (o: obj) (c: Choice<int, int>) : int =
     match c with
     | Choice1Of2 x | Choice2Of2 x -> dlr { return o?Echo(x) }
@@ -136,6 +137,50 @@ let private orPatternThree (o: obj) (c: Choice<int, int, int>) : int =
 let private orPatternUnbound (o: obj) (c: Choice<int, string>) : int =
     match c with
     | Choice1Of2 _ | Choice2Of2 _ -> dlr { return o?Count }
+let private orPatternLet (o: obj) (c: Choice<int, int>) : int =
+    match c with
+    | Choice1Of2 x | Choice2Of2 x -> dlr { let y = x + 1 in return o?Echo(y) }
+let private orPatternLoop (o: obj) (c: Choice<int, int>) : int =
+    match c with
+    | Choice1Of2 x | Choice2Of2 x ->
+        dlr {
+            let mutable total = 0
+            for i in 1 .. x do total <- total + (o?Add(i, 0) : int)
+            return total
+        }
+let private orPatternGuard (o: obj) (c: Choice<int, int>) : int =
+    match c with
+    | Choice1Of2 x | Choice2Of2 x when x > 0 -> dlr { return o?Echo(x) }
+    | _ -> -1
+let private orPatternNested (o: obj) (c: Choice<Choice<int, int>, int>) : int =
+    match c with
+    | Choice1Of2 (Choice1Of2 x | Choice2Of2 x) | Choice2Of2 x -> dlr { return o?Echo(x) }
+let private orPatternTwoVars (o: obj) (c: int * Choice<int, int>) : int =
+    match c with
+    | (x, Choice1Of2 y) | (x, Choice2Of2 y) -> dlr { return o?Add(x, y) }
+let private orPatternFunction (o: obj) : Choice<int, int> -> int =
+    function Choice1Of2 x | Choice2Of2 x -> dlr { return o?Echo(x) }
+let private orPatternGeneric<'T> (o: obj) (c: Choice<'T, 'T>) : 'T =
+    match c with
+    | Choice1Of2 x | Choice2Of2 x -> dlr { return o?Echo(x) }
+let private orPatternTuple (o: obj) (c: Choice<int * int, int * int>) : int =
+    match c with
+    | Choice1Of2 x | Choice2Of2 x -> dlr { return o?Add(fst x, snd x) }
+type OrPatternCase = OrA of int * int | OrB of int * int
+let private orPatternUnion (o: obj) (c: OrPatternCase) : int =
+    match c with
+    | OrA (p, q) | OrB (p, q) -> dlr { return o?Add(p, q) }
+type OrPatternMembers(o: obj) =
+    member _.Pick(c: Choice<int, int>) : int =
+        match c with
+        | Choice1Of2 x | Choice2Of2 x -> dlr { return o?Echo(x) }
+    member _.PickGeneric<'T>(c: Choice<'T, 'T>) : 'T =
+        match c with
+        | Choice1Of2 x | Choice2Of2 x -> dlr { return o?Echo(x) }
+type OrPatternGenericType<'T>(o: obj) =
+    member _.Pick(c: Choice<'T, 'T>) : 'T =
+        match c with
+        | Choice1Of2 x | Choice2Of2 x -> dlr { return o?Echo(x) }
 
 [<Fact>]
 let ``a block in an or-pattern's arm is one block, not one per alternative`` () =
@@ -144,6 +189,46 @@ let ``a block in an or-pattern's arm is one block, not one per alternative`` () 
     orPatternBound w (Choice2Of2 5) |> should equal 5
     orPatternThree w (Choice3Of3 6) |> should equal 7
     orPatternUnbound w (Choice2Of2 "s") |> should equal 3
+    orPatternLet w (Choice2Of2 5) |> should equal 6
+    orPatternLoop w (Choice2Of2 4) |> should equal 10
+    (orPatternGuard w (Choice1Of2 4), orPatternGuard w (Choice2Of2 -5)) |> should equal (4, -1)
+    (orPatternNested w (Choice1Of2 (Choice2Of2 2)), orPatternNested w (Choice2Of2 3)) |> should equal (2, 3)
+    orPatternTwoVars w (3, Choice2Of2 4) |> should equal 7
+    orPatternFunction w (Choice2Of2 5) |> should equal 5
+    (orPatternGeneric<int> w (Choice1Of2 4), orPatternGeneric<string> w (Choice2Of2 "b")) |> should equal (4, "b")
+    orPatternTuple w (Choice2Of2 (3, 4)) |> should equal 7
+    orPatternUnion w (OrB (3, 4)) |> should equal 7
+    OrPatternMembers(w).Pick(Choice2Of2 5) |> should equal 5
+    OrPatternMembers(w).PickGeneric<string>(Choice2Of2 "b") |> should equal "b"
+    OrPatternGenericType<string>(w).Pick(Choice2Of2 "b") |> should equal "b"
+
+/// Look-alike blocks on one line in different scopes, over same-named variables, are not copies of
+/// one block: whichever way the compiler built them, each gives its own value or is refused, never
+/// the other's (#263). The analyzer reports two blocks on a line at build time (DLR003).
+let private lookAlikeTuples (o: obj) (a: int) : int * int =
+    // fsharpanalyzer: ignore-line-next DLR003
+    (let x = (a, 1) in (dlr { return o?Add(fst x, snd x) } : int)), (let x = (a, 2) in (dlr { return o?Add(fst x, snd x) } : int))
+let private lookAlikeValues (o: obj) (a: int) (b: int) : int * int =
+    // fsharpanalyzer: ignore-line-next DLR003
+    (let x = a in (dlr { return o?Echo(x) } : int)), (let x = b in (dlr { return o?Echo(x) } : int))
+let private lookAlikeComputed (o: obj) (a: int) : int * int =
+    // fsharpanalyzer: ignore-line-next DLR003
+    (let x = a + 1 in (dlr { return o?Echo(x) } : int)), (let x = a + 2 in (dlr { return o?Echo(x) } : int))
+let private lookAlikeLets (o: obj) (a: int) (b: int) : int * int =
+    // fsharpanalyzer: ignore-line-next DLR003
+    (let x = a in (dlr { let y = x in return o?Echo(y) } : int)), (let x = b in (dlr { let y = x in return o?Echo(y) } : int))
+
+[<Fact>]
+let ``look-alike blocks on one line give their own values or are refused`` () =
+    let w = box (Widget())
+    let ownOrRefused (expected: int * int) (f: unit -> int * int) =
+        match (try Choice1Of2(f ()) with :? DlrTranslationException as e -> Choice2Of2 e) with
+        | Choice1Of2 values -> values |> should equal expected
+        | Choice2Of2 _ -> ()
+    ownOrRefused (11, 12) (fun () -> lookAlikeTuples w 10)
+    ownOrRefused (1, 2) (fun () -> lookAlikeValues w 1 2)
+    ownOrRefused (11, 12) (fun () -> lookAlikeComputed w 10)
+    ownOrRefused (1, 2) (fun () -> lookAlikeLets w 1 2)
 
 /// Two different blocks on one line are still refused: only copies of one block are collapsed.
 let private twoBlocksOneLine (o: obj) : int * int =
