@@ -132,12 +132,15 @@ module internal Discover =
     /// arm whose or-pattern binds a variable once per alternative, each copy over its own `Var`s,
     /// so the block is found once per alternative at its line (#263). Copies are taken as one block
     /// only when it cannot matter which is used: the same up to their variables, and every variable
-    /// the block reads a field of its own container (as the translator sees them), read by name. A variable that is not (the
-    /// optimizer inlined it) would be recovered from one copy's definition, which may be another
-    /// block's on the same line, so those stay refused. The builder is not one of them: it is never
+    /// the block reads either a field of its own container (as the translator sees them), read by
+    /// name where the translator reads it so (not an alias it substitutes), or one whose recovered definition is the same in every copy up to its variables, and
+    /// reaches only such variables in turn (#271): the translator recovers it from the first copy,
+    /// and the copy that ran would give the same. A variable whose definitions differ (an inlined
+    /// pattern variable, `Choice1Of2`'s field in one copy and `Choice2Of2`'s in another; another
+    /// block's look-alike on the same line) keeps the copies refused. The builder is never
     /// captured (the translator drops it by type, as here). `Error` names the variables that kept
     /// copies from being taken as one, or is empty when the runs are not copies at all.
-    let private oneOf (builderType: Type) (closureType: Type) (bodies: Expr list) : Result<Expr, string list> =
+    let private oneOf (builderType: Type) (closureType: Type) (memberBody: Expr) (bodies: Expr list) : Result<Expr, string list> =
         match bodies with
         | [ body ] -> Ok body
         | first :: rest ->
@@ -148,9 +151,51 @@ module internal Discover =
                 // The translator's own view of the container's fields: a machine's `Data` and
                 // `ResumptionPoint` are not captures, though a variable may be named either.
                 let fields = TranslateBlock.Captures.fields closureType
-                match first.GetFreeVars() |> Seq.filter (fun v -> v.Type <> builderType && not (fields.ContainsKey v.Name)) |> Seq.map (fun v -> v.Name) |> List.ofSeq with
-                | [] -> Ok first
-                | uncaptured -> Error uncaptured
+                // Per tree, its free variables by name: None when two share one (not the unoptimized
+                // source's, where the inner shadows the outer).
+                let byName (e: Expr) =
+                    let vs = e.GetFreeVars() |> List.ofSeq
+                    let names = vs |> List.map (fun v -> v.Name)
+                    if List.length (List.distinct names) = names.Length then Some(dict [ for v in vs -> v.Name, v ]) else None
+                // Per copy, its own free variables, which the translator never takes for aliases.
+                let owns = bodies |> List.map (fun b -> b.GetFreeVars() |> Set.ofSeq)
+                // Whether it cannot matter which copy's variable this is (`vars`, one per copy, of one name).
+                let rec agree (vars: Var list) =
+                    let v = List.head vars
+                    v.Type = builderType
+                    // Read from its field, as the translator reads it: not an alias it substitutes,
+                    // which a field of its name may sit beside, holding another variable (#272 review).
+                    || (fields.ContainsKey v.Name && not (List.exists2 (fun own w -> TranslateBlock.Captures.isAlias own memberBody w) owns vars))
+                    // Bound outside the copies: one variable, one definition.
+                    || vars |> List.forall (fun w -> w = v)
+                    || (let defs = vars |> List.map (fun w -> TranslatePatterns.letDefinition w memberBody |> Option.orElse (TranslatePatterns.parameterArgument w memberBody))
+                        match List.choose id defs with
+                        | first :: rest when rest.Length = defs.Length - 1 ->
+                            let shared = System.Collections.Generic.Dictionary<string, Var>()
+                            let shape = canonical shared first
+                            rest |> List.forall (fun d -> canonical shared d = shape)
+                            && (match List.choose byName (first :: rest) with
+                                | reached :: others when others.Length = rest.Length ->
+                                    reached.Keys |> Seq.forall (fun n ->
+                                        others |> List.forall (fun o -> o.ContainsKey n)
+                                        && agree (reached.[n] :: [ for o in others -> o.[n] ]))
+                                | _ -> false)
+                        | _ -> false)
+                match List.choose byName bodies with
+                | copies when copies.Length = bodies.Length ->
+                    let firstVars = List.head copies
+                    let uncaptured =
+                        firstVars.Keys
+                        |> Seq.filter (fun n ->
+                            let vars = [ for c in copies -> match c.TryGetValue n with | true, v -> Some v | _ -> None ]
+                            not (List.forall Option.isSome vars && agree (List.choose id vars)))
+                        |> List.ofSeq
+                    match uncaptured with
+                    | [] -> Ok first
+                    | uncaptured -> Error uncaptured
+                // Two free variables of one name in a body: not seen in a reflected one (an inner
+                // binding shadows), kept so that it would be refused, not guessed.
+                | _ -> Error [ for v in first.GetFreeVars() -> v.Name ]
         | [] -> Error []
 
     /// The block whose Delay closure has type `closureType`, at `file:line`.
@@ -176,7 +221,7 @@ module internal Discover =
         let matches =
             match matches with
             | (m, memberBody, _) :: rest when not rest.IsEmpty && rest |> List.forall (fun (m', _, _) -> m' = m) ->
-                match oneOf builderType closureType (matches |> List.map (fun (_, _, b) -> b)) with
+                match oneOf builderType closureType memberBody (matches |> List.map (fun (_, _, b) -> b)) with
                 | Ok body -> [ m, memberBody, body ]
                 | Error [] -> matches
                 | Error uncaptured ->
@@ -193,7 +238,7 @@ module internal Discover =
                 | inst ->
                     match tryReflected inst with
                     | Choice1Of2(Some q) ->
-                        match oneOf builderType closureType (runsAt builderType file line q) with
+                        match oneOf builderType closureType q (runsAt builderType file line q) with
                         | Ok b -> inst, q, b
                         | Error _ -> m, memberBody, body
                     | _ -> m, memberBody, body

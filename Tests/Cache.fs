@@ -208,6 +208,23 @@ let ``a block in an or-pattern's arm is one block, not one per alternative`` () 
     OrPatternGenericType<string>(w).Pick(Choice2Of2 "b") |> should equal "b"
     orPatternCapturesData (Choice2Of2 5) |> should equal 5
 
+/// An or-pattern arm whose block reads a local function of the arm, which the Release optimizer
+/// inlines rather than captures (#271): its definition is the same in both copies but for which
+/// copy's `x` it reads, and that is a field, so the copy recovered gives what the machine computed.
+let private orPatternLocalFunction (o: obj) (c: Choice<int, int>) : int =
+    match c with
+    | Choice1Of2 x | Choice2Of2 x ->
+        let f () = x
+        dlr { return o?Echo(f ()) }
+
+[<Fact>]
+let ``an or-pattern block reading a local function of its arm runs`` () =
+    let w = box (Widget())
+    let first = orPatternLocalFunction w (Choice1Of2 4)
+    first |> should equal 4
+    let second = orPatternLocalFunction w (Choice2Of2 5)
+    second |> should equal 5
+
 /// Look-alike blocks on one line in different scopes, over same-named variables, are not copies of
 /// one block: whichever way the compiler built them, each gives its own value or is refused, never
 /// the other's (#263). The analyzer reports two blocks on a line at build time (DLR003).
@@ -226,6 +243,45 @@ let private lookAlikeComputed (o: obj) (a: int) : int * int =
 let private lookAlikeLets (o: obj) (a: int) (b: int) : int * int =
     // fsharpanalyzer: ignore-line-next DLR003
     (let x = a in (dlr { let y = x in return o?Echo(y) } : int)), (let x = b in (dlr { let y = x in return o?Echo(y) } : int))
+/// A shadowed alias of a pattern variable the optimizer inlined, its first alternative dead:
+/// the copies' definitions agree up to the repeated name `a`, but the leaf `y` is the dead
+/// alternative's `Item3` in the first copy and the live one's `Item2` in the second, so
+/// recovering it from the first copy gives 9 for 8. Refused (#274 review).
+let private orPatternShadowedAlias (o: obj) (k: int) : int =
+    match (2, k, 9) with
+    | (1, _, y) | (2, y, _) ->
+        let a = y
+        let a = a
+        dlr { return o?Echo(a) }
+    | _ -> -1
+
+[<Fact>]
+let ``an or-pattern block whose shadowed alias reaches a dead alternative is never the wrong copy`` () =
+    let w = box (Widget())
+    match (try Ok(orPatternShadowedAlias w 8) with :? DlrTranslationException as e -> Error e.Message) with
+    | Ok value -> value |> should equal 8
+    | Error message -> message |> should haveSubstring "is held 2 times"
+
+/// Local functions the optimizer inlines (#271): of different values, recovered from one block's
+/// definition they would give the other's; of one value, it cannot matter which.
+let private lookAlikeFunctions (o: obj) (a: int) (b: int) : int * int =
+    // fsharpanalyzer: ignore-line-next DLR003
+    (let f () = a in (dlr { return o?Echo(f ()) } : int)), (let f () = b in (dlr { return o?Echo(f ()) } : int))
+let private lookAlikeSameFunctions (o: obj) (a: int) : int * int =
+    // fsharpanalyzer: ignore-line-next DLR003
+    (let f () = a in (dlr { return o?Echo(f ()) } : int)), (let f () = a in (dlr { return o?Echo(f ()) } : int))
+
+/// An alias (or literal) beside a captured field of its name: the translator substitutes the
+/// alias, so the field's being there says nothing about the copies agreeing (#272 review).
+let private lookAlikeAliasBesideField (o: obj) (a: int) : int * int =
+    // fsharpanalyzer: ignore-line-next DLR003
+    (let x = 1 in let f () = x in let x = a in (dlr { return o?Add(f (), x) } : int)), (let x = 2 in let f () = x in let x = a in (dlr { return o?Add(f (), x) } : int))
+let private lookAlikeAliasBesideCapturedField (o: obj) (a: int) : int * int =
+    // fsharpanalyzer: ignore-line-next DLR003
+    (let x = 1 in let f () = x in let x = Math.Abs a in (dlr { return o?Add(f (), x) } : int)), (let x = 2 in let f () = x in let x = Math.Abs a in (dlr { return o?Add(f (), x) } : int))
+let private lookAlikeShadowingFunctions (o: obj) : int * int =
+    // fsharpanalyzer: ignore-line-next DLR003
+    (let x = 1 in let x () = x in (dlr { return o?Echo(x ()) } : int)), (let x = 2 in let x () = x in (dlr { return o?Echo(x ()) } : int))
 
 /// The same named like a state machine's own fields, which are not captures (#266 review).
 let private lookAlikeNamedData (o: obj) (a: int) : int * int =
@@ -247,6 +303,11 @@ let ``look-alike blocks on one line give their own values or are refused`` () =
     ownOrRefused (1, 2) (fun () -> lookAlikeConstants w)
     ownOrRefused (11, 12) (fun () -> lookAlikeComputed w 10)
     ownOrRefused (1, 2) (fun () -> lookAlikeLets w 1 2)
+    ownOrRefused (1, 2) (fun () -> lookAlikeFunctions w 1 2)
+    ownOrRefused (3, 3) (fun () -> lookAlikeSameFunctions w 3)
+    ownOrRefused (11, 12) (fun () -> lookAlikeAliasBesideField w 10)
+    ownOrRefused (11, 12) (fun () -> lookAlikeAliasBesideCapturedField w 10)
+    ownOrRefused (1, 2) (fun () -> lookAlikeShadowingFunctions w)
     ownOrRefused (11, 12) (fun () -> lookAlikeNamedData w 10)
     ownOrRefused (11, 12) (fun () -> lookAlikeNamedResumptionPoint w 10)
 
