@@ -133,8 +133,9 @@ module internal Discover =
     /// so the block is found once per alternative at its line (#263). Copies are taken as one block
     /// only when it cannot matter which is used: the same up to their variables, and every variable
     /// the block reads either a field of its own container (as the translator sees them), read by
-    /// name where the translator reads it so (not an alias it substitutes), or one whose recovered definition is the same in every copy up to its variables, and
-    /// reaches only such variables in turn (#271): the translator recovers it from the first copy,
+    /// name where the translator reads it so (not an alias it substitutes), or one whose recovered
+    /// definition is the same in every copy up to its variables, and reaches only such variables in
+    /// turn (#271): the translator recovers it from the first copy,
     /// and the copy that ran would give the same. A variable whose definitions differ (an inlined
     /// pattern variable, `Choice1Of2`'s field in one copy and `Choice2Of2`'s in another; another
     /// block's look-alike on the same line) keeps the copies refused. The builder is never
