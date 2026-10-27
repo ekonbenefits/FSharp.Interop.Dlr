@@ -243,6 +243,25 @@ let private lookAlikeComputed (o: obj) (a: int) : int * int =
 let private lookAlikeLets (o: obj) (a: int) (b: int) : int * int =
     // fsharpanalyzer: ignore-line-next DLR003
     (let x = a in (dlr { let y = x in return o?Echo(y) } : int)), (let x = b in (dlr { let y = x in return o?Echo(y) } : int))
+/// A shadowed alias of a pattern variable the optimizer inlined, its first alternative dead:
+/// the copies' definitions agree up to the repeated name `a`, but the leaf `y` is the dead
+/// alternative's `Item3` in the first copy and the live one's `Item2` in the second, so
+/// recovering it from the first copy gives 9 for 8. Refused (#274 review).
+let private orPatternShadowedAlias (o: obj) (k: int) : int =
+    match (2, k, 9) with
+    | (1, _, y) | (2, y, _) ->
+        let a = y
+        let a = a
+        dlr { return o?Echo(a) }
+    | _ -> -1
+
+[<Fact>]
+let ``an or-pattern block whose shadowed alias reaches a dead alternative is never the wrong copy`` () =
+    let w = box (Widget())
+    match (try Ok(orPatternShadowedAlias w 8) with :? DlrTranslationException as e -> Error e.Message) with
+    | Ok value -> value |> should equal 8
+    | Error message -> message |> should haveSubstring "is held 2 times"
+
 /// Local functions the optimizer inlines (#271): of different values, recovered from one block's
 /// definition they would give the other's; of one value, it cannot matter which.
 let private lookAlikeFunctions (o: obj) (a: int) (b: int) : int * int =

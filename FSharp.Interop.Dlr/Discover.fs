@@ -158,13 +158,11 @@ module internal Discover =
                     let names = vs |> List.map (fun v -> v.Name)
                     if List.length (List.distinct names) = names.Length then Some(dict [ for v in vs -> v.Name, v ]) else None
                 // Whether it cannot matter which copy's variable this is (`vars`, one per copy, of one name).
-                let rec agree (seen: Set<string>) (vars: Var list) =
+                let rec agree (vars: Var list) =
                     let v = List.head vars
                     v.Type = builderType || fields.ContainsKey v.Name
                     // Bound outside the copies: one variable, one definition.
                     || vars |> List.forall (fun w -> w = v)
-                    // A `let rec` group reaches itself.
-                    || seen.Contains v.Name
                     || (let defs = vars |> List.map (fun w -> TranslatePatterns.letDefinition w memberBody |> Option.orElse (TranslatePatterns.parameterArgument w memberBody))
                         match List.choose id defs with
                         | first :: rest when rest.Length = defs.Length - 1 ->
@@ -175,7 +173,7 @@ module internal Discover =
                                 | reached :: others when others.Length = rest.Length ->
                                     reached.Keys |> Seq.forall (fun n ->
                                         others |> List.forall (fun o -> o.ContainsKey n)
-                                        && agree (seen.Add v.Name) (reached.[n] :: [ for o in others -> o.[n] ]))
+                                        && agree (reached.[n] :: [ for o in others -> o.[n] ]))
                                 | _ -> false)
                         | _ -> false)
                 match List.choose byName bodies with
@@ -185,11 +183,13 @@ module internal Discover =
                         firstVars.Keys
                         |> Seq.filter (fun n ->
                             let vars = [ for c in copies -> match c.TryGetValue n with | true, v -> Some v | _ -> None ]
-                            not (List.forall Option.isSome vars && agree Set.empty (List.choose id vars)))
+                            not (List.forall Option.isSome vars && agree (List.choose id vars)))
                         |> List.ofSeq
                     match uncaptured with
                     | [] -> Ok first
                     | uncaptured -> Error uncaptured
+                // Two free variables of one name in a body: not seen in a reflected one (an inner
+                // binding shadows), kept so that it would be refused, not guessed.
                 | _ -> Error [ for v in first.GetFreeVars() -> v.Name ]
         | [] -> Error []
 
