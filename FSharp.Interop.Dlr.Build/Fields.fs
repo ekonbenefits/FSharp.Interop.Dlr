@@ -487,8 +487,10 @@ module Fields =
                                 // that first.)
                                 let unused =
                                     let elementsOf = Dictionary<string * int, int>()
+                                    // By the binding in scope at the block, as the entries are attributed: a value
+                                    // bound twice (a guard's) has its first binding's ordinal in `bySource`.
                                     for (sv, n, _) in bySource.Values do
-                                        if sv.FullType.IsTupleType then elementsOf.[(sv.LogicalName, n)] <- sv.FullType.GenericArguments.Count
+                                        if sv.FullType.IsTupleType then elementsOf.[(sv.LogicalName, ordinal sv n)] <- sv.FullType.GenericArguments.Count
                                     let split = attributed |> List.choose (function (_, Some(name, n, Some _)) -> Some(name, n) | _ -> None) |> List.distinct
                                     let present = HashSet<string * int * int>()
                                     let rec all (e: FSharpExpr) =
