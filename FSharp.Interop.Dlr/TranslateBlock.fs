@@ -267,6 +267,13 @@ module internal TranslateBlock =
                                 yield v.Name
                                 yield element ]
 
+        /// Whether `reached` takes `v` for an alias the optimizer substituted: immutable, not one of
+        /// the block's own free variables (`own`), and an immutable `let` of an immutable variable or
+        /// of a literal. Such a variable is never read from a field, even one of its name.
+        let isAlias (own: Set<Var>) (memberBody: Expr) (v: Var) =
+            not v.IsMutable && not (own.Contains v)
+            && (match letDefinition v memberBody with Some(Var y) -> not y.IsMutable | Some(Value _) -> true | _ -> false)
+
         /// The variables a block reaches: its free variables and, for each one with no field of
         /// its name, those of the definition `read` would recover for it. An alias reached that
         /// way (an immutable `let` of an immutable variable or of a literal) is the optimizer's to
@@ -281,7 +288,7 @@ module internal TranslateBlock =
                 | v :: rest ->
                     let seen = seen.Add v
                     let def = letDefinition v memberBody
-                    let alias = not v.IsMutable && not (own.Contains v) && (match def with Some(Var y) -> not y.IsMutable | Some(Value _) -> true | _ -> false)
+                    let alias = isAlias own memberBody v
                     let inner =
                         if (fields.ContainsKey v.Name || (elementField fields v 0).IsSome || (elements fields memberBody v).IsSome) && not alias then []
                         else

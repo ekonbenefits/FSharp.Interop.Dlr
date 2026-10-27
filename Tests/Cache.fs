@@ -252,6 +252,20 @@ let private lookAlikeSameFunctions (o: obj) (a: int) : int * int =
     // fsharpanalyzer: ignore-line-next DLR003
     (let f () = a in (dlr { return o?Echo(f ()) } : int)), (let f () = a in (dlr { return o?Echo(f ()) } : int))
 
+/// A local function reading an alias the optimizer substitutes, though a field of the alias's
+/// name holds a later variable the block reads (the translator substitutes the alias all the
+/// same); and a local function shadowing the constant it reads (#272 review). The constants
+/// differ, so recovering either from the other block gives the other's value.
+let private lookAlikeAliasBesideField (o: obj) (a: int) : int * int =
+    // fsharpanalyzer: ignore-line-next DLR003
+    (let x = 1 in let f () = x in let x = a in (dlr { return o?Add(f (), x) } : int)), (let x = 2 in let f () = x in let x = a in (dlr { return o?Add(f (), x) } : int))
+let private lookAlikeAliasBesideCapturedField (o: obj) (a: int) : int * int =
+    // fsharpanalyzer: ignore-line-next DLR003
+    (let x = 1 in let f () = x in let x = Math.Abs a in (dlr { return o?Add(f (), x) } : int)), (let x = 2 in let f () = x in let x = Math.Abs a in (dlr { return o?Add(f (), x) } : int))
+let private lookAlikeShadowingFunctions (o: obj) : int * int =
+    // fsharpanalyzer: ignore-line-next DLR003
+    (let x = 1 in let x () = x in (dlr { return o?Echo(x ()) } : int)), (let x = 2 in let x () = x in (dlr { return o?Echo(x ()) } : int))
+
 /// The same named like a state machine's own fields, which are not captures (#266 review).
 let private lookAlikeNamedData (o: obj) (a: int) : int * int =
     // fsharpanalyzer: ignore-line-next DLR003
@@ -274,6 +288,9 @@ let ``look-alike blocks on one line give their own values or are refused`` () =
     ownOrRefused (1, 2) (fun () -> lookAlikeLets w 1 2)
     ownOrRefused (1, 2) (fun () -> lookAlikeFunctions w 1 2)
     ownOrRefused (3, 3) (fun () -> lookAlikeSameFunctions w 3)
+    ownOrRefused (11, 12) (fun () -> lookAlikeAliasBesideField w 10)
+    ownOrRefused (11, 12) (fun () -> lookAlikeAliasBesideCapturedField w 10)
+    ownOrRefused (1, 2) (fun () -> lookAlikeShadowingFunctions w)
     ownOrRefused (11, 12) (fun () -> lookAlikeNamedData w 10)
     ownOrRefused (11, 12) (fun () -> lookAlikeNamedResumptionPoint w 10)
 
