@@ -131,14 +131,18 @@ rejected entry; "0 rejected" shows the companion and the quotation agree on the 
 not that they agree on every shape, which is what the run-time checks are for.
 
 The differential corpus (#200, outside the repository) binds a name one way or another and reaches
-it from a block one way or another, and checks Release against Debug. Its 51,808 cases of the first
-grammar run the same with the map, none wrong; the 14,084 cases of the forms added for #259 (an
-or-pattern, a guard, a `let rec` whose definition binds the name or comes before it, a `try … with`
-handler, an active pattern, `function`) have none wrong either, and every map entry is used, with no
-rejection: 9,148 run the same, against 4,432 without the map. The rest are refusals. An or-pattern's
-arm holds its block once per alternative, and its copies are one block (#266) only when every
-variable the block reads is captured as itself, a check made before the map is read, so the map
-lifts none of those; an active pattern the optimizer inlines is below.
+it from a block one way or another. Each case has a plain twin, the same code with no block and the
+call bound statically, so the compiler gives the expected value with no part of this library
+involved. Its 51,808 cases of the first grammar run the same with the map, none wrong. The 14,084
+cases of the forms added for #259 (an or-pattern, a guard, a `let rec` whose definition binds the
+name or comes before it, a `try … with` handler, an active pattern, `function`) have none wrong
+either, on SDK 10 and 11, and every map entry is used, with no rejection: 11,140 run the same,
+against 5,104 without the map; the closure path and Debug (11's state machines too) run all of
+them. The rest are refusals: an active pattern the optimizer inlines (below), and a block in a
+`let rec` local function, which Release compiles to a closure, so the map has no fields for it. An
+or-pattern's arm holds its block once per alternative, and the copies are one block (#266, #271)
+when every variable the block reads is a field, or recovered from a definition that is the same in
+every copy up to its variables.
 
 ## Limits
 
