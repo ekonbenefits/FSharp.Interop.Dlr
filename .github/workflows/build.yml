@@ -186,8 +186,8 @@ jobs:
           CONFIGURATION: ${{ matrix.configuration }}
           DLR_CAPTURE_MAP_TRACE: '1'
         run: |
-          dotnet build Tests/Tests.fsproj --configuration "$CONFIGURATION" -f net48 -p:RunAnalyzers=false -p:DlrCompanion=true
-          "Tests/bin/$CONFIGURATION/net48/Tests.exe" 2> trace.txt
+          dotnet build Tests/Tests.fsproj --configuration "$CONFIGURATION" -f net48 -p:RunAnalyzers=false -p:DlrCompanion=true | tee build.txt
+          "Tests/bin/$CONFIGURATION/net48/Tests.exe" 2> trace.txt | tee tests.txt
           exact=$(grep -c '^dlr capture map: exact' trace.txt || true)
           rejected=$(grep '^dlr capture map: strict' trace.txt | grep -vc 'a closure, not a state machine' || true)
           echo "bound exactly: $exact; rejected maps: $rejected"
@@ -196,6 +196,16 @@ jobs:
           fi
           if [ "$CONFIGURATION" = Release ] && [ "$exact" -eq 0 ]; then
             echo "::error::no block bound through the capture map in Release"; exit 1
+          fi
+          # The bodies too: with none, the map-body tests (Tests/Companion.fs) skip, and the
+          # counts above, which are the fields', would pass.
+          bodies=$(grep -oE '[0-9]+ with a body' build.txt | tail -1 | grep -oE '^[0-9]+' || true)
+          echo "blocks with a body: ${bodies:-none}"
+          if [ -z "$bodies" ] || [ "$bodies" -eq 0 ]; then
+            echo "::error::the capture map holds no block bodies"; exit 1
+          fi
+          if grep -q 'no block bodies embedded' tests.txt; then
+            echo "::error::map-body tests skipped for want of bodies"; exit 1
           fi
 
   # .NET 11 while it is in preview (#67): the next F# compiler and runtime, as an early warning.
@@ -281,10 +291,10 @@ jobs:
           CONFIGURATION: ${{ matrix.configuration }}
           DLR_CAPTURE_MAP_TRACE: '1'
         run: |
-          dotnet build Tests/Tests.fsproj --configuration "$CONFIGURATION" -p:TargetFrameworks="net$SDK" -p:RunAnalyzers=false -p:DlrCompanion=true
+          dotnet build Tests/Tests.fsproj --configuration "$CONFIGURATION" -p:TargetFrameworks="net$SDK" -p:RunAnalyzers=false -p:DlrCompanion=true | tee build.txt
           dotnet "Tests/bin/$CONFIGURATION/net$SDK/Tests.dll" \
             --report-anyunit-json "results/Tests-sdk$SDK-companion-$CONFIGURATION.json" \
-            --platform-suffix "sdk$SDK-$CONFIGURATION-companion" 2> trace.txt
+            --platform-suffix "sdk$SDK-$CONFIGURATION-companion" 2> trace.txt | tee tests.txt
           exact=$(grep -c '^dlr capture map: exact' trace.txt || true)
           rejected=$(grep '^dlr capture map: strict' trace.txt | grep -vc 'a closure, not a state machine' || true)
           echo "bound exactly: $exact; rejected maps: $rejected"
@@ -293,6 +303,16 @@ jobs:
           fi
           if [ "$CONFIGURATION" = Release ] && [ "$exact" -eq 0 ]; then
             echo "::error::no block bound through the capture map in Release"; exit 1
+          fi
+          # The bodies too: with none, the map-body tests (Tests/Companion.fs) skip, and the
+          # counts above, which are the fields', would pass.
+          bodies=$(grep -oE '[0-9]+ with a body' build.txt | tail -1 | grep -oE '^[0-9]+' || true)
+          echo "blocks with a body: ${bodies:-none}"
+          if [ -z "$bodies" ] || [ "$bodies" -eq 0 ]; then
+            echo "::error::the capture map holds no block bodies"; exit 1
+          fi
+          if grep -q 'no block bodies embedded' tests.txt; then
+            echo "::error::map-body tests skipped for want of bodies"; exit 1
           fi
 
       - name: Upload results
@@ -359,10 +379,10 @@ jobs:
           CONFIGURATION: ${{ matrix.configuration }}
           DOTNET_ROLL_FORWARD: Major
         run: |
-          dotnet build Tests/Tests.fsproj --configuration "$CONFIGURATION" -p:TargetFrameworks=net11.0 -p:RunAnalyzers=false -p:DlrCompanion=true
+          dotnet build Tests/Tests.fsproj --configuration "$CONFIGURATION" -p:TargetFrameworks=net11.0 -p:RunAnalyzers=false -p:DlrCompanion=true | tee build.txt
           DLR_CAPTURE_MAP_TRACE=1 dotnet "Tests/bin/$CONFIGURATION/net11.0/Tests.dll" \
             --report-anyunit-json "results/Tests-net11-companion-$CONFIGURATION.json" \
-            --platform-suffix "$CONFIGURATION-companion" 2> trace.txt
+            --platform-suffix "$CONFIGURATION-companion" 2> trace.txt | tee tests.txt
           exact=$(grep -c '^dlr capture map: exact' trace.txt || true)
           rejected=$(grep '^dlr capture map: strict' trace.txt | grep -vc 'a closure, not a state machine' || true)
           echo "bound exactly: $exact; rejected maps: $rejected"
@@ -371,6 +391,16 @@ jobs:
           fi
           if [ "$CONFIGURATION" = Release ] && [ "$exact" -eq 0 ]; then
             echo "::error::no block bound through the capture map in Release"; exit 1
+          fi
+          # The bodies too: with none, the map-body tests (Tests/Companion.fs) skip, and the
+          # counts above, which are the fields', would pass.
+          bodies=$(grep -oE '[0-9]+ with a body' build.txt | tail -1 | grep -oE '^[0-9]+' || true)
+          echo "blocks with a body: ${bodies:-none}"
+          if [ -z "$bodies" ] || [ "$bodies" -eq 0 ]; then
+            echo "::error::the capture map holds no block bodies"; exit 1
+          fi
+          if grep -q 'no block bodies embedded' tests.txt; then
+            echo "::error::map-body tests skipped for want of bodies"; exit 1
           fi
 
       - name: Upload results
@@ -407,7 +437,10 @@ jobs:
         run: dotnet tool restore
 
       - name: Build with the companion
-        run: dotnet build Tests/Tests.fsproj --configuration ${{ matrix.configuration }} -f net10.0 -p:DlrCompanion=true
+        shell: bash
+        env:
+          CONFIGURATION: ${{ matrix.configuration }}
+        run: dotnet build Tests/Tests.fsproj --configuration "$CONFIGURATION" -f net10.0 -p:DlrCompanion=true | tee build.txt
 
       - name: Test with the map
         shell: bash
@@ -415,7 +448,7 @@ jobs:
           DLR_CAPTURE_MAP_TRACE: '1'
           CONFIGURATION: ${{ matrix.configuration }}
         run: |
-          dotnet "Tests/bin/$CONFIGURATION/net10.0/Tests.dll" 2> trace.txt
+          dotnet "Tests/bin/$CONFIGURATION/net10.0/Tests.dll" 2> trace.txt | tee tests.txt
           exact=$(grep -c '^dlr capture map: exact' trace.txt || true)
           strict=$(grep -c '^dlr capture map: strict' trace.txt || true)
           rejected=$(grep '^dlr capture map: strict' trace.txt | grep -vc 'a closure, not a state machine' || true)
@@ -425,6 +458,16 @@ jobs:
           fi
           if [ "$CONFIGURATION" = Release ] && [ "$exact" -eq 0 ]; then
             echo "::error::no block bound through the capture map in Release"; exit 1
+          fi
+          # The bodies too: with none, the map-body tests (Tests/Companion.fs) skip, and the
+          # counts above, which are the fields', would pass.
+          bodies=$(grep -oE '[0-9]+ with a body' build.txt | tail -1 | grep -oE '^[0-9]+' || true)
+          echo "blocks with a body: ${bodies:-none}"
+          if [ -z "$bodies" ] || [ "$bodies" -eq 0 ]; then
+            echo "::error::the capture map holds no block bodies"; exit 1
+          fi
+          if grep -q 'no block bodies embedded' tests.txt; then
+            echo "::error::map-body tests skipped for want of bodies"; exit 1
           fi
 
       # The oracles (#227): each map body decoded and compared with its member's reflected
