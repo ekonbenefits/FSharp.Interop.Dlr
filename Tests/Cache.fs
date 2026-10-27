@@ -217,6 +217,25 @@ let private orPatternLocalFunction (o: obj) (c: Choice<int, int>) : int =
         let f () = x
         dlr { return o?Echo(f ()) }
 
+/// A shadowed alias over a pattern variable of a dead alternative (found in the 1.0 review of
+/// master's port, #274): a cycle guard by name read `let a = a` as recursion and recovered the dead
+/// copy's `y` (9; plain F# gives 8). By the copies' variables, the copies' `y`s are compared, and
+/// differ: refused, or the right value.
+let private orPatternShadowedAlias (o: obj) (k: int) : int =
+    match (2, k, 9) with
+    | (1, _, y) | (2, y, _) ->
+        let a = y
+        let a = a
+        dlr { return o?Echo(a) }
+    | _ -> -1
+
+[<Fact>]
+let ``an or-pattern block whose shadowed alias reaches a dead alternative is never the wrong copy`` () =
+    let w = box (Widget())
+    match (try Choice1Of2(orPatternShadowedAlias w 8) with :? DlrTranslationException as e -> Choice2Of2 e) with
+    | Choice1Of2 value -> value |> should equal 8
+    | Choice2Of2 _ -> ()
+
 [<Fact>]
 let ``an or-pattern block reading a local function of its arm runs`` () =
     let w = box (Widget())
