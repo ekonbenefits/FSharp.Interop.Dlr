@@ -217,25 +217,6 @@ let private orPatternLocalFunction (o: obj) (c: Choice<int, int>) : int =
         let f () = x
         dlr { return o?Echo(f ()) }
 
-/// A shadowed alias over a pattern variable of a dead alternative (found in the 1.0 review of
-/// master's port, #274): a cycle guard by name read `let a = a` as recursion and recovered the dead
-/// copy's `y` (9; plain F# gives 8). By the copies' variables, the copies' `y`s are compared, and
-/// differ: refused, or the right value.
-let private orPatternShadowedAlias (o: obj) (k: int) : int =
-    match (2, k, 9) with
-    | (1, _, y) | (2, y, _) ->
-        let a = y
-        let a = a
-        dlr { return o?Echo(a) }
-    | _ -> -1
-
-[<Fact>]
-let ``an or-pattern block whose shadowed alias reaches a dead alternative is never the wrong copy`` () =
-    let w = box (Widget())
-    match (try Choice1Of2(orPatternShadowedAlias w 8) with :? DlrTranslationException as e -> Choice2Of2 e) with
-    | Choice1Of2 value -> value |> should equal 8
-    | Choice2Of2 _ -> ()
-
 [<Fact>]
 let ``an or-pattern block reading a local function of its arm runs`` () =
     let w = box (Widget())
@@ -262,6 +243,25 @@ let private lookAlikeComputed (o: obj) (a: int) : int * int =
 let private lookAlikeLets (o: obj) (a: int) (b: int) : int * int =
     // fsharpanalyzer: ignore-line-next DLR003
     (let x = a in (dlr { let y = x in return o?Echo(y) } : int)), (let x = b in (dlr { let y = x in return o?Echo(y) } : int))
+/// A shadowed alias of a pattern variable the optimizer inlined, its first alternative dead:
+/// the copies' definitions agree up to the repeated name `a`, but the leaf `y` is the dead
+/// alternative's `Item3` in the first copy and the live one's `Item2` in the second, so
+/// recovering it from the first copy gives 9 for 8. Refused (#274 review).
+let private orPatternShadowedAlias (o: obj) (k: int) : int =
+    match (2, k, 9) with
+    | (1, _, y) | (2, y, _) ->
+        let a = y
+        let a = a
+        dlr { return o?Echo(a) }
+    | _ -> -1
+
+[<Fact>]
+let ``an or-pattern block whose shadowed alias reaches a dead alternative is never the wrong copy`` () =
+    let w = box (Widget())
+    match (try Ok(orPatternShadowedAlias w 8) with :? DlrTranslationException as e -> Error e.Message) with
+    | Ok value -> value |> should equal 8
+    | Error message -> message |> should haveSubstring "is held 2 times"
+
 /// Local functions the optimizer inlines (#271): of different values, recovered from one block's
 /// definition they would give the other's; of one value, it cannot matter which.
 let private lookAlikeFunctions (o: obj) (a: int) (b: int) : int * int =
@@ -271,10 +271,8 @@ let private lookAlikeSameFunctions (o: obj) (a: int) : int * int =
     // fsharpanalyzer: ignore-line-next DLR003
     (let f () = a in (dlr { return o?Echo(f ()) } : int)), (let f () = a in (dlr { return o?Echo(f ()) } : int))
 
-/// A local function reading an alias the optimizer substitutes, though a field of the alias's
-/// name holds a later variable the block reads (the translator substitutes the alias all the
-/// same); and a local function shadowing the constant it reads (#272 review). The constants
-/// differ, so recovering either from the other block gives the other's value.
+/// An alias (or literal) beside a captured field of its name: the translator substitutes the
+/// alias, so the field's being there says nothing about the copies agreeing (#272 review).
 let private lookAlikeAliasBesideField (o: obj) (a: int) : int * int =
     // fsharpanalyzer: ignore-line-next DLR003
     (let x = 1 in let f () = x in let x = a in (dlr { return o?Add(f (), x) } : int)), (let x = 2 in let f () = x in let x = a in (dlr { return o?Add(f (), x) } : int))

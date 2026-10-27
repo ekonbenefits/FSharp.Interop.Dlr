@@ -133,9 +133,8 @@ module internal Discover =
     /// so the block is found once per alternative at its line (#263). Copies are taken as one block
     /// only when it cannot matter which is used: the same up to their variables, and every variable
     /// the block reads either a field of its own container (as the translator sees them), read by
-    /// name where the translator reads it so (not an alias it substitutes), or one whose recovered
-    /// definition is the same in every copy up to its variables, and reaches only such variables in
-    /// turn (#271): the translator recovers it from the first copy,
+    /// name where the translator reads it so (not an alias it substitutes), or one whose recovered definition is the same in every copy up to its variables, and
+    /// reaches only such variables in turn (#271): the translator recovers it from the first copy,
     /// and the copy that ran would give the same. A variable whose definitions differ (an inlined
     /// pattern variable, `Choice1Of2`'s field in one copy and `Choice2Of2`'s in another; another
     /// block's look-alike on the same line) keeps the copies refused. The builder is never
@@ -161,7 +160,7 @@ module internal Discover =
                 // Per copy, its own free variables, which the translator never takes for aliases.
                 let owns = bodies |> List.map (fun b -> b.GetFreeVars() |> Set.ofSeq)
                 // Whether it cannot matter which copy's variable this is (`vars`, one per copy, of one name).
-                let rec agree (seen: Set<Var>) (vars: Var list) =
+                let rec agree (vars: Var list) =
                     let v = List.head vars
                     v.Type = builderType
                     // Read from its field, as the translator reads it: not an alias it substitutes,
@@ -169,9 +168,6 @@ module internal Discover =
                     || (fields.ContainsKey v.Name && not (List.exists2 (fun own w -> TranslateBlock.Captures.isAlias own memberBody w) owns vars))
                     // Bound outside the copies: one variable, one definition.
                     || vars |> List.forall (fun w -> w = v)
-                    // A `let rec` group reaches itself: the first copy's variable, not its name, as a
-                    // local function may shadow the variable of its name it reads (#272 review).
-                    || seen.Contains v
                     || (let defs = vars |> List.map (fun w -> TranslatePatterns.letDefinition w memberBody |> Option.orElse (TranslatePatterns.parameterArgument w memberBody))
                         match List.choose id defs with
                         | first :: rest when rest.Length = defs.Length - 1 ->
@@ -182,7 +178,7 @@ module internal Discover =
                                 | reached :: others when others.Length = rest.Length ->
                                     reached.Keys |> Seq.forall (fun n ->
                                         others |> List.forall (fun o -> o.ContainsKey n)
-                                        && agree (seen.Add v) (reached.[n] :: [ for o in others -> o.[n] ]))
+                                        && agree (reached.[n] :: [ for o in others -> o.[n] ]))
                                 | _ -> false)
                         | _ -> false)
                 match List.choose byName bodies with
@@ -192,11 +188,13 @@ module internal Discover =
                         firstVars.Keys
                         |> Seq.filter (fun n ->
                             let vars = [ for c in copies -> match c.TryGetValue n with | true, v -> Some v | _ -> None ]
-                            not (List.forall Option.isSome vars && agree Set.empty (List.choose id vars)))
+                            not (List.forall Option.isSome vars && agree (List.choose id vars)))
                         |> List.ofSeq
                     match uncaptured with
                     | [] -> Ok first
                     | uncaptured -> Error uncaptured
+                // Two free variables of one name in a body: not seen in a reflected one (an inner
+                // binding shadows), kept so that it would be refused, not guessed.
                 | _ -> Error [ for v in first.GetFreeVars() -> v.Name ]
         | [] -> Error []
 
