@@ -13,11 +13,13 @@
     references it with ReferenceOutputAssembly=false so it is built first).
   -->
   <PropertyGroup>
-    <!-- The companion runs on the .NET 10 SDK: its tool targets .NET 10 and is built against that
-         compiler's FCS (an older one's API differs, #261). On 8.0 or 9.0 the step is skipped with a
-         message, never a failed build; the blocks keep the strict behaviour. -->
-    <_DlrCompanionSupported>$([MSBuild]::VersionGreaterThanOrEquals('$(NETCoreSdkVersion)', '10.0'))</_DlrCompanionSupported>
+    <!-- The tool targets .NET 10, so only the .NET 10 SDK or later builds it. An older SDK (8.0,
+         9.0) runs it once it is built (its runtime is .NET 10's, installed beside), against that
+         compiler's own FCS (#261); without a built tool the step is skipped with a message, never a
+         failed build, and the blocks keep the strict behaviour. -->
+    <_DlrCompanionBuildsTool>$([MSBuild]::VersionGreaterThanOrEquals('$(NETCoreSdkVersion)', '10.0'))</_DlrCompanionBuildsTool>
     <DlrCompanionTool Condition="'$(DlrCompanionTool)' == ''">$(MSBuildThisFileDirectory)bin/$(Configuration)/net10.0/FSharp.Interop.Dlr.Build.dll</DlrCompanionTool>
+    <_DlrCompanionSupported Condition="'$(_DlrCompanionBuildsTool)' == 'true' or Exists('$(DlrCompanionTool)')">true</_DlrCompanionSupported>
   </PropertyGroup>
 
   <!-- Whether the companion is on, as a CoreCompile input, imported whether it is on or not: a
@@ -40,7 +42,7 @@
   <!-- Chained by DependsOnTargets, not CallTarget: a called target does not see the properties its
        caller just set. Not in an IDE's design-time build, which only wants the compiler's inputs. -->
   <Target Name="_DlrCompanionUnsupported" BeforeTargets="CoreCompile" Condition="'$(DlrCompanion)' == 'true' and '$(DesignTimeBuild)' != 'true' and '$(_DlrCompanionSupported)' != 'true'">
-    <Message Importance="high" Text="dlr companion: needs the .NET 10 SDK (this is $(NETCoreSdkVersion)); this build has no capture map, and every block keeps the strict behaviour." />
+    <Message Importance="high" Text="dlr companion: needs the .NET 10 SDK, or the tool built by it (DlrCompanionTool, $(DlrCompanionTool)); this is $(NETCoreSdkVersion), so this build has no capture map, and every block keeps the strict behaviour." />
   </Target>
 
   <Target Name="DlrCompanionMap" BeforeTargets="CoreCompile" Condition="'$(DlrCompanion)' == 'true' and '$(DesignTimeBuild)' != 'true' and '$(_DlrCompanionSupported)' == 'true'"

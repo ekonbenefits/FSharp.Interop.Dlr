@@ -68,6 +68,10 @@ module Run =
         write output perFile
         let mapped = fields.Values |> Seq.filter Option.isSome |> Seq.length
         eprintfn "%d blocks, %d with fields, %d with a body" fields.Count mapped bodies.Count
+        // Why members were left out of the body pass (their blocks need the attribute), most first.
+        if Bodies.unsupported.Count > 0 then
+            let reasons = Bodies.unsupported |> Seq.sortByDescending (fun kv -> kv.Value) |> Seq.truncate 5 |> Seq.map (fun kv -> sprintf "%s %d" kv.Key kv.Value)
+            eprintfn "left out of the body pass: %s" (String.concat ", " reasons)
         eprintfn "FCS: %s" (typeof<FSharp.Compiler.CodeAnalysis.FSharpChecker>.Assembly.Location)
         0
 

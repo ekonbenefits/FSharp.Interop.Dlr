@@ -50,6 +50,17 @@ module internal Bodies =
             | Some ns -> ns + "." + e.CompiledName
             | None -> e.CompiledName
 
+    /// The type an extension member extends: `ApparentEnclosingEntity` is an option in this
+    /// tool's FCS (43.12) and the entity itself in 8.0's and 9.0's (43.8, 43.9). The companion
+    /// runs the building compiler's FCS (#261), and a call compiled against either signature does
+    /// not bind to the other (MissingMethodException, for every member the method encodes).
+    let private apparentEnclosing = typeof<FSharpMemberOrFunctionOrValue>.GetProperty "ApparentEnclosingEntity"
+    let apparentEntity (m: FSharpMemberOrFunctionOrValue) : FSharpEntity =
+        match apparentEnclosing.GetValue m with
+        | :? FSharpEntity as e -> e
+        | :? (FSharpEntity option) as e when e.IsSome -> e.Value
+        | _ -> failwithf "%s: no apparent enclosing entity" m.CompiledName
+
     let memberRef (m: FSharpMemberOrFunctionOrValue) : MemberRef =
         let declaring =
             match m.DeclaringEntity with
@@ -77,7 +88,7 @@ module internal Bodies =
             // An extension member compiles static, the extended value first.
             |> fun ps ->
                 if m.IsExtensionMember && m.IsInstanceMember then
-                    let e = m.ApparentEnclosingEntity.Value
+                    let e = apparentEntity m
                     TNamed(entityAssembly e, entityName e, [ for p in e.GenericParameters -> position p ]) :: ps
                 else ps
         { Declaring = declaring
@@ -326,7 +337,9 @@ module internal Bodies =
                         let w = encode args body
                         if unsupportedTotal = before then Some w else None
                     with e ->
-                        note ("encoder: " + e.GetType().Name)
+                        // With the message: an FCS of another version can lack a member this tool calls.
+                        let message = e.Message.Split('\n').[0]
+                        note (sprintf "encoder: %s (%s)" (e.GetType().Name) (if message.Length > 160 then message.Substring(0, 160) + "…" else message))
                         None
                 m, keys, w ]
         let owners = Dictionary<string * int, int>()
