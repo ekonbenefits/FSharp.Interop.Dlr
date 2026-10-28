@@ -420,6 +420,47 @@ let ``a tuple the block reads whole is not built again`` () =
     | Ok n -> n |> should equal 71
     | Error message -> message |> should haveSubstring "would run the definition of 't' again"
 
+/// A tuple passed whole into an inlined helper that reads one element: the optimizer drops
+/// that element's field and reads the literal's `y` instead, so the machine holds two `y`s, in
+/// fields `y` and `y0` in an order of its own. The block's own `y` cannot be told from the
+/// literal's by name: refused, never bound to the other (53 where plain F# gives 152, #279).
+type HeldPair = { Held: int * int }
+let inline private sndHeld (r: HeldPair) : int = snd r.Held
+
+let private shadowedThroughACase (o: obj) (k: int) : int =
+    let y = k + 1
+    let m = Some(k * 10, y)
+    let y = k + 100
+    match m with
+    | Some x -> dlr { let b = sndHeld { Held = x } in return o?Count + fst x + b + y }
+    | None -> -1
+
+let private shadowedThroughALiteral (o: obj) (k: int) : int =
+    let y = k + 1
+    let x = (k * 10, y)
+    let y = k + 100
+    dlr { let b = sndHeld { Held = x } in return o?Count + fst x + b + y }
+
+let private shadowedReadOnlyThere (o: obj) (k: int) : int =
+    let y = k + 1
+    let m = Some(k * 10, y)
+    let y = k + 100
+    match m with
+    | Some x -> dlr { return o?Count + sndHeld { Held = x } + y + fst x }
+    | None -> -1
+
+[<Fact>]
+let ``a dropped element's variable shadowed in the block is its own, or refused`` () =
+    let w = box (Widget())
+    // 152 for 4 (Debug and the closure path bind it), or refused: never another value.
+    let check (f: unit -> int) =
+        match (try Ok(f ()) with :? DlrTranslationException as e -> Error e.Message) with
+        | Ok n -> n |> should equal 152
+        | Error message -> message |> should haveSubstring "reaches two variables named 'y'"
+    check (fun () -> shadowedThroughACase w 4)
+    check (fun () -> shadowedThroughALiteral w 4)
+    check (fun () -> shadowedReadOnlyThere w 4)
+
 /// A tuple built from another tuple's element: Release substitutes `t_0` by `u_1`, a field of
 /// another name, so `t_0` has no field though it is read (found reviewing an IL-alignment spike, #200).
 let private elementOfAnotherTuple (o: obj) (u: int * int) : string =

@@ -70,7 +70,10 @@ each name the entries use, how many bindings of it the companion counted in the 
 `S body`. A split tuple's element the optimizer kept nowhere has no line: the run time recovers
 it from its definition (through an alias, a union case the member builds, a tuple literal) when
 that is effect-free, and refuses otherwise. It never uses a placeholder, because the optimizer may
-have dropped the element because it knew its value and used that directly (#278). Blocks are keyed by the outermost
+have dropped the element because it knew its value and used that directly (#278). So an element
+nothing reads is refused too when its definition has an effect: nothing tells it apart from one
+the optimizer folded. Without the map, the variables a recovered element reads count toward the
+block's names, so one the block shadows is refused rather than bound by name (#279). Blocks are keyed by the outermost
 `Delay`'s caller information, the same file and line the run time's probe finds; under a path map (deterministic builds)
 FCS applies the same mapping, so the keys still match.
 

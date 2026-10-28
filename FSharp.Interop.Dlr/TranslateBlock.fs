@@ -200,8 +200,6 @@ module internal TranslateBlock =
                 plain && List.forall effectFree args
             | _ -> false
 
-        /// Element `i` of a split tuple `v` that has no field: the definition's, when it gives it
-        /// effect-free (the optimizer substituted it). Not otherwise: nothing says it is unread.
         /// The tuple literal `e`'s value is, through what a quotation projects it by: an immutable
         /// alias, a union case's field of a case the member builds (`match Some (a, b) with Some x`),
         /// an element of a tuple literal. None when the value is computed otherwise. An element the
@@ -228,6 +226,8 @@ module internal TranslateBlock =
                 | None -> None
             | _ -> None
 
+        /// Element `i` of a split tuple `v` that has no field: the definition's, when it gives it
+        /// effect-free (the optimizer substituted it). Not otherwise: nothing says it is unread.
         let missingElement (memberBody: Expr) (v: Var) (i: int) : Expr option =
             match letDefinition v memberBody |> Option.bind (tupleLiteral memberBody) with
             | Some es when i < es.Length && effectFree es.[i] -> Some es.[i]
@@ -311,12 +311,20 @@ module internal TranslateBlock =
                     let seen = seen.Add v
                     let def = letDefinition v memberBody
                     let alias = isAlias own memberBody v
+                    let definition () =
+                        match def |> Option.orElse (parameterArgument v memberBody) with
+                        | Some d -> List.ofSeq (d.GetFreeVars())
+                        | None -> []
                     let inner =
-                        if (fields.ContainsKey v.Name || (elementField fields v 0).IsSome || (elements fields memberBody v).IsSome) && not alias then []
+                        if alias then definition ()
+                        elif fields.ContainsKey v.Name then []
                         else
-                            match def |> Option.orElse (parameterArgument v memberBody) with
-                            | Some d -> List.ofSeq (d.GetFreeVars())
-                            | None -> []
+                            match elements fields memberBody v with
+                            // An element recovered from the literal reads its variables as the
+                            // block's do: counted, so one of a shadowed name is ambiguous (#279).
+                            | Some parts -> parts |> List.collect (function Choice2Of2 e -> List.ofSeq (e.GetFreeVars()) | Choice1Of2 _ -> [])
+                            | None when (elementField fields v 0).IsSome -> []
+                            | None -> definition ()
                     if alias then go seen counted (Set.add v aliases) (inner @ rest)
                     else go seen (v :: counted) aliases (inner @ rest)
             go Set.empty [] Set.empty (List.ofSeq own)
