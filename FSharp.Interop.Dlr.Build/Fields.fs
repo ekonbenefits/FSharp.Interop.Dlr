@@ -24,9 +24,9 @@ open FSharp.Compiler.Text
 /// source variable whose value holds the temporary's source range.
 ///
 /// The section's lines (map format 2, see Program.fs): `V field name ordinal` or
-/// `E field name ordinal element`, and `U name ordinal element` for a split tuple's element nothing
-/// in the optimized member keeps (unused). A block any of whose fields is not attributed has no
-/// section: it keeps the strict behaviour.
+/// `E field name ordinal element`, and `N name count`. A split tuple's element the optimizer kept
+/// nowhere has no line: the run time recovers it from its definition or refuses (#278). A block
+/// any of whose fields is not attributed has no section: it keeps the strict behaviour.
 module Fields =
 
     let flags = BindingFlags.Instance ||| BindingFlags.NonPublic ||| BindingFlags.Public
@@ -481,33 +481,6 @@ module Fields =
                                         | Some(name, n, None) -> Some(sprintf "V\t%s\t%s\t%d" field name n)
                                         | Some(name, n, Some i) -> Some(sprintf "E\t%s\t%s\t%d\t%d" field name n i)
                                         | None -> None)
-                                // A split tuple's element with no field, and no temporary of it read anywhere in the
-                                // optimized member: unused. (An element read must be in the machine: a field, or
-                                // substituted, which only an effect-free definition is, and the run time takes
-                                // that first.)
-                                let unused =
-                                    let elementsOf = Dictionary<string * int, int>()
-                                    for (sv, n, _) in bySource.Values do
-                                        if sv.FullType.IsTupleType then elementsOf.[(sv.LogicalName, n)] <- sv.FullType.GenericArguments.Count
-                                    let split = attributed |> List.choose (function (_, Some(name, n, Some _)) -> Some(name, n) | _ -> None) |> List.distinct
-                                    let present = HashSet<string * int * int>()
-                                    let rec all (e: FSharpExpr) =
-                                        match e with
-                                        // Read, not merely bound or set: the branching rewrite makes and assigns a
-                                        // local for every element, read or not.
-                                        | FSharpExprPatterns.Value v ->
-                                            match attribute v with
-                                            | Some(name, n, Some i) -> present.Add((name, n, i)) |> ignore
-                                            | _ -> ()
-                                        | _ -> ()
-                                        for x in e.ImmediateSubExpressions do all x
-                                    all obody
-                                    [ for (name, n) in split do
-                                        match elementsOf.TryGetValue((name, n)) with
-                                        | true, count ->
-                                            for j in 0 .. count - 1 do
-                                                if not (present.Contains((name, n, j))) then yield sprintf "U\t%s\t%d\t%d" name n j
-                                        | _ -> () ]
                                 if not (List.forall Option.isSome entries) then
                                     for (field, v), entry in List.zip (fieldsOf definitions e) entries do
                                         if entry.IsNone then
@@ -530,13 +503,12 @@ module Fields =
                                     [ for a in attributed do
                                         match snd a with
                                         | Some(name, _, _) -> yield name
-                                        | None -> ()
-                                      for u in unused -> (u.Split '\t').[1] ]
+                                        | None -> () ]
                                     |> List.distinct
                                     |> List.map (fun name -> sprintf "N\t%s\t%d" name (match nameCounts.TryGetValue name with | true, n -> n | _ -> 0))
                                 let block =
                                     if List.forall Option.isSome entries then
-                                        Some([ sprintf "B\t%s\t%d" file line; "S\tfields" ] @ (entries |> List.map Option.get) @ List.ofSeq unused @ counted)
+                                        Some([ sprintf "B\t%s\t%d" file line; "S\tfields" ] @ (entries |> List.map Option.get) @ counted)
                                     else None
                                 match byKey.TryGetValue((file, line)) with
                                 | true, found -> found.Add((e.Range.StartColumn, block))

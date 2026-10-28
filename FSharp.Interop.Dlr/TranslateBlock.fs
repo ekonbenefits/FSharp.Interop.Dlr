@@ -47,10 +47,6 @@ module internal TranslateBlock =
           /// (`CaptureMap`), when it matches the machine exactly; then `Exact`, and no field is
           /// ever looked up by name.
           Resolved: Map<Var * int option, Reflection.FieldInfo>
-          /// A split tuple's elements the map says nothing keeps.
-          Unused: Set<Var * int>
-          /// Each tuple type and element the member reads explicitly (`fst`, `snd`, `TupleGet`).
-          ElementReads: Collections.Generic.HashSet<Type * int>
           Exact: bool }
         /// The name for this block's next compiled part of `kind`, for its stack frame: F#'s
         /// closure style, `dlr__Program_fs@7-for`, then `-for-2`, `-for-3` in order.
@@ -206,9 +202,35 @@ module internal TranslateBlock =
 
         /// Element `i` of a split tuple `v` that has no field: the definition's, when it gives it
         /// effect-free (the optimizer substituted it). Not otherwise: nothing says it is unread.
+        /// The tuple literal `e`'s value is, through what a quotation projects it by: an immutable
+        /// alias, a union case's field of a case the member builds (`match Some (a, b) with Some x`),
+        /// an element of a tuple literal. None when the value is computed otherwise. An element the
+        /// optimizer kept nowhere is taken from it (#278): it may have dropped the element because
+        /// it knew its value and used that directly, so only the element's own definition is right.
+        let rec tupleLiteral (memberBody: Expr) (e: Expr) : Expr list option =
+            match e with
+            | NewTuple es -> Some es
+            | Coerce(inner, _) -> tupleLiteral memberBody inner
+            | Var v when not v.IsMutable -> letDefinition v memberBody |> Option.bind (tupleLiteral memberBody)
+            | TupleGet(t, i) -> tupleLiteral memberBody t |> Option.bind (fun es -> if i < es.Length then tupleLiteral memberBody es.[i] else None)
+            | PropertyGet(Some target, p, []) ->
+                let rec built (e: Expr) =
+                    match e with
+                    | Coerce(inner, _) -> built inner
+                    | NewUnionCase(case, args) -> Some(case, args)
+                    | Var u when not u.IsMutable -> letDefinition u memberBody |> Option.bind built
+                    | _ -> None
+                match built target with
+                | Some(case, args) ->
+                    match case.GetFields() |> Array.tryFindIndex (fun f -> f.Name = p.Name && f.MetadataToken = p.MetadataToken && f.Module = p.Module) with
+                    | Some i when i < args.Length -> tupleLiteral memberBody args.[i]
+                    | _ -> None
+                | None -> None
+            | _ -> None
+
         let missingElement (memberBody: Expr) (v: Var) (i: int) : Expr option =
-            match letDefinition v memberBody with
-            | Some(NewTuple es) when effectFree es.[i] -> Some es.[i]
+            match letDefinition v memberBody |> Option.bind (tupleLiteral memberBody) with
+            | Some es when i < es.Length && effectFree es.[i] -> Some es.[i]
             | _ -> None
 
         /// The field element `i` of a reference tuple the Release optimizer split is held in: `t_0`,
@@ -236,12 +258,12 @@ module internal TranslateBlock =
                 if List.forall Option.isNone found then None
                 else
                     // An element the optimizer inlined (a constant) has no field: the definition's.
-                    let literal = match letDefinition v memberBody with Some(NewTuple es) -> Some es | _ -> None
+                    let literal = letDefinition v memberBody |> Option.bind (tupleLiteral memberBody)
                     let parts =
                         found |> List.mapi (fun i f ->
                             match f, literal with
                             | Some f, _ -> Some(Choice1Of2 f)
-                            | None, Some es when effectFree es.[i] -> Some(Choice2Of2 es.[i])
+                            | None, Some es when i < es.Length && effectFree es.[i] -> Some(Choice2Of2 es.[i])
                             | None, _ -> None)
                     if List.forall Option.isSome parts then Some(List.choose id parts) else None
 
@@ -347,11 +369,10 @@ module internal TranslateBlock =
                                         match f with
                                         | Some f -> Some(Choice1Of2 f)
                                         | None ->
+                                            // Kept nowhere: its own definition, or refused. Never a placeholder:
+                                            // the optimizer may have dropped it because it knew its value (#278).
                                             match missingElement block.MemberBody v j with
                                             | Some e -> Some(Choice2Of2 e)
-                                            // Kept nowhere, and read explicitly nowhere in the member: unused.
-                                            | None when block.Unused.Contains((v, j)) && not (block.ElementReads.Contains((v.Type, j))) ->
-                                                Some(Choice2Of2(Expr.DefaultValue (FSharpType.GetTupleElements v.Type).[j]))
                                             | None -> None)
                                 if List.forall Option.isSome parts then Some(List.choose id parts)
                                 else raise (DlrTranslationException(sprintf "dlr { } reads the tuple '%s' whole, but the optimizer kept only some of its elements." v.Name))

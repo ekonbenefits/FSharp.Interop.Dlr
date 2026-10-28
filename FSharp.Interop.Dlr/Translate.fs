@@ -30,28 +30,6 @@ module internal Translate =
     type TreeHook private () =
         static member val Sink : Action<Type, LambdaExpression> = null with get, set
 
-    /// Compiles the reflected body of one `dlr { }` block. `closureType` is the block's
-    /// compiler-generated container — its state machine struct, or in the fallback path the
-    /// class of its `Delay` closure: its fields, named after the captured variables, are where
-    /// the body's free variables are read from at call time.
-    /// Each tuple type and element the member reads explicitly anywhere (`fst`, `snd`,
-    /// `TupleGet`): an element so read is never taken as unused, whatever the map says (the
-    /// optimizer can keep a block's own `let b = snd t` as a field the translation recomputes).
-    let private elementReads (memberBody: Expr) =
-        let reads = Collections.Generic.HashSet<Type * int>()
-        let rec go (e: Expr) =
-            match e with
-            | TupleGet(t, i) -> reads.Add((t.Type, i)) |> ignore
-            | Call(None, mi, [ t ]) when mi.DeclaringType.FullName = "Microsoft.FSharp.Core.Operators" && (mi.Name = "Fst" || mi.Name = "Snd") ->
-                reads.Add((t.Type, (if mi.Name = "Fst" then 0 else 1))) |> ignore
-            | _ -> ()
-            match e with
-            | ShapeVar _ -> ()
-            | ShapeLambda(_, b) -> go b
-            | ShapeCombination(_, es) -> for x in es do go x
-        go memberBody
-        reads
-
     /// Each variable of the member by its identity in a capture map: its name and its order among
     /// the member's bindings of that name, in the order a quotation lays them out (pre-order).
     let private identities (memberBody: Expr) =
@@ -77,7 +55,7 @@ module internal Translate =
     /// variable of the same type would fit just as well: per name the entries use, the map's count
     /// of bindings must be the quotation's (the two laid the member out alike), and every variable
     /// the map gives a field must be upstream of the block (`upstream`).
-    let private exactly (closureType: Type) (fields: Collections.Generic.IDictionary<string, Reflection.FieldInfo>) (memberBody: Expr) (upstream: Collections.Generic.HashSet<Var>) (map: CaptureFields) : Result<Map<Var * int option, Reflection.FieldInfo> * Set<Var * int>, string> =
+    let private exactly (closureType: Type) (fields: Collections.Generic.IDictionary<string, Reflection.FieldInfo>) (memberBody: Expr) (upstream: Collections.Generic.HashSet<Var>) (map: CaptureFields) : Result<Map<Var * int option, Reflection.FieldInfo>, string> =
         if not closureType.IsValueType then Error "a closure, not a state machine"
         else
         let ids, idCounts = identities memberBody
@@ -97,12 +75,7 @@ module internal Translate =
                 FSharp.Reflection.FSharpType.IsTuple v.Type && not v.Type.IsValueType
                 && i >= 0 && i < (FSharp.Reflection.FSharpType.GetTupleElements v.Type).Length
                 && f.FieldType = (FSharp.Reflection.FSharpType.GetTupleElements v.Type).[i]
-        let unused =
-            map.Entries |> List.filter (fun e -> e.Unused) |> List.choose (fun e ->
-                match ids.TryGetValue(struct (e.Name, e.Ordinal)), e.Element with
-                | (true, v), Some i -> Some(v, i)
-                | _ -> None)
-        let entries = map.Entries |> List.filter (fun e -> not e.Unused)
+        let entries = map.Entries
         let resolved =
             entries |> List.map (fun e ->
                 match ids.TryGetValue(struct (e.Name, e.Ordinal)), fields.TryGetValue e.Field with
@@ -115,7 +88,7 @@ module internal Translate =
         match layout, resolved |> List.tryPick (function Error m -> Some m | Ok _ -> None) with
         | Some m, _ | None, Some m -> Error m
         | None, None when mapped <> Set.ofSeq fields.Keys || mapped.Count <> entries.Length -> Error "the map's fields are not the machine's"
-        | None, None -> Ok(resolved |> List.choose (function Ok r -> Some r | Error _ -> None) |> Map.ofList, Set.ofList unused)
+        | None, None -> Ok(resolved |> List.choose (function Ok r -> Some r | Error _ -> None) |> Map.ofList)
 
     /// The variables a block's value can come from: its free variables and, transitively, every
     /// variable of their definitions in the member, free or bound there (a field may hold any of
@@ -136,6 +109,10 @@ module internal Translate =
         for v in body.GetFreeVars() do go v
         seen
 
+    /// Compiles the reflected body of one `dlr { }` block. `closureType` is the block's
+    /// compiler-generated container — its state machine struct, or in the fallback path the
+    /// class of its `Delay` closure: its fields, named after the captured variables, are where
+    /// the body's free variables are read from at call time.
     let translate (name: string) (builderType: Type) (context: Type) (memberBody: Expr) (closureType: Type) (resultType: Type) (body: Expr) (captureMap: CaptureFields option) : Compiled =
         let closure = if closureType.IsValueType then Var("sm", closureType) else Var("closure", typeof<obj>)
         let fields = Captures.fields closureType
@@ -158,9 +135,7 @@ module internal Translate =
               Closure = closure
               Fields = fields
               Substituted = (if exact.IsSome then Set.empty else aliases)
-              Resolved = (match exact with Some(r, _) -> r | None -> Map.empty)
-              Unused = (match exact with Some(_, u) -> u | None -> Set.empty)
-              ElementReads = elementReads memberBody
+              Resolved = (match exact with Some r -> r | None -> Map.empty)
               Exact = exact.IsSome
               Ambiguous =
                   if exact.IsSome then Set.empty else

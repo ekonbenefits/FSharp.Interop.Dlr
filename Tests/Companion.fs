@@ -133,6 +133,71 @@ let ``a guard's variable, bound for the guard and for its target`` () =
     let result = guarded w 4
     result |> should equal 43
 
+let inline private applyInline ([<InlineIfLambda>] h: unit -> 'T) : 'T = h ()
+
+/// A guard over a tuple the optimizer splits, the block reading it whole through an inlined lambda:
+/// only element 0 is kept, element 1 nowhere, and it is recovered from the literal (70). A guard
+/// binds `x` twice; the element is the target's binding's, the one the block reads (#277, #278).
+let private guardedTuple (w: obj) (k: int) : int =
+    match Some(k * 10, 70) with
+    | Some x when fst x <> -1 ->
+        // fsharpanalyzer: ignore-line-next DLR001
+        dlr { return w?Count + fst (applyInline (fun () -> x)) }
+    | _ -> -1
+
+[<Fact>]
+let ``a guard over a split tuple read whole`` () =
+    needsBodies ()
+    let w: obj = Widget()
+    let result = guardedTuple w 4
+    result |> should equal 43
+
+/// A split tuple passed whole into an inlined helper the optimizer folds: it drops element 1
+/// because it knows its value (the literal's 70), not because nothing needs it, so the element is
+/// recovered from the literal, never a placeholder (#278: 43 where plain F# gives 113).
+type TupleRecord = { Pair: int * int }
+type TupleCase = TupleCase of (int * int)
+let inline private sndRecord (r: TupleRecord) : int = snd r.Pair
+let inline private fstRecord (r: TupleRecord) : int = fst r.Pair
+let inline private sndCase (TupleCase p) : int = snd p
+
+let private viaRecord (w: obj) (k: int) : int =
+    match Some(k * 10, 70) with
+    | Some x ->
+        // fsharpanalyzer: ignore-line-next DLR001
+        dlr { let b = sndRecord { Pair = x } in return w?Count + fst x + b }
+    | _ -> -1
+
+let private viaCase (w: obj) (k: int) : int =
+    match Some(k * 10, 70) with
+    | Some x ->
+        // fsharpanalyzer: ignore-line-next DLR001
+        dlr { let b = sndCase (TupleCase x) in return w?Count + fst x + b }
+    | _ -> -1
+
+let private bothViaRecord (w: obj) (k: int) : int =
+    match Some(k * 10, 70) with
+    | Some x ->
+        // fsharpanalyzer: ignore-line-next DLR001
+        dlr { return w?Count + fstRecord { Pair = x } + sndRecord { Pair = x } }
+    | _ -> -1
+
+[<Fact>]
+let ``a split tuple's dropped element is its literal's, never a placeholder`` () =
+    needsBodies ()
+    let w: obj = Widget()
+    // Each the plain F# value (113 for 4) or refused, never another.
+    let check (f: unit -> int) =
+        match (try Choice1Of2(f ()) with :? DlrTranslationException as e -> Choice2Of2 e) with
+        | Choice1Of2 value -> value |> should equal 113
+        | Choice2Of2 _ -> ()
+    check (fun () -> viaRecord w 4)
+    check (fun () -> viaCase w 4)
+    check (fun () -> bothViaRecord w 4)
+    // The literal recovered, the first runs (no longer refused or a placeholder).
+    let result = viaRecord w 4
+    result |> should equal 113
+
 /// Two guarded arms binding one name, the block in the second: the match compiler gives the
 /// machine's field the first arm's value, which the field pass does not attribute (no entry: the
 /// strict behaviour, which binds it by name), rather than guess between the arms.
