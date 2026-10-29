@@ -607,6 +607,16 @@ let private reboundAfterComputing (o: obj) (y: int) : int =
     let y = 100
     dlr { return o?Count + y + other }
 
+/// A user's variable named `matchValue`, the name F# gives a match's input: the block's value
+/// holds the match's own `matchValue`, of another type, which no field of the user's name can
+/// be read as, so nothing is refused (the #281 corpus, 760 cases).
+let private userNamedMatchValue (o: obj) (seed: int) : string =
+    match Some(seed * 10 + 2) with
+    | Some matchValue when matchValue <> -1 ->
+        let a2 = matchValue
+        (fun () -> (dlr { return o?Echo(a2) } : string)) ()
+    | _ -> "none"
+
 /// A user's `x1` the block never names, captured for an element of a tuple held whole: by its
 /// name alone it is a second `x`, so refused in an optimized build, though it is not one (#281
 /// review: a conservative refusal).
@@ -650,6 +660,7 @@ let ``what the optimizer did to a tuple or a shared name is never guessed`` () =
     valueOrRefused (count + 5 + 4 + 40) (fun () -> shadowedElementOwnReduced (box (Widget())) 4)
     valueOrRefused (count + 5 + 104 + 40 + 4000) (fun () -> shadowedElementUserY0Reduced (box (Widget())) 4)
     reboundAfterComputing (box (Widget())) 4 |> should equal (count + 100 + 8)
+    userNamedMatchValue echo 7 |> should equal "72"
     check "10|99" (fun () -> aliasOfTupleBesideUserY0 echo 10)
     check "10|99" (fun () -> aliasOfTupleBesideUserY0Closure echo 10)
 #if DEBUG

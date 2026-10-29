@@ -98,7 +98,11 @@ module internal Translate =
                               set [ for r in reached do
                                       if fields.ContainsKey r.Name then
                                           for w in elementsOf Set.empty (Expr.Var r) do
-                                              if w <> r && names.Contains w.Name && not (own.Contains w) then yield w.Name ]
+                                              // Of another type, a field holding it is refused by
+                                              // `Captures.read`'s type check, never read: a match's
+                                              // own `matchValue` beside a user's (#281 corpus).
+                                              if w <> r && not (own.Contains w)
+                                                 && reached |> List.exists (fun v -> v.Name = w.Name && v.Type = w.Type) then yield w.Name ]
                           let secondCapture =
                               set [ for n in names do
                                       if fields.Keys |> Seq.exists (fun f ->
