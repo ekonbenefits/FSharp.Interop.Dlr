@@ -65,9 +65,15 @@ tab-separated lines (`DLRMAP 2`, then `F offset length file` per source file, th
 line), then each file's lines raw-deflated. Compressed per file, because the names that repeat
 across members repeat within a file; the run time inflates a file's blob the first time one of
 its blocks is looked up. A file's lines are its blocks: `B file line`, then optional sections,
-`S fields` (`V field name ordinal`, `E field name ordinal element`, `U name ordinal element` for
-a split tuple's element nothing keeps, and `N name count`: for each name the entries use, how
-many bindings of it the companion counted in the member) and `S body`. Blocks are keyed by the outermost
+`S fields` (`V field name ordinal`, `E field name ordinal element`, and `N name count`: for
+each name the entries use, how many bindings of it the companion counted in the member) and
+`S body`. A split tuple's element the optimizer kept nowhere has no line: the run time recovers
+it from its definition (through an alias, a union case the member builds, a tuple literal) when
+that is effect-free, and refuses otherwise. It never uses a placeholder, because the optimizer may
+have dropped the element because it knew its value and used that directly (#278). So an element
+nothing reads is refused too when its definition has an effect: nothing tells it apart from one
+the optimizer folded. Without the map, the variables a recovered element reads count toward the
+block's names, so one the block shadows is refused rather than bound by name (#279). Blocks are keyed by the outermost
 `Delay`'s caller information, the same file and line the run time's probe finds; under a path map (deterministic builds)
 FCS applies the same mapping, so the keys still match.
 

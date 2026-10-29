@@ -10,9 +10,8 @@ open System.Text
 
 /// One field of a block's Release state machine and the source variable it holds: the
 /// variable's name and its order among the member's bindings of that name, and for a split
-/// tuple's element field, the element. `Unused`: no field, a split tuple's element the
-/// compiler keeps nowhere.
-type internal CaptureEntry = { Field: string; Name: string; Ordinal: int; Element: int option; Unused: bool }
+/// tuple's element field, the element.
+type internal CaptureEntry = { Field: string; Name: string; Ordinal: int; Element: int option }
 
 /// A block's `fields` section: its entries, and per name they use, how many bindings of that name
 /// the companion counted in the member (the run time refuses the block if the quotation has
@@ -30,7 +29,8 @@ type internal CaptureFields = { Entries: CaptureEntry list; Counts: Map<string, 
 /// raw-deflated, at its offset from the header's end. A blob holds that file's blocks as lines:
 /// `B file line` starts a block (blobs are per file, so its file is the blob's); `S section` one of
 /// its optional sections; `fields` holds `V field name ordinal`, `E field name ordinal element`,
-/// `U name ordinal element` (a split tuple's element nothing keeps) and `N name count`; `body`
+/// and `N name count` (a split tuple's element kept nowhere has no line: the run time recovers it
+/// from its definition or refuses, #278); `body`
 /// lines are BodyMap's. A file's blob is inflated the first time one of its blocks is looked up.
 /// A section this reader does not know is skipped, so a new kind of fact about a block (for this
 /// library or another consumer of the format) is a new section, not a new version.
@@ -106,15 +106,10 @@ module internal CaptureMap =
     let private fieldLine (parts: string[]) : Choice<CaptureEntry, string * int> option =
         match parts with
         | [| "V"; field; name; ordinal |] ->
-            natural ordinal |> Option.map (fun n -> Choice1Of2 { Field = field; Name = name; Ordinal = n; Element = None; Unused = false })
+            natural ordinal |> Option.map (fun n -> Choice1Of2 { Field = field; Name = name; Ordinal = n; Element = None })
         | [| "E"; field; name; ordinal; element |] ->
             match natural ordinal, natural element with
-            | Some n, Some i -> Some(Choice1Of2 { Field = field; Name = name; Ordinal = n; Element = Some i; Unused = false })
-            | _ -> None
-        // A split tuple's element nothing in the optimized member keeps.
-        | [| "U"; name; ordinal; element |] ->
-            match natural ordinal, natural element with
-            | Some n, Some i -> Some(Choice1Of2 { Field = ""; Name = name; Ordinal = n; Element = Some i; Unused = true })
+            | Some n, Some i -> Some(Choice1Of2 { Field = field; Name = name; Ordinal = n; Element = Some i })
             | _ -> None
         | [| "N"; name; count |] -> natural count |> Option.map (fun c -> Choice2Of2(name, c))
         | _ -> None
