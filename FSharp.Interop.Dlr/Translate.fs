@@ -55,9 +55,7 @@ module internal Translate =
     /// variable of the same type would fit just as well: per name the entries use, the map's count
     /// of bindings must be the quotation's (the two laid the member out alike), and every variable
     /// the map gives a field must be upstream of the block (`upstream`).
-    let private exactly (closureType: Type) (fields: Collections.Generic.IDictionary<string, Reflection.FieldInfo>) (memberBody: Expr) (upstream: Collections.Generic.HashSet<Var>) (map: CaptureFields) : Result<Map<Var * int option, Reflection.FieldInfo>, string> =
-        if not closureType.IsValueType then Error "a closure, not a state machine"
-        else
+    let private exactly (fields: Collections.Generic.IDictionary<string, Reflection.FieldInfo>) (memberBody: Expr) (upstream: Collections.Generic.HashSet<Var>) (map: CaptureFields) : Result<Map<Var * int option, Reflection.FieldInfo>, string> =
         let ids, idCounts = identities memberBody
         let layout =
             map.Entries |> List.map (fun e -> e.Name) |> List.distinct |> List.tryPick (fun name ->
@@ -88,6 +86,9 @@ module internal Translate =
         match layout, resolved |> List.tryPick (function Error m -> Some m | Ok _ -> None) with
         | Some m, _ | None, Some m -> Error m
         | None, None when mapped <> Set.ofSeq fields.Keys || mapped.Count <> entries.Length -> Error "the map's fields are not the machine's"
+        // Two fields of one variable of a name the member binds more than once: the map may be
+        // wrong about one of them (of a name bound once, both are that one).
+        | None, None when entries |> List.countBy (fun e -> e.Name, e.Ordinal, e.Element) |> List.exists (fun ((name, _, _), n) -> n > 1 && map.Counts.TryFind name <> Some 1) -> Error "two fields of one variable of a name bound more than once"
         | None, None -> Ok(resolved |> List.choose (function Ok r -> Some r | Error _ -> None) |> Map.ofList)
 
     /// The variables a block's value can come from: its free variables and, transitively, every
@@ -117,7 +118,7 @@ module internal Translate =
         let closure = if closureType.IsValueType then Var("sm", closureType) else Var("closure", typeof<obj>)
         let fields = Captures.fields closureType
         let reached, aliases = Captures.reached fields memberBody body
-        let checkedMap = captureMap |> Option.map (fun map -> exactly closureType fields memberBody (upstream memberBody body) map)
+        let checkedMap = captureMap |> Option.map (fun map -> exactly fields memberBody (upstream memberBody body) map)
         let exact = match checkedMap with Some(Ok r) -> Some r | _ -> None
         // DLR_CAPTURE_MAP_TRACE=1: whether each block (once, at translation) bound through the map.
         if CaptureMap.trace then

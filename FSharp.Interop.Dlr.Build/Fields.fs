@@ -67,8 +67,9 @@ module Fields =
         try v.FullType.HasTypeDefinition && v.FullType.TypeDefinition.DisplayName = "ResumableCode" with _ -> false
 
     /// The fields, in order: resumable code bound by `let` stands for its definition's free locals
-    /// (the lowering inlines it); a lambda-lifted value (`f@12`) is a method, not captured.
-    let fieldsOf (definitions: IDictionary<int64, FSharpExpr>) (machine: FSharpExpr) =
+    /// (the lowering inlines it); a lambda-lifted value (`f@12`) is a method, not captured. `taken`:
+    /// names the container has already (a delegate closure's: its parameters', GenDelegateExpr).
+    let fieldsOfWith (taken: Set<string>) (definitions: IDictionary<int64, FSharpExpr>) (machine: FSharpExpr) =
         let seen = HashSet<int64>()
         let rec expand (vs: FSharpMemberOrFunctionOrValue list) =
             [ for v in vs do
@@ -78,8 +79,10 @@ module Fields =
                     | _ when v.LogicalName.Contains "@" -> ()
                     | _ -> yield v ]
         let vs = expand (freeLocals machine) |> List.sortBy stamp
-        let names, _ = ((Set.empty, []), vs) ||> List.fold (fun (taken, acc) v -> let n = chooseUnique v.LogicalName taken in taken.Add n, n :: acc) |> fun (t, acc) -> List.rev acc, t
+        let names, _ = ((taken, []), vs) ||> List.fold (fun (taken, acc) v -> let n = chooseUnique v.LogicalName taken in taken.Add n, n :: acc) |> fun (t, acc) -> List.rev acc, t
         List.zip names vs
+
+    let fieldsOf definitions machine = fieldsOfWith Set.empty definitions machine
 
     /// The block's file and line: the caller information of its outermost Delay (#235). Inlined,
     /// a Delay is `if DlrLocation.Probing then DlrLocation.Answer(file, line) else …`, and the first
@@ -110,8 +113,10 @@ module Fields =
     /// each value's name and declaration.
     let sourceKey (v: FSharpMemberOrFunctionOrValue) = v.LogicalName, v.DeclarationLocation.ToString()
 
+    /// A builder's `Run`: DlrBuilder's, or the test suite's closure builder's (`Tests.ClosureBuilder.DlrClosureBuilder`,
+    /// the same members). Only a `Delay` carrying caller information makes it a block (`delayKey`).
     let isRun (m: FSharpMemberOrFunctionOrValue) =
-        m.CompiledName = "Run" && (try m.DeclaringEntity.Value.CompiledName = "DlrBuilder" with _ -> false)
+        m.CompiledName = "Run" && (try (let n = m.DeclaringEntity.Value.CompiledName in n = "DlrBuilder" || n = "DlrClosureBuilder") with _ -> false)
 
     /// A block's key in the unoptimized tree: the caller information (file, line) on the Delay that
     /// is Run's argument (#235: `Run(Delay(fun () -> …, file, line))`).
@@ -210,7 +215,10 @@ module Fields =
             // gets its two orders swapped with its count kept (#259's review).
             | FSharpExprPatterns.LetRec(bs, b) ->
                 let first = order.Count
-                for (v, d, _) in bs do add ((v, Some d))
+                for (v, d, _) in bs do
+                    // A closure copy of what the functions capture has the whole construct's range.
+                    bindRanges.[sourceKey v] <- e.Range
+                    add ((v, Some d))
                 scoped (bs |> List.mapi (fun i (v, _, _) -> v, first + i)) (fun () -> go b; for (_, d, _) in bs do go d)
             // A lambda applied on the spot: its parameter's value is the argument. As a quotation
             // has it: the parameter, its body, then the argument.
@@ -319,15 +327,18 @@ module Fields =
         outer.FileName = inner.FileName && Range.rangeContainsRange outer inner
 
 
-    /// Per block key (file, line), the lines of its `fields` section, for the outermost block of
-    /// each line (None: a field not attributed, so the block keeps the strict behaviour).
-    let run (unoptimized: FSharpAssemblyContents) (optimized: FSharpAssemblyContents) : IDictionary<string * int, string list option> =
+    /// Per block key (file, line), the lines of its `fields` section (its machine's) and of its
+    /// `closure` section (its closure path's container, #276), for the outermost block of each line
+    /// (None: a field not attributed, so the block keeps the strict behaviour on that path).
+    let run (unoptimized: FSharpAssemblyContents) (optimized: FSharpAssemblyContents) : IDictionary<string * int, string list option> * IDictionary<string * int, string list option> =
         // ---- The map.
 
         /// Per block key (file, line), every machine found there: the column of its `dlr` keyword, and its
         /// map lines when every field is attributed. Nested blocks share a line, and only the outermost is
         /// ever looked up (an inner one compiles as part of it), whatever order the optimizer left them in.
         let byKey = Dictionary<string * int, ResizeArray<int * string list option>>()
+        /// The same for the closure path's containers (the `closure` section).
+        let byClosureKey = Dictionary<string * int, ResizeArray<int * string list option>>()
         /// The unoptimized members, by compiled name and declaration: the optimized tree has more (the
         /// functions it lambda-lifts become declarations of their own), so the two are not paired by
         /// position.
@@ -365,6 +376,165 @@ module Fields =
                         for x in e.ImmediateSubExpressions do lambdas x
                     lambdas obody
                     let bySource, nameCounts, _, inScope = bindings uargs ubody
+                    /// A block's section lines for its container's fields (None: one not attributed), added
+                    /// to `target` under its key with the column the outermost is chosen by.
+                    let describe (target: Dictionary<string * int, ResizeArray<int * string list option>>) (file: string) (line: int) (column: int) (fields: (string * FSharpMemberOrFunctionOrValue) list) =
+                        // A value bound more than once: its binding in scope at this block.
+                        let ordinal (sv: FSharpMemberOrFunctionOrValue) (n: int) =
+                            match inScope.TryGetValue((file, line)) with
+                            | true, at -> (match at.TryGetValue(sourceKey sv) with | true, k -> k | _ -> n)
+                            | _ -> n
+                        // A value of the optimized member: the source variable (name, ordinal) it is,
+                        // and the element when it is one of a split tuple's; None when not attributed.
+                        let rec attribute (v: FSharpMemberOrFunctionOrValue) : (string * int * int option) option =
+                            match attributeOwn v with
+                            | Some a -> Some a
+                            | None ->
+                                // A copy the optimizer let-binds to another value (an inlined local
+                                // function's capture, `let log = log`): that value's attribution, exactly.
+                                match definitions.TryGetValue(stamp v) with
+                                | true, FSharpExprPatterns.Value u when stamp u <> stamp v -> attribute u
+                                | _ -> None
+                        and attributeOwn (v: FSharpMemberOrFunctionOrValue) : (string * int * int option) option =
+                                match bySource.TryGetValue(sourceKey v) with
+                                | true, (_, n, _) when splitElements.ContainsKey(sourceKey v) ->
+                                    let name, i = splitElements.[sourceKey v]
+                                    Some(name, n, Some i)
+                                | true, (sv, n, _) -> Some(sv.LogicalName, ordinal sv n, None)
+                                | _ ->
+                                    // The optimizer's own: a temporary `<tuple>_<i>` (an element), or a value
+                                    // it re-created under the source name (a pattern's). Attributed to the one
+                                    // source variable of that name whose value holds its range, whose definition
+                                    // has its range, or whose own binding it starts at (the branching
+                                    // rewrite's `$tupleElem`); else none.
+                                    let r = v.DeclarationLocation
+                                    let owner (name: string) (fits: FSharpMemberOrFunctionOrValue -> bool) (byValue: bool) =
+                                        let candidates =
+                                            bySource.Values |> Seq.filter (fun (sv, _, _) -> sv.LogicalName = name && fits sv) |> List.ofSeq
+                                        // The binding the optimizer made the temporary of, whole: exactly one
+                                        // whose construct has its range; else by value, below.
+                                        match candidates |> List.filter (fun (sv, _, _) -> match bindRanges.TryGetValue(sourceKey sv) with | true, br -> br = r | _ -> false) with
+                                        | [ one ] -> [ one ]
+                                        | _ when not byValue -> []
+                                        | _ ->
+                                        candidates
+                                        |> Seq.filter (fun (sv, _, d) ->
+                                            true
+                                            && ((match d |> Option.bind (valueRange bySource) with Some vr -> contains vr r | None -> false)
+                                                || (match d with Some d -> d.Range = r | None -> false)
+                                                || (match d |> Option.bind (valueRange bySource) with Some vr -> contains r vr | None -> false)
+                                                || (sv.DeclarationLocation.FileName = r.FileName && sv.DeclarationLocation.Start = r.Start)))
+                                        |> List.ofSeq
+                                    let name = v.LogicalName.Replace("$tupleElem", "")
+                                    let element =
+                                        match name.LastIndexOf '_' with
+                                        | at when at > 0 && at < name.Length - 1 && Seq.forall Char.IsDigit (name.Substring(at + 1)) ->
+                                            Some(name.Substring(0, at), int (name.Substring(at + 1)))
+                                        | _ -> None
+                                    match element with
+                                    | Some(tuple, i) ->
+                                        let elementOf (sv: FSharpMemberOrFunctionOrValue) =
+                                            sv.FullType.IsTupleType && i < sv.FullType.GenericArguments.Count
+                                            && sv.FullType.GenericArguments.[i].Format(FSharpDisplayContext.Empty) = v.FullType.Format(FSharpDisplayContext.Empty)
+                                        match owner tuple elementOf true with
+                                        | [ (sv, n, _) ] -> Some(sv.LogicalName, ordinal sv n, Some i)
+                                        | _ -> None
+                                    | None ->
+                                        let sameType (sv: FSharpMemberOrFunctionOrValue) = sv.FullType.Format(FSharpDisplayContext.Empty) = v.FullType.Format(FSharpDisplayContext.Empty)
+                                        // A closure's copy of a captured variable: closure conversion (a local
+                                        // function or lambda made a closure, or lifted) gives the captured value a
+                                        // new Val with the enclosing function's range, its name's or its whole
+                                        // binding's (a `let rec`'s: the whole construct). Attributed to the one
+                                        // source variable of that name and type declared before that function; with
+                                        // two (a shadowed name), none.
+                                        let enclosingOf (functions: bool) =
+                                            bySource.Values |> Seq.exists (fun (sv, _, _) ->
+                                                sv.LogicalName <> v.LogicalName
+                                                && (not functions || sv.FullType.IsFunctionType)
+                                                && (sv.DeclarationLocation = r || (match bindRanges.TryGetValue(sourceKey sv) with | true, br -> br = r | _ -> false)))
+                                        let enclosing = enclosingOf false
+                                        // A local function's range holds the definitions of its own variables of
+                                        // that name, which its copy is not: never matched by value (#276). Other
+                                        // bindings share ranges without being closures (an inlined operator's
+                                        // `arg0_0` has its application's), so for them value comes first.
+                                        match owner v.LogicalName sameType (not (enclosingOf true)) with
+                                        | [ (sv, n, _) ] -> Some(sv.LogicalName, ordinal sv n, None)
+                                        | _ ->
+                                            let before (sv: FSharpMemberOrFunctionOrValue) =
+                                                let d = sv.DeclarationLocation
+                                                d.FileName = r.FileName && (d.End.Line < r.Start.Line || (d.End.Line = r.Start.Line && d.End.Column <= r.Start.Column))
+                                            // Or a lambda parameter no source binding is: a closure the optimizer made
+                                            // (a lambda passed to an inlined local function) takes its captures as
+                                            // parameters, with the call's range. A free local of the block can only be
+                                            // a variable the block's source names, so it is one in scope at the block:
+                                            // the one of that name declared before the block; with two, none.
+                                            let lambdaBound = lambdaParameters.Contains(stamp v)
+                                            // A mutable captured by a closure arrives as its ref cell.
+                                            let fitsType (sv: FSharpMemberOrFunctionOrValue) =
+                                                let rec expand (t: FSharpType) = if t.IsAbbreviation then expand t.AbbreviatedType else t
+                                                let vt = expand v.FullType
+                                                sameType sv
+                                                || (sv.IsMutable && vt.HasTypeDefinition && vt.TypeDefinition.TryFullName = Some "Microsoft.FSharp.Core.FSharpRef`1"
+                                                    && vt.GenericArguments.[0].Format(FSharpDisplayContext.Empty) = sv.FullType.Format(FSharpDisplayContext.Empty))
+                                            let atBlock = Position.mkPos line 0
+                                            let beforeBlock (sv: FSharpMemberOrFunctionOrValue) =
+                                                Path.GetFileName sv.DeclarationLocation.FileName = Path.GetFileName file && Position.posLt sv.DeclarationLocation.End atBlock
+                                            if enclosing then
+                                                match bySource.Values |> Seq.filter (fun (sv, _, _) -> sv.LogicalName = v.LogicalName && fitsType sv && before sv) |> List.ofSeq with
+                                                | [ (sv, n, _) ] -> Some(sv.LogicalName, ordinal sv n, None)
+                                                | _ -> None
+                                            elif lambdaBound then
+                                                match bySource.Values |> Seq.filter (fun (sv, _, _) -> sv.LogicalName = v.LogicalName && fitsType sv && beforeBlock sv) |> List.ofSeq with
+                                                | [ (sv, n, _) ] -> Some(sv.LogicalName, ordinal sv n, None)
+                                                | _ -> None
+                                            else None
+                        let attributed = fields |> List.map (fun (field, v) -> field, attribute v)
+                        // Two fields of one variable of a name the member binds more than once: one of
+                        // them may be the other binding's. (Of a name bound once, both are that one: the
+                        // optimizer keeps a copy beside it.)
+                        let duplicated =
+                            attributed |> List.choose snd |> List.countBy id
+                            |> List.exists (fun ((name, _, _), n) -> n > 1 && (match nameCounts.TryGetValue name with | true, c -> c > 1 | _ -> true))
+                        if duplicated then
+                            eprintfn "DUPLICATED two fields attributed to one variable, block %s:%d: %s (bindings: %s)" (Path.GetFileName file) line (attributed |> List.map (fun (f, a) -> sprintf "%s=%A" f a) |> String.concat ", ") (attributed |> List.choose snd |> List.map (fun (n, _, _) -> sprintf "%s %d" n (match nameCounts.TryGetValue n with | true, c -> c | _ -> 0)) |> List.distinct |> String.concat ", ")
+                        let entries =
+                            attributed |> List.map (fun (field, a) ->
+                                match a with
+                                | Some(name, n, None) -> Some(sprintf "V\t%s\t%s\t%d" field name n)
+                                | Some(name, n, Some i) -> Some(sprintf "E\t%s\t%s\t%d\t%d" field name n i)
+                                | None -> None)
+                        if not (List.forall Option.isSome entries) then
+                            for (field, v), entry in List.zip fields entries do
+                                if entry.IsNone then
+                                    eprintfn "UNATTRIBUTED %s (%s: %s at %s) block %s:%d" field v.LogicalName (v.FullType.Format(FSharpDisplayContext.Empty)) (v.DeclarationLocation.ToString()) (Path.GetFileName file) line
+                                    // CMAP_DEBUG=1: how the optimized member binds the field's value.
+                                    if Environment.GetEnvironmentVariable "CMAP_DEBUG" = "1" then
+                                        let rec binder (e: FSharpExpr) =
+                                            match e with
+                                            | FSharpExprPatterns.Let((b, d, _), _) when stamp b = stamp v -> eprintfn "    Let, defined as %A" (try d.ToString().Substring(0, min 300 (d.ToString().Length)) with _ -> "?")
+                                            | FSharpExprPatterns.Lambda(b, _) when stamp b = stamp v -> eprintfn "    Lambda parameter at %O" e.Range
+                                            | FSharpExprPatterns.LetRec(bs, _) when bs |> List.exists (fun (b, _, _) -> stamp b = stamp v) -> eprintfn "    LetRec"
+                                            | _ -> ()
+                                            for x in e.ImmediateSubExpressions do binder x
+                                        binder obody
+                                        eprintfn "    (searched the optimized member %s)" omfv.CompiledName
+                        // Per name the entries use, how many bindings of it the member has as the
+                        // quotation lays them out: the run time counts the quotation's and refuses
+                        // the block on any difference, so a layout this pass got wrong is a refusal.
+                        let counted =
+                            [ for a in attributed do
+                                match snd a with
+                                | Some(name, _, _) -> yield name
+                                | None -> () ]
+                            |> List.distinct
+                            |> List.map (fun name -> sprintf "N\t%s\t%d" name (match nameCounts.TryGetValue name with | true, n -> n | _ -> 0))
+                        let block =
+                            if List.forall Option.isSome entries && not duplicated then
+                                Some([ sprintf "B\t%s\t%d" file line; "S\tfields" ] @ (entries |> List.map Option.get) @ counted)
+                            else None
+                        match target.TryGetValue((file, line)) with
+                        | true, found -> found.Add((column, block))
+                        | _ -> target.[(file, line)] <- ResizeArray [ (column, block) ]
                     let rec machines (e: FSharpExpr) =
                         match e with
                         | FSharpExprPatterns.Call(_, mfv, _, _, _) when mfv.CompiledName = "__stateMachine" ->
@@ -372,147 +542,24 @@ module Fields =
                             match blockKey definitions e with
                             | None -> ()
                             | Some(file, line) ->
-                                // A value bound more than once: its binding in scope at this block.
-                                let ordinal (sv: FSharpMemberOrFunctionOrValue) (n: int) =
-                                    match inScope.TryGetValue((file, line)) with
-                                    | true, at -> (match at.TryGetValue(sourceKey sv) with | true, k -> k | _ -> n)
-                                    | _ -> n
-                                // A value of the optimized member: the source variable (name, ordinal) it is,
-                                // and the element when it is one of a split tuple's; None when not attributed.
-                                let rec attribute (v: FSharpMemberOrFunctionOrValue) : (string * int * int option) option =
-                                    match attributeOwn v with
-                                    | Some a -> Some a
-                                    | None ->
-                                        // A copy the optimizer let-binds to another value (an inlined local
-                                        // function's capture, `let log = log`): that value's attribution, exactly.
-                                        match definitions.TryGetValue(stamp v) with
-                                        | true, FSharpExprPatterns.Value u when stamp u <> stamp v -> attribute u
-                                        | _ -> None
-                                and attributeOwn (v: FSharpMemberOrFunctionOrValue) : (string * int * int option) option =
-                                        match bySource.TryGetValue(sourceKey v) with
-                                        | true, (_, n, _) when splitElements.ContainsKey(sourceKey v) ->
-                                            let name, i = splitElements.[sourceKey v]
-                                            Some(name, n, Some i)
-                                        | true, (sv, n, _) -> Some(sv.LogicalName, ordinal sv n, None)
-                                        | _ ->
-                                            // The optimizer's own: a temporary `<tuple>_<i>` (an element), or a value
-                                            // it re-created under the source name (a pattern's). Attributed to the one
-                                            // source variable of that name whose value holds its range, whose definition
-                                            // has its range, or whose own binding it starts at (the branching
-                                            // rewrite's `$tupleElem`); else none.
-                                            let r = v.DeclarationLocation
-                                            let owner (name: string) (fits: FSharpMemberOrFunctionOrValue -> bool) =
-                                                let candidates =
-                                                    bySource.Values |> Seq.filter (fun (sv, _, _) -> sv.LogicalName = name && fits sv) |> List.ofSeq
-                                                // The binding the optimizer made the temporary of, whole: exactly one
-                                                // whose construct has its range; else by value, below.
-                                                match candidates |> List.filter (fun (sv, _, _) -> match bindRanges.TryGetValue(sourceKey sv) with | true, br -> br = r | _ -> false) with
-                                                | [ one ] -> [ one ]
-                                                | _ ->
-                                                candidates
-                                                |> Seq.filter (fun (sv, _, d) ->
-                                                    true
-                                                    && ((match d |> Option.bind (valueRange bySource) with Some vr -> contains vr r | None -> false)
-                                                        || (match d with Some d -> d.Range = r | None -> false)
-                                                        || (match d |> Option.bind (valueRange bySource) with Some vr -> contains r vr | None -> false)
-                                                        || (sv.DeclarationLocation.FileName = r.FileName && sv.DeclarationLocation.Start = r.Start)))
-                                                |> List.ofSeq
-                                            let name = v.LogicalName.Replace("$tupleElem", "")
-                                            let element =
-                                                match name.LastIndexOf '_' with
-                                                | at when at > 0 && at < name.Length - 1 && Seq.forall Char.IsDigit (name.Substring(at + 1)) ->
-                                                    Some(name.Substring(0, at), int (name.Substring(at + 1)))
-                                                | _ -> None
-                                            match element with
-                                            | Some(tuple, i) ->
-                                                let elementOf (sv: FSharpMemberOrFunctionOrValue) =
-                                                    sv.FullType.IsTupleType && i < sv.FullType.GenericArguments.Count
-                                                    && sv.FullType.GenericArguments.[i].Format(FSharpDisplayContext.Empty) = v.FullType.Format(FSharpDisplayContext.Empty)
-                                                match owner tuple elementOf with
-                                                | [ (sv, n, _) ] -> Some(sv.LogicalName, ordinal sv n, Some i)
-                                                | _ -> None
-                                            | None ->
-                                                let sameType (sv: FSharpMemberOrFunctionOrValue) = sv.FullType.Format(FSharpDisplayContext.Empty) = v.FullType.Format(FSharpDisplayContext.Empty)
-                                                match owner v.LogicalName sameType with
-                                                | [ (sv, n, _) ] -> Some(sv.LogicalName, ordinal sv n, None)
-                                                | _ ->
-                                                    // A closure's copy of a captured variable: closure conversion (a local
-                                                    // function or lambda made a closure, or lifted) gives the captured value a
-                                                    // new Val with the enclosing function's range, its name's or its whole
-                                                    // binding's. Attributed to the one source variable of that name and type
-                                                    // declared before that function; with two (a shadowed name), none.
-                                                    let enclosing =
-                                                        bySource.Values |> Seq.exists (fun (sv, _, _) ->
-                                                            sv.LogicalName <> v.LogicalName
-                                                            && (sv.DeclarationLocation = r || (match bindRanges.TryGetValue(sourceKey sv) with | true, br -> br = r | _ -> false)))
-                                                    let before (sv: FSharpMemberOrFunctionOrValue) =
-                                                        let d = sv.DeclarationLocation
-                                                        d.FileName = r.FileName && (d.End.Line < r.Start.Line || (d.End.Line = r.Start.Line && d.End.Column <= r.Start.Column))
-                                                    // Or a lambda parameter no source binding is: a closure the optimizer made
-                                                    // (a lambda passed to an inlined local function) takes its captures as
-                                                    // parameters, with the call's range. A free local of the block can only be
-                                                    // a variable the block's source names, so it is one in scope at the block:
-                                                    // the one of that name declared before the block; with two, none.
-                                                    let lambdaBound = lambdaParameters.Contains(stamp v)
-                                                    // A mutable captured by a closure arrives as its ref cell.
-                                                    let fitsType (sv: FSharpMemberOrFunctionOrValue) =
-                                                        let rec expand (t: FSharpType) = if t.IsAbbreviation then expand t.AbbreviatedType else t
-                                                        let vt = expand v.FullType
-                                                        sameType sv
-                                                        || (sv.IsMutable && vt.HasTypeDefinition && vt.TypeDefinition.TryFullName = Some "Microsoft.FSharp.Core.FSharpRef`1"
-                                                            && vt.GenericArguments.[0].Format(FSharpDisplayContext.Empty) = sv.FullType.Format(FSharpDisplayContext.Empty))
-                                                    let atBlock = Position.mkPos line 0
-                                                    let beforeBlock (sv: FSharpMemberOrFunctionOrValue) =
-                                                        Path.GetFileName sv.DeclarationLocation.FileName = Path.GetFileName file && Position.posLt sv.DeclarationLocation.End atBlock
-                                                    if enclosing then
-                                                        match bySource.Values |> Seq.filter (fun (sv, _, _) -> sv.LogicalName = v.LogicalName && fitsType sv && before sv) |> List.ofSeq with
-                                                        | [ (sv, n, _) ] -> Some(sv.LogicalName, ordinal sv n, None)
-                                                        | _ -> None
-                                                    elif lambdaBound then
-                                                        match bySource.Values |> Seq.filter (fun (sv, _, _) -> sv.LogicalName = v.LogicalName && fitsType sv && beforeBlock sv) |> List.ofSeq with
-                                                        | [ (sv, n, _) ] -> Some(sv.LogicalName, ordinal sv n, None)
-                                                        | _ -> None
-                                                    else None
-                                let fields = fieldsOf definitions e
-                                let attributed = fields |> List.map (fun (field, v) -> field, attribute v)
-                                let entries =
-                                    attributed |> List.map (fun (field, a) ->
-                                        match a with
-                                        | Some(name, n, None) -> Some(sprintf "V\t%s\t%s\t%d" field name n)
-                                        | Some(name, n, Some i) -> Some(sprintf "E\t%s\t%s\t%d\t%d" field name n i)
-                                        | None -> None)
-                                if not (List.forall Option.isSome entries) then
-                                    for (field, v), entry in List.zip (fieldsOf definitions e) entries do
-                                        if entry.IsNone then
-                                            eprintfn "UNATTRIBUTED %s (%s: %s at %s) block %s:%d" field v.LogicalName (v.FullType.Format(FSharpDisplayContext.Empty)) (v.DeclarationLocation.ToString()) (Path.GetFileName file) line
-                                            // CMAP_DEBUG=1: how the optimized member binds the field's value.
-                                            if Environment.GetEnvironmentVariable "CMAP_DEBUG" = "1" then
-                                                let rec binder (e: FSharpExpr) =
-                                                    match e with
-                                                    | FSharpExprPatterns.Let((b, d, _), _) when stamp b = stamp v -> eprintfn "    Let, defined as %A" (try d.ToString().Substring(0, min 300 (d.ToString().Length)) with _ -> "?")
-                                                    | FSharpExprPatterns.Lambda(b, _) when stamp b = stamp v -> eprintfn "    Lambda parameter at %O" e.Range
-                                                    | FSharpExprPatterns.LetRec(bs, _) when bs |> List.exists (fun (b, _, _) -> stamp b = stamp v) -> eprintfn "    LetRec"
-                                                    | _ -> ()
-                                                    for x in e.ImmediateSubExpressions do binder x
-                                                binder obody
-                                                eprintfn "    (searched the optimized member %s)" omfv.CompiledName
-                                // Per name the entries use, how many bindings of it the member has as the
-                                // quotation lays them out: the run time counts the quotation's and refuses
-                                // the block on any difference, so a layout this pass got wrong is a refusal.
-                                let counted =
-                                    [ for a in attributed do
-                                        match snd a with
-                                        | Some(name, _, _) -> yield name
-                                        | None -> () ]
-                                    |> List.distinct
-                                    |> List.map (fun name -> sprintf "N\t%s\t%d" name (match nameCounts.TryGetValue name with | true, n -> n | _ -> 0))
-                                let block =
-                                    if List.forall Option.isSome entries then
-                                        Some([ sprintf "B\t%s\t%d" file line; "S\tfields" ] @ (entries |> List.map Option.get) @ counted)
-                                    else None
-                                match byKey.TryGetValue((file, line)) with
-                                | true, found -> found.Add((e.Range.StartColumn, block))
-                                | _ -> byKey.[(file, line)] <- ResizeArray [ (e.Range.StartColumn, block) ]
+                                describe byKey file line e.Range.StartColumn (fieldsOf definitions e)
+                        // The closure path (#276): a block the compiler made no machine of runs
+                        // `DlrRun.Closure(builder, code)`, `code` a ResumableCode delegate over the
+                        // block's inlined Delay, and its closure class is the container: the delegate's
+                        // lambda's free locals (GenDelegateExpr, its parameter `sm`'s name taken). Only
+                        // a delegate built here: one not (Delay called, not inlined) is another container.
+                        | FSharpExprPatterns.Call(_, mfv, _, _, [ _; code ]) when mfv.CompiledName = "Closure" && (try mfv.DeclaringEntity.Value.CompiledName = "DlrRun" with _ -> false) ->
+                            let built =
+                                match code with
+                                | FSharpExprPatterns.Value c when definitions.ContainsKey(stamp c) -> definitions.[stamp c]
+                                | c -> c
+                            match built with
+                            | FSharpExprPatterns.NewDelegate(_, (FSharpExprPatterns.Lambda(sm, _) as lambda)) ->
+                                match blockKey definitions lambda with
+                                | Some(file, line) -> describe byClosureKey file line e.Range.StartColumn (fieldsOfWith (set [ sm.LogicalName ]) definitions lambda)
+                                | None -> ()
+                            | _ -> ()
+                            for x in e.ImmediateSubExpressions do machines x
                         | _ -> for x in e.ImmediateSubExpressions do machines x
                     machines obody
                 | _ -> ()
@@ -521,4 +568,6 @@ module Fields =
         // The outermost block of each line: its `dlr` comes first (an inner one is inside its braces;
         // two side by side on one line the run time refuses before reading the map). Its lines without
         // the `B` and `S fields` the writer adds.
-        dict [ for KeyValue(key, found) in byKey -> key, (found |> Seq.minBy fst |> snd |> Option.map (List.skip 2)) ]
+        let outermost (found: Dictionary<string * int, ResizeArray<int * string list option>>) =
+            dict [ for KeyValue(key, found) in found -> key, (found |> Seq.minBy fst |> snd |> Option.map (List.skip 2)) ]
+        outermost byKey, outermost byClosureKey

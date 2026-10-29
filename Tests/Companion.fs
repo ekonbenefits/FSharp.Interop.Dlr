@@ -216,6 +216,74 @@ let ``a second guarded arm binding the same name`` () =
     let result = secondGuard w 4
     result |> should equal 43
 
+/// A block in a `let rec` local function: the outer `x` reaches its machine as the closure's copy,
+/// whose range is the whole `let rec`, which holds the inner `x`'s definition too. The copy is the
+/// one `x` declared before the function, never the inner one by value (two fields once mapped to
+/// the inner `x`, the outer recovered from a definition that reads `seed`: refused, #276).
+let private recursiveTwoX (o: obj) (seed: int) : string =
+    let x = seed * 10 + 1
+    let f1 () = x
+    let rec go (j: int) : string =
+        if j > 0 then go (j - 1)
+        else
+            let x = seed * 10 + 2
+            // fsharpanalyzer: ignore-line-next DLR001
+            dlr { return o?Echo(f1 (), x) }
+    go 1
+
+/// The guard's `x` beside an outer one an inlined local function reads: the guard's field takes
+/// the range of `seed * 10 + 2`, which the inlined `+`'s parameters (`arg0_0`) share. Those are no
+/// closure, so the field is attributed by value, to the guard's `x`, not as a copy of the outer one.
+let private guardedBesideOuter (o: obj) (seed: int) : string =
+    let x = seed * 10 + 1
+    let f1 () = x
+    match Some(seed * 10 + 2) with
+    | Some x when x <> -1 ->
+        // fsharpanalyzer: ignore-line-next DLR001
+        dlr { return o?Echo(f1 (), x) }
+    | _ -> "none"
+
+[<Fact>]
+let ``a let rec local function's block reads the outer and the inner variable of one name`` () =
+    needsBodies ()
+    let o: obj = CaptureEcho()
+    let result = recursiveTwoX o 4
+    result |> should equal "41|42"
+    let guarded = guardedBesideOuter o 4
+    guarded |> should equal "41|42"
+
+/// A function-typed block applied on the spot takes the closure path in Release too (#217): its
+/// container is the block's delegate closure, which the map's `closure` section describes (#276),
+/// so two `y`s, one through an inlined local function, bind exactly instead of being refused.
+let private appliedTwoY (o: obj) (k: int) : int =
+    let y = k + 1
+    let g () = y
+    let y = k + 100
+    // fsharpanalyzer: ignore-line-next DLR001
+    (dlr { return fun (z: int) -> o?Count + g () + y + z } : int -> int) 5
+
+let private appliedCapturing (o: obj) (k: int) : int =
+    let y = k + 1
+    // fsharpanalyzer: ignore-line-next DLR001
+    (dlr { return fun (z: int) -> o?Count + y + z } : int -> int) 5
+
+let private appliedMutable (o: obj) (k: int) : int =
+    let mutable m = k
+    m <- m + 1
+    // fsharpanalyzer: ignore-line-next DLR001
+    (dlr { return fun (z: int) -> o?Count + m + z } : int -> int) 5
+
+[<Fact>]
+let ``a function-typed block applied on the spot binds through the closure section`` () =
+    needsBodies ()
+    let w: obj = Widget()
+    let twoY = appliedTwoY w 4
+    twoY |> should equal 117
+    let capturing = appliedCapturing w 4
+    capturing |> should equal 13
+    let mutated = appliedMutable w 4
+    mutated |> should equal 13
+
 /// A string constant UTF-8 cannot carry (a lone surrogate): the map would read back U+FFFD, a
 /// different constant, so the member is left out of the map and needs the attribute.
 let private loneSurrogate (w: obj) : int =

@@ -46,9 +46,9 @@ module Run =
         // definition fsc pickles is the unoptimized expression with those renames. The unoptimized
         // tree's values are read live, so walked after this, it has the quotation's names.
         let optimized = results.GetOptimizedAssemblyContents()
-        let fields = Fields.run results.AssemblyContents optimized
+        let fields, closures = Fields.run results.AssemblyContents optimized
         let bodies = Bodies.run results
-        let keys = Seq.append fields.Keys bodies.Keys |> Seq.distinct |> Seq.sort |> List.ofSeq
+        let keys = Seq.concat [ fields.Keys; closures.Keys; bodies.Keys ] |> Seq.distinct |> Seq.sort |> List.ofSeq
         // Per source file, its blocks' lines: `B`, then whichever sections the block has.
         let perFile =
             [ for file, fileKeys in keys |> List.groupBy fst ->
@@ -57,6 +57,9 @@ module Run =
                     let sections =
                         [ match fields.TryGetValue key with
                           | true, Some entries -> yield "S\tfields" :: entries
+                          | _ -> ()
+                          match closures.TryGetValue key with
+                          | true, Some entries -> yield "S\tclosure" :: entries
                           | _ -> ()
                           match bodies.TryGetValue key with
                           | true, entries -> yield "S\tbody" :: entries
@@ -67,7 +70,8 @@ module Run =
             |> List.filter (fun (_, lines) -> not lines.IsEmpty)
         write output perFile
         let mapped = fields.Values |> Seq.filter Option.isSome |> Seq.length
-        eprintfn "%d blocks, %d with fields, %d with a body" fields.Count mapped bodies.Count
+        let closureMapped = closures.Values |> Seq.filter Option.isSome |> Seq.length
+        eprintfn "%d blocks, %d with fields, %d closures with fields, %d with a body" fields.Count mapped closureMapped bodies.Count
         // Why members were left out of the body pass (their blocks need the attribute), most first.
         if Bodies.unsupported.Count > 0 then
             let reasons = Bodies.unsupported |> Seq.sortByDescending (fun kv -> kv.Value) |> Seq.truncate 5 |> Seq.map (fun kv -> sprintf "%s %d" kv.Key kv.Value)

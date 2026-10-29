@@ -43,11 +43,22 @@ or none:
   whose value holds its range; a tuple parameter the compiler split counts as the quotation's one
   tuple only when its elements are compiler-generated (a user's own `(x_0, x_1)` is not a split);
 - a closure's copy of a captured variable (a local function or lambda made a closure, or lifted:
-  a new value with the enclosing function's range, or a lambda parameter of the optimized member)
-  is the one source variable of that name declared before it; a captured `mutable` arrives as its
-  ref cell;
+  a new value with the enclosing function's range, a `let rec`'s being the whole construct, or a
+  lambda parameter of the optimized member) is the one source variable of that name declared
+  before it, never one matched by value: the function's range holds its own variables' definitions
+  (#276); a captured `mutable` arrives as its ref cell;
 - a copy let-bound to another value is that value's attribution;
-- anything else: none, and the block is left out of the map.
+- anything else: none, and the block is left out of the map. So is a block two of whose fields
+  are attributed to one variable of a name the member binds more than once: one of them may be the
+  other binding's (of a name bound once, both are that one, the optimizer keeping a copy beside it).
+
+A block the compiler makes no state machine of runs `DlrRun.Closure` (in Release, a function-typed
+block applied on the spot; [pipeline](pipeline.md)), and its container is the class of the
+resumable-code delegate built over its inlined `Delay`. The pass takes that delegate's lambda's
+free locals the same way (code generation's `GenDelegateExpr`, with the lambda's parameter `sm`
+already a taken name), attributes them by the same rules, and writes them as the block's `closure`
+section, beside its machine's `fields`: the run time reads the one its container's kind asks for.
+A Debug build's closure is `Delay`'s own, which the pass does not describe, so it has no entry.
 
 Nested blocks share a file and line, and only the outermost is ever looked up (an inner one
 compiles as part of it), so per line the map keeps the block whose `dlr` comes first.
@@ -66,8 +77,8 @@ line), then each file's lines raw-deflated. Compressed per file, because the nam
 across members repeat within a file; the run time inflates a file's blob the first time one of
 its blocks is looked up. A file's lines are its blocks: `B file line`, then optional sections,
 `S fields` (`V field name ordinal`, `E field name ordinal element`, and `N name count`: for
-each name the entries use, how many bindings of it the companion counted in the member) and
-`S body`. A split tuple's element the optimizer kept nowhere has no line: the run time recovers
+each name the entries use, how many bindings of it the companion counted in the member),
+`S closure` (the same lines for the closure-path container, #276) and `S body`. A split tuple's element the optimizer kept nowhere has no line: the run time recovers
 it from its definition (through an alias, a union case the member builds, a tuple literal) when
 that is effect-free, and refuses otherwise. It never uses a placeholder, because the optimizer may
 have dropped the element because it knew its value and used that directly (#278). So an element
@@ -129,11 +140,13 @@ block whether it bound through the map, and why not.
 ## Results
 
 On this repository's `Tests` (Release, macOS): with the map embedded the suite passes and about
-2,200 blocks bind exactly through it (the count varies a little with which blocks a run reaches); the other blocks the trace reports are closures, which have no
-state machine (a function-typed block applied on the spot, including a `let`-bound one applied
-once), and the two shapes the strict mode pins for refusal have no entry. No map entry is
-rejected. The CI job `companion` builds `Tests` this way in Debug and Release and fails on any
-rejected entry; "0 rejected" shows the companion and the quotation agree on the suite's shapes,
+2,300 blocks bind exactly through it (the count varies a little with which blocks a run reaches),
+the closures among them (a function-typed block applied on the spot, including a `let`-bound one
+applied once) through their `closure` section; the two shapes the strict mode pins for refusal
+have no entry. No map entry is rejected. Run on the closure path (`-p:DlrClosures=true`), every
+block's container is its closure, and about 2,280 bind exactly through the `closure` section, none
+rejected. The CI job `companion` builds `Tests` this way in Debug and Release, and on the closure
+path in Release, and fails on any rejected entry; "0 rejected" shows the companion and the quotation agree on the suite's shapes,
 not that they agree on every shape, which is what the run-time checks are for.
 
 The differential corpus (#200, outside the repository) binds a name one way or another and reaches
@@ -144,8 +157,11 @@ cases of the forms added for #259 (an or-pattern, a guard, a `let rec` whose def
 name or comes before it, a `try … with` handler, an active pattern, `function`) have none wrong
 either, on SDK 10 and 11, and every map entry is used, with no rejection: 11,140 run the same,
 against 5,104 without the map; the closure path and Debug (11's state machines too) run all of
-them. The rest are refusals: an active pattern the optimizer inlines (below), and a block in a
-`let rec` local function, which Release compiles to a closure, so the map has no fields for it. An
+them. The rest are refusals, most of them an active pattern the optimizer inlines (below). A block
+in a `let rec` local function is a state machine whose captures arrive as the function's closure
+copies, attributed as such (#276). On the corpus's two later subsets (#275's and #278's forms,
+48,940 cases) the map gives 31,346 the same as their plain twins (30,338 before #276), none wrong,
+and the same on the closure path with its `closure` section. An
 or-pattern's arm holds its block once per alternative, and the copies are one block (#266, #271)
 when every variable the block reads is a field, or recovered from a definition that is the same in
 every copy up to its variables.
