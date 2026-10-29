@@ -40,10 +40,12 @@ module internal Translate =
         let reached, aliases = Captures.reached fields memberBody body
         // Only an optimized build substitutes or splits a variable: the state machine, or in Release
         // the closure of `(dlr { … } : unit -> R) ()`.
-        let optimized =
-            closureType.IsValueType
-            || not (closureType.Assembly.GetCustomAttributes(typeof<Diagnostics.DebuggableAttribute>, false)
-                    |> Seq.exists (fun a -> (a :?> Diagnostics.DebuggableAttribute).IsJITOptimizerDisabled))
+        // The F# optimizer ran: it substitutes and captures variables of its own (#280). A Debug
+        // build that makes state machines (the 8.0, 9.0 and 11.0 compilers) does not.
+        let optimizerRan =
+            not (closureType.Assembly.GetCustomAttributes(typeof<Diagnostics.DebuggableAttribute>, false)
+                 |> Seq.exists (fun a -> (a :?> Diagnostics.DebuggableAttribute).IsJITOptimizerDisabled))
+        let optimized = closureType.IsValueType || optimizerRan
         let block =
             { BuilderType = builderType
               Context = context
@@ -68,7 +70,7 @@ module internal Translate =
                   // variable which may have a field is named, beside a reached `y`, is that second
                   // `y`. Both refused.
                   |> Set.union (
-                      if not optimized then Set.empty
+                      if not optimizerRan then Set.empty
                       else
                           let fieldless (v: Var) =
                               not v.IsMutable
