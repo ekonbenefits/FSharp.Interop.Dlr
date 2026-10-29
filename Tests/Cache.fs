@@ -538,6 +538,48 @@ let private shadowedElementOfWholeTuple (o: obj) (k: int) : int =
     let (ShadowPairCase x) = u
     dlr { return o?Count + sndOfRecord { Pair = x } + y + fst x }
 
+/// The block's own `y` a literal or an alias the optimizer substitutes: the only `y` it captures
+/// is the shadowed one, as field `y`, which the block's `y` read by name got (#281 review).
+let private shadowedElementOwnLiteral (o: obj) (k: int) : int =
+    let y = k + 1
+    let u = ShadowPairCase(k * 10, y)
+    let y = 100
+    let (ShadowPairCase x) = u
+    dlr { return o?Count + sndOfRecord { Pair = x } + y + fst x }
+let private shadowedElementOwnAlias (o: obj) (k: int) : int =
+    let y = k + 1
+    let u = ShadowPairCase(k * 10, y)
+    let y = k
+    let (ShadowPairCase x) = u
+    dlr { return o?Count + sndOfRecord { Pair = x } + y + fst x }
+
+/// A reached `y0` the optimizer substitutes has no field, so it does not explain one: the field
+/// `y0` is the shadowed `y`, and both `y` and `y0` read the wrong one (#281 review).
+let private shadowedElementUserY0Literal (o: obj) (k: int) : int =
+    let y = k + 1
+    let u = ShadowPairCase(k * 10, y)
+    let y = k + 100
+    let y0 = 7
+    let (ShadowPairCase x) = u
+    dlr { return o?Count + sndOfRecord { Pair = x } + y + fst x + y0 * 1000 }
+let private shadowedElementUserY0Alias (o: obj) (k: int) : int =
+    let y = k + 1
+    let u = ShadowPairCase(k * 10, y)
+    let y = k + 100
+    let y0 = k
+    let (ShadowPairCase x) = u
+    dlr { return o?Count + sndOfRecord { Pair = x } + y + fst x + y0 * 1000 }
+
+/// A user's `x1` the block never names, captured for an element of a tuple held whole: by its
+/// name alone it is a second `x`, so refused in an optimized build, though it is not one (#281
+/// review: a conservative refusal).
+let private userX1ForElementOfWholeTuple (o: obj) (k: int) : int =
+    let x = k + 100
+    let x1 = k * 7
+    let u = ShadowPairCase(k * 10, x1)
+    let (ShadowPairCase p) = u
+    dlr { return o?Count + sndOfRecord { Pair = p } + x + fst p }
+
 [<Fact>]
 let ``what the optimizer did to a tuple or a shared name is never guessed`` () =
     let echo = box (CaptureEcho())
@@ -555,9 +597,17 @@ let ``what the optimizer did to a tuple or a shared name is never guessed`` () =
     check "1|999" (fun () -> userT0BesideSplitTuple echo)
     check "1|99" (fun () -> elementOfAMutableRenamedInTheBlock echo)
     check "1|999" (fun () -> userT0BesideSplitTupleClosure echo)
-    match (try Ok(shadowedElementOfWholeTuple (box (Widget())) 4) with :? DlrTranslationException as e -> Error e.Message) with
-    | Ok value -> value |> should equal ((Widget()).Count + 5 + 104 + 40)
-    | Error _ -> ()
+    let count = (Widget()).Count
+    let valueOrRefused (expected: int) (run: unit -> int) =
+        match (try Ok(run ()) with :? DlrTranslationException as e -> Error e.Message) with
+        | Ok value -> value |> should equal expected
+        | Error _ -> ()
+    valueOrRefused (count + 5 + 104 + 40) (fun () -> shadowedElementOfWholeTuple (box (Widget())) 4)
+    valueOrRefused (count + 5 + 100 + 40) (fun () -> shadowedElementOwnLiteral (box (Widget())) 4)
+    valueOrRefused (count + 5 + 4 + 40) (fun () -> shadowedElementOwnAlias (box (Widget())) 4)
+    valueOrRefused (count + 5 + 104 + 40 + 7000) (fun () -> shadowedElementUserY0Literal (box (Widget())) 4)
+    valueOrRefused (count + 5 + 104 + 40 + 4000) (fun () -> shadowedElementUserY0Alias (box (Widget())) 4)
+    valueOrRefused (count + 28 + 104 + 40) (fun () -> userX1ForElementOfWholeTuple (box (Widget())) 4)
     check "10|99" (fun () -> aliasOfTupleBesideUserY0 echo 10)
     check "10|99" (fun () -> aliasOfTupleBesideUserY0Closure echo 10)
 #if DEBUG
@@ -568,7 +618,13 @@ let ``what the optimizer did to a tuple or a shared name is never guessed`` () =
     // A Debug machine (8.0, 9.0, 11.0) holds no field for `y`, so it may be split: refused there.
     aliasOfTupleBesideUserY0 echo 10 |> should equal "10|99"
     aliasOfTupleBesideUserY0Closure echo 10 |> should equal "10|99"
-    shadowedElementOfWholeTuple (box (Widget())) 4 |> should equal ((Widget()).Count + 5 + 104 + 40)
+    let count = (Widget()).Count
+    shadowedElementOfWholeTuple (box (Widget())) 4 |> should equal (count + 5 + 104 + 40)
+    shadowedElementOwnLiteral (box (Widget())) 4 |> should equal (count + 5 + 100 + 40)
+    shadowedElementOwnAlias (box (Widget())) 4 |> should equal (count + 5 + 4 + 40)
+    shadowedElementUserY0Literal (box (Widget())) 4 |> should equal (count + 5 + 104 + 40 + 7000)
+    shadowedElementUserY0Alias (box (Widget())) 4 |> should equal (count + 5 + 104 + 40 + 4000)
+    userX1ForElementOfWholeTuple (box (Widget())) 4 |> should equal (count + 28 + 104 + 40)
 #endif
 #endif
 

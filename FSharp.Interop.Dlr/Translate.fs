@@ -59,19 +59,42 @@ module internal Translate =
                   // of `(dlr { … } : unit -> R) ()`), and not one it captures whole as a field.
                   |> Set.union (
                       if optimized then Captures.elementNameClashes (fun t -> not (fields.ContainsKey t)) memberBody else Set.empty)
-                  // A field `y0`, `y1`, … that no reached variable is named, beside a `y` the block
-                  // reaches: a second `y` the optimizer captured for one it substituted (an element
-                  // of a tuple held whole, say), and the compiler orders `y` and `y0` as it likes (#280).
+                  // A variable the optimizer certainly gave no field: a literal, or an alias of a
+                  // variable that is one (it read that instead). A field of its name holds another
+                  // variable: a second `y` the optimizer captured for one it substituted (an element
+                  // of a tuple held whole, say), named `y`, `y0`, … in an order of its own (#280).
+                  // So a reached `y` that has no field, beside a field `y` and another `y` in the
+                  // member, would read that other `y`; and a field `y0`, `y1`, … that no reached
+                  // variable which may have a field is named, beside a reached `y`, is that second
+                  // `y`. Both refused.
                   |> Set.union (
                       if not optimized then Set.empty
                       else
-                          let names = reached |> List.map (fun v -> v.Name) |> Set.ofList
-                          set [ for n in names do
-                                  if fields.Keys |> Seq.exists (fun f ->
-                                         f.Length > n.Length && f.StartsWith(n, StringComparison.Ordinal)
-                                         && f |> Seq.skip n.Length |> Seq.forall Char.IsDigit
-                                         && not (names.Contains f)) then
-                                      yield n ])
+                          let fieldless (v: Var) =
+                              not v.IsMutable
+                              && (match TranslatePatterns.letDefinition v memberBody with
+                                  | Some(Value _) -> true
+                                  | Some(Var z) -> not z.IsMutable && z.Name <> v.Name && fields.ContainsKey z.Name
+                                  | _ -> false)
+                          let memberNames =
+                              let rec go acc (e: Expr) =
+                                  match e with
+                                  | ExprShape.ShapeVar v -> v :: acc
+                                  | ExprShape.ShapeLambda(v, b) -> go (v :: acc) b
+                                  | ExprShape.ShapeCombination(_, es) -> List.fold go acc es
+                              go [] memberBody |> List.distinct |> List.countBy (fun v -> v.Name) |> dict
+                          let held = reached |> List.filter (fieldless >> not) |> List.map (fun v -> v.Name) |> Set.ofList
+                          set [ for v in reached do
+                                  let n = v.Name
+                                  let shadowed =
+                                      fieldless v && fields.ContainsKey n
+                                      && (match memberNames.TryGetValue n with | true, c -> c > 1 | _ -> false)
+                                  let secondCapture =
+                                      fields.Keys |> Seq.exists (fun f ->
+                                          f.Length > n.Length && f.StartsWith(n, StringComparison.Ordinal)
+                                          && f |> Seq.skip n.Length |> Seq.forall Char.IsDigit
+                                          && not (held.Contains f))
+                                  if shadowed || secondCapture then yield n ])
               Name = name
               Names = Collections.Generic.Dictionary() }
 
