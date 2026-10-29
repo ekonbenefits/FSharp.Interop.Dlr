@@ -524,6 +524,20 @@ let private aliasOfModuleValues (o: obj) : string =
 let ``an alias of a module's immutable value the optimizer folds still resolves`` () =
     aliasOfModuleValues (box (CaptureEcho())) |> should equal "42|3"
 
+type ShadowPairRecord = { Pair: int * int }
+type ShadowPairCase = ShadowPairCase of (int * int)
+let inline private sndOfRecord (r: ShadowPairRecord) : int = snd r.Pair
+
+/// A tuple held whole whose element the optimizer knows is an earlier `y`, shadowed since: it
+/// captures that `y` too, as `y` or `y0` in an order of its own, so the block's own `y` read by name
+/// got the earlier one, 53 for 152 (#280).
+let private shadowedElementOfWholeTuple (o: obj) (k: int) : int =
+    let y = k + 1
+    let u = ShadowPairCase(k * 10, y)
+    let y = k + 100
+    let (ShadowPairCase x) = u
+    dlr { return o?Count + sndOfRecord { Pair = x } + y + fst x }
+
 [<Fact>]
 let ``what the optimizer did to a tuple or a shared name is never guessed`` () =
     let echo = box (CaptureEcho())
@@ -541,6 +555,9 @@ let ``what the optimizer did to a tuple or a shared name is never guessed`` () =
     check "1|999" (fun () -> userT0BesideSplitTuple echo)
     check "1|99" (fun () -> elementOfAMutableRenamedInTheBlock echo)
     check "1|999" (fun () -> userT0BesideSplitTupleClosure echo)
+    match (try Ok(shadowedElementOfWholeTuple (box (Widget())) 4) with :? DlrTranslationException as e -> Error e.Message) with
+    | Ok value -> value |> should equal ((Widget()).Count + 5 + 104 + 40)
+    | Error _ -> ()
     check "10|99" (fun () -> aliasOfTupleBesideUserY0 echo 10)
     check "10|99" (fun () -> aliasOfTupleBesideUserY0Closure echo 10)
 #if DEBUG
@@ -551,6 +568,7 @@ let ``what the optimizer did to a tuple or a shared name is never guessed`` () =
     // A Debug machine (8.0, 9.0, 11.0) holds no field for `y`, so it may be split: refused there.
     aliasOfTupleBesideUserY0 echo 10 |> should equal "10|99"
     aliasOfTupleBesideUserY0Closure echo 10 |> should equal "10|99"
+    shadowedElementOfWholeTuple (box (Widget())) 4 |> should equal ((Widget()).Count + 5 + 104 + 40)
 #endif
 #endif
 

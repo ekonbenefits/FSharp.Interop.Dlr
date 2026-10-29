@@ -38,6 +38,12 @@ module internal Translate =
         let closure = if closureType.IsValueType then Var("sm", closureType) else Var("closure", typeof<obj>)
         let fields = Captures.fields closureType
         let reached, aliases = Captures.reached fields memberBody body
+        // Only an optimized build substitutes or splits a variable: the state machine, or in Release
+        // the closure of `(dlr { … } : unit -> R) ()`.
+        let optimized =
+            closureType.IsValueType
+            || not (closureType.Assembly.GetCustomAttributes(typeof<Diagnostics.DebuggableAttribute>, false)
+                    |> Seq.exists (fun a -> (a :?> Diagnostics.DebuggableAttribute).IsJITOptimizerDisabled))
         let block =
             { BuilderType = builderType
               Context = context
@@ -52,11 +58,20 @@ module internal Translate =
                   // Only an optimized build splits a tuple (the state machine, or in Release the closure
                   // of `(dlr { … } : unit -> R) ()`), and not one it captures whole as a field.
                   |> Set.union (
-                      let optimized =
-                          closureType.IsValueType
-                          || not (closureType.Assembly.GetCustomAttributes(typeof<Diagnostics.DebuggableAttribute>, false)
-                                  |> Seq.exists (fun a -> (a :?> Diagnostics.DebuggableAttribute).IsJITOptimizerDisabled))
                       if optimized then Captures.elementNameClashes (fun t -> not (fields.ContainsKey t)) memberBody else Set.empty)
+                  // A field `y0`, `y1`, … that no reached variable is named, beside a `y` the block
+                  // reaches: a second `y` the optimizer captured for one it substituted (an element
+                  // of a tuple held whole, say), and the compiler orders `y` and `y0` as it likes (#280).
+                  |> Set.union (
+                      if not optimized then Set.empty
+                      else
+                          let names = reached |> List.map (fun v -> v.Name) |> Set.ofList
+                          set [ for n in names do
+                                  if fields.Keys |> Seq.exists (fun f ->
+                                         f.Length > n.Length && f.StartsWith(n, StringComparison.Ordinal)
+                                         && f |> Seq.skip n.Length |> Seq.forall Char.IsDigit
+                                         && not (names.Contains f)) then
+                                      yield n ])
               Name = name
               Names = Collections.Generic.Dictionary() }
 
