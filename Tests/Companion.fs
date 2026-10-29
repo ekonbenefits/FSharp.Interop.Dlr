@@ -273,6 +273,15 @@ let private appliedMutable (o: obj) (k: int) : int =
     // fsharpanalyzer: ignore-line-next DLR001
     (dlr { return fun (z: int) -> o?Count + m + z } : int -> int) 5
 
+/// Two such blocks nested on one line: the closure section is the outer block's (the one the
+/// inner's closure call is inside), not the inner's, whose closing brace comes first on the line
+/// (it was, from #282's review: rejected, `no field y0`).
+let private appliedNested (o: obj) (k: int) : string =
+    let y = k + 1
+    let g () = y
+    // fsharpanalyzer: ignore-line-next DLR001
+    (dlr { return fun (_: int) -> (let y = k + 2 in (dlr { return fun (w: int) -> (o?Echo(g (), y, w) : string) } : int -> string) 7) } : int -> string) 5
+
 [<Fact>]
 let ``a function-typed block applied on the spot binds through the closure section`` () =
     needsBodies ()
@@ -283,6 +292,8 @@ let ``a function-typed block applied on the spot binds through the closure secti
     capturing |> should equal 13
     let mutated = appliedMutable w 4
     mutated |> should equal 13
+    let nested = appliedNested (CaptureEcho()) 4
+    nested |> should equal "5|6|7"
 
 /// A string constant UTF-8 cannot carry (a lone surrogate): the map would read back U+FFFD, a
 /// different constant, so the member is left out of the map and needs the attribute.

@@ -377,7 +377,7 @@ module Fields =
                     lambdas obody
                     let bySource, nameCounts, _, inScope = bindings uargs ubody
                     /// A block's section lines for its container's fields (None: one not attributed), added
-                    /// to `target` under its key with the column the outermost is chosen by.
+                    /// to `target` under its key with the rank the outermost is chosen by (the least).
                     let describe (target: Dictionary<string * int, ResizeArray<int * string list option>>) (file: string) (line: int) (column: int) (fields: (string * FSharpMemberOrFunctionOrValue) list) =
                         // A value bound more than once: its binding in scope at this block.
                         let ordinal (sv: FSharpMemberOrFunctionOrValue) (n: int) =
@@ -556,7 +556,16 @@ module Fields =
                             match built with
                             | FSharpExprPatterns.NewDelegate(_, (FSharpExprPatterns.Lambda(sm, _) as lambda)) ->
                                 match blockKey definitions lambda with
-                                | Some(file, line) -> describe byClosureKey file line e.Range.StartColumn (fieldsOfWith (set [ sm.LogicalName ]) definitions lambda)
+                                | Some(file, line) ->
+                                    // Nested blocks share a line, and this call's range is the block's
+                                    // closing brace (the inner one's comes first), so the outermost is the
+                                    // one with the others' closure calls inside it: the most, first.
+                                    let rec nested (x: FSharpExpr) =
+                                        match x with
+                                        | FSharpExprPatterns.Call(_, m, _, _, _) when m.CompiledName = "Closure" && (try m.DeclaringEntity.Value.CompiledName = "DlrRun" with _ -> false) ->
+                                            1 + (x.ImmediateSubExpressions |> List.sumBy nested)
+                                        | _ -> x.ImmediateSubExpressions |> List.sumBy nested
+                                    describe byClosureKey file line (-(nested lambda)) (fieldsOfWith (set [ sm.LogicalName ]) definitions lambda)
                                 | None -> ()
                             | _ -> ()
                             for x in e.ImmediateSubExpressions do machines x

@@ -61,7 +61,8 @@ section, beside its machine's `fields`: the run time reads the one its container
 A Debug build's closure is `Delay`'s own, which the pass does not describe, so it has no entry.
 
 Nested blocks share a file and line, and only the outermost is ever looked up (an inner one
-compiles as part of it), so per line the map keeps the block whose `dlr` comes first.
+compiles as part of it), so per line the map keeps the block whose `dlr` comes first; in the
+`closure` section, the block the others' closure calls are inside.
 
 The `body` pass (`Bodies.run`) records each block's member body from the unoptimized tree, so a
 block needs no `[<ReflectedDefinition>]`: `Discover` falls back to it when no reflected definition

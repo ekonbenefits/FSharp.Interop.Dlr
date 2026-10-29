@@ -413,10 +413,10 @@ jobs:
 
   # The build companion (#259, for 2.0): Tests built with -p:DlrCompanion=true, which writes
   # the capture map during the build (FSharp.Interop.Dlr.Build) and embeds it, then the suite with
-  # the map's trace on. Beyond a passing suite: no block's map entry may be rejected for anything
-  # but being a closure (that would be the companion disagreeing with the compiler), and in
-  # Release, where blocks are state machines, some must bind through the map. Then the oracles
-  # (Companion/oracle.fsx) over the same build.
+  # the map's trace on. Beyond a passing suite: no block's map entry may be rejected (that would
+  # be the companion disagreeing with the compiler), and in Release some blocks must bind through
+  # the map. Then the oracles (Companion/oracle.fsx) over the same build, and in Release the suite
+  # on the closure path with the map (its `closure` section, #276).
   companion:
     strategy:
       fail-fast: false
