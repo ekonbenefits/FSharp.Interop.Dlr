@@ -570,6 +570,43 @@ let private shadowedElementUserY0Alias (o: obj) (k: int) : int =
     let (ShadowPairCase x) = u
     dlr { return o?Count + sndOfRecord { Pair = x } + y + fst x + y0 * 1000 }
 
+/// Whatever the optimizer makes of the block's own `y` (an alias chain to a literal, a module
+/// value, `id k`), the shadowed `y` is an element of the union case the block reads whole, which
+/// the optimizer may capture as field `y` (second #281 review).
+let private shadowedElementOwnAliasChain (o: obj) (k: int) : int =
+    let y = k + 1
+    let u = ShadowPairCase(k * 10, y)
+    let c = 100
+    let y = c
+    let (ShadowPairCase x) = u
+    dlr { return o?Count + sndOfRecord { Pair = x } + y + fst x }
+let private shadowedElementOwnModuleValue (o: obj) (k: int) : int =
+    let y = k + 1
+    let u = ShadowPairCase(k * 10, y)
+    let y = CaptureConstants.answer
+    let (ShadowPairCase x) = u
+    dlr { return o?Count + sndOfRecord { Pair = x } + y + fst x }
+let private shadowedElementOwnReduced (o: obj) (k: int) : int =
+    let y = k + 1
+    let u = ShadowPairCase(k * 10, y)
+    let y = id k
+    let (ShadowPairCase x) = u
+    dlr { return o?Count + sndOfRecord { Pair = x } + y + fst x }
+let private shadowedElementUserY0Reduced (o: obj) (k: int) : int =
+    let y = k + 1
+    let u = ShadowPairCase(k * 10, y)
+    let y = k + 100
+    let y0 = id k
+    let (ShadowPairCase x) = u
+    dlr { return o?Count + sndOfRecord { Pair = x } + y + fst x + y0 * 1000 }
+
+/// A name rebound after a value was computed from it (`other = y * 2`, then `let y = 100`): the
+/// optimizer cannot take the old `y` back out of `other`, so nothing is refused.
+let private reboundAfterComputing (o: obj) (y: int) : int =
+    let other = y * 2
+    let y = 100
+    dlr { return o?Count + y + other }
+
 /// A user's `x1` the block never names, captured for an element of a tuple held whole: by its
 /// name alone it is a second `x`, so refused in an optimized build, though it is not one (#281
 /// review: a conservative refusal).
@@ -608,6 +645,11 @@ let ``what the optimizer did to a tuple or a shared name is never guessed`` () =
     valueOrRefused (count + 5 + 104 + 40 + 7000) (fun () -> shadowedElementUserY0Literal (box (Widget())) 4)
     valueOrRefused (count + 5 + 104 + 40 + 4000) (fun () -> shadowedElementUserY0Alias (box (Widget())) 4)
     valueOrRefused (count + 28 + 104 + 40) (fun () -> userX1ForElementOfWholeTuple (box (Widget())) 4)
+    valueOrRefused (count + 5 + 100 + 40) (fun () -> shadowedElementOwnAliasChain (box (Widget())) 4)
+    valueOrRefused (count + 5 + CaptureConstants.answer + 40) (fun () -> shadowedElementOwnModuleValue (box (Widget())) 4)
+    valueOrRefused (count + 5 + 4 + 40) (fun () -> shadowedElementOwnReduced (box (Widget())) 4)
+    valueOrRefused (count + 5 + 104 + 40 + 4000) (fun () -> shadowedElementUserY0Reduced (box (Widget())) 4)
+    reboundAfterComputing (box (Widget())) 4 |> should equal (count + 100 + 8)
     check "10|99" (fun () -> aliasOfTupleBesideUserY0 echo 10)
     check "10|99" (fun () -> aliasOfTupleBesideUserY0Closure echo 10)
 #if DEBUG
@@ -625,6 +667,10 @@ let ``what the optimizer did to a tuple or a shared name is never guessed`` () =
     shadowedElementUserY0Literal (box (Widget())) 4 |> should equal (count + 5 + 104 + 40 + 7000)
     shadowedElementUserY0Alias (box (Widget())) 4 |> should equal (count + 5 + 104 + 40 + 4000)
     userX1ForElementOfWholeTuple (box (Widget())) 4 |> should equal (count + 28 + 104 + 40)
+    shadowedElementOwnAliasChain (box (Widget())) 4 |> should equal (count + 5 + 100 + 40)
+    shadowedElementOwnModuleValue (box (Widget())) 4 |> should equal (count + 5 + CaptureConstants.answer + 40)
+    shadowedElementOwnReduced (box (Widget())) 4 |> should equal (count + 5 + 4 + 40)
+    shadowedElementUserY0Reduced (box (Widget())) 4 |> should equal (count + 5 + 104 + 40 + 4000)
 #endif
 #endif
 
