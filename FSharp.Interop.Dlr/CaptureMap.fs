@@ -8,7 +8,8 @@ open System.IO.Compression
 open System.Reflection
 open System.Text
 
-/// One field of a block's Release state machine and the source variable it holds: the
+/// One field of a block's Release container (its state machine, or on the closure path its
+/// closure class) and the source variable it holds: the
 /// variable's name and its order among the member's bindings of that name, and for a split
 /// tuple's element field, the element.
 type internal CaptureEntry = { Field: string; Name: string; Ordinal: int; Element: int option }
@@ -30,7 +31,8 @@ type internal CaptureFields = { Entries: CaptureEntry list; Counts: Map<string, 
 /// `B file line` starts a block (blobs are per file, so its file is the blob's); `S section` one of
 /// its optional sections; `fields` holds `V field name ordinal`, `E field name ordinal element`,
 /// and `N name count` (a split tuple's element kept nowhere has no line: the run time recovers it
-/// from its definition or refuses, #278); `body`
+/// from its definition or refuses, #278); `closure` the same lines for the block's closure-path
+/// container, a class (a block the compiler made no machine of, #276); `body`
 /// lines are BodyMap's. A file's blob is inflated the first time one of its blocks is looked up.
 /// A section this reader does not know is skipped, so a new kind of fact about a block (for this
 /// library or another consumer of the format) is a new section, not a new version.
@@ -50,8 +52,9 @@ module internal CaptureMap =
     [<Literal>]
     let Version = "2"
 
-    /// A block's sections: its fields when it has a well-formed `fields` section, and its `body` lines.
-    type private Block = { Fields: CaptureFields option; Body: string list option }
+    /// A block's sections: its fields when it has a well-formed `fields` section, its closure
+    /// container's when a well-formed `closure` one, and its `body` lines.
+    type private Block = { Fields: CaptureFields option; Closure: CaptureFields option; Body: string list option }
 
     /// An assembly's map: per source file, its blob (offset, length) and, once a block of it was
     /// looked up, its blocks.
@@ -127,12 +130,14 @@ module internal CaptureMap =
             // A block's fields: None while there is no section, or once a line of it is malformed.
             let mutable fields: (CaptureEntry list * Map<string, int>) option = None
             let mutable broken = false
+            let mutable closure: (CaptureEntry list * Map<string, int>) option = None
+            let mutable closureBroken = false
             let mutable body = None
             let flush () =
                 match key with
                 | Some k ->
-                    let fields = if broken then None else fields |> Option.map (fun (es, counts) -> { Entries = List.rev es; Counts = counts })
-                    blocks.[k] <- { Fields = fields; Body = body |> Option.map List.rev }
+                    let finish broken section = if broken then None else section |> Option.map (fun (es, counts) -> { Entries = List.rev es; Counts = counts })
+                    blocks.[k] <- { Fields = finish broken fields; Closure = finish closureBroken closure; Body = body |> Option.map List.rev }
                 | None -> ()
             let mutable line = reader.ReadLine()
             while not (isNull line) do
@@ -143,16 +148,24 @@ module internal CaptureMap =
                     section <- ""
                     fields <- None
                     broken <- false
+                    closure <- None
+                    closureBroken <- false
                     body <- None
                 | _, [| "S"; name |] ->
                     section <- name
                     if name = "fields" then fields <- Some([], Map.empty)
+                    elif name = "closure" then closure <- Some([], Map.empty)
                     elif name = "body" then body <- Some []
                 | "fields", parts ->
                     match fieldLine parts, fields with
                     | Some(Choice1Of2 e), Some(es, counts) -> fields <- Some(e :: es, counts)
                     | Some(Choice2Of2(name, c)), Some(es, counts) -> fields <- Some(es, Map.add name c counts)
                     | _ -> broken <- true
+                | "closure", parts ->
+                    match fieldLine parts, closure with
+                    | Some(Choice1Of2 e), Some(es, counts) -> closure <- Some(e :: es, counts)
+                    | Some(Choice2Of2(name, c)), Some(es, counts) -> closure <- Some(es, Map.add name c counts)
+                    | _ -> closureBroken <- true
                 // A body line is BodyMap's, kept as written (its payload escaping included).
                 | "body", _ -> body <- body |> Option.map (fun ls -> line :: ls)
                 | _ -> ()
@@ -171,9 +184,10 @@ module internal CaptureMap =
             | _ -> None
         | _ -> None
 
-    /// The block's fields, when its assembly's map has a well-formed `fields` section for its file and line.
-    let find (assembly: Assembly) (file: string) (line: int) : CaptureFields option =
-        block assembly file line |> Option.bind (fun b -> b.Fields)
+    /// The block's fields, when its assembly's map has a well-formed section for its file and line:
+    /// `fields` for a state machine (`machine`), `closure` for the closure path's class.
+    let find (assembly: Assembly) (file: string) (line: int) (machine: bool) : CaptureFields option =
+        block assembly file line |> Option.bind (fun b -> if machine then b.Fields else b.Closure)
 
     /// The block's `body` lines as the companion wrote them (BodyMap decodes them), when its
     /// assembly's map has a `body` section for its file and line.

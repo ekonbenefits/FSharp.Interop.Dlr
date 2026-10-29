@@ -189,10 +189,10 @@ jobs:
           dotnet build Tests/Tests.fsproj --configuration "$CONFIGURATION" -f net48 -p:RunAnalyzers=false -p:DlrCompanion=true | tee build.txt
           "Tests/bin/$CONFIGURATION/net48/Tests.exe" 2> trace.txt | tee tests.txt
           exact=$(grep -c '^dlr capture map: exact' trace.txt || true)
-          rejected=$(grep '^dlr capture map: strict' trace.txt | grep -vc 'a closure, not a state machine' || true)
+          rejected=$(grep -c '^dlr capture map: strict' trace.txt || true)
           echo "bound exactly: $exact; rejected maps: $rejected"
           if [ "$rejected" -gt 0 ]; then
-            echo "::error::a capture map entry was rejected"; grep '^dlr capture map: strict' trace.txt | grep -v 'a closure, not a state machine'; exit 1
+            echo "::error::a capture map entry was rejected"; grep '^dlr capture map: strict' trace.txt; exit 1
           fi
           if [ "$CONFIGURATION" = Release ] && [ "$exact" -eq 0 ]; then
             echo "::error::no block bound through the capture map in Release"; exit 1
@@ -296,10 +296,10 @@ jobs:
             --report-anyunit-json "results/Tests-sdk$SDK-companion-$CONFIGURATION.json" \
             --platform-suffix "sdk$SDK-$CONFIGURATION-companion" 2> trace.txt | tee tests.txt
           exact=$(grep -c '^dlr capture map: exact' trace.txt || true)
-          rejected=$(grep '^dlr capture map: strict' trace.txt | grep -vc 'a closure, not a state machine' || true)
+          rejected=$(grep -c '^dlr capture map: strict' trace.txt || true)
           echo "bound exactly: $exact; rejected maps: $rejected"
           if [ "$rejected" -gt 0 ]; then
-            echo "::error::a capture map entry was rejected"; grep '^dlr capture map: strict' trace.txt | grep -v 'a closure, not a state machine'; exit 1
+            echo "::error::a capture map entry was rejected"; grep '^dlr capture map: strict' trace.txt; exit 1
           fi
           if [ "$CONFIGURATION" = Release ] && [ "$exact" -eq 0 ]; then
             echo "::error::no block bound through the capture map in Release"; exit 1
@@ -384,10 +384,10 @@ jobs:
             --report-anyunit-json "results/Tests-net11-companion-$CONFIGURATION.json" \
             --platform-suffix "$CONFIGURATION-companion" 2> trace.txt | tee tests.txt
           exact=$(grep -c '^dlr capture map: exact' trace.txt || true)
-          rejected=$(grep '^dlr capture map: strict' trace.txt | grep -vc 'a closure, not a state machine' || true)
+          rejected=$(grep -c '^dlr capture map: strict' trace.txt || true)
           echo "bound exactly: $exact; rejected maps: $rejected"
           if [ "$rejected" -gt 0 ]; then
-            echo "::error::a capture map entry was rejected"; grep '^dlr capture map: strict' trace.txt | grep -v 'a closure, not a state machine'; exit 1
+            echo "::error::a capture map entry was rejected"; grep '^dlr capture map: strict' trace.txt; exit 1
           fi
           if [ "$CONFIGURATION" = Release ] && [ "$exact" -eq 0 ]; then
             echo "::error::no block bound through the capture map in Release"; exit 1
@@ -413,10 +413,10 @@ jobs:
 
   # The build companion (#259, for 2.0): Tests built with -p:DlrCompanion=true, which writes
   # the capture map during the build (FSharp.Interop.Dlr.Build) and embeds it, then the suite with
-  # the map's trace on. Beyond a passing suite: no block's map entry may be rejected for anything
-  # but being a closure (that would be the companion disagreeing with the compiler), and in
-  # Release, where blocks are state machines, some must bind through the map. Then the oracles
-  # (Companion/oracle.fsx) over the same build.
+  # the map's trace on. Beyond a passing suite: no block's map entry may be rejected (that would
+  # be the companion disagreeing with the compiler), and in Release some blocks must bind through
+  # the map. Then the oracles (Companion/oracle.fsx) over the same build, and in Release the suite
+  # on the closure path with the map (its `closure` section, #276).
   companion:
     strategy:
       fail-fast: false
@@ -450,11 +450,10 @@ jobs:
         run: |
           dotnet "Tests/bin/$CONFIGURATION/net10.0/Tests.dll" 2> trace.txt | tee tests.txt
           exact=$(grep -c '^dlr capture map: exact' trace.txt || true)
-          strict=$(grep -c '^dlr capture map: strict' trace.txt || true)
-          rejected=$(grep '^dlr capture map: strict' trace.txt | grep -vc 'a closure, not a state machine' || true)
-          echo "bound exactly: $exact; strict: $strict (closures: $((strict - rejected)), rejected maps: $rejected)"
+          rejected=$(grep -c '^dlr capture map: strict' trace.txt || true)
+          echo "bound exactly: $exact; rejected maps: $rejected"
           if [ "$rejected" -gt 0 ]; then
-            echo "::error::a capture map entry was rejected"; grep '^dlr capture map: strict' trace.txt | grep -v 'a closure, not a state machine'; exit 1
+            echo "::error::a capture map entry was rejected"; grep '^dlr capture map: strict' trace.txt; exit 1
           fi
           if [ "$CONFIGURATION" = Release ] && [ "$exact" -eq 0 ]; then
             echo "::error::no block bound through the capture map in Release"; exit 1
@@ -480,6 +479,28 @@ jobs:
         run: |
           dotnet fsi Companion/oracle.fsx "Tests/obj/$CONFIGURATION/net10.0/dlr.companion.fscargs" "$PWD/Tests" "$PWD/Tests/bin/$CONFIGURATION/net10.0/Tests.dll" > oracle.txt 2>&1 || { cat oracle.txt; echo "::error::the companion's oracle failed"; exit 1; }
           grep -E '^members|^layouts|^signature' oracle.txt
+
+      # Every block on the closure path (Tests.ClosureBuilder) with the map: its `closure`
+      # section (#276), which in a normal build only a function-typed block applied on the spot
+      # reads. Release only: a Debug closure is Delay's own, which the map does not describe.
+      # Last, since it rebuilds Tests in place.
+      - name: Test the closure path with the map
+        if: matrix.configuration == 'Release'
+        shell: bash
+        env:
+          DLR_CAPTURE_MAP_TRACE: '1'
+        run: |
+          dotnet build Tests/Tests.fsproj --configuration Release -f net10.0 -p:DlrCompanion=true -p:DlrClosures=true
+          dotnet Tests/bin/Release/net10.0/Tests.dll 2> trace.txt
+          exact=$(grep -c '^dlr capture map: exact' trace.txt || true)
+          rejected=$(grep -c '^dlr capture map: strict' trace.txt || true)
+          echo "bound exactly: $exact; rejected maps: $rejected"
+          if [ "$rejected" -gt 0 ]; then
+            echo "::error::a capture map entry was rejected"; grep '^dlr capture map: strict' trace.txt; exit 1
+          fi
+          if [ "$exact" -eq 0 ]; then
+            echo "::error::no closure bound through the capture map"; exit 1
+          fi
 
   # The library is JIT-only by design (README) - the C# runtime binder,
   # LambdaExpression.Compile and ReflectedDefinition lookup - and Mono's

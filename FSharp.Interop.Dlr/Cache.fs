@@ -73,7 +73,7 @@ module DlrCache =
                     if String.IsNullOrEmpty file then "dlr__" + identifier t.Name
                     else sprintf "dlr__%s@%d" (identifier (file.Substring(file.LastIndexOfAny [| '/'; '\\' |] + 1))) line
                 // The build's capture map, when it has an entry for this block (`CaptureMap`).
-                let captureMap = if String.IsNullOrEmpty file then None else CaptureMap.find t.Assembly file line
+                let captureMap = if String.IsNullOrEmpty file then None else CaptureMap.find t.Assembly file line t.IsValueType
                 Translate.translate name builderType found.Context found.MemberBody t resultType found.Body captureMap)
         with :? DlrTranslationException as e when isNull e.InnerException ->
             refused.TryAdd(blockType, e) |> ignore
