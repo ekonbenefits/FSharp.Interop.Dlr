@@ -35,8 +35,23 @@ guard and again for its target; a handler's, for the filter and for the handler)
 scope at the block, found from the block's `Delay` in the unoptimized tree. Both trees are walked
 after optimizing: the optimizer renames values the trees share (a match's input after the pattern
 variable it stands for), and the reflected definition fsc pickles is the unoptimized expression with
-those renames, so the unoptimized tree read after optimizing has the quotation's names. Each rule gives an exact answer
-or none:
+those renames, so the unoptimized tree read after optimizing has the quotation's names.
+
+Each field is attributed by data flow first (#285): its value traced back through the optimized
+tree, by the compiler's own wiring, to the source variable it is. The trace follows a `let`'s
+definition, the argument a lambda is applied to (a `let rec` whose captures the optimizer made
+leading parameters among them; a recursive call passing the parameter on is no other value),
+each match leaf's value for a target, an optimizer mutable's assignments (a branching tuple's
+`t_0$tupleElem`), and tuple projections. It stops at a source variable, or at an expression the
+optimizer substituted for one, which is attributed only when it is exactly, by range and type, a
+source variable's value (its definition, or a match target's leaf value through a pattern) or an
+element of a source tuple's literal (through aliases, union cases built in the member, `if`
+branches, `let` bodies and tuple patterns); a whole variable before an element. Several
+assignment sites take the one reading all of them support. A value that carries one source
+variable's name but traces to another (an inlined active pattern's `Data`, which holds the match
+input) stands for both and is attributed to neither. Where data flow has no answer, the rules
+below give one; where the two disagree, the field is not attributed. Each rule gives an exact
+answer or none:
 
 - a variable of the source is itself;
 - an optimizer temporary (`x_0`, a split tuple's element) is that element of the source tuple
@@ -161,8 +176,8 @@ against 5,104 without the map; the closure path and Debug (11's state machines t
 them. The rest are refusals, most of them an active pattern the optimizer inlines (below). A block
 in a `let rec` local function is a state machine whose captures arrive as the function's closure
 copies, attributed as such (#276). On the corpus's two later subsets (#275's and #278's forms,
-48,940 cases) the map gives 31,346 the same as their plain twins (30,338 before #276), none wrong,
-and the same on the closure path with its `closure` section. An
+48,940 cases) the map gives 31,610 the same as their plain twins (31,346 by the rules alone,
+30,338 before #276), none wrong, and the same on the closure path with its `closure` section. An
 or-pattern's arm holds its block once per alternative, and the copies are one block (#266, #271)
 when every variable the block reads is a field, or recovered from a definition that is the same in
 every copy up to its variables.

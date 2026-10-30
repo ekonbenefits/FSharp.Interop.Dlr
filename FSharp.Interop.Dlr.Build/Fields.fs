@@ -148,6 +148,10 @@ module Fields =
     /// `splitElements`: the tool runs one pass per process.
     let bindRanges = Dictionary<string * string, range>()
 
+    /// A match target's variable's value at the first leaf that binds it (the unoptimized tree):
+    /// what data-flow attribution compares a substituted expression with (#285).
+    let targetValues = Dictionary<string * string, FSharpExpr>()
+
     /// Split parameters' elements: (name, declaration) → (tuple parameter's name, element).
     let splitElements = Dictionary<string * string, string * int>()
 
@@ -240,6 +244,9 @@ module Fields =
                 let vs, t = trees.Peek().[i]
                 for x in es do go x
                 let first = order.Count
+                if vs.Length = es.Length then
+                    for v, x in List.zip vs es do
+                        if not (targetValues.ContainsKey(sourceKey v)) then targetValues.[sourceKey v] <- x
                 for v in vs do add ((v, None))
                 scoped (vs |> List.mapi (fun i v -> v, first + i)) (fun () -> go t)
             | _ -> for x in e.ImmediateSubExpressions do go x
@@ -376,6 +383,55 @@ module Fields =
                         for x in e.ImmediateSubExpressions do lambdas x
                     lambdas obody
                     let bySource, nameCounts, _, inScope = bindings uargs ubody
+                    // Data-flow attribution (#285): every site that gives a value of the optimized
+                    // member its value: a let's definition, the argument a lambda is applied to (also
+                    // through a let- or let rec-bound lambda), each leaf's value for a match target.
+                    let sites = Dictionary<int64, ResizeArray<FSharpExpr>>()
+                    // Functions by stamp: let- and let rec-bound (a let rec the optimizer gave its
+                    // captures as leading parameters is applied to them at each call).
+                    let functions = Dictionary<int64, FSharpExpr>(definitions)
+                    let rec recs (e: FSharpExpr) =
+                        match e with
+                        | FSharpExprPatterns.LetRec(bs, _) -> for (v, d, _) in bs do functions.[stamp v] <- d
+                        | _ -> ()
+                        for x in e.ImmediateSubExpressions do recs x
+                    recs obody
+                    let site (v: FSharpMemberOrFunctionOrValue) (e: FSharpExpr) =
+                        match sites.TryGetValue(stamp v) with
+                        | true, l -> l.Add e
+                        | _ -> sites.[stamp v] <- ResizeArray [ e ]
+                    let rec flow (e: FSharpExpr) =
+                        match e with
+                        | FSharpExprPatterns.Let((v, d, _), _) -> site v d
+                        // The optimizer's own mutables (a branching tuple's `t_0$tupleElem`, set in each
+                        // branch); a source mutable is itself, never traced.
+                        | FSharpExprPatterns.ValueSet(v, d) -> site v d
+                        | FSharpExprPatterns.LetRec(bs, _) -> for (v, d, _) in bs do site v d
+                        | FSharpExprPatterns.Application(f, _, args) ->
+                            let rec lambdaOf (f: FSharpExpr) =
+                                match f with
+                                | FSharpExprPatterns.Lambda _ -> Some f
+                                | FSharpExprPatterns.Value g when functions.ContainsKey(stamp g) -> lambdaOf functions.[stamp g]
+                                | _ -> None
+                            let rec bindArgs (l: FSharpExpr) (args: FSharpExpr list) =
+                                match l, args with
+                                | FSharpExprPatterns.Lambda(p, body), a :: rest -> site p a; bindArgs body rest
+                                | _ -> ()
+                            match lambdaOf f with
+                            | Some l -> bindArgs l args
+                            | None -> ()
+                        | FSharpExprPatterns.DecisionTree(d, targets) ->
+                            let rec leaves (x: FSharpExpr) =
+                                match x with
+                                | FSharpExprPatterns.DecisionTreeSuccess(i, es) when i < targets.Length ->
+                                    let vs, _ = targets.[i]
+                                    if vs.Length = es.Length then List.iter2 site vs es
+                                | FSharpExprPatterns.DecisionTree _ -> ()
+                                | _ -> for y in x.ImmediateSubExpressions do leaves y
+                            leaves d
+                        | _ -> ()
+                        for x in e.ImmediateSubExpressions do flow x
+                    flow obody
                     /// A block's section lines for its container's fields (None: one not attributed), added
                     /// to `target` under its key with the rank the outermost is chosen by (the least).
                     let describe (target: Dictionary<string * int, ResizeArray<int * string list option>>) (file: string) (line: int) (column: int) (fields: (string * FSharpMemberOrFunctionOrValue) list) =
@@ -488,7 +544,144 @@ module Fields =
                                                 | [ (sv, n, _) ] -> Some(sv.LogicalName, ordinal sv n, None)
                                                 | _ -> None
                                             else None
-                        let attributed = fields |> List.map (fun (field, v) -> field, attribute v)
+                        let byRules = fields |> List.map (fun (field, v) -> field, attribute v)
+                        // Data flow first (#285): each field's value traced back through the optimized
+                        // tree to the source variable it is, by the compiler's own wiring; the rules
+                        // above only where data flow has no answer, and none where the two disagree.
+                        let attributed =
+                            let rec typeOf (t: FSharpType) = if t.IsAbbreviation then typeOf t.AbbreviatedType else t.Format(FSharpDisplayContext.Empty)
+                            let valueOf (sv: FSharpMemberOrFunctionOrValue) =
+                                match bySource.TryGetValue(sourceKey sv) with
+                                | true, (_, _, Some d) -> Some d
+                                | _ -> match targetValues.TryGetValue(sourceKey sv) with | true, x -> Some x | _ -> None
+                            // The tuple literals a source value is, through an alias, a union case's
+                            // field of a case built in the member, an `if`'s branches, a let's body.
+                            let rec literals (depth: int) (d: FSharpExpr) : FSharpExpr list list =
+                                if depth > 8 then [] else
+                                match d with
+                                | FSharpExprPatterns.NewTuple(_, es) -> [ es ]
+                                | FSharpExprPatterns.Coerce(_, inner) -> literals (depth + 1) inner
+                                | FSharpExprPatterns.IfThenElse(_, a, b) -> literals (depth + 1) a @ literals (depth + 1) b
+                                | FSharpExprPatterns.Let(_, body) -> literals (depth + 1) body
+                                | FSharpExprPatterns.Value w -> valueOf w |> Option.map (literals (depth + 1)) |> Option.defaultValue []
+                                // A tuple pattern's variable (`let (x, _) = ((a, b), c)`): element i of its input's literals.
+                                | FSharpExprPatterns.TupleGet(_, i, inner) ->
+                                    [ for es in literals (depth + 1) inner do
+                                        if i < es.Length then yield! literals (depth + 1) es.[i] ]
+                                | FSharpExprPatterns.UnionCaseGet(FSharpExprPatterns.Value w, _, case, field) ->
+                                    match valueOf w with
+                                    | Some(FSharpExprPatterns.NewUnionCase(_, case', args)) when case'.Name = case.Name ->
+                                        match case.Fields |> Seq.tryFindIndex (fun f -> f.Name = field.Name) with
+                                        | Some i when i < args.Length -> literals (depth + 1) args.[i]
+                                        | _ -> []
+                                    | _ -> []
+                                | _ -> []
+                            // What an expression the optimizer substituted for a variable is, by the
+                            // source: a variable whose value is exactly it (range and type), or element i
+                            // of a source tuple's literal (a split tuple's `let t_0 = a`).
+                            let byRange (e: FSharpExpr) =
+                                let wholes =
+                                    [ for (sv, n, _) in bySource.Values do
+                                        if typeOf sv.FullType = typeOf e.Type
+                                           && (match valueOf sv |> Option.bind (valueRange bySource) with Some vr -> vr = e.Range | None -> false) then
+                                            yield (sv.LogicalName, ordinal sv n, None) ]
+                                let elements =
+                                    [ for (sv, n, _) in bySource.Values do
+                                        match valueOf sv with
+                                        | Some d ->
+                                            for es in literals 0 d do
+                                                for i in 0 .. es.Length - 1 do
+                                                    if es.[i].Range = e.Range && typeOf es.[i].Type = typeOf e.Type then yield (sv.LogicalName, ordinal sv n, Some i)
+                                        | None -> () ]
+                                    |> List.distinct
+                                wholes, elements
+                            let rec trace (seen: Set<int64>) (v: FSharpMemberOrFunctionOrValue) : Choice<string * int * int option, string> =
+                                match bySource.TryGetValue(sourceKey v) with
+                                | true, (_, n, _) when splitElements.ContainsKey(sourceKey v) ->
+                                    let name, i = splitElements.[sourceKey v]
+                                    Choice1Of2(name, n, Some i)
+                                | true, (sv, n, _) -> Choice1Of2(sv.LogicalName, ordinal sv n, None)
+                                | _ when seen.Contains(stamp v) -> Choice2Of2 "cycle"
+                                | _ ->
+                                    match sites.TryGetValue(stamp v) with
+                                    | true, defs ->
+                                        // An optimizer mutable's default initial value, before the branches set it.
+                                        let defs =
+                                            if v.IsMutable && defs.Count > 1 && (match defs.[0] with FSharpExprPatterns.DefaultValue _ -> true | _ -> false)
+                                            then List.ofSeq defs |> List.tail else List.ofSeq defs
+                                        let seen = seen.Add(stamp v)
+                                        // A recursive call passing the parameter on is no other value: dropped.
+                                        let defs = defs |> List.filter (fun d -> traceExpr seen d <> Choice2Of2 "cycle")
+                                        match defs with
+                                        | [] -> Choice2Of2 "cycle"
+                                        | [ one ] -> traceExpr seen one
+                                        | _ ->
+                                            // Several sites (a branching tuple's element, set in each branch): the
+                                            // one reading every site supports, its own value or the literal
+                                            // element at its range.
+                                            let readings (d: FSharpExpr) =
+                                                let own = match traceExpr seen d with Choice1Of2 a -> Set.singleton a | _ -> Set.empty
+                                                let wholes, elements = byRange d
+                                                own + Set.ofList wholes + Set.ofList elements
+                                            match defs |> List.map readings |> Set.intersectMany |> List.ofSeq with
+                                            | [ one ] -> Choice1Of2 one
+                                            | [] -> Choice2Of2 "no common reading"
+                                            | _ -> Choice2Of2 "ambiguous"
+                                    | _ -> Choice2Of2 "unbound"
+                            and traceExpr (seen: Set<int64>) (e: FSharpExpr) =
+                                match e with
+                                | FSharpExprPatterns.Value u -> trace seen u
+                                | FSharpExprPatterns.Coerce(_, inner) -> traceExpr seen inner
+                                | FSharpExprPatterns.TupleGet(_, i, inner) ->
+                                    match traceExpr seen inner with
+                                    | Choice1Of2(name, n, None) -> Choice1Of2(name, n, Some i)
+                                    | Choice1Of2 _ -> Choice2Of2 "nested element"
+                                    | r -> r
+                                | _ ->
+                                    // A whole variable first: a pattern's `a` of `let a, b = …` is also its
+                                    // hidden tuple's element, and is itself.
+                                    match byRange e with
+                                    | [ one ], _ -> Choice1Of2 one
+                                    | [], [ one ] -> Choice1Of2 one
+                                    | [], [] -> Choice2Of2 "computed"
+                                    | _ -> Choice2Of2 "computed, ambiguous"
+                            // A value carrying one source variable's name whose value traces to another
+                            // (an inlined active pattern's `Data`, whose value is the match input): it
+                            // stands for both, and which one the block reads is not data flow's to say.
+                            let named (v: FSharpMemberOrFunctionOrValue) =
+                                let n = v.LogicalName.Replace("$tupleElem", "")
+                                let n = match n.LastIndexOf '_' with
+                                        | at when at > 0 && at < n.Length - 1 && Seq.forall Char.IsDigit (n.Substring(at + 1)) -> n.Substring(0, at)
+                                        | _ -> n
+                                n.TrimEnd([| '0'; '1'; '2'; '3'; '4'; '5'; '6'; '7'; '8'; '9' |]) |> fun t -> if t = "" then n else t
+                            let traced = fields |> List.map (fun (_, v) -> trace Set.empty v)
+                            let decided =
+                                List.map3 (fun (field, v) (_, rule) flowed ->
+                                    let a =
+                                        match flowed with
+                                        // A value carrying one source variable's name whose value traces
+                                        // to another (an inlined active pattern's `Data`, whose value is
+                                        // the match input) stands for both: which one the block reads is
+                                        // not data flow's to say, nor the rules' (they guess by range).
+                                        | Choice1Of2(name, _, _) when name <> named v && name <> v.LogicalName
+                                                                     && bySource.Values |> Seq.exists (fun (sv, _, _) -> sv.LogicalName = named v || sv.LogicalName = v.LogicalName) -> None
+                                        | Choice1Of2 f ->
+                                            match rule with
+                                            | Some r when r <> f -> None
+                                            | _ -> Some f
+                                        | Choice2Of2 _ -> rule
+                                    if Environment.GetEnvironmentVariable "DLR_COMPANION_ATTRIBUTION" = "1" then
+                                        let kind =
+                                            match rule, flowed, a with
+                                            | Some r, Choice1Of2 f, _ when r = f -> "agree"
+                                            | Some _, Choice1Of2 _, None -> "disagree"
+                                            | None, Choice1Of2 _, Some _ -> "flow"
+                                            | Some _, Choice2Of2 _, Some _ -> "rules"
+                                            | _, _, None -> "none"
+                                            | _ -> "flow"
+                                        eprintfn "ATTRIBUTION\t%s\t%s:%d\t%s\t%A\t%A" kind (Path.GetFileName file) line field rule flowed
+                                    field, a) fields byRules traced
+                            decided
                         // Two fields of one variable of a name the member binds more than once: one of
                         // them may be the other binding's. (Of a name bound once, both are that one: the
                         // optimizer keeps a copy beside it.)

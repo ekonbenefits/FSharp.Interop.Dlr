@@ -295,6 +295,51 @@ let ``a function-typed block applied on the spot binds through the closure secti
     let nested = appliedNested (CaptureEcho()) 4
     nested |> should equal "5|6|7"
 
+/// Fields attributed by data flow first (#285): each traced back through the optimized tree to the
+/// source variable it is, the rules only where it has no answer. The rules alone refused both.
+type HeldInt = { HeldValue: int }
+let inline private unholdInt (h: HeldInt) : int = h.HeldValue
+type BoxedInt = BoxedInt of int
+let inline private unboxInt (BoxedInt v) : int = v
+let private (|Present|_|) (x: 'T) = Some x
+
+/// After a `let rec` binding its own `x`, an alias of the outer `x` beside the inner one in a
+/// second `let rec`: the alias's field traces to the outer `x` through `go`'s lifted parameter.
+let private aliasAfterRecursive (o: obj) (seed: int) : string =
+    let rec h (j: int) : int = if j > 0 then h (j - 1) else (let x = seed * 10 + 91 in x)
+    ignore (h 1)
+    let x = seed * 10 + 1
+    let a = x
+    let rec go (j: int) : string =
+        if j > 0 then go (j - 1)
+        else
+            let x = seed * 10 + 2
+            // fsharpanalyzer: ignore-line-next DLR001
+            dlr { return o?Echo(a, unholdInt { HeldValue = x }) }
+    go 1
+
+/// An always-`Some` partial active pattern's `x` beside an alias of a mutable `x`: the rules gave the
+/// pattern's field to the mutable `x` (by range), data flow to the match input it holds. They
+/// disagree, so the field is left out, and the block binds by name, the one `x` it reads.
+let private aliasBesidePattern (o: obj) (seed: int) : string =
+    let mutable x = seed * 10 + 1
+    x <- x + 5
+    let a = x
+    match seed * 10 + 2 with
+    | Present x ->
+        // fsharpanalyzer: ignore-line-next DLR001
+        dlr { return o?Echo(a, unboxInt (BoxedInt x)) }
+    | _ -> "none"
+
+[<Fact>]
+let ``fields attributed by data flow bind two variables of one name`` () =
+    needsBodies ()
+    let o: obj = CaptureEcho()
+    let afterRecursive = aliasAfterRecursive o 4
+    afterRecursive |> should equal "41|42"
+    let besidePattern = aliasBesidePattern o 4
+    besidePattern |> should equal "46|42"
+
 /// A string constant UTF-8 cannot carry (a lone surrogate): the map would read back U+FFFD, a
 /// different constant, so the member is left out of the map and needs the attribute.
 let private loneSurrogate (w: obj) : int =
