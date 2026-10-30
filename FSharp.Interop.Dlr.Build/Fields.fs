@@ -432,6 +432,50 @@ module Fields =
                         | _ -> ()
                         for x in e.ImmediateSubExpressions do flow x
                     flow obody
+                    let rec typeOf (t: FSharpType) = if t.IsAbbreviation then typeOf t.AbbreviatedType else t.Format(FSharpDisplayContext.Empty)
+                    let valueOf (sv: FSharpMemberOrFunctionOrValue) =
+                        match bySource.TryGetValue(sourceKey sv) with
+                        | true, (_, _, Some d) -> Some d
+                        | _ -> match targetValues.TryGetValue(sourceKey sv) with | true, x -> Some x | _ -> None
+                    // The tuple literals a source value is, through an alias, a union case's field of a
+                    // case built in the member, an `if`'s branches, a let's body, a tuple pattern.
+                    let rec literals (depth: int) (d: FSharpExpr) : FSharpExpr list list =
+                        if depth > 8 then [] else
+                        match d with
+                        | FSharpExprPatterns.NewTuple(_, es) -> [ es ]
+                        | FSharpExprPatterns.Coerce(_, inner) -> literals (depth + 1) inner
+                        | FSharpExprPatterns.IfThenElse(_, a, b) -> literals (depth + 1) a @ literals (depth + 1) b
+                        | FSharpExprPatterns.Let(_, body) -> literals (depth + 1) body
+                        | FSharpExprPatterns.Value w -> valueOf w |> Option.map (literals (depth + 1)) |> Option.defaultValue []
+                        // A tuple pattern's variable (`let (x, _) = ((a, b), c)`): element i of its input's literals.
+                        | FSharpExprPatterns.TupleGet(_, i, inner) ->
+                            [ for es in literals (depth + 1) inner do
+                                if i < es.Length then yield! literals (depth + 1) es.[i] ]
+                        | FSharpExprPatterns.UnionCaseGet(FSharpExprPatterns.Value w, _, case, field) ->
+                            match valueOf w with
+                            | Some(FSharpExprPatterns.NewUnionCase(_, case', args)) when case'.Name = case.Name ->
+                                match case.Fields |> Seq.tryFindIndex (fun f -> f.Name = field.Name) with
+                                | Some i when i < args.Length -> literals (depth + 1) args.[i]
+                                | _ -> []
+                            | _ -> []
+                        | _ -> []
+                    // Each source value's range and each element of its tuple literals, once per member
+                    // (by range: what a substituted expression is looked up by), with its type.
+                    let rangeKey (r: range) = r.FileName + r.ToString()
+                    let substituted = Dictionary<string, ResizeArray<FSharpMemberOrFunctionOrValue * int * int option * string>>()
+                    let index (r: range) entry =
+                        match substituted.TryGetValue(rangeKey r) with
+                        | true, l -> l.Add entry
+                        | _ -> substituted.[rangeKey r] <- ResizeArray [ entry ]
+                    for (sv, n, _) in bySource.Values do
+                        match valueOf sv with
+                        | Some d ->
+                            match valueRange bySource d with
+                            | Some vr -> index vr (sv, n, None, typeOf sv.FullType)
+                            | None -> ()
+                            for es in literals 0 d do
+                                for i in 0 .. es.Length - 1 do index es.[i].Range (sv, n, Some i, typeOf es.[i].Type)
+                        | None -> ()
                     /// A block's section lines for its container's fields (None: one not attributed), added
                     /// to `target` under its key with the rank the outermost is chosen by (the least).
                     let describe (target: Dictionary<string * int, ResizeArray<int * string list option>>) (file: string) (line: int) (column: int) (fields: (string * FSharpMemberOrFunctionOrValue) list) =
@@ -549,52 +593,18 @@ module Fields =
                         // tree to the source variable it is, by the compiler's own wiring; the rules
                         // above only where data flow has no answer, and none where the two disagree.
                         let attributed =
-                            let rec typeOf (t: FSharpType) = if t.IsAbbreviation then typeOf t.AbbreviatedType else t.Format(FSharpDisplayContext.Empty)
-                            let valueOf (sv: FSharpMemberOrFunctionOrValue) =
-                                match bySource.TryGetValue(sourceKey sv) with
-                                | true, (_, _, Some d) -> Some d
-                                | _ -> match targetValues.TryGetValue(sourceKey sv) with | true, x -> Some x | _ -> None
-                            // The tuple literals a source value is, through an alias, a union case's
-                            // field of a case built in the member, an `if`'s branches, a let's body.
-                            let rec literals (depth: int) (d: FSharpExpr) : FSharpExpr list list =
-                                if depth > 8 then [] else
-                                match d with
-                                | FSharpExprPatterns.NewTuple(_, es) -> [ es ]
-                                | FSharpExprPatterns.Coerce(_, inner) -> literals (depth + 1) inner
-                                | FSharpExprPatterns.IfThenElse(_, a, b) -> literals (depth + 1) a @ literals (depth + 1) b
-                                | FSharpExprPatterns.Let(_, body) -> literals (depth + 1) body
-                                | FSharpExprPatterns.Value w -> valueOf w |> Option.map (literals (depth + 1)) |> Option.defaultValue []
-                                // A tuple pattern's variable (`let (x, _) = ((a, b), c)`): element i of its input's literals.
-                                | FSharpExprPatterns.TupleGet(_, i, inner) ->
-                                    [ for es in literals (depth + 1) inner do
-                                        if i < es.Length then yield! literals (depth + 1) es.[i] ]
-                                | FSharpExprPatterns.UnionCaseGet(FSharpExprPatterns.Value w, _, case, field) ->
-                                    match valueOf w with
-                                    | Some(FSharpExprPatterns.NewUnionCase(_, case', args)) when case'.Name = case.Name ->
-                                        match case.Fields |> Seq.tryFindIndex (fun f -> f.Name = field.Name) with
-                                        | Some i when i < args.Length -> literals (depth + 1) args.[i]
-                                        | _ -> []
-                                    | _ -> []
-                                | _ -> []
                             // What an expression the optimizer substituted for a variable is, by the
                             // source: a variable whose value is exactly it (range and type), or element i
                             // of a source tuple's literal (a split tuple's `let t_0 = a`).
                             let byRange (e: FSharpExpr) =
-                                let wholes =
-                                    [ for (sv, n, _) in bySource.Values do
-                                        if typeOf sv.FullType = typeOf e.Type
-                                           && (match valueOf sv |> Option.bind (valueRange bySource) with Some vr -> vr = e.Range | None -> false) then
-                                            yield (sv.LogicalName, ordinal sv n, None) ]
-                                let elements =
-                                    [ for (sv, n, _) in bySource.Values do
-                                        match valueOf sv with
-                                        | Some d ->
-                                            for es in literals 0 d do
-                                                for i in 0 .. es.Length - 1 do
-                                                    if es.[i].Range = e.Range && typeOf es.[i].Type = typeOf e.Type then yield (sv.LogicalName, ordinal sv n, Some i)
-                                        | None -> () ]
-                                    |> List.distinct
-                                wholes, elements
+                                match substituted.TryGetValue(rangeKey e.Range) with
+                                | true, found ->
+                                    let t = typeOf e.Type
+                                    let here = found |> Seq.filter (fun (_, _, _, ty) -> ty = t) |> List.ofSeq
+                                    let wholes = here |> List.choose (fun (sv, n, i, _) -> if i = None then Some(sv.LogicalName, ordinal sv n, None) else None)
+                                    let elements = here |> List.choose (fun (sv, n, i, _) -> if i <> None then Some(sv.LogicalName, ordinal sv n, i) else None) |> List.distinct
+                                    wholes, elements
+                                | _ -> [], []
                             let rec trace (seen: Set<int64>) (v: FSharpMemberOrFunctionOrValue) : Choice<string * int * int option, string> =
                                 match bySource.TryGetValue(sourceKey v) with
                                 | true, (_, n, _) when splitElements.ContainsKey(sourceKey v) ->
@@ -610,17 +620,19 @@ module Fields =
                                             if v.IsMutable && defs.Count > 1 && (match defs.[0] with FSharpExprPatterns.DefaultValue _ -> true | _ -> false)
                                             then List.ofSeq defs |> List.tail else List.ofSeq defs
                                         let seen = seen.Add(stamp v)
-                                        // A recursive call passing the parameter on is no other value: dropped.
-                                        let defs = defs |> List.filter (fun d -> traceExpr seen d <> Choice2Of2 "cycle")
+                                        // Each site traced once (twice per level is exponential in nested
+                                        // let recs); a recursive call passing the parameter on is no other
+                                        // value: dropped.
+                                        let defs = defs |> List.map (fun d -> d, traceExpr seen d) |> List.filter (fun (_, r) -> r <> Choice2Of2 "cycle")
                                         match defs with
                                         | [] -> Choice2Of2 "cycle"
-                                        | [ one ] -> traceExpr seen one
+                                        | [ (_, r) ] -> r
                                         | _ ->
                                             // Several sites (a branching tuple's element, set in each branch): the
                                             // one reading every site supports, its own value or the literal
                                             // element at its range.
-                                            let readings (d: FSharpExpr) =
-                                                let own = match traceExpr seen d with Choice1Of2 a -> Set.singleton a | _ -> Set.empty
+                                            let readings (d: FSharpExpr, traced) =
+                                                let own = match traced with Choice1Of2 a -> Set.singleton a | _ -> Set.empty
                                                 let wholes, elements = byRange d
                                                 own + Set.ofList wholes + Set.ofList elements
                                             match defs |> List.map readings |> Set.intersectMany |> List.ofSeq with
@@ -630,6 +642,9 @@ module Fields =
                                     | _ -> Choice2Of2 "unbound"
                             and traceExpr (seen: Set<int64>) (e: FSharpExpr) =
                                 match e with
+                                // A copy of a source mutable is its value when the copy was taken, which a
+                                // later assignment leaves behind: not the mutable at the block.
+                                | FSharpExprPatterns.Value u when u.IsMutable && bySource.ContainsKey(sourceKey u) -> Choice2Of2 "mutable snapshot"
                                 | FSharpExprPatterns.Value u -> trace seen u
                                 | FSharpExprPatterns.Coerce(_, inner) -> traceExpr seen inner
                                 | FSharpExprPatterns.TupleGet(_, i, inner) ->
@@ -669,16 +684,17 @@ module Fields =
                                             match rule with
                                             | Some r when r <> f -> None
                                             | _ -> Some f
+                                        // Nor a mutable's snapshot: the rules attribute it to the mutable.
+                                        | Choice2Of2 "mutable snapshot" -> None
                                         | Choice2Of2 _ -> rule
                                     if Environment.GetEnvironmentVariable "DLR_COMPANION_ATTRIBUTION" = "1" then
                                         let kind =
                                             match rule, flowed, a with
-                                            | Some r, Choice1Of2 f, _ when r = f -> "agree"
+                                            | Some r, Choice1Of2 f, Some _ when r = f -> "agree"
                                             | Some _, Choice1Of2 _, None -> "disagree"
-                                            | None, Choice1Of2 _, Some _ -> "flow"
+                                            | _, Choice1Of2 _, Some _ -> "flow"
                                             | Some _, Choice2Of2 _, Some _ -> "rules"
-                                            | _, _, None -> "none"
-                                            | _ -> "flow"
+                                            | _ -> "none"
                                         eprintfn "ATTRIBUTION\t%s\t%s:%d\t%s\t%A\t%A" kind (Path.GetFileName file) line field rule flowed
                                     field, a) fields byRules traced
                             decided
