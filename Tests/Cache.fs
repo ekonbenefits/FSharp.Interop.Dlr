@@ -527,6 +527,10 @@ let ``an alias of a module's immutable value the optimizer folds still resolves`
 type ShadowPairRecord = { Pair: int * int }
 type ShadowPairCase = ShadowPairCase of (int * int)
 let inline private sndOfRecord (r: ShadowPairRecord) : int = snd r.Pair
+type ShadowRefRecord = { RefPair: int * int ref }
+type ShadowRefCase = ShadowRefCase of (int * int ref)
+let inline private sndRefOfRecord (r: ShadowRefRecord) : int ref = snd r.RefPair
+type ShadowRequest = { Name: string; Age: int }
 
 /// A tuple held whole whose element the optimizer knows is an earlier `y`, shadowed since: it
 /// captures that `y` too, as `y` or `y0` in an order of its own, so the block's own `y` read by name
@@ -617,6 +621,47 @@ let private userNamedMatchValue (o: obj) (seed: int) : string =
         (fun () -> (dlr { return o?Echo(a2) } : string)) ()
     | _ -> "none"
 
+/// The third #281 review: a split tuple (fields `t_0` and the shadowed `y`, none `t`), a local
+/// function's parameter (its field named for the parameter, its value the call's argument), and a
+/// shadowed `y` the machine holds in a ref cell, which the block's `int` reads through.
+let private shadowedElementOfSplitTuple (o: obj) (k: int) : int =
+    let y = k + 1
+    let t = (k * 10, y)
+    let y = 100
+    dlr { return o?Count + snd t + y + fst t }
+let private shadowedElementOfParameter (o: obj) (k: int) : int =
+    let y = k + 1
+    let u = ShadowPairCase(k * 10, y)
+    let y = 100
+    let run (x: int * int) = dlr { return o?Count + sndOfRecord { Pair = x } + y + fst x }
+    let (ShadowPairCase p) = u
+    run p
+let private shadowedElementInRefCell (o: obj) (k: int) : int =
+    let y = ref (k + 1)
+    let u = ShadowRefCase(k * 10, y)
+    let y = 100
+    let (ShadowRefCase x) = u
+    dlr { return o?Count + (sndRefOfRecord { RefPair = x }).Value + y + fst x }
+
+/// A value built from a name, then the name rebound, the value passed whole to a dynamic call: the
+/// block takes nothing out of it, so the optimizer has no element to substitute, and nothing is
+/// refused (the third #281 review).
+let private requestThenRename (o: obj) (name: string) : string =
+    let req = { Name = name; Age = 3 }
+    let name = name.ToUpperInvariant()
+    dlr {
+        let r: ShadowRequest = o?Echo(req)
+        return r.Name + "|" + name }
+let private optionUnwrapThenRename (o: obj) (opt: int option) : int =
+    match opt with
+    | Some v ->
+        let pair = (v, v * 2)
+        let v = v + 1
+        dlr {
+            let p: int * int = o?Echo(box pair)
+            return fst p + v }
+    | None -> 0
+
 /// A user's `x1` the block never names, captured for an element of a tuple held whole: by its
 /// name alone it is a second `x`, so refused in an optimized build, though it is not one (#281
 /// review: a conservative refusal).
@@ -661,6 +706,11 @@ let ``what the optimizer did to a tuple or a shared name is never guessed`` () =
     valueOrRefused (count + 5 + 104 + 40 + 4000) (fun () -> shadowedElementUserY0Reduced (box (Widget())) 4)
     reboundAfterComputing (box (Widget())) 4 |> should equal (count + 100 + 8)
     userNamedMatchValue echo 7 |> should equal "72"
+    valueOrRefused (count + 5 + 100 + 40) (fun () -> shadowedElementOfSplitTuple (box (Widget())) 4)
+    valueOrRefused (count + 5 + 100 + 40) (fun () -> shadowedElementOfParameter (box (Widget())) 4)
+    valueOrRefused (count + 5 + 100 + 40) (fun () -> shadowedElementInRefCell (box (Widget())) 4)
+    requestThenRename (box (Widget())) "ab" |> should equal "ab|AB"
+    optionUnwrapThenRename (box (Widget())) (Some 4) |> should equal 9
     check "10|99" (fun () -> aliasOfTupleBesideUserY0 echo 10)
     check "10|99" (fun () -> aliasOfTupleBesideUserY0Closure echo 10)
 #if DEBUG
@@ -682,6 +732,9 @@ let ``what the optimizer did to a tuple or a shared name is never guessed`` () =
     shadowedElementOwnModuleValue (box (Widget())) 4 |> should equal (count + 5 + CaptureConstants.answer + 40)
     shadowedElementOwnReduced (box (Widget())) 4 |> should equal (count + 5 + 4 + 40)
     shadowedElementUserY0Reduced (box (Widget())) 4 |> should equal (count + 5 + 104 + 40 + 4000)
+    shadowedElementOfSplitTuple (box (Widget())) 4 |> should equal (count + 5 + 100 + 40)
+    shadowedElementOfParameter (box (Widget())) 4 |> should equal (count + 5 + 100 + 40)
+    shadowedElementInRefCell (box (Widget())) 4 |> should equal (count + 5 + 100 + 40)
 #endif
 #endif
 

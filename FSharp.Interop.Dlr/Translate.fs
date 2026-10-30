@@ -88,21 +88,50 @@ module internal Translate =
                               match e with
                               | Var v when not v.IsMutable && not (seen.Contains v) ->
                                   let seen = seen.Add v
-                                  match TranslatePatterns.letDefinition v memberBody with
+                                  // A local function's parameter is its one call's argument.
+                                  match TranslatePatterns.letDefinition v memberBody |> Option.orElse (TranslatePatterns.parameterArgument v memberBody) with
                                   | Some d -> elementsOf seen d
                                   | None -> seen
                               | NewTuple es | NewRecord(_, es) | NewUnionCase(_, es) -> List.fold elementsOf seen es
                               | PropertyGet(Some inner, _, []) | TupleGet(inner, _) | Coerce(inner, _) -> elementsOf seen inner
                               | _ -> seen
+                          // Whether the block's compiled code takes `r` apart, where the optimizer
+                          // can put an element's variable in its place: anything but `r` whole as
+                          // a dynamic call's target or argument (boxed or not), which it passes as
+                          // it is. One the block reaches only through a definition counts as apart.
+                          let apart (r: Var) =
+                              let rec go (whole: bool) (e: Expr) =
+                                  match e with
+                                  | Var v -> v = r && not whole
+                                  | MemberOp(InvokeMember(target, name, args)) ->
+                                      go true target || go false name
+                                      || (match args with
+                                          | NewTuple items -> List.exists (go true) items
+                                          | a -> go true a)
+                                  | MemberOp(GetMember(target, name)) -> go true target || go false name
+                                  | MemberOp(SetMember(target, name, value)) -> go true target || go false name || go true value
+                                  | Coerce(inner, _) -> go whole inner
+                                  | Call(None, mi, [ inner ]) when mi.DeclaringType.FullName = "Microsoft.FSharp.Core.Operators" && mi.Name = "Box" -> go whole inner
+                                  | ShapeVar _ -> false
+                                  | ShapeLambda(_, b) -> go false b
+                                  | ShapeCombination(_, es) -> List.exists (go false) es
+                              not (body.GetFreeVars() |> Seq.contains r) || go false body
+                          // A reached variable read from fields: its own, or its elements' (a split
+                          // tuple).
+                          let held (r: Var) =
+                              fields.ContainsKey r.Name || (Captures.elementField fields r 0).IsSome || (Captures.elements fields memberBody r).IsSome
+                          // Of another type, a field holding it is refused by `Captures.read`'s
+                          // type check, never read (a match's own `matchValue` beside a user's,
+                          // #281 corpus); a ref cell of the type is read through.
+                          let readAs (w: Var) =
+                              reached |> List.exists (fun v ->
+                                  v.Name = w.Name
+                                  && (v.Type = w.Type || (w.Type.IsGenericType && w.Type.GetGenericTypeDefinition() = typedefof<Ref<_>> && w.Type.GetGenericArguments().[0] = v.Type)))
                           let flowsIn =
                               set [ for r in reached do
-                                      if fields.ContainsKey r.Name then
+                                      if held r && apart r then
                                           for w in elementsOf Set.empty (Expr.Var r) do
-                                              // Of another type, a field holding it is refused by
-                                              // `Captures.read`'s type check, never read: a match's
-                                              // own `matchValue` beside a user's (#281 corpus).
-                                              if w <> r && not (own.Contains w)
-                                                 && reached |> List.exists (fun v -> v.Name = w.Name && v.Type = w.Type) then yield w.Name ]
+                                              if w <> r && not (own.Contains w) && readAs w then yield w.Name ]
                           let secondCapture =
                               set [ for n in names do
                                       if fields.Keys |> Seq.exists (fun f ->
