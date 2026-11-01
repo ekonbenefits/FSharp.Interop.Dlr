@@ -58,6 +58,12 @@ Not C# restrictions, but the same family:
   (always in Release, and in Debug on compilers that build one there): the machine has a field of that name, and the
   compiler rejects the duplicate (FS2014), as it does in `task { }`. A literal the optimizer
   inlines, and a `let mutable`, are fine ([translation](translation.md#captured-variables)).
+- **A name shadowed inside a value the block takes apart is refused in Release.** If a tuple,
+  record or union case was built from `y`, `y` is then rebound, and the block reads both `y` and
+  an element of that value (`fst x`, a field, a pattern), the optimizer may store the earlier `y`
+  under the name `y`, and the block cannot tell which it holds: the first call raises a
+  `DlrTranslationException`. Rename one. A value only passed whole to a dynamic call is fine.
+  The analyzer reports it (`DLR007`).
 - **A reflected definition cannot call a function its signature file hides.** In Release the
   optimizer may inline such a function and erase it, while the stored quotation still names it.
   FSharp.Core decodes an assembly's reflected definitions together, so then none of them decode,

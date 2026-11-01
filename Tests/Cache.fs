@@ -540,6 +540,8 @@ let private shadowedElementOfWholeTuple (o: obj) (k: int) : int =
     let u = ShadowPairCase(k * 10, y)
     let y = k + 100
     let (ShadowPairCase x) = u
+    // The analyzer reports it at build time (DLR007).
+    // fsharpanalyzer: ignore-line-next DLR007
     dlr { return o?Count + sndOfRecord { Pair = x } + y + fst x }
 
 /// The block's own `y` a literal or an alias the optimizer substitutes: the only `y` it captures
@@ -549,12 +551,16 @@ let private shadowedElementOwnLiteral (o: obj) (k: int) : int =
     let u = ShadowPairCase(k * 10, y)
     let y = 100
     let (ShadowPairCase x) = u
+    // The analyzer reports it at build time (DLR007).
+    // fsharpanalyzer: ignore-line-next DLR007
     dlr { return o?Count + sndOfRecord { Pair = x } + y + fst x }
 let private shadowedElementOwnAlias (o: obj) (k: int) : int =
     let y = k + 1
     let u = ShadowPairCase(k * 10, y)
     let y = k
     let (ShadowPairCase x) = u
+    // The analyzer reports it at build time (DLR007).
+    // fsharpanalyzer: ignore-line-next DLR007
     dlr { return o?Count + sndOfRecord { Pair = x } + y + fst x }
 
 /// A reached `y0` the optimizer substitutes has no field, so it does not explain one: the field
@@ -565,6 +571,8 @@ let private shadowedElementUserY0Literal (o: obj) (k: int) : int =
     let y = k + 100
     let y0 = 7
     let (ShadowPairCase x) = u
+    // The analyzer reports it at build time (DLR007).
+    // fsharpanalyzer: ignore-line-next DLR007
     dlr { return o?Count + sndOfRecord { Pair = x } + y + fst x + y0 * 1000 }
 let private shadowedElementUserY0Alias (o: obj) (k: int) : int =
     let y = k + 1
@@ -572,6 +580,8 @@ let private shadowedElementUserY0Alias (o: obj) (k: int) : int =
     let y = k + 100
     let y0 = k
     let (ShadowPairCase x) = u
+    // The analyzer reports it at build time (DLR007).
+    // fsharpanalyzer: ignore-line-next DLR007
     dlr { return o?Count + sndOfRecord { Pair = x } + y + fst x + y0 * 1000 }
 
 /// Whatever the optimizer makes of the block's own `y` (an alias chain to a literal, a module
@@ -583,18 +593,24 @@ let private shadowedElementOwnAliasChain (o: obj) (k: int) : int =
     let c = 100
     let y = c
     let (ShadowPairCase x) = u
+    // The analyzer reports it at build time (DLR007).
+    // fsharpanalyzer: ignore-line-next DLR007
     dlr { return o?Count + sndOfRecord { Pair = x } + y + fst x }
 let private shadowedElementOwnModuleValue (o: obj) (k: int) : int =
     let y = k + 1
     let u = ShadowPairCase(k * 10, y)
     let y = CaptureConstants.answer
     let (ShadowPairCase x) = u
+    // The analyzer reports it at build time (DLR007).
+    // fsharpanalyzer: ignore-line-next DLR007
     dlr { return o?Count + sndOfRecord { Pair = x } + y + fst x }
 let private shadowedElementOwnReduced (o: obj) (k: int) : int =
     let y = k + 1
     let u = ShadowPairCase(k * 10, y)
     let y = id k
     let (ShadowPairCase x) = u
+    // The analyzer reports it at build time (DLR007).
+    // fsharpanalyzer: ignore-line-next DLR007
     dlr { return o?Count + sndOfRecord { Pair = x } + y + fst x }
 let private shadowedElementUserY0Reduced (o: obj) (k: int) : int =
     let y = k + 1
@@ -602,6 +618,8 @@ let private shadowedElementUserY0Reduced (o: obj) (k: int) : int =
     let y = k + 100
     let y0 = id k
     let (ShadowPairCase x) = u
+    // The analyzer reports it at build time (DLR007).
+    // fsharpanalyzer: ignore-line-next DLR007
     dlr { return o?Count + sndOfRecord { Pair = x } + y + fst x + y0 * 1000 }
 
 /// A name rebound after a value was computed from it (`other = y * 2`, then `let y = 100`): the
@@ -628,11 +646,15 @@ let private shadowedElementOfSplitTuple (o: obj) (k: int) : int =
     let y = k + 1
     let t = (k * 10, y)
     let y = 100
+    // The analyzer reports it at build time (DLR007).
+    // fsharpanalyzer: ignore-line-next DLR007
     dlr { return o?Count + snd t + y + fst t }
 let private shadowedElementOfParameter (o: obj) (k: int) : int =
     let y = k + 1
     let u = ShadowPairCase(k * 10, y)
     let y = 100
+    // The analyzer reports it at build time (DLR007).
+    // fsharpanalyzer: ignore-line-next DLR007
     let run (x: int * int) = dlr { return o?Count + sndOfRecord { Pair = x } + y + fst x }
     let (ShadowPairCase p) = u
     run p
@@ -641,6 +663,8 @@ let private shadowedElementInRefCell (o: obj) (k: int) : int =
     let u = ShadowRefCase(k * 10, y)
     let y = 100
     let (ShadowRefCase x) = u
+    // The analyzer reports it at build time (DLR007).
+    // fsharpanalyzer: ignore-line-next DLR007
     dlr { return o?Count + (sndRefOfRecord { RefPair = x }).Value + y + fst x }
 
 /// A value built from a name, then the name rebound, the value passed whole to a dynamic call: the
