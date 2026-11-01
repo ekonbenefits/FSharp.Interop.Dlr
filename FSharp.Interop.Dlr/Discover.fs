@@ -217,13 +217,13 @@ module internal Discover =
                 | _ -> Error [ for v in first.GetFreeVars() -> v.Name ]
         | [] -> Error []
 
-    /// The block whose Delay closure has type `closureType`, at `file:line`.
     /// The error for a block whose assembly's reflected definitions cannot be read (`unreadableAssembly`).
     let private unreadableError (file: string) (line: int) (holder: Type) (closureType: Type) (e: exn) =
         DlrTranslationException(
-            sprintf "dlr { } at %s:%d cannot find its body: FSharp.Core could not decode any of %s's reflected definitions (%s), so every block in the assembly fails, wherever it is (closure %s in %s). FSharp.Core reads an assembly's reflected definitions together, and one it cannot bind fails them all. The usual causes: a function a signature file (.fsi) leaves out, called from a reflected definition (the Release optimizer inlines and erases it, and the stored quotation still names it: add it to the signature, or mark it [<MethodImpl(MethodImplOptions.NoInlining)>]; DLR008), or a [<Literal>] in a [<ReflectedDefinition>] module or type (\"Could not bind property\" naming it: move it out, or put the attribute on the functions instead). The analyzer reports both at build time."
+            sprintf "dlr { } at %s:%d cannot find its body: FSharp.Core could not decode any of %s's reflected definitions (%s), so every block in the assembly fails, wherever it is (closure %s in %s). FSharp.Core reads an assembly's reflected definitions together, and one it cannot bind fails them all. The usual causes: a function a signature file (.fsi) leaves out, called from a reflected definition (the Release optimizer inlines and erases it, and the stored quotation still names it: add it to the signature, or mark it [<MethodImpl(MethodImplOptions.NoInlining)>]; DLR008), or a [<Literal>] in a [<ReflectedDefinition>] module (\"Could not bind property\" naming it: move it out, or put the attribute on the functions instead). The analyzer reports both at build time."
                 file line (holder.Assembly.GetName().Name) e.Message closureType.Name holder.FullName)
 
+    /// The block whose Delay closure has type `closureType`, at `file:line`.
     let findBody (builderType: Type) (closureType: Type) (file: string) (line: int) : Found =
         let holder = if isNull closureType.DeclaringType then closureType else closureType.DeclaringType
         match unreadableAssembly closureType with
