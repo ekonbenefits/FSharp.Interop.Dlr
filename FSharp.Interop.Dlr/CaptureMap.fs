@@ -12,7 +12,8 @@ open System.Text
 /// closure class) and the source variable it holds: the
 /// variable's name and its order among the member's bindings of that name, and for a split
 /// tuple's element field, the element.
-type internal CaptureEntry = { Field: string; Name: string; Ordinal: int; Element: int option }
+/// `Alias`: a second variable the field holds, equal to the first (an `A` line, #285).
+type internal CaptureEntry = { Field: string; Name: string; Ordinal: int; Element: int option; Alias: bool }
 
 /// A block's `fields` section: its entries, and per name they use, how many bindings of that name
 /// the companion counted in the member (the run time refuses the block if the quotation has
@@ -30,7 +31,10 @@ type internal CaptureFields = { Entries: CaptureEntry list; Counts: Map<string, 
 /// raw-deflated, at its offset from the header's end. A blob holds that file's blocks as lines:
 /// `B file line` starts a block (blobs are per file, so its file is the blob's); `S section` one of
 /// its optional sections; `fields` holds `V field name ordinal`, `E field name ordinal element`,
-/// and `N name count` (a split tuple's element kept nowhere has no line: the run time recovers it
+/// `A field name ordinal [element]` (a second variable the field holds, equal to the first: an
+/// inlined active pattern's variable and the match input it returned, #285; a reader before it
+/// finds the section malformed and keeps the strict behaviour), and `N name count` (a split
+/// tuple's element kept nowhere has no line: the run time recovers it
 /// from its definition or refuses, #278); `closure` the same lines for the block's closure-path
 /// container, a class (a block the compiler made no machine of, #276); `body`
 /// lines are BodyMap's. A file's blob is inflated the first time one of its blocks is looked up.
@@ -109,10 +113,17 @@ module internal CaptureMap =
     let private fieldLine (parts: string[]) : Choice<CaptureEntry, string * int> option =
         match parts with
         | [| "V"; field; name; ordinal |] ->
-            natural ordinal |> Option.map (fun n -> Choice1Of2 { Field = field; Name = name; Ordinal = n; Element = None })
+            natural ordinal |> Option.map (fun n -> Choice1Of2 { Field = field; Name = name; Ordinal = n; Element = None; Alias = false })
         | [| "E"; field; name; ordinal; element |] ->
             match natural ordinal, natural element with
-            | Some n, Some i -> Some(Choice1Of2 { Field = field; Name = name; Ordinal = n; Element = Some i })
+            | Some n, Some i -> Some(Choice1Of2 { Field = field; Name = name; Ordinal = n; Element = Some i; Alias = false })
+            | _ -> None
+        // A second variable the field holds: `A field name ordinal`, or with an element.
+        | [| "A"; field; name; ordinal |] ->
+            natural ordinal |> Option.map (fun n -> Choice1Of2 { Field = field; Name = name; Ordinal = n; Element = None; Alias = true })
+        | [| "A"; field; name; ordinal; element |] ->
+            match natural ordinal, natural element with
+            | Some n, Some i -> Some(Choice1Of2 { Field = field; Name = name; Ordinal = n; Element = Some i; Alias = true })
             | _ -> None
         | [| "N"; name; count |] -> natural count |> Option.map (fun c -> Choice2Of2(name, c))
         | _ -> None

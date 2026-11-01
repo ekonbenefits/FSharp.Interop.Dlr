@@ -597,7 +597,7 @@ module Fields =
                         // Data flow first (#285): each field's value traced back through the optimized
                         // tree to the source variable it is, by the compiler's own wiring; the rules
                         // above only where data flow has no answer, and none where the two disagree.
-                        let attributed =
+                        let attributed, aliases =
                             // What an expression the optimizer substituted for a variable is, by the
                             // source: a variable whose value is exactly it (range and type), or element i
                             // of a source tuple's literal (a split tuple's `let t_0 = a`).
@@ -677,6 +677,19 @@ module Fields =
                                         | _ -> n
                                 n.TrimEnd([| '0'; '1'; '2'; '3'; '4'; '5'; '6'; '7'; '8'; '9' |]) |> fun t -> if t = "" then n else t
                             let traced = fields |> List.map (fun (_, v) -> trace Set.empty v)
+                            // A field's second variable (#285, part 2), by field.
+                            let aliases = ResizeArray<string * (string * int * int option)>()
+                            // Whether a source definition reads `target`, through other source
+                            // variables' definitions.
+                            let rec derives (depth: int) (target: FSharpMemberOrFunctionOrValue) (e: FSharpExpr) =
+                                depth < 8
+                                && (match e with
+                                    | FSharpExprPatterns.Value w when sourceKey w = sourceKey target -> true
+                                    | FSharpExprPatterns.Value w ->
+                                        match valueOf w with
+                                        | Some d when bySource.ContainsKey(sourceKey w) -> derives (depth + 1) target d
+                                        | _ -> false
+                                    | _ -> e.ImmediateSubExpressions |> List.exists (derives depth target))
                             let decided =
                                 List.map3 (fun (field, v) (_, rule) flowed ->
                                     let a =
@@ -687,8 +700,44 @@ module Fields =
                                         // not data flow's to say, nor the rules' (they guess by range).
                                         // (Not a source binding itself, which is what it is: a split
                                         // parameter's `t1_0` is `t1`'s element, whatever its digits.)
-                                        | Choice1Of2(name, _, _) when not (bySource.ContainsKey(sourceKey v)) && name <> named v && name <> v.LogicalName
-                                                                     && bySource.Values |> Seq.exists (fun (sv, _, _) -> sv.LogicalName = named v || sv.LogicalName = v.LogicalName) -> None
+                                        //
+                                        // Unless it holds both (#285, part 2): its value is a copy of the
+                                        // traced variable, so when exactly one source variable of its own
+                                        // name is defined from that one (the inlined pattern's `Data`, from
+                                        // the match input; `x` of `let x = fst t`), the optimizer made the
+                                        // copy because the two are equal: the field holds both, the second
+                                        // an alias (`A`). With none or several, neither.
+                                        | Choice1Of2((name, ordinalOf, element) as f) when not (bySource.ContainsKey(sourceKey v)) && name <> named v && name <> v.LogicalName
+                                                                                     && bySource.Values |> Seq.exists (fun (sv, _, _) -> sv.LogicalName = named v || sv.LogicalName = v.LogicalName) ->
+                                            match bySource.Values |> Seq.tryFind (fun (sv, n, _) -> sv.LogicalName = name && ordinal sv n = ordinalOf) with
+                                            | Some(traced, _, _) ->
+                                                // Of a tuple's element, the variable defined as exactly that
+                                                // element (`fst t`, `snd t`, a projection); of a whole value,
+                                                // one defined from it (through the pattern the optimizer inlined).
+                                                let rec projection (d: FSharpExpr) =
+                                                    match d, element with
+                                                    | FSharpExprPatterns.Coerce(_, inner), _ -> projection inner
+                                                    | FSharpExprPatterns.TupleGet(_, i, FSharpExprPatterns.Value w), Some j -> i = j && sourceKey w = sourceKey traced
+                                                    | FSharpExprPatterns.Call(None, m, _, _, [ FSharpExprPatterns.Value w ]), Some j ->
+                                                        sourceKey w = sourceKey traced && ((m.CompiledName = "Fst" && j = 0) || (m.CompiledName = "Snd" && j = 1))
+                                                    | _ -> false
+                                                let candidates =
+                                                    bySource.Values
+                                                    |> Seq.filter (fun (sv, _, _) ->
+                                                        (sv.LogicalName = named v || sv.LogicalName = v.LogicalName)
+                                                        && (match valueOf sv, element with
+                                                            | Some d, Some _ -> projection d
+                                                            | Some d, None -> derives 0 traced d
+                                                            | None, _ -> false))
+                                                    |> List.ofSeq
+                                                match candidates with
+                                                // (Not the rules': they guess a two-named field by range,
+                                                // which is how it went to an outer variable before.)
+                                                | [ (c, n, _) ] ->
+                                                    aliases.Add((field, (c.LogicalName, ordinal c n, None)))
+                                                    Some f
+                                                | _ -> None
+                                            | None -> None
                                         | Choice1Of2 f ->
                                             match rule with
                                             | Some r when r <> f -> None
@@ -706,12 +755,12 @@ module Fields =
                                             | _ -> "none"
                                         eprintfn "ATTRIBUTION\t%s\t%s:%d\t%s\t%A\t%A" kind (Path.GetFileName file) line field rule flowed
                                     field, a) fields byRules traced
-                            decided
+                            decided, List.ofSeq aliases
                         // Two fields of one variable of a name the member binds more than once: one of
                         // them may be the other binding's. (Of a name bound once, both are that one: the
                         // optimizer keeps a copy beside it.)
                         let duplicated =
-                            attributed |> List.choose snd |> List.countBy id
+                            (attributed |> List.choose snd) @ List.map snd aliases |> List.countBy id
                             |> List.exists (fun ((name, _, _), n) -> n > 1 && (match nameCounts.TryGetValue name with | true, c -> c > 1 | _ -> true))
                         if duplicated then
                             eprintfn "DUPLICATED two fields attributed to one variable, block %s:%d: %s (bindings: %s)" (Path.GetFileName file) line (attributed |> List.map (fun (f, a) -> sprintf "%s=%A" f a) |> String.concat ", ") (attributed |> List.choose snd |> List.map (fun (n, _, _) -> sprintf "%s %d" n (match nameCounts.TryGetValue n with | true, c -> c | _ -> 0)) |> List.distinct |> String.concat ", ")
@@ -739,16 +788,22 @@ module Fields =
                         // Per name the entries use, how many bindings of it the member has as the
                         // quotation lays them out: the run time counts the quotation's and refuses
                         // the block on any difference, so a layout this pass got wrong is a refusal.
+                        let aliasLines =
+                            aliases |> List.map (fun (field, a) ->
+                                match a with
+                                | name, n, None -> sprintf "A\t%s\t%s\t%d" field name n
+                                | name, n, Some i -> sprintf "A\t%s\t%s\t%d\t%d" field name n i)
                         let counted =
                             [ for a in attributed do
                                 match snd a with
                                 | Some(name, _, _) -> yield name
-                                | None -> () ]
+                                | None -> ()
+                              for (_, (name, _, _)) in aliases do yield name ]
                             |> List.distinct
                             |> List.map (fun name -> sprintf "N\t%s\t%d" name (match nameCounts.TryGetValue name with | true, n -> n | _ -> 0))
                         let block =
                             if List.forall Option.isSome entries && not duplicated then
-                                Some([ sprintf "B\t%s\t%d" file line; "S\tfields" ] @ (entries |> List.map Option.get) @ counted)
+                                Some([ sprintf "B\t%s\t%d" file line; "S\tfields" ] @ (entries |> List.map Option.get) @ aliasLines @ counted)
                             else None
                         match target.TryGetValue((file, line)) with
                         | true, found -> found.Add((column, block))

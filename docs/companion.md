@@ -52,7 +52,11 @@ element of a source tuple's literal (through aliases, union cases built in the m
 branches, `let` bodies and tuple patterns); a whole variable before an element. Several
 assignment sites take the one reading all of them support. A value that carries one source
 variable's name but traces to another (an inlined active pattern's `Data`, which holds the match
-input) stands for both and is attributed to neither. Where data flow has no answer, the rules
+input) stands for both. When exactly one source variable of its own name is defined from the one
+it traces to (from it through the pattern the optimizer inlined, or, for a tuple's element, as
+exactly that element: `let x = fst t`), the optimizer made the copy because the two are equal: the
+field holds both, the traced one as its variable and the other as its alias (#285). Otherwise it is
+attributed to neither, and the rules are not consulted on such a field either. Where data flow has no answer, the rules
 below give one; where the two disagree, the field is not attributed. Each rule gives an exact
 answer or none:
 
@@ -97,7 +101,10 @@ across members repeat within a file; the run time inflates a file's blob the fir
 its blocks is looked up. A file's lines are its blocks: `B file line`, then optional sections,
 `S fields` (`V field name ordinal`, `E field name ordinal element`, and `N name count`: for
 each name the entries use, how many bindings of it the companion counted in the member),
-`S closure` (the same lines for the closure-path container, #276) and `S body`. A split tuple's element the optimizer kept nowhere has no line: the run time recovers
+`S closure` (the same lines for the closure-path container, #276) and `S body`. A field that holds
+two variables has a second line, `A field name ordinal [element]`, for the other one (#285): the
+run time checks it as it does the first, and leaves it out when the block does not reach it. A
+reader from before `A` finds the section malformed and keeps the strict behaviour. A split tuple's element the optimizer kept nowhere has no line: the run time recovers
 it from its definition (through an alias, a union case the member builds, a tuple literal) when
 that is effect-free, and refuses otherwise. It never uses a placeholder, because the optimizer may
 have dropped the element because it knew its value and used that directly (#278). So an element
@@ -179,8 +186,9 @@ against 5,104 without the map; the closure path and Debug (11's state machines t
 them. The rest are refusals, most of them an active pattern the optimizer inlines (below). A block
 in a `let rec` local function is a state machine whose captures arrive as the function's closure
 copies, attributed as such (#276). On the corpus's two later subsets (#275's and #278's forms,
-48,940 cases) the map gives 31,610 the same as their plain twins (31,346 by the rules alone,
-30,338 before #276), none wrong, and the same on the closure path with its `closure` section. An
+48,940 cases) the map gives 32,686 the same as their plain twins (31,610 without field aliases,
+31,346 by the rules alone, 30,338 before #276), none wrong, and the same on the closure path with
+its `closure` section. An
 or-pattern's arm holds its block once per alternative, and the copies are one block (#266, #271)
 when every variable the block reads is a field, or recovered from a definition that is the same in
 every copy up to its variables.

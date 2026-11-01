@@ -73,7 +73,18 @@ module internal Translate =
                 FSharp.Reflection.FSharpType.IsTuple v.Type && not v.Type.IsValueType
                 && i >= 0 && i < (FSharp.Reflection.FSharpType.GetTupleElements v.Type).Length
                 && f.FieldType = (FSharp.Reflection.FSharpType.GetTupleElements v.Type).[i]
-        let entries = map.Entries
+        // A field's second variable (`A`): checked as the first is, except that one the block does
+        // not reach is left out rather than refusing the map (the field still holds it).
+        let entries = map.Entries |> List.filter (fun e -> not e.Alias)
+        let aliases =
+            map.Entries |> List.filter (fun e -> e.Alias) |> List.map (fun e ->
+                match ids.TryGetValue(struct (e.Name, e.Ordinal)), fields.TryGetValue e.Field with
+                | (true, v), (true, f) when not (fits f v e.Element) -> Error(sprintf "'%s' (%s %d) does not fit field %s" e.Name e.Name e.Ordinal e.Field)
+                | (true, v), (true, _) when not (upstream.Contains v) -> Ok None
+                | (true, v), (true, f) when entries |> List.exists (fun p -> p.Field = e.Field) -> Ok(Some(e, ((v, e.Element), f)))
+                | (true, _), (true, _) -> Error(sprintf "an alias of field %s, which has no variable" e.Field)
+                | (false, _), _ -> Error(sprintf "no variable %s %d in the member" e.Name e.Ordinal)
+                | _, (false, _) -> Error(sprintf "no field %s in the machine" e.Field))
         let resolved =
             entries |> List.map (fun e ->
                 match ids.TryGetValue(struct (e.Name, e.Ordinal)), fields.TryGetValue e.Field with
@@ -83,13 +94,14 @@ module internal Translate =
                 | (false, _), _ -> Error(sprintf "no variable %s %d in the member" e.Name e.Ordinal)
                 | _, (false, _) -> Error(sprintf "no field %s in the machine" e.Field))
         let mapped = entries |> List.map (fun e -> e.Field) |> Set.ofList
-        match layout, resolved |> List.tryPick (function Error m -> Some m | Ok _ -> None) with
+        let reachedAliases = aliases |> List.choose (function Ok(Some a) -> Some a | _ -> None)
+        match layout, (resolved |> List.tryPick (function Error m -> Some m | Ok _ -> None)) |> Option.orElse (aliases |> List.tryPick (function Error m -> Some m | Ok _ -> None)) with
         | Some m, _ | None, Some m -> Error m
         | None, None when mapped <> Set.ofSeq fields.Keys || mapped.Count <> entries.Length -> Error "the map's fields are not the machine's"
         // Two fields of one variable of a name the member binds more than once: the map may be
         // wrong about one of them (of a name bound once, both are that one).
-        | None, None when entries |> List.countBy (fun e -> e.Name, e.Ordinal, e.Element) |> List.exists (fun ((name, _, _), n) -> n > 1 && map.Counts.TryFind name <> Some 1) -> Error "two fields of one variable of a name bound more than once"
-        | None, None -> Ok(resolved |> List.choose (function Ok r -> Some r | Error _ -> None) |> Map.ofList)
+        | None, None when entries @ List.map fst reachedAliases |> List.countBy (fun e -> e.Name, e.Ordinal, e.Element) |> List.exists (fun ((name, _, _), n) -> n > 1 && map.Counts.TryFind name <> Some 1) -> Error "two fields of one variable of a name bound more than once"
+        | None, None -> Ok((resolved |> List.choose (function Ok r -> Some r | Error _ -> None)) @ List.map snd reachedAliases |> Map.ofList)
 
     /// The variables a block's value can come from: its free variables and, transitively, every
     /// variable of their definitions in the member, free or bound there (a field may hold any of
