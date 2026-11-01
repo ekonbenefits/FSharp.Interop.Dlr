@@ -660,6 +660,76 @@ module Impl =
             return w?Add(f (), x) }
 """ |> should be Empty
 
+[<Fact>]
+let ``a value the block takes apart holding another value of a name it reads is warned about`` () =
+    let msgs = run """
+type Pair = Pair of (int * int)
+type Cell = Cell of (int * int ref)
+[<ReflectedDefinition>]
+module Impl =
+    // A union case built from `y`, `y` then rebound: the optimizer may substitute `fst`/`snd x`.
+    let unionCase (w: obj) (k: int) : int =
+        let y = k + 1
+        let u = Pair(k * 10, y)
+        let y = k + 100
+        let (Pair x) = u
+        dlr { return w?Add(snd x + fst x, y) }
+    // The block's own `y` a literal: the optimizer gives it no field, the other `y` takes it.
+    let ownLiteral (w: obj) (k: int) : int =
+        let y = k + 1
+        let t = (k * 10, y)
+        let y = 100
+        dlr { return w?Add(snd t + fst t, y) }
+    // The value a local function's parameter: its one call's argument.
+    let parameter (w: obj) (k: int) : int =
+        let y = k + 1
+        let u = Pair(k * 10, y)
+        let y = 100
+        let run (x: int * int) : int = dlr { return w?Add(fst x, y) }
+        let (Pair p) = u
+        run p
+    // A ref cell of the type: the translator reads through it.
+    let refCell (w: obj) (k: int) : int =
+        let y = ref (k + 1)
+        let u = Cell(k * 10, y)
+        let y = 100
+        let (Cell x) = u
+        dlr { return w?Add(fst x, y) }
+"""
+    let shadowed = msgs |> List.filter (fun m -> m.Code = ReflectedDefinitionAnalyzer.ShadowedCode)
+    shadowed.Length |> should equal 4
+    shadowed |> List.forall (fun m -> m.Severity = Severity.Warning) |> should equal true
+    Assert.messageContains "reads 'y' and takes apart 'x', which holds another value named 'y'" shadowed.[0] |> should equal true
+
+[<Fact>]
+let ``a value passed whole, or a value computed from a rebound name, is not warned about`` () =
+    run """
+type Request = { Name: string; Age: int }
+[<ReflectedDefinition>]
+module Impl =
+    // Passed whole to a dynamic call: nothing to substitute.
+    let wholeRecord (w: obj) (name: string) : string =
+        let req = { Name = name; Age = 3 }
+        let name = name.ToUpperInvariant()
+        dlr { return w?Echo(req, name) }
+    let wholeBoxed (w: obj) (v: int) : int =
+        let pair = (v, v * 2)
+        let v = v + 1
+        dlr { return w?Add(box pair, v) }
+    // Computed from `y`, not an element of it: the optimizer cannot take `y` back out.
+    let computed (w: obj) (y: int) : int =
+        let other = y * 2
+        let y = 100
+        dlr { return w?Add(other, y) }
+    // Of another type: the match's own `matchValue` (an option) beside the user's (an int).
+    let otherType (w: obj) (seed: int) : string =
+        match Some(seed * 10 + 2) with
+        | Some matchValue ->
+            let a2 = matchValue
+            dlr { return w?Echo(a2) }
+        | None -> "none"
+""" |> should be Empty
+
 
 [<Fact>]
 let ``a reflected definition using a value the signature hides is warned about`` () =

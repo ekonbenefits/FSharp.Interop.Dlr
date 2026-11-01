@@ -718,6 +718,100 @@ let private shadowedIn (body: FSharpExpr) (block: FSharpExpr) : (string * string
         else vs |> Seq.tryPick snd |> Option.map (fun via -> name, via))
     |> List.ofSeq
 
+/// For each block in a member: a name it reads that another local of the same name and type is an
+/// element of, in a value the block takes apart, and that value's name. The translator's #280
+/// rule at build time: the Release optimizer may substitute the element in the block's code and
+/// capture that other local under the shared name, which the block reads by name. A value passed
+/// whole to a dynamic call (boxed or not) is not taken apart: the optimizer has nothing to
+/// substitute.
+let private elementShadowedIn (body: FSharpExpr) (block: FSharpExpr) : (string * string) list =
+    let defs = localDefinitions body
+    // A local function's parameters, where it is applied once: that application's arguments.
+    let arguments =
+        let found = System.Collections.Generic.Dictionary<string * int * int, FSharpExpr>()
+        let rec parameters (e: FSharpExpr) =
+            match e with
+            | FSharpExprPatterns.Lambda(p, inner) -> p :: parameters inner
+            | _ -> []
+        let lets =
+            body |> walk (fun e ->
+                match e with
+                | FSharpExprPatterns.Let((f, (FSharpExprPatterns.Lambda _ as def), _), _) -> [ f, parameters def ], true
+                | _ -> [], true)
+        for (f, ps) in lets do
+            let applications =
+                body |> walk (fun e ->
+                    match e with
+                    | FSharpExprPatterns.Application(FSharpExprPatterns.Value g, _, args) when localKey g = localKey f -> [ args ], true
+                    | _ -> [], true)
+            match applications with
+            | [ args ] -> List.zip (List.truncate args.Length ps) (List.truncate ps.Length args) |> List.iter (fun (p, a) -> found.[localKey p] <- a)
+            | _ -> ()
+        found
+    let definition (v: FSharpMemberOrFunctionOrValue) =
+        match defs.TryGetValue(localKey v) with
+        | true, (d, _) -> Some d
+        | _ -> match arguments.TryGetValue(localKey v) with | true, a -> Some a | _ -> None
+    let own = freeLocals block
+    // A same-named rename (`let y = y`) is one value under one name.
+    let renamed =
+        let rec renames (v: FSharpMemberOrFunctionOrValue) =
+            match defs.TryGetValue(localKey v) with
+            | true, (FSharpExprPatterns.Value w, _) when not v.IsMutable && not w.IsMutable && w.DisplayName = v.DisplayName && localKey w <> localKey v -> localKey v :: renames w
+            | _ -> [ localKey v ]
+        own |> List.collect renames |> Set.ofList
+    let rec elementsOf (seen: System.Collections.Generic.HashSet<string * int * int>) (e: FSharpExpr) : FSharpMemberOrFunctionOrValue list =
+        match e with
+        | FSharpExprPatterns.Value w when not w.IsModuleValueOrMember && not w.IsMutable ->
+            if seen.Add(localKey w) then
+                w :: (match definition w with Some d -> elementsOf seen d | None -> [])
+            else []
+        | FSharpExprPatterns.NewTuple(_, es)
+        | FSharpExprPatterns.NewRecord(_, es)
+        | FSharpExprPatterns.NewUnionCase(_, _, es)
+        | FSharpExprPatterns.NewAnonRecord(_, es) -> es |> List.collect (elementsOf seen)
+        | FSharpExprPatterns.TupleGet(_, _, inner)
+        | FSharpExprPatterns.UnionCaseGet(inner, _, _, _)
+        | FSharpExprPatterns.AnonRecordGet(inner, _, _)
+        | FSharpExprPatterns.FSharpFieldGet(Some inner, _, _)
+        | FSharpExprPatterns.Coerce(_, inner) -> elementsOf seen inner
+        | _ -> []
+    // Whether the block's code takes `v` apart: anything but `v` whole as a dynamic call's target
+    // or argument.
+    let takenApart (v: FSharpMemberOrFunctionOrValue) =
+        let key = localKey v
+        let rec go (whole: bool) (e: FSharpExpr) =
+            match e with
+            | FSharpExprPatterns.Value w when not w.IsModuleValueOrMember && localKey w = key -> not whole
+            | FSharpExprPatterns.Coerce(_, inner) -> go whole inner
+            | FSharpExprPatterns.Call(_, mfv, _, _, [ inner ]) when mfv.CompiledName = "Box" -> go whole inner
+            | FSharpExprPatterns.NewTuple(_, items) when whole -> List.exists (go true) items
+            | _ ->
+                let wholeArgs =
+                    (match callArgumentExprs e with Some(args, _) -> args | None -> [])
+                    @ (match e with FSharpExprPatterns.Call(_, mfv, _, _, args) when isMarker mfv -> args | _ -> [])
+                let isWhole (x: FSharpExpr) = wholeArgs |> List.exists (fun a -> a.Range = x.Range)
+                e.ImmediateSubExpressions |> List.exists (fun x -> go (isWhole x) x)
+        go false block
+    let readAs (w: FSharpMemberOrFunctionOrValue) =
+        own |> List.exists (fun v ->
+            v.DisplayName = w.DisplayName
+            && (try
+                    let vt = v.FullType.StripAbbreviations()
+                    let wt = w.FullType.StripAbbreviations()
+                    vt = wt
+                    // A ref cell of the type: the translator reads through it.
+                    || (wt.HasTypeDefinition && wt.TypeDefinition.CompiledName = "FSharpRef`1"
+                        && wt.GenericArguments.Count = 1 && wt.GenericArguments.[0].StripAbbreviations() = vt)
+                with _ -> false))
+    [ for v in own do
+        if not v.IsMutable && takenApart v then
+            let seen = System.Collections.Generic.HashSet<string * int * int>([ localKey v ])
+            let elements = match definition v with Some d -> elementsOf seen d | None -> []
+            for w in elements do
+                if not (renamed.Contains(localKey w)) && readAs w then yield w.DisplayName, v.DisplayName ]
+    |> List.distinct
+
 let private analyzeShadowed (typedTree: FSharpImplementationFileContents option) : Message list =
     match typedTree with
     | None -> []
@@ -726,12 +820,18 @@ let private analyzeShadowed (typedTree: FSharpImplementationFileContents option)
             ds |> List.collect (function
                 | FSharpImplementationFileDeclaration.Entity(_, sub) -> decls sub
                 | FSharpImplementationFileDeclaration.MemberOrFunctionOrValue(_, _, body) ->
-                    [ for b in blocksIn body do for found in shadowedIn body b -> b.Range, found ]
+                    [ for b in blocksIn body do
+                        for (name, via) in shadowedIn body b ->
+                            b.Range,
+                            sprintf "dlr { } reaches two values named '%s', one through '%s'. Where the Release optimizer inlines '%s', the block cannot tell them apart and its first call raises DlrTranslationException. Rename one." name via via
+                        for (name, container) in elementShadowedIn body b ->
+                            b.Range,
+                            sprintf "dlr { } reads '%s' and takes apart '%s', which holds another value named '%s'. Where the Release optimizer substitutes that element, the block cannot tell the two apart and its first call raises DlrTranslationException. Rename one." name container name ]
                 | FSharpImplementationFileDeclaration.InitAction _ -> [])
         decls contents.Declarations
-        |> List.map (fun (r, (name, via)) ->
+        |> List.map (fun (r, message) ->
             { Type = "dlr { } reaches two values of one name"
-              Message = sprintf "dlr { } reaches two values named '%s', one through '%s'. Where the Release optimizer inlines '%s', the block cannot tell them apart and its first call raises DlrTranslationException. Rename one." name via via
+              Message = message
               Code = ShadowedCode
               Severity = Severity.Warning
               Range = r
