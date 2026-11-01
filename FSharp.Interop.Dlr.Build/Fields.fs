@@ -365,7 +365,7 @@ module Fields =
             for o in opt do
                 match o with
                 | FSharpImplementationFileDeclaration.Entity(_, os) -> members os
-                | FSharpImplementationFileDeclaration.MemberOrFunctionOrValue(omfv, _, obody) when unoptimizedMembers.ContainsKey((omfv.CompiledName, omfv.DeclarationLocation.ToString())) ->
+                | FSharpImplementationFileDeclaration.MemberOrFunctionOrValue(omfv, oargs, obody) when unoptimizedMembers.ContainsKey((omfv.CompiledName, omfv.DeclarationLocation.ToString())) ->
                     let uargs, ubody = unoptimizedMembers.[(omfv.CompiledName, omfv.DeclarationLocation.ToString())]
                     let definitions = Dictionary<int64, FSharpExpr>()
                     let rec defs (e: FSharpExpr) =
@@ -432,6 +432,11 @@ module Fields =
                         | _ -> ()
                         for x in e.ImmediateSubExpressions do flow x
                     flow obody
+                    // The optimized member's parameters, by position, are the source member's (the
+                    // optimizer may rename one: `let x = fst t` makes the split `t_0` an `x`).
+                    let parameterOf = Dictionary<int64, FSharpMemberOrFunctionOrValue>()
+                    if oargs.Length = uargs.Length && List.forall2 (fun (o: _ list) (u: _ list) -> o.Length = u.Length) oargs uargs then
+                        for o, u in List.zip (List.concat oargs) (List.concat uargs) do parameterOf.[stamp o] <- u
                     let rec typeOf (t: FSharpType) = if t.IsAbbreviation then typeOf t.AbbreviatedType else t.Format(FSharpDisplayContext.Empty)
                     let valueOf (sv: FSharpMemberOrFunctionOrValue) =
                         match bySource.TryGetValue(sourceKey sv) with
@@ -612,6 +617,8 @@ module Fields =
                                     Choice1Of2(name, n, Some i)
                                 | true, (sv, n, _) -> Choice1Of2(sv.LogicalName, ordinal sv n, None)
                                 | _ when seen.Contains(stamp v) -> Choice2Of2 "cycle"
+                                | _ when parameterOf.ContainsKey(stamp v) && bySource.ContainsKey(sourceKey parameterOf.[stamp v]) ->
+                                    trace seen parameterOf.[stamp v]
                                 | _ ->
                                     match sites.TryGetValue(stamp v) with
                                     | true, defs ->
@@ -678,7 +685,9 @@ module Fields =
                                         // to another (an inlined active pattern's `Data`, whose value is
                                         // the match input) stands for both: which one the block reads is
                                         // not data flow's to say, nor the rules' (they guess by range).
-                                        | Choice1Of2(name, _, _) when name <> named v && name <> v.LogicalName
+                                        // (Not a source binding itself, which is what it is: a split
+                                        // parameter's `t1_0` is `t1`'s element, whatever its digits.)
+                                        | Choice1Of2(name, _, _) when not (bySource.ContainsKey(sourceKey v)) && name <> named v && name <> v.LogicalName
                                                                      && bySource.Values |> Seq.exists (fun (sv, _, _) -> sv.LogicalName = named v || sv.LogicalName = v.LogicalName) -> None
                                         | Choice1Of2 f ->
                                             match rule with

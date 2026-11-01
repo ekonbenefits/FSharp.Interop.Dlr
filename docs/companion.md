@@ -42,7 +42,10 @@ tree, by the compiler's own wiring, to the source variable it is. The trace foll
 definition, the argument a lambda is applied to (a `let rec` whose captures the optimizer made
 leading parameters among them; a recursive call passing the parameter on is no other value),
 each match leaf's value for a target, an optimizer mutable's assignments (a branching tuple's
-`t_0$tupleElem`), and tuple projections. It stops at a source variable, or at an expression the
+`t_0$tupleElem`), tuple projections, and the optimized member's parameters, which are the source
+member's by position (the optimizer may rename one: `let x = fst t` makes the split `t_0` an
+`x`). A copy of a source `mutable` is the value when it was copied, so the trace does not follow
+it into the mutable, and the rules do not attribute it either. It stops at a source variable, or at an expression the
 optimizer substituted for one, which is attributed only when it is exactly, by range and type, a
 source variable's value (its definition, or a match target's leaf value through a pattern) or an
 element of a source tuple's literal (through aliases, union cases built in the member, `if`

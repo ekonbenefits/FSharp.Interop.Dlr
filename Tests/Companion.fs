@@ -331,6 +331,16 @@ let private aliasBesidePattern (o: obj) (seed: int) : string =
         dlr { return o?Echo(a, unboxInt (BoxedInt x)) }
     | _ -> "none"
 
+/// A tuple parameter the compiler splits (`t1_0`, `t1_1`) beside two `x`s: both methods give its
+/// element fields to `t1`, and the two-name check must not strip `t1_0` to `t` and drop them
+/// (#286's review), or the block loses the map that tells the two `x`s apart.
+let private splitParameterBesideTwoX (o: obj) (k: int) (t1: int * int) : string =
+    let x = k + 1
+    let f () = x
+    let x = k + 100
+    // fsharpanalyzer: ignore-line-next DLR001
+    dlr { return o?Echo(f () + fst t1, x + snd t1) }
+
 [<Fact>]
 let ``fields attributed by data flow bind two variables of one name`` () =
     needsBodies ()
@@ -339,6 +349,8 @@ let ``fields attributed by data flow bind two variables of one name`` () =
     afterRecursive |> should equal "41|42"
     let besidePattern = aliasBesidePattern o 4
     besidePattern |> should equal "46|42"
+    let splitParameter = splitParameterBesideTwoX o 4 (10, 20)
+    splitParameter |> should equal "15|124"
 
 /// A string constant UTF-8 cannot carry (a lone surrogate): the map would read back U+FFFD, a
 /// different constant, so the member is left out of the map and needs the attribute.
