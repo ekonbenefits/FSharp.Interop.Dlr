@@ -34,6 +34,7 @@ module internal Discover =
     /// reads them together and caches nothing when that fails, so every lookup reads them all again
     /// (#284): known, a block fails after one read, not one per member of the assembly.
     let private unreadable = ConcurrentDictionary<Reflection.Assembly, exn>()
+    let private probing = ConcurrentDictionary<Reflection.Assembly, obj>()
 
     /// Whether the assembly of a block's container cannot be read at all. The container never has a
     /// reflected definition, so decoding one of its methods throws only then: FSharp.Core reads an
@@ -42,12 +43,20 @@ module internal Discover =
     /// method of every type. A body it refuses (`typeof<System.Void>`) fails only its own member.
     /// Told apart by this, not by FSharp.Core's (localized) message, which for Void names no member.
     let private unreadableAssembly (closureType: Type) : exn option =
-        match unreadable.TryGetValue closureType.Assembly with
+        let assembly = closureType.Assembly
+        match unreadable.TryGetValue assembly with
         | true, e -> Some e
         | _ ->
-            match closureType.GetMethods all |> Seq.tryPick (fun m -> match tryReflected m with Choice2Of2 e -> Some e | _ -> None) with
-            | Some e -> Some(unreadable.GetOrAdd(closureType.Assembly, e))
-            | None -> None
+            // One probe at a time per assembly: blocks first called together would each read a
+            // failing table again. A readable one FSharp.Core keeps, so its probe costs nothing after
+            // the first, and is not cached here.
+            lock (probing.GetOrAdd(assembly, fun _ -> obj ())) (fun () ->
+                match unreadable.TryGetValue assembly with
+                | true, e -> Some e
+                | _ ->
+                    match closureType.GetMethods all |> Seq.tryPick (fun m -> match tryReflected m with Choice2Of2 e -> Some e | _ -> None) with
+                    | Some e -> Some(unreadable.GetOrAdd(assembly, e))
+                    | None -> None)
 
     let rec private reflected (t: Type) : (MethodBase * Expr) list =
         reflectedCache.GetOrAdd(t, fun t ->
