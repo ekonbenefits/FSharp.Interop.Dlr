@@ -854,3 +854,23 @@ module Impl =
     let unreflected () : int = dlr { return 1 }
 """ inModule inReflected inBlock)
     msgs |> List.map (fun m -> m.Code) |> should equal [ ReflectedDefinitionAnalyzer.Code; ReflectedDefinitionAnalyzer.Code ]   // inBlock, unreflected
+
+[<Fact>]
+let ``a literal in a reflected module is an error, and one outside is not`` () =
+    let msgs = run """
+[<ReflectedDefinition>]
+module Reflected =
+    [<Literal>]
+    let Hundred = 100
+    let addHundred (w: obj) (k: int) : int = dlr { return w?Add(k, Hundred) }
+
+module Plain =
+    [<Literal>]
+    let Thousand = 1000
+    [<ReflectedDefinition>]
+    let addThousand (w: obj) (k: int) : int = dlr { return w?Add(k, Thousand) }
+"""
+    let literals = msgs |> List.filter (fun m -> m.Code = ReflectedDefinitionAnalyzer.ReflectedLiteralCode)
+    literals.Length |> should equal 1
+    literals |> List.forall (fun m -> m.Severity = Severity.Error) |> should equal true
+    Assert.messageContains "The [<Literal>] 'Hundred' is in a [<ReflectedDefinition>] module" literals.[0] |> should equal true

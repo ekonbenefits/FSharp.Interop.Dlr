@@ -9,5 +9,6 @@
   <Project Path="Tests/CSharp/Tests.CSharp.csproj" />
   <Project Path="Tests/FSharpLib/Tests.FSharpLib.fsproj" />
   <Project Path="Tests/HiddenLib/Tests.HiddenLib.fsproj" />
+  <Project Path="Tests/LiteralLib/Tests.LiteralLib.fsproj" />
   <Project Path="Tests/Tests.fsproj" />
 </Solution>

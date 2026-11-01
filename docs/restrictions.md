@@ -70,6 +70,10 @@ Not C# restrictions, but the same family:
   and every block in the assembly fails, wherever it is. The error names the function; list it in
   the `.fsi` or mark it `[<MethodImpl(MethodImplOptions.NoInlining)>]`. The analyzer reports the
   call (`DLR008`).
+- **A `[<Literal>]` cannot live in a `[<ReflectedDefinition>]` module.** FSharp.Core records it with
+  the reflected definitions but cannot bind it, so it decodes none of the assembly's, in Debug and
+  Release, and every block in the assembly fails. Move the literal out of the module, or put the
+  attribute on the functions instead. The analyzer reports it (`DLR010`).
 - **Three markers take one shape only.** Any other use is a translation error, which the
   analyzer reports at build time.
   - `Dlr.named` takes the record literal itself: the names are read from the quotation, so a

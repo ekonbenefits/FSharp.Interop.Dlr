@@ -65,6 +65,13 @@ let HiddenBySignatureCode = "DLR008"
 [<Literal>]
 let NestedCode = "DLR009"
 
+/// A `[<Literal>]` in a `[<ReflectedDefinition>]` module or type (or itself reflected):
+/// FSharp.Core records it with the reflected definitions as a module property, but the compiler
+/// emits a constant field, so it cannot decode any of the assembly's reflected definitions, in
+/// Debug and Release, and every `dlr { }` in the assembly fails (#284). An error: it always fails.
+[<Literal>]
+let ReflectedLiteralCode = "DLR010"
+
 let private isReflectedDefinition (attributes: seq<FSharpAttribute>) =
     attributes
     |> Seq.exists (fun a ->
@@ -907,6 +914,26 @@ let rec private nestedRuns (decls: FSharpImplementationFileDeclaration list) : r
         | FSharpImplementationFileDeclaration.MemberOrFunctionOrValue(_, _, body) -> inside body
         | FSharpImplementationFileDeclaration.InitAction expr -> inside expr)
 
+/// `[<Literal>]` values whose reflected definitions FSharp.Core records and cannot bind.
+let private analyzeReflectedLiteral (typedTree: FSharpImplementationFileContents option) : Message list =
+    match typedTree with
+    | None -> []
+    | Some contents ->
+        let rec decls (ds: FSharpImplementationFileDeclaration list) =
+            ds |> List.collect (function
+                | FSharpImplementationFileDeclaration.Entity(_, sub) -> decls sub
+                | FSharpImplementationFileDeclaration.MemberOrFunctionOrValue(mfv, _, _) ->
+                    if mfv.LiteralValue.IsSome && memberIsReflected mfv then [ mfv ] else []
+                | FSharpImplementationFileDeclaration.InitAction _ -> [])
+        decls contents.Declarations
+        |> List.map (fun mfv ->
+            { Type = "[<Literal>] in a reflected module"
+              Message = sprintf "The [<Literal>] '%s' is in a [<ReflectedDefinition>] module or type: FSharp.Core cannot decode any of this assembly's reflected definitions with it there, so every dlr { } in the assembly fails at run time. Move it out of the reflected module, or put [<ReflectedDefinition>] on the functions instead of the module." mfv.DisplayName
+              Code = ReflectedLiteralCode
+              Severity = Severity.Error
+              Range = mfv.DeclarationLocation
+              Fixes = [] })
+
 let private analyzeNested (typedTree: FSharpImplementationFileContents option) : Message list =
     match typedTree with
     | None -> []
@@ -933,6 +960,7 @@ let private analyze (tree: ParsedInput) (typedTree: FSharpImplementationFileCont
     @ analyzeShadowed typedTree
     @ analyzeHiddenBySignature typedTree
     @ analyzeNested typedTree
+    @ analyzeReflectedLiteral typedTree
     @ match typedTree with
       | None -> []
       | Some contents ->
