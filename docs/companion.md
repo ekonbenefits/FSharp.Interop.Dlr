@@ -228,10 +228,11 @@ every copy up to its variables.
   arm's range, which the field pass does not attribute between the arms. The block has no entry and
   keeps the strict behaviour (`Tests/Companion.fs` pins it).
 - An active pattern the optimizer inlines away (`| Same x ->` with `Same` the identity) leaves the
-  machine the match's input, which the map says, while the block reads the pattern's variable,
-  whose definition is the pattern's call: the block refuses (it would run that call again), where
-  the strict mode binds the field by name. Taking the variable the block reads instead is not done:
-  it could bind wrongly where another variable of that name reaches the block through an inlined
-  function.
+  machine the match's input in a field named after the pattern's variable. The map gives that
+  field the input and the pattern's variable as its alias when exactly one variable of that name
+  is defined from the input (#285). Where none or several are, or the block reaches a variable that
+  has no field (a total pattern's result read beside a derived variable; a guarded pattern beside
+  an outer variable of its name, #275), the field has no entry and the block refuses rather than
+  rebuild the pattern's call; the strict mode may bind it by name.
 - The companion checks the whole project at once, keeping both trees: a 66,000-member project (the
   corpus in one) ran a 16 GB machine out of memory, and the build then went on without a map.
