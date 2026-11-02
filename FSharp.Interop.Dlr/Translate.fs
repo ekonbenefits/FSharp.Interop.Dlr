@@ -101,7 +101,8 @@ module internal Translate =
         // Two fields of one variable of a name the member binds more than once: the map may be
         // wrong about one of them (of a name bound once, both are that one).
         | None, None when entries @ List.map fst reachedAliases |> List.countBy (fun e -> e.Name, e.Ordinal, e.Element) |> List.exists (fun ((name, _, _), n) -> n > 1 && map.Counts.TryFind name <> Some 1) -> Error "two fields of one variable of a name bound more than once"
-        | None, None -> Ok((resolved |> List.choose (function Ok r -> Some r | Error _ -> None)) @ List.map snd reachedAliases |> Map.ofList)
+        // A field's own variable over an alias of the same variable (`Map.ofList` keeps the last).
+        | None, None -> Ok(List.map snd reachedAliases @ (resolved |> List.choose (function Ok r -> Some r | Error _ -> None)) |> Map.ofList)
 
     /// The variables a block's value can come from: its free variables and, transitively, every
     /// variable of their definitions in the member, free or bound there (a field may hold any of

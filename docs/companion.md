@@ -52,10 +52,14 @@ element of a source tuple's literal (through aliases, union cases built in the m
 branches, `let` bodies and tuple patterns); a whole variable before an element. Several
 assignment sites take the one reading all of them support. A value that carries one source
 variable's name but traces to another (an inlined active pattern's `Data`, which holds the match
-input) stands for both. When exactly one source variable of its own name is defined from the one
-it traces to (from it through the pattern the optimizer inlined, or, for a tuple's element, as
-exactly that element: `let x = fst t`), the optimizer made the copy because the two are equal: the
-field holds both, the traced one as its variable and the other as its alias (#285). Otherwise it is
+input) stands for both. When exactly one source variable of its own name (the
+exact name first, then without the optimizer's digits) has a definition that reads the one it
+traces to (an inlined pattern's variable reads the match input), or, for a tuple's element, is
+defined as exactly that element (`let x = fst t`), the field holds both: the traced one as its
+variable and the other as its alias (#285). That the two are equal rests on the optimizer having
+named its copy of the traced value after that variable; the run time's checks and the corpus
+stand behind it, and where the alias and a field's own variable are one variable, the field's
+own entry wins. Otherwise it is
 attributed to neither, and the rules are not consulted on such a field either. Where data flow has no answer, the rules
 below give one; where the two disagree, the field is not attributed. Each rule gives an exact
 answer or none:

@@ -680,16 +680,19 @@ module Fields =
                             // A field's second variable (#285, part 2), by field.
                             let aliases = ResizeArray<string * (string * int * int option)>()
                             // Whether a source definition reads `target`, through other source
-                            // variables' definitions.
-                            let rec derives (depth: int) (target: FSharpMemberOrFunctionOrValue) (e: FSharpExpr) =
-                                depth < 8
-                                && (match e with
+                            // variables' definitions, each walked once (a chain that reads the one
+                            // before it several times is otherwise exponential).
+                            let derives (target: FSharpMemberOrFunctionOrValue) (start: FSharpExpr) =
+                                let visited = HashSet<string * string>()
+                                let rec go (e: FSharpExpr) =
+                                    match e with
                                     | FSharpExprPatterns.Value w when sourceKey w = sourceKey target -> true
                                     | FSharpExprPatterns.Value w ->
                                         match valueOf w with
-                                        | Some d when bySource.ContainsKey(sourceKey w) -> derives (depth + 1) target d
+                                        | Some d when bySource.ContainsKey(sourceKey w) && visited.Add(sourceKey w) -> go d
                                         | _ -> false
-                                    | _ -> e.ImmediateSubExpressions |> List.exists (derives depth target))
+                                    | _ -> e.ImmediateSubExpressions |> List.exists go
+                                go start
                             let decided =
                                 List.map3 (fun (field, v) (_, rule) flowed ->
                                     let a =
@@ -721,15 +724,19 @@ module Fields =
                                                     | FSharpExprPatterns.Call(None, m, _, _, [ FSharpExprPatterns.Value w ]), Some j ->
                                                         sourceKey w = sourceKey traced && ((m.CompiledName = "Fst" && j = 0) || (m.CompiledName = "Snd" && j = 1))
                                                     | _ -> false
+                                                let qualifies (sv: FSharpMemberOrFunctionOrValue) =
+                                                    match valueOf sv, element with
+                                                    | Some d, Some _ -> projection d
+                                                    | Some d, None -> derives traced d
+                                                    | None, _ -> false
+                                                // Its own name first, then the name without the
+                                                // optimizer's digits (`x1` beside an `x`: the `x1`).
+                                                let named' (n: string) = bySource.Values |> Seq.filter (fun (sv, _, _) -> sv.LogicalName = n && qualifies sv) |> List.ofSeq
                                                 let candidates =
-                                                    bySource.Values
-                                                    |> Seq.filter (fun (sv, _, _) ->
-                                                        (sv.LogicalName = named v || sv.LogicalName = v.LogicalName)
-                                                        && (match valueOf sv, element with
-                                                            | Some d, Some _ -> projection d
-                                                            | Some d, None -> derives 0 traced d
-                                                            | None, _ -> false))
-                                                    |> List.ofSeq
+                                                    match named' v.LogicalName with
+                                                    | [ one ] -> [ one ]
+                                                    | [] when named v <> v.LogicalName -> named' (named v)
+                                                    | several -> several
                                                 match candidates with
                                                 // (Not the rules': they guess a two-named field by range,
                                                 // which is how it went to an outer variable before.)
