@@ -352,6 +352,54 @@ let ``fields attributed by data flow bind two variables of one name`` () =
     let splitParameter = splitParameterBesideTwoX o 4 (10, 20)
     splitParameter |> should equal "15|124"
 
+/// A field that holds two variables (#285, part 2): the optimizer inlined an always-`Some` active
+/// pattern, so the pattern's `x` is the match input it returned, and one field holds both. The map
+/// gives the field the input and the pattern's `x` as its alias (`A`), and the block reads the
+/// alias; an outer `x` read through a local function has its own field.
+let private patternBesideOuter (o: obj) (seed: int) : string =
+    let x = seed * 10 + 1
+    let f () = x
+    match seed * 10 + 2 with
+    | Present x ->
+        // fsharpanalyzer: ignore-line-next DLR001
+        dlr { return o?Echo(f (), x) }
+    | _ -> "none"
+
+/// The same inside a `let rec`'s definition: the field is the function's lifted copy of the
+/// pattern's `x`, traced to the match input through the call's argument.
+let private patternInRecursive (o: obj) (seed: int) : string =
+    match seed * 10 + 1 with
+    | Present x ->
+        let f () = x
+        let rec go (j: int) : string =
+            if j > 0 then go (j - 1)
+            else
+                let x = seed * 10 + 2
+                // fsharpanalyzer: ignore-line-next DLR001
+                dlr { return o?Echo(f (), unholdInt { HeldValue = x }) }
+        go 1
+    | _ -> "none"
+
+/// `let x = fst t`: the optimizer renames the split parameter `t_0` to `x`, so one field holds both
+/// `t`'s element and `x`; the block reads each.
+let private elementAndItsName (o: obj) (t: int * int) : string =
+    let x = fst t
+    let f () = x
+    let x = snd t + 100
+    // fsharpanalyzer: ignore-line-next DLR001
+    dlr { return o?Echo(f () + fst t, x + snd t) }
+
+[<Fact>]
+let ``a field that holds two variables binds either`` () =
+    needsBodies ()
+    let o: obj = CaptureEcho()
+    let besideOuter = patternBesideOuter o 4
+    besideOuter |> should equal "41|42"
+    let inRecursive = patternInRecursive o 4
+    inRecursive |> should equal "41|42"
+    let both = elementAndItsName o (4, 5)
+    both |> should equal "8|110"
+
 /// A string constant UTF-8 cannot carry (a lone surrogate): the map would read back U+FFFD, a
 /// different constant, so the member is left out of the map and needs the attribute.
 let private loneSurrogate (w: obj) : int =

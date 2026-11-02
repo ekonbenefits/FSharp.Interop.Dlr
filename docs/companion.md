@@ -52,7 +52,15 @@ element of a source tuple's literal (through aliases, union cases built in the m
 branches, `let` bodies and tuple patterns); a whole variable before an element. Several
 assignment sites take the one reading all of them support. A value that carries one source
 variable's name but traces to another (an inlined active pattern's `Data`, which holds the match
-input) stands for both and is attributed to neither. Where data flow has no answer, the rules
+input) stands for both. When exactly one source variable of its own name (the
+exact name first, then without the optimizer's digits) has a definition that reads the one it
+traces to (an inlined pattern's variable reads the match input), or, for a tuple's element, is
+defined as exactly that element (`let x = fst t`), the field holds both: the traced one as its
+variable and the other as its alias (#285). That the two are equal rests on the optimizer having
+named its copy of the traced value after that variable; the run time's checks and the corpus
+stand behind it, and where the alias and a field's own variable are one variable, the field's
+own entry wins. Otherwise it is
+attributed to neither, and the rules are not consulted on such a field either. Where data flow has no answer, the rules
 below give one; where the two disagree, the field is not attributed. Each rule gives an exact
 answer or none:
 
@@ -97,7 +105,10 @@ across members repeat within a file; the run time inflates a file's blob the fir
 its blocks is looked up. A file's lines are its blocks: `B file line`, then optional sections,
 `S fields` (`V field name ordinal`, `E field name ordinal element`, and `N name count`: for
 each name the entries use, how many bindings of it the companion counted in the member),
-`S closure` (the same lines for the closure-path container, #276) and `S body`. A split tuple's element the optimizer kept nowhere has no line: the run time recovers
+`S closure` (the same lines for the closure-path container, #276) and `S body`. A field that holds
+two variables has a second line, `A field name ordinal [element]`, for the other one (#285): the
+run time checks it as it does the first, and leaves it out when the block does not reach it. A
+reader from before `A` finds the section malformed and keeps the strict behaviour. A split tuple's element the optimizer kept nowhere has no line: the run time recovers
 it from its definition (through an alias, a union case the member builds, a tuple literal) when
 that is effect-free, and refuses otherwise. It never uses a placeholder, because the optimizer may
 have dropped the element because it knew its value and used that directly (#278). So an element
@@ -179,8 +190,9 @@ against 5,104 without the map; the closure path and Debug (11's state machines t
 them. The rest are refusals, most of them an active pattern the optimizer inlines (below). A block
 in a `let rec` local function is a state machine whose captures arrive as the function's closure
 copies, attributed as such (#276). On the corpus's two later subsets (#275's and #278's forms,
-48,940 cases) the map gives 31,610 the same as their plain twins (31,346 by the rules alone,
-30,338 before #276), none wrong, and the same on the closure path with its `closure` section. An
+48,940 cases) the map gives 32,686 the same as their plain twins (31,610 without field aliases,
+31,346 by the rules alone, 30,338 before #276), none wrong, and the same on the closure path with
+its `closure` section. An
 or-pattern's arm holds its block once per alternative, and the copies are one block (#266, #271)
 when every variable the block reads is a field, or recovered from a definition that is the same in
 every copy up to its variables.
@@ -216,10 +228,11 @@ every copy up to its variables.
   arm's range, which the field pass does not attribute between the arms. The block has no entry and
   keeps the strict behaviour (`Tests/Companion.fs` pins it).
 - An active pattern the optimizer inlines away (`| Same x ->` with `Same` the identity) leaves the
-  machine the match's input, which the map says, while the block reads the pattern's variable,
-  whose definition is the pattern's call: the block refuses (it would run that call again), where
-  the strict mode binds the field by name. Taking the variable the block reads instead is not done:
-  it could bind wrongly where another variable of that name reaches the block through an inlined
-  function.
+  machine the match's input in a field named after the pattern's variable. The map gives that
+  field the input and the pattern's variable as its alias when exactly one variable of that name
+  is defined from the input (#285). Where none or several are, or the block reaches a variable that
+  has no field (a total pattern's result read beside a derived variable; a guarded pattern beside
+  an outer variable of its name, #275), the field has no entry and the block refuses rather than
+  rebuild the pattern's call; the strict mode may bind it by name.
 - The companion checks the whole project at once, keeping both trees: a 66,000-member project (the
   corpus in one) ran a 16 GB machine out of memory, and the build then went on without a map.
