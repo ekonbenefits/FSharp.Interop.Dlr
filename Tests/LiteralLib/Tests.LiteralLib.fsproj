@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- A [<Literal>] in a [<ReflectedDefinition>] module (#284): FSharp.Core records it as a module
+       property, binds none (the compiler emits a constant field), and cannot decode any of this
+       assembly's reflected definitions, in Debug and Release. Its own assembly, since that failure
+       takes every block in the assembly with it. Tests/LiteralModule.fs calls in. -->
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0</TargetFrameworks>
+    <IsPackable>false</IsPackable>
+    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Literal.fs" />
+    <Compile Include="Elsewhere.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" Condition="'$(FSharpCoreResolved)' == ''" />
+    <PackageReference Include="FSharp.Core" VersionOverride="$(FSharpCoreResolved)" Condition="'$(FSharpCoreResolved)' != ''" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\FSharp.Interop.Dlr\FSharp.Interop.Dlr.fsproj" />
+  </ItemGroup>
+
+</Project>

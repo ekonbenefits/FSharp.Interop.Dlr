@@ -122,6 +122,7 @@
     <Compile Include="Unreflected.fs" />
     <Compile Include="Resumable.fs" />
     <Compile Include="Hidden.fs" />
+    <Compile Include="LiteralModule.fs" />
     <Compile Include="Identity.fs" />
     <Compile Include="Undecodable.fs" />   <!-- not in Tests.Wasm: Mono asserts on the Void quotation -->
     <Compile Include="UndecodableTypes.fs" />   <!-- not in Tests.Wasm either -->
@@ -133,5 +134,6 @@
     <ProjectReference Include="CSharp.Ivt\Tests.CSharp.Ivt.csproj" />
     <ProjectReference Include="FSharpLib\Tests.FSharpLib.fsproj" />
     <ProjectReference Include="HiddenLib\Tests.HiddenLib.fsproj" />
+    <ProjectReference Include="LiteralLib\Tests.LiteralLib.fsproj" />
   </ItemGroup>
 </Project>
